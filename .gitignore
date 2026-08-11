@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+build/
+next-env.d.ts
+*.tsbuildinfo
+
+# Local secrets and the database (contains live Jellyfin access tokens).
+.env
+.env.local
+data/
+*.db
+*.db-shm
+*.db-wal
+tsconfig.tsbuildinfo
