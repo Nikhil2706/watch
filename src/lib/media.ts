@@ -23,6 +23,8 @@ export interface MediaItem {
   ProductionYear?: number;
   CommunityRating?: number;
   OfficialRating?: string;
+  /** External ids from Jellyfin's metadata providers; `Imdb` keys OMDb. */
+  ProviderIds?: Record<string, string>;
   RunTimeTicks?: number;
   Genres?: string[];
   ImageTags?: Record<string, string>;
@@ -33,7 +35,14 @@ export interface MediaItem {
     Played?: boolean;
     IsFavorite?: boolean;
   };
-  People?: Array<{ Name: string; Role?: string; Type: string; Id: string }>;
+  People?: Array<{
+    Name: string;
+    Role?: string;
+    Type: string;
+    Id: string;
+    /** Present only when Jellyfin has a portrait for this person. */
+    PrimaryImageTag?: string;
+  }>;
   MediaSources?: Array<{
     Id: string;
     Container?: string;
@@ -44,8 +53,13 @@ export interface MediaItem {
       Height?: number;
       Width?: number;
       DisplayTitle?: string;
+      Title?: string;
       Language?: string;
       Index: number;
+      IsExternal?: boolean;
+      IsForced?: boolean;
+      IsDefault?: boolean;
+      IsHearingImpaired?: boolean;
     }>;
   }>;
 }
@@ -58,11 +72,13 @@ interface ItemsResponse {
 /** Ticks are 100ns units. Jellyfin uses them everywhere. */
 const TICKS_PER_MS = 10_000;
 
+// ProviderIds rides along so the featured title can show its IMDb score
+// without a second round trip for the full item.
 const LIST_FIELDS =
-  "PrimaryImageAspectRatio,Overview,Genres,ProductionYear,CommunityRating,OfficialRating,MediaSourceCount";
+  "PrimaryImageAspectRatio,Overview,Genres,ProductionYear,CommunityRating,OfficialRating,MediaSourceCount,RunTimeTicks,UserData,ProviderIds";
 
 const DETAIL_FIELDS =
-  "Overview,Genres,ProductionYear,CommunityRating,OfficialRating,People,MediaSources,MediaStreams,Studios,Taglines";
+  "Overview,Genres,ProductionYear,CommunityRating,OfficialRating,People,MediaSources,MediaStreams,Studios,Taglines,ProviderIds";
 
 function creds(session: ResolvedSession) {
   return [session.jellyfinToken, session.jellyfinDeviceId] as const;
@@ -429,8 +445,21 @@ export function qualityLabel(item: MediaItem): string | null {
   const video = item.MediaSources?.[0]?.MediaStreams?.find((s) => s.Type === "Video");
   if (!video) return null;
   const height = video.Height ?? 0;
+  const width = video.Width ?? 0;
+  // Classified on width as well as height. A film shot in scope is letterboxed
+  // into a shorter frame — Barbie is a full 1920x960 master — and a
+  // height-only test filed every one of those as 720p, which was simply wrong
+  // and made the library look worse than it is.
   const res =
-    height >= 2000 ? "4K" : height >= 1000 ? "1080p" : height >= 700 ? "720p" : null;
+    width >= 3200 || height >= 2000
+      ? "4K"
+      : width >= 1800 || height >= 1000
+        ? "1080p"
+        : width >= 1200 || height >= 700
+          ? "720p"
+          : width > 0
+            ? "SD"
+            : null;
   const codec = video.Codec?.toUpperCase();
   return [res, codec].filter(Boolean).join(" · ") || null;
 }
@@ -439,17 +468,38 @@ export function qualityLabel(item: MediaItem): string | null {
  * Smarter search
  * ------------------------------------------------------------------ */
 
+export interface SearchMatch {
+  item: MediaItem;
+  /** Why this matched, shown to the user. */
+  reason: string;
+}
+
 export interface SearchHit {
   id: string;
   name: string;
   year: number | null;
   poster: string | null;
-  /** Why this matched, shown in the dropdown. */
   reason: string;
+}
+
+/** Lightweight shape for the type-ahead dropdown. */
+export function toSearchHit(match: SearchMatch): SearchHit {
+  return {
+    id: match.item.Id,
+    name: match.item.Name,
+    year: match.item.ProductionYear ?? null,
+    poster: posterUrl(match.item, 120),
+    reason: match.reason,
+  };
 }
 
 /**
  * Search that also looks past the title.
+ *
+ * THIS IS THE ONLY SEARCH. The dropdown and the results page both call it, so
+ * they cannot disagree — an earlier version had the type-ahead matching genres
+ * while the results page matched titles only, which meant typing "comedy"
+ * offered two films and then showed none when you pressed Enter.
  *
  * Jellyfin's `searchTerm` matches titles and little else, so "Margot Robbie" or
  * "animation" returns nothing even when the library obviously contains matches.
@@ -464,7 +514,7 @@ export async function smartSearch(
   session: ResolvedSession,
   query: string,
   limit = 8,
-): Promise<SearchHit[]> {
+): Promise<SearchMatch[]> {
   const term = query.trim().toLowerCase();
   if (term.length < 2) return [];
 
@@ -473,16 +523,10 @@ export async function smartSearch(
     getAllMovies(session, { limit: 400 }).catch(() => []),
   ]);
 
-  const hits = new Map<string, SearchHit>();
+  const hits = new Map<string, SearchMatch>();
   const add = (item: MediaItem, reason: string) => {
     if (hits.has(item.Id) || hits.size >= limit) return;
-    hits.set(item.Id, {
-      id: item.Id,
-      name: item.Name,
-      year: item.ProductionYear ?? null,
-      poster: posterUrl(item, 120),
-      reason,
-    });
+    hits.set(item.Id, { item, reason });
   };
 
   for (const item of byTitle) add(item, "Title");
@@ -528,4 +572,70 @@ export async function smartSearch(
   }
 
   return [...hits.values()];
+}
+
+/* ------------------------------------------------------------------ *
+ * People
+ * ------------------------------------------------------------------ */
+
+export interface Person {
+  Id: string;
+  Name: string;
+  Overview?: string;
+  PrimaryImageTag?: string;
+  ImageTags?: Record<string, string>;
+}
+
+export async function getPerson(
+  session: ResolvedSession,
+  personId: string,
+): Promise<Person | null> {
+  const [token, device] = creds(session);
+  try {
+    return await userFetch<Person>(
+      token,
+      device,
+      `/Items/${encodeURIComponent(personId)}`,
+      { userId: session.jellyfinUserId, fields: "Overview" },
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Everything in the library featuring this person.
+ *
+ * Jellyfin does the filtering with `personIds`, so this stays one request no
+ * matter how large the library grows — which is the whole reason cast links are
+ * cheap to offer.
+ */
+export async function getItemsByPerson(
+  session: ResolvedSession,
+  personId: string,
+): Promise<MediaItem[]> {
+  const [token, device] = creds(session);
+  try {
+    const data = await userFetch<ItemsResponse>(token, device, "/Items", {
+      userId: session.jellyfinUserId,
+      recursive: true,
+      includeItemTypes: "Movie",
+      personIds: personId,
+      sortBy: "ProductionYear,SortName",
+      sortOrder: "Descending",
+      limit: 100,
+      fields: LIST_FIELDS,
+      enableImageTypes: "Primary,Backdrop",
+    });
+    return data?.Items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Portrait URL for a person, routed through the proxy. */
+export function personPhotoUrl(person: Person, size = 300): string | null {
+  const tag = person.PrimaryImageTag ?? person.ImageTags?.Primary;
+  if (!tag) return null;
+  return `/jf/Items/${person.Id}/Images/Primary?fillWidth=${size}&fillHeight=${size}&quality=90&tag=${tag}`;
 }

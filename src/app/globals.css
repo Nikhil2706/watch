@@ -341,16 +341,17 @@ button.secondary {
   overflow-x: auto;
   padding: 2px 20px 8px;
   scroll-snap-type: x proximity;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   -webkit-overflow-scrolling: touch;
 }
 
+/* No visible scrollbar on the rails.
+   A permanent grey bar under every row reads as chrome and competes with the
+   artwork; the rows still scroll by wheel, trackpad, touch and keyboard. Edge
+   fades below hint that there is more to the right. */
 .row-scroll::-webkit-scrollbar {
-  height: 6px;
-}
-.row-scroll::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 999px;
+  display: none;
 }
 
 .poster {
@@ -650,4 +651,794 @@ button.job-control:hover:not(:disabled) {
   border-top: 1px solid var(--border);
   padding-top: 22px;
   margin-top: 8px;
+}
+
+/* ---------------------------------------------------------------- *
+ * Favourite / rewatch, overlaid on the poster
+ * ---------------------------------------------------------------- */
+
+.poster {
+  position: relative;
+}
+
+.poster-link {
+  display: block;
+}
+
+.list-overlay {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: flex;
+  gap: 4px;
+  z-index: 2;
+  /* Hidden until hover on a pointer device so the art is unobstructed. */
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.poster:hover .list-overlay,
+.poster:focus-within .list-overlay,
+/* Once something is on, the icon is state rather than a control, so it has to
+   stay visible whether or not the pointer is nearby. */
+.list-overlay.has-active {
+  opacity: 1;
+}
+
+/* No hover on touch: show them permanently, but quietly. */
+@media (hover: none) {
+  .list-overlay {
+    opacity: 0.75;
+  }
+}
+
+button.icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(11, 13, 17, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
+  backdrop-filter: blur(3px);
+  cursor: pointer;
+}
+
+button.icon-btn svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+button.icon-btn:hover {
+  border-color: #fff;
+  transform: scale(1.08);
+}
+
+button.icon-btn.on {
+  color: #ff5c7a;
+  border-color: rgba(255, 92, 122, 0.75);
+}
+
+/* The rewatch icon reads better in the accent than the heart red. */
+button.icon-btn:last-child.on {
+  color: var(--accent);
+  border-color: rgba(91, 141, 239, 0.75);
+}
+
+/* On the detail hero they sit beside Play, so they match its height. */
+.list-inline {
+  position: static;
+  opacity: 1;
+  gap: 8px;
+}
+
+.list-inline button.icon-btn {
+  width: 42px;
+  height: 42px;
+}
+
+.list-inline button.icon-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ---------------------------------------------------------------- *
+ * Ratings
+ * ---------------------------------------------------------------- */
+
+.ratings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.rating {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  min-width: 104px;
+}
+
+.rating-value {
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.rating-source {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+}
+
+.rating-note {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.chip-accent {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------- *
+ * Curator's Picks
+ * ---------------------------------------------------------------- */
+
+.curator-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  padding: 0 20px;
+}
+
+.curator-card {
+  display: block;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+a.curator-card:hover {
+  border-color: var(--accent);
+}
+
+.curator-kind {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.curator-title {
+  font-weight: 600;
+  margin-top: 4px;
+  line-height: 1.3;
+}
+
+/* The comment is the reason this feature exists, so it gets real emphasis
+   rather than being tucked away as metadata. */
+.curator-comment {
+  margin: 10px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  color: #cdd4e0;
+  font-size: 0.88rem;
+  font-style: italic;
+}
+
+.curator-by {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.curator-link {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 0.8rem;
+  color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- *
+ * Type-ahead search
+ * ---------------------------------------------------------------- */
+
+.searchbox {
+  position: relative;
+}
+
+.suggest {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: min(380px, 80vw);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  z-index: 60;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.suggest-row {
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  align-items: center;
+}
+
+.suggest-row:hover {
+  background: var(--surface-2);
+}
+
+.suggest-row img,
+.suggest-noart {
+  width: 38px;
+  height: 57px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--surface-2);
+  flex: 0 0 auto;
+}
+
+.suggest-title {
+  font-size: 0.88rem;
+  line-height: 1.25;
+}
+
+.suggest-year {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.suggest-reason {
+  font-size: 0.74rem;
+  color: var(--accent);
+  margin-top: 2px;
+}
+
+.suggest-empty {
+  padding: 12px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+@media (max-width: 700px) {
+  .searchbox {
+    order: 10;
+    width: 100%;
+  }
+  .suggest {
+    width: 100%;
+  }
+}
+
+/* ---------------------------------------------------------------- *
+ * Poster badges: watched, runtime, search reason
+ * ---------------------------------------------------------------- */
+
+/* Answers "have I seen this?" without opening the film. */
+.watched-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(16, 19, 26, 0.85);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 0.75rem;
+  display: grid;
+  place-items: center;
+  backdrop-filter: blur(2px);
+}
+
+/* "Do we have time for this tonight?" is the most-asked question at a film
+   night, and the answer was previously two clicks away. */
+.runtime-badge {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(11, 13, 17, 0.82);
+  color: var(--text);
+  font-size: 0.68rem;
+  backdrop-filter: blur(2px);
+}
+
+.poster-badge {
+  font-size: 0.72rem;
+  color: var(--accent);
+  margin-top: 1px;
+}
+
+/* ---------------------------------------------------------------- *
+ * Ratings marks
+ * ---------------------------------------------------------------- */
+
+.rating {
+  min-width: 118px;
+}
+
+.rating-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.mark {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.mark-imdb {
+  background: #f5c518;
+  color: #10131a;
+}
+
+.mark-rt {
+  background: transparent;
+  font-size: 0.95rem;
+}
+
+.mark-mc {
+  background: #ffcc33;
+  color: #10131a;
+}
+
+.mark-tmdb {
+  background: #01b4e4;
+  color: #10131a;
+}
+
+.rating-source {
+  font-size: 0.66rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Colour carries the verdict, following each site's own convention rather
+   than an arbitrary palette. */
+.rating.tone-good .rating-value { color: #5bd18b; }
+.rating.tone-mixed .rating-value { color: #ffcc33; }
+.rating.tone-bad .rating-value { color: var(--danger); }
+
+/* ---------------------------------------------------------------- *
+ * Cast
+ * ---------------------------------------------------------------- */
+
+.cast-card {
+  flex: 0 0 auto;
+  width: 104px;
+  scroll-snap-align: start;
+  text-align: center;
+}
+
+.cast-photo {
+  width: 88px;
+  height: 88px;
+  margin: 0 auto;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+}
+
+.cast-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.18s ease;
+}
+
+.cast-card:hover .cast-photo img {
+  transform: scale(1.06);
+}
+
+.cast-card:hover .cast-photo {
+  border-color: var(--accent);
+}
+
+.cast-initials {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.cast-name {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.cast-role {
+  font-size: 0.7rem;
+  color: var(--muted);
+  line-height: 1.2;
+  margin-top: 1px;
+}
+
+/* ---------------------------------------------------------------- *
+ * Person page
+ * ---------------------------------------------------------------- */
+
+.person-head {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  padding: 24px 20px 18px;
+}
+
+.person-photo {
+  width: 120px;
+  height: 120px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+}
+
+.person-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.person-text h1 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.person-count {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.person-bio {
+  margin: 10px 0 0;
+  color: #cdd4e0;
+  font-size: 0.9rem;
+  max-width: 620px;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@media (max-width: 700px) {
+  .person-head {
+    gap: 14px;
+    padding: 18px 14px 14px;
+  }
+  .person-photo {
+    width: 84px;
+    height: 84px;
+  }
+  .person-text h1 {
+    font-size: 1.25rem;
+  }
+}
+
+/* Fade the right edge of a rail so it reads as scrollable now that the
+   scrollbar is gone. */
+.row {
+  position: relative;
+}
+
+.row-scroll::after {
+  content: "";
+  flex: 0 0 4px;
+}
+
+/* ---------------------------------------------------------------- *
+ * Player (Vidstack)
+ * ---------------------------------------------------------------- */
+
+.player-stage {
+  position: relative;
+  width: 100%;
+}
+
+.vds-player {
+  width: 100%;
+  max-height: calc(100dvh - 52px);
+  --video-border-radius: 0;
+  /* Match the app rather than Vidstack's default purple. */
+  --media-brand: var(--accent);
+  --media-focus-ring-color: var(--accent);
+}
+
+.vds-player video {
+  width: 100%;
+  height: 100%;
+  max-height: calc(100dvh - 52px);
+  object-fit: contain;
+  background: #000;
+}
+
+.player-note {
+  margin: 8px 0 0;
+  padding: 0 16px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- *
+ * Detail page: tighter, less chrome
+ * ---------------------------------------------------------------- */
+
+.detail-body {
+  padding: 0 20px;
+  max-width: 900px;
+}
+
+/* The hero already carries the title, meta and synopsis; what follows should
+   read as a continuation of it, not a stack of separate panels. */
+.detail-body h3 {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 20px 0 8px;
+  font-weight: 600;
+}
+
+.chip-line,
+.subtitle-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.subtitle-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+/* Technical detail, at the bottom, as one quiet line rather than a grid of
+   cards competing with the cast for attention. */
+.file-line {
+  margin: 32px 20px 40px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+/* Buttons beside Play were oversized and pushed the row onto two lines on a
+   phone. */
+.list-inline button.icon-btn {
+  width: 38px;
+  height: 38px;
+}
+
+.list-inline button.icon-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.btn {
+  padding: 9px 18px;
+  font-size: 0.9rem;
+}
+
+.hero {
+  min-height: min(56vh, 460px);
+  padding: 28px 20px 22px;
+}
+
+.hero-content p {
+  margin-bottom: 14px;
+}
+
+.ratings {
+  margin-top: 4px;
+}
+
+.rating {
+  padding: 8px 12px;
+  min-width: 104px;
+}
+
+.rating-value {
+  font-size: 1.05rem;
+}
+
+/* ---------------------------------------------------------------- *
+ * Page headers and curator links
+ * ---------------------------------------------------------------- */
+
+.page-head {
+  padding: 20px 20px 4px;
+}
+
+.page-head h1 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.page-sub {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  max-width: 560px;
+}
+
+.curator-links {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 0.8rem;
+  color: var(--accent);
+}
+
+@media (max-width: 700px) {
+  .detail-body {
+    padding: 0 14px;
+  }
+  .file-line {
+    margin: 24px 14px 32px;
+  }
+  .hero {
+    padding: 20px 14px 18px;
+  }
+  .curator-grid {
+    padding: 0 14px;
+  }
+}
+
+/* Holds the player's space while its client-only bundle loads, so the page
+   does not jump when controls appear. */
+.player-skeleton {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: calc(100dvh - 52px);
+  background: linear-gradient(100deg, #0d1016 30%, #151a22 50%, #0d1016 70%);
+  background-size: 200% 100%;
+  animation: skeleton 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton {
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-skeleton { animation: none; }
+}
+
+/* ---------------------------------------------------------------- *
+ * Detail hero: button row
+ * ---------------------------------------------------------------- */
+
+/*
+ * The heart and rewatch buttons were stacking vertically and dragging Play's
+ * height with them.
+ *
+ * `button.icon-btn` is `display: grid`, which makes each button block-level, so
+ * the wrapper — which never declared a `display` of its own — laid them out one
+ * above the other. That made the group ~84px tall, and because `.btn-row` is a
+ * flex container with the default `align-items: stretch`, Resume and Start over
+ * stretched to match it. Hence "no padding" on the icons and "chonky" buttons:
+ * one missing declaration, two symptoms.
+ */
+.list-inline {
+  display: inline-flex;
+  align-items: center;
+}
+
+.btn-row {
+  align-items: center;
+  gap: 8px;
+}
+
+/* Sized to sit level with Play rather than tower over it. */
+.list-inline button.icon-btn {
+  width: 36px;
+  height: 36px;
+}
+
+.list-inline button.icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* A little air between the icon pair and the primary action, so they read as
+   two groups rather than one crowded strip. */
+.list-inline + .btn {
+  margin-left: 4px;
+}
+
+/* IMDb in the hero meta line. */
+.meta-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- *
+ * Ratings: one score leads
+ * ---------------------------------------------------------------- */
+
+.rating-primary {
+  border-color: rgba(245, 197, 24, 0.55);
+  background: linear-gradient(180deg, rgba(245, 197, 24, 0.09), transparent 70%),
+    var(--surface);
+}
+
+.rating-primary .rating-value {
+  font-size: 1.5rem;
+  line-height: 1.1;
+}
+
+/* ---------------------------------------------------------------- *
+ * Scroll snapping vs. rail padding
+ * ---------------------------------------------------------------- */
+
+/*
+ * A scrollable rail snapped its first card's edge to the *content* box, which
+ * is inside the 20px padding — so the browser scrolled by exactly that padding
+ * on load and the first face sat flush against the window edge, out of line
+ * with every unscrollable row on the page. Only rails with overflow could do
+ * it, which is why wide screens looked fine.
+ *
+ * scroll-padding moves the snap line out to where the content actually starts.
+ */
+.row-scroll {
+  scroll-padding-left: 20px;
+}
+
+/* The body sections and the first rail below them were touching. */
+.detail-body {
+  padding-bottom: 26px;
+}
+
+/* Every gutter on the page comes from one value per breakpoint, so a rail can
+   never drift out of line with the hero above it. The rails were still on 20px
+   after the hero and body had come down to 14px for narrow screens. */
+@media (max-width: 700px) {
+  .row-scroll {
+    padding-left: 14px;
+    padding-right: 14px;
+    scroll-padding-left: 14px;
+  }
+  .row h2 {
+    padding: 0 14px;
+  }
+  .detail-body {
+    padding-bottom: 22px;
+  }
 }

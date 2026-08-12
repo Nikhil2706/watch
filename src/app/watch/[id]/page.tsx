@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-import { Player } from "@/components/media/Player";
+import { PlayerMount } from "@/components/media/PlayerMount";
 import { currentSession } from "@/lib/current-user";
-import { getItem, getPlaybackPlan, resumeSeconds } from "@/lib/media";
+import { getItem, getPlaybackPlan, posterUrl, resumeSeconds } from "@/lib/media";
+import { defaultTrack, listSubtitles } from "@/lib/subtitles";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,12 @@ export default async function WatchPage({
     planError = "The media server could not prepare this title for playback.";
   }
 
+  // Every selectable track, ordered recommended-first, plus the one to switch
+  // on automatically. Both are resolved server-side so the player receives a
+  // decision rather than having to make one.
+  const subtitles = listSubtitles(item);
+  const preferred = defaultTrack(subtitles);
+
   // An explicit ?t= wins over the stored resume position, so "Start over"
   // (which omits it) genuinely starts over.
   const startSeconds = t !== undefined ? Number(t) || 0 : resumeSeconds(item);
@@ -46,14 +53,24 @@ export default async function WatchPage({
       </div>
 
       {plan ? (
-        <Player
+        <PlayerMount
           itemId={item.Id}
           mediaSourceId={plan.mediaSourceId}
           playSessionId={plan.playSessionId}
           mode={plan.mode}
           src={plan.src}
+          title={item.Name}
+          poster={posterUrl(item, 640)}
           startSeconds={startSeconds}
           transcodeReasons={plan.transcodeReasons}
+          subtitles={subtitles.map((t) => ({
+            index: t.index,
+            label: t.label,
+            language: t.language,
+            url: t.url,
+            recommended: t.recommended,
+          }))}
+          defaultSubtitleIndex={preferred?.index ?? null}
         />
       ) : (
         <div className="player-stage">

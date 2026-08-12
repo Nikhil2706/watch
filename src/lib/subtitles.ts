@@ -25,6 +25,54 @@ export interface SubtitleTrack {
 
 const ENGLISH = new Set(["en", "eng", "english"]);
 
+/**
+ * ISO codes to names a person recognises.
+ *
+ * Jellyfin's own DisplayTitle reads "English - SUBRIP - External", which tells
+ * the viewer three things they do not care about and buries the one they do.
+ */
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English", eng: "English",
+  hi: "Hindi", hin: "Hindi",
+  ta: "Tamil", tam: "Tamil",
+  te: "Telugu", tel: "Telugu",
+  bn: "Bengali", ben: "Bengali",
+  mr: "Marathi", mar: "Marathi",
+  kn: "Kannada", kan: "Kannada",
+  ml: "Malayalam", mal: "Malayalam",
+  gu: "Gujarati", guj: "Gujarati",
+  pa: "Punjabi", pan: "Punjabi",
+  ur: "Urdu", urd: "Urdu",
+  fr: "French", fre: "French", fra: "French",
+  de: "German", ger: "German", deu: "German",
+  es: "Spanish", spa: "Spanish",
+  ja: "Japanese", jpn: "Japanese",
+  ko: "Korean", kor: "Korean",
+  zh: "Chinese", chi: "Chinese", zho: "Chinese",
+};
+
+/** "English", "English (SDH)", "English (Forced)". */
+function readableLabel(stream: {
+  Language?: string;
+  Title?: string;
+  DisplayTitle?: string;
+  IsForced?: boolean;
+  IsHearingImpaired?: boolean;
+}): string {
+  const code = (stream.Language ?? "").toLowerCase();
+  const base =
+    LANGUAGE_NAMES[code] ??
+    // Fall back to a title the uploader set, then to the raw code, then to
+    // something honest rather than an empty chip.
+    stream.Title ??
+    (code ? code.toUpperCase() : "Unknown");
+
+  const flags: string[] = [];
+  if (stream.IsHearingImpaired) flags.push("SDH");
+  if (stream.IsForced) flags.push("Forced");
+  return flags.length > 0 ? `${base} (${flags.join(", ")})` : base;
+}
+
 function isEnglish(language: string | null | undefined): boolean {
   return language ? ENGLISH.has(language.toLowerCase()) : false;
 }
@@ -100,13 +148,11 @@ export function listSubtitles(item: MediaItem): SubtitleTrack[] {
       const language = stream.Language ?? null;
       return {
         index: stream.Index,
-        label:
-          stream.DisplayTitle ??
-          [language ?? "Unknown", stream.Codec].filter(Boolean).join(" · "),
+        label: readableLabel(stream),
         language,
-        isExternal: Boolean((stream as { IsExternal?: boolean }).IsExternal),
-        isForced: Boolean((stream as { IsForced?: boolean }).IsForced),
-        isDefault: Boolean((stream as { IsDefault?: boolean }).IsDefault),
+        isExternal: Boolean(stream.IsExternal),
+        isForced: Boolean(stream.IsForced),
+        isDefault: Boolean(stream.IsDefault),
         // Jellyfin transcodes any text subtitle format to WebVTT on request,
         // which is the only thing a <track> element understands.
         url: `/jf/Videos/${item.Id}/${source.Id}/Subtitles/${stream.Index}/Stream.vtt`,

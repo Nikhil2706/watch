@@ -392,10 +392,17 @@ toolkit.
 plenty of consumer ISPs drop. Here TCP/7844 connected fine while every QUIC
 handshake timed out. `--protocol http2` uses TCP instead.
 
-**`i/o timeout` on 198.41.192.x** — the edge has two regions, and on this
-network *every* `region1` address (`198.41.192.x`) is unreachable while *every*
-`region2` address (`198.41.200.x`) works. All IPv6 edge addresses fail too.
-`--edge-ip-version 4` stops it wasting retries on AAAA records.
+**`i/o timeout` on one edge range** — the edge has two regions, and this
+network reaches only one of them at a time. Measured an hour apart: `region1`
+(`198.41.192.x`) 0/10 reachable with `region2` (`198.41.200.x`) 10/10, then the
+exact inverse. All IPv6 edge addresses fail throughout, so `--edge-ip-version 4`
+is worth setting.
+
+Do **not** try to pin the working region with `--edge`. Two reasons: the
+reachable half flips, so any pinned list eventually points at dead addresses;
+and cloudflared's startup precheck resolves the whole `--edge` value as a single
+hostname, so both `a:7844,b:7844` and repeated `--edge` flags abort with
+"failed to resolve any edge address" before connecting at all.
 
 To tell these apart quickly, probe the edge directly rather than reading
 cloudflared's retry spam:

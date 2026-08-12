@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { AppBar } from "@/components/AppBar";
 import { PosterCard } from "@/components/media/PosterCard";
 import { currentSession } from "@/lib/current-user";
-import { search } from "@/lib/media";
+import { getMemberships } from "@/lib/lists";
+import { smartSearch } from "@/lib/media";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,13 @@ export default async function SearchPage({
 
   const { q } = await searchParams;
   const query = (q ?? "").trim();
-  const results = query ? await search(session, query).catch(() => []) : [];
+  // Same engine as the type-ahead. They used to differ, which meant the
+  // dropdown could offer matches this page then failed to find.
+  const matches = query ? await smartSearch(session, query, 60).catch(() => []) : [];
+  const results = matches.map((m) => m.item);
+  const reasons = new Map(matches.map((m) => [m.item.Id, m.reason]));
+
+  const lists = getMemberships(session.userId, results.map((i) => i.Id));
 
   return (
     <>
@@ -36,7 +43,12 @@ export default async function SearchPage({
       ) : (
         <div className="grid">
           {results.map((item) => (
-            <PosterCard key={item.Id} item={item} />
+            <PosterCard
+              key={item.Id}
+              item={item}
+              lists={lists.get(item.Id)}
+              badge={reasons.get(item.Id)}
+            />
           ))}
         </div>
       )}

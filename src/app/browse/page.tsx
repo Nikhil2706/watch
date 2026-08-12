@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AppBar } from "@/components/AppBar";
 import { PosterCard } from "@/components/media/PosterCard";
 import { currentSession } from "@/lib/current-user";
+import { getMemberships } from "@/lib/lists";
 import { getAllMovies, getGenres } from "@/lib/media";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,8 @@ export default async function BrowsePage({
     getAllMovies(session, { genre }).catch(() => []),
     getGenres(session).catch(() => []),
   ]);
+
+  const lists = getMemberships(session.userId, items.map((i) => i.Id));
 
   return (
     <>
@@ -61,7 +64,7 @@ export default async function BrowsePage({
       ) : (
         <div className="grid">
           {items.map((item) => (
-            <PosterCard key={item.Id} item={item} />
+            <PosterCard key={item.Id} item={item} lists={lists.get(item.Id)} />
           ))}
         </div>
       )}

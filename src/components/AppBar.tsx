@@ -14,6 +14,7 @@ export function AppBar({ username, query }: { username: string; query?: string }
         <Link href="/">Home</Link>
         <Link href="/browse">Browse</Link>
         <Link href="/watchlist">My list</Link>
+        <Link href="/curator">Picks</Link>
       </nav>
       <div className="spacer" />
       <SearchBox initialQuery={query ?? ""} />

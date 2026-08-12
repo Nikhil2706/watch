@@ -1,7 +1,12 @@
 import Link from "next/link";
 
 import type { ListKind } from "@/lib/lists";
-import { posterUrl, progressPercent, type MediaItem } from "@/lib/media";
+import {
+  formatRuntime,
+  posterUrl,
+  progressPercent,
+  type MediaItem,
+} from "@/lib/media";
 
 import { ListButtons } from "./ListButtons";
 
@@ -17,13 +22,18 @@ import { ListButtons } from "./ListButtons";
 export function PosterCard({
   item,
   lists,
+  badge,
 }: {
   item: MediaItem;
   /** Which lists this item is already on, for the toggle initial state. */
   lists?: Set<ListKind>;
+  /** Optional caption, e.g. why a search matched. */
+  badge?: string;
 }) {
   const src = posterUrl(item);
   const progress = progressPercent(item);
+  const watched = item.UserData?.Played === true;
+  const runtime = formatRuntime(item.RunTimeTicks);
 
   return (
     <div className="poster">
@@ -34,7 +44,24 @@ export function PosterCard({
           ) : (
             <div className="fallback">{item.Name}</div>
           )}
-          {progress > 0 ? (
+
+          {/* "Have I seen this?" is the question a shared library gets asked
+              most, and Jellyfin already knows the answer. */}
+          {watched ? (
+            <span className="watched-badge" title="You have watched this">
+              ✓
+            </span>
+          ) : null}
+
+          {runtime ? <span className="runtime-badge">{runtime}</span> : null}
+
+          <ListButtons
+            itemId={item.Id}
+            initialFavourite={lists?.has("favourite") ?? false}
+            initialRewatch={lists?.has("rewatch") ?? false}
+          />
+
+          {progress > 0 && !watched ? (
             <div
               className="progress"
               role="progressbar"
@@ -47,17 +74,14 @@ export function PosterCard({
             </div>
           ) : null}
         </div>
+
         <div className="poster-title">{item.Name}</div>
-        {item.ProductionYear ? (
+        {badge ? (
+          <div className="poster-badge">{badge}</div>
+        ) : item.ProductionYear ? (
           <div className="poster-sub">{item.ProductionYear}</div>
         ) : null}
       </Link>
-
-      <ListButtons
-        itemId={item.Id}
-        initialFavourite={lists?.has("favourite") ?? false}
-        initialRewatch={lists?.has("rewatch") ?? false}
-      />
     </div>
   );
 }

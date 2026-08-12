@@ -7,8 +7,14 @@ import {
   type MediaItem,
 } from "@/lib/media";
 
-/** Featured title at the top of the home page. */
-export function Hero({ item }: { item: MediaItem }) {
+/**
+ * Featured title at the top of the home page.
+ *
+ * `imdb` is passed in rather than fetched here: ratings come from OMDb, which
+ * is a server-side, rate-limited lookup, and the page already knows which item
+ * is featured before this renders.
+ */
+export function Hero({ item, imdb }: { item: MediaItem; imdb?: string | null }) {
   const backdrop = backdropUrl(item, 1600);
   const runtime = formatRuntime(item.RunTimeTicks);
   const resume = resumeSeconds(item);
@@ -32,7 +38,14 @@ export function Hero({ item }: { item: MediaItem }) {
           {item.OfficialRating ? (
             <span className="chip">{item.OfficialRating}</span>
           ) : null}
-          {item.CommunityRating ? (
+          {/* IMDb leads, matching the detail page; TMDB's own score only
+              stands in when the film has no IMDb id. */}
+          {imdb ? (
+            <span className="meta-rating">
+              <span className="mark mark-imdb">IMDb</span>
+              {imdb}
+            </span>
+          ) : item.CommunityRating ? (
             <span>★ {item.CommunityRating.toFixed(1)}</span>
           ) : null}
           {(item.Genres ?? []).slice(0, 3).map((g) => (

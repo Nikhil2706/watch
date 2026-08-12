@@ -14,6 +14,7 @@
     "db:init": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/init-db.mts"
   },
   "dependencies": {
+    "@vidstack/react": "^1.15.6",
     "hls.js": "^1.6.17",
     "next": "16.3.0",
     "react": "19.2.8",

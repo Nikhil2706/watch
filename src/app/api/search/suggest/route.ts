@@ -1,5 +1,5 @@
 import { getSessionFromRequest } from "@/lib/session";
-import { smartSearch } from "@/lib/media";
+import { smartSearch, toSearchHit } from "@/lib/media";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,8 +28,8 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   try {
-    const results = await smartSearch(session, query, 8);
-    return Response.json({ results }, { headers: NO_STORE });
+    const matches = await smartSearch(session, query, 8);
+    return Response.json({ results: matches.map(toSearchHit) }, { headers: NO_STORE });
   } catch (error) {
     console.error("[search/suggest] failed:", error);
     return Response.json({ results: [] }, { headers: NO_STORE });
