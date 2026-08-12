@@ -169,8 +169,7 @@ print(f"  CF_UID/CF_GID: {sys.argv[1]}:{sys.argv[2]} (owner of ~/.cloudflared)")
 ENVPY
 # --- 5. restart -------------------------------------------------------------
 step "5. Restarting"
-run_docker compose up -d --force-recreate gate worker >/dev/null 2>&1
-run_docker compose --profile tunnel up -d tunnel >/dev/null 2>&1
+run_docker compose up -d --force-recreate gate worker tunnel >/dev/null 2>&1
 sleep 12
 run_docker compose ps --format '  {{.Service}}  {{.State}}'
 

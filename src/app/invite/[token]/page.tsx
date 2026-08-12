@@ -1,3 +1,6 @@
+import Link from "next/link";
+
+import { AuthShell } from "@/components/auth/AuthShell";
 import { RedeemForm } from "@/components/RedeemForm";
 import { peekInvite } from "@/lib/invites";
 
@@ -22,29 +25,43 @@ export default async function InvitePage({
 
   if (!status.valid) {
     return (
-      <main className="center">
-        <div className="card">
-          <h1>Invite unavailable</h1>
-          <p className="sub">{status.reason}</p>
-          <p className="sub">
-            Ask whoever sent you this link for a new one.
+      <AuthShell pitch={false}>
+        <h1 className="auth-title">This invite can&rsquo;t be used</h1>
+        <p className="auth-sub">{status.reason}</p>
+        <p className="auth-sub">
+          Invites are single-use and time-limited, so this usually just means it
+          sat too long or somebody already used it. Ask whoever sent it for a
+          fresh one — it takes them a moment.
+        </p>
+        <div className="auth-foot">
+          <p>
+            Already have an account? <Link href="/login">Sign in</Link>.
           </p>
         </div>
-      </main>
+      </AuthShell>
     );
   }
 
   return (
-    <main className="center">
-      <div className="card">
-        <h1>Create your account</h1>
-        <p className="sub">
-          {status.label
-            ? `Invited as: ${status.label}`
-            : "You've been invited. Pick a username and password."}
+    // No pitch here: an invite link means somebody already made the case for
+    // the club in person. What is needed now is the form.
+    <AuthShell pitch={false}>
+      <p className="auth-eyebrow">You&rsquo;ve been invited</p>
+      <h1 className="auth-title">Create your account</h1>
+      <p className="auth-sub">
+        {status.label
+          ? `This invite was made out to ${status.label}.`
+          : "Pick a username and password. That is the whole sign-up."}
+      </p>
+
+      <RedeemForm token={token} />
+
+      <div className="auth-foot">
+        <p>
+          This link works once. Your username and password are yours alone —
+          nobody running the club can see your password.
         </p>
-        <RedeemForm token={token} />
       </div>
-    </main>
+    </AuthShell>
   );
 }

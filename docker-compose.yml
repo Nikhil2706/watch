@@ -154,12 +154,20 @@ services:
   #
   # It reaches the gateway at http://gate:3000 over the compose network rather
   # than via the host, which is why the gate does not need to publish a port in
-  # production. Enable with:  docker compose --profile tunnel up -d
+  # production. Starts with everything else: `docker compose up -d`.
+  #
+  # This used to sit behind a `tunnel` profile so that LAN-only testing could
+  # not put the library on the internet by accident. That turned out to cost
+  # more than it protected: a service in an inactive profile is invisible to
+  # compose, not merely skipped, so every routine `docker compose up -d` left
+  # the site dark with no error to explain why. The tunnel is now always part
+  # of the stack. To bring the stack up without it:
+  #
+  #   docker compose up -d --scale tunnel=0
   tunnel:
     image: cloudflare/cloudflared:latest
     container_name: jellyfin-gate-tunnel
     restart: unless-stopped
-    profiles: ["tunnel"]
     depends_on:
       - gate
     networks:

@@ -367,9 +367,11 @@ which is exactly what `GATE_BIND=127.0.0.1` guarantees. Set it without that and
 anyone who can reach the origin directly can forge the header and get a fresh
 rate-limit bucket per request.
 
-The tunnel runs as a compose service under the `tunnel` profile and reaches the
-gateway at `http://gate:3000` over the compose network — not via the host.
-That is why nothing needs to be published at all in production.
+The tunnel runs as an ordinary compose service — it starts with `docker compose
+up -d` like everything else — and reaches the gateway at `http://gate:3000` over
+the compose network, not via the host. That is why nothing needs to be published
+at all in production. To bring the stack up without exposing it, use
+`docker compose up -d --scale tunnel=0`.
 
 ### If the tunnel will not connect
 

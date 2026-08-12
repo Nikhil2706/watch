@@ -1,13 +1,27 @@
 :root {
-  --bg: #0b0d11;
-  --surface: #161a21;
-  --surface-2: #1d222b;
-  --border: #262c37;
+  /*
+   * One palette for the whole app, taken from the sign-in page.
+   *
+   * Two lights, each with a job. WARM is the brand: the aperture, the club's
+   * own voice, the mark of something a person chose. ACCENT is interaction:
+   * focus rings, links, anything you can operate. Keeping them separate is
+   * what stops an amber highlight reading as a button.
+   */
+  --bg: #06070a;
+  --surface: #12151c;
+  --surface-2: #1a1f28;
+  --border: #232935;
   --text: #f2f4f8;
   --muted: #939cad;
   --accent: #5b8def;
+  --warm: #ffd9a0;
+  --warm-line: rgba(255, 217, 160, 0.3);
+  --warm-glow: rgba(255, 200, 120, 0.35);
   --danger: #ef5b6b;
   --radius: 10px;
+  /* Panels catch the light on their top edge, as they do on the front door. */
+  --panel: linear-gradient(180deg, rgba(30, 35, 46, 0.72), rgba(14, 17, 23, 0.8));
+  --panel-edge: rgba(255, 255, 255, 0.14);
   color-scheme: dark;
 }
 
@@ -1440,5 +1454,799 @@ a.curator-card:hover {
   }
   .detail-body {
     padding-bottom: 22px;
+  }
+}
+
+/* ================================================================ *
+ * The front door — sign-in and invite redemption
+ *
+ * Most people who ever load this app load only these two pages: anyone who
+ * hears about the club, anyone whose session lapsed, anyone who was sent a
+ * link. It is the whole first impression, so it gets the whole treatment.
+ *
+ * Everything below is drawn — no image files, no webfonts, no third-party
+ * request of any kind. These pages are served to unauthenticated visitors, so
+ * anything they fetched, strangers would fetch too.
+ * ================================================================ */
+
+.auth-root {
+  position: relative;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 40px 22px;
+  /* A shade below the app's own background: the lights are down out here. */
+  background: #06070a;
+  /*
+   * `clip`, not `hidden`. Both stop the decorative layers spilling out, but a
+   * `hidden` box is still programmatically scrollable — so when focus moved to
+   * an error message the browser scrolled this container sideways to "reveal"
+   * the beam hanging off the right edge, dragging the whole page with it.
+   * `clip` has no scroll container at all.
+   */
+  overflow: hidden;
+  overflow: clip;
+  isolation: isolate;
+}
+
+/* --- The projector ---------------------------------------------- */
+
+/* A conic wedge from a point just off the top-left corner. Blurred hard so it
+   reads as light in a room rather than as a shape. */
+.auth-beam {
+  position: fixed;
+  inset: -25% -20% auto -25%;
+  height: 165vh;
+  z-index: -3;
+  transform-origin: 18% 0;
+  background: conic-gradient(
+    from 152deg at 18% -6%,
+    transparent 0deg,
+    rgba(255, 244, 219, 0.05) 5deg,
+    rgba(255, 240, 210, 0.2) 10deg,
+    rgba(255, 232, 190, 0.07) 19deg,
+    rgba(255, 228, 184, 0.02) 28deg,
+    transparent 36deg
+  );
+  filter: blur(28px);
+  animation: auth-drift 26s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Cool counter-light from the opposite corner, so the frame is not lit from a
+   single side and flat everywhere else. */
+.auth-glow {
+  position: fixed;
+  right: -18vmax;
+  bottom: -26vmax;
+  width: 72vmax;
+  height: 72vmax;
+  z-index: -3;
+  background: radial-gradient(
+    circle,
+    rgba(91, 141, 239, 0.17),
+    rgba(91, 141, 239, 0.05) 45%,
+    transparent 66%
+  );
+  pointer-events: none;
+}
+
+.auth-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background: radial-gradient(
+    130% 95% at 50% 38%,
+    transparent 40%,
+    rgba(0, 0, 0, 0.62) 100%
+  );
+  pointer-events: none;
+}
+
+/* Film grain. The single strongest cue that this is about cinema, and it costs
+   one inline SVG. Overlay blend keeps it in the shadows instead of fogging the
+   text. */
+.auth-grain {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+@keyframes auth-drift {
+  0%,
+  100% {
+    transform: rotate(-1.1deg);
+    opacity: 0.88;
+  }
+  50% {
+    transform: rotate(0.9deg);
+    opacity: 1;
+  }
+}
+
+/* A slow beam is atmosphere; for anyone who asked for less motion it is just
+   movement in their peripheral vision while they type a password. */
+@media (prefers-reduced-motion: reduce) {
+  .auth-beam {
+    animation: none;
+  }
+}
+
+/* --- Layout ------------------------------------------------------ */
+
+/*
+ * One column on a phone, two side by side from 900px. The source order is
+ * brand, form, pitch — so a returning member on a phone never scrolls past the
+ * sales copy to reach the form, while a stranger still finds it right below.
+ */
+.auth-layout {
+  position: relative;
+  width: 100%;
+  max-width: 1040px;
+  display: grid;
+  gap: 26px;
+  grid-template-areas:
+    "brand"
+    "panel"
+    "pitch";
+}
+
+.auth-brand {
+  grid-area: brand;
+}
+
+.auth-panel {
+  grid-area: panel;
+}
+
+.auth-pitch {
+  grid-area: pitch;
+}
+
+@media (min-width: 900px) {
+  .auth-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(380px, 424px);
+    grid-template-areas:
+      "brand panel"
+      "pitch panel";
+    align-content: center;
+    column-gap: 72px;
+    row-gap: 22px;
+  }
+  .auth-panel {
+    align-self: center;
+  }
+  .auth-brand {
+    align-self: end;
+  }
+}
+
+/* --- Brand ------------------------------------------------------- */
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.brand-mark {
+  color: #ffd9a0;
+  filter: drop-shadow(0 0 14px rgba(255, 200, 120, 0.35));
+}
+
+/* Serif against the sans UI. One typeface doing something different is the
+   cheapest way to make a name read as a name — and every platform already
+   ships a serif, so it costs nothing to load. */
+.wordmark-text {
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  font-size: 1.85rem;
+  letter-spacing: 0.005em;
+  line-height: 1;
+}
+
+.auth-tagline {
+  margin: 16px 0 0;
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  font-size: clamp(1.9rem, 4.6vw, 2.9rem);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  background: linear-gradient(170deg, #fff 20%, #b9c2d4 92%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* --- Pitch ------------------------------------------------------- */
+
+.auth-pitch p {
+  margin: 0 0 18px;
+  color: #b3bccc;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  max-width: 46ch;
+}
+
+.auth-pitch ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 11px;
+  max-width: 46ch;
+}
+
+/* A hairline rule instead of a bullet: quieter, and it lines the three points
+   up into a single edge. */
+.auth-pitch li {
+  padding-left: 14px;
+  border-left: 1px solid rgba(255, 217, 160, 0.28);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.auth-pitch li strong {
+  display: block;
+  color: #e6eaf2;
+  font-weight: 600;
+}
+
+/* --- The panel --------------------------------------------------- */
+
+.auth-panel {
+  background: linear-gradient(
+    180deg,
+    rgba(30, 35, 46, 0.82),
+    rgba(14, 17, 23, 0.88)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  /* A brighter top edge, as though the beam is catching it. */
+  border-top-color: rgba(255, 255, 255, 0.17);
+  border-radius: 18px;
+  padding: 32px 30px 26px;
+  -webkit-backdrop-filter: blur(20px) saturate(125%);
+  backdrop-filter: blur(20px) saturate(125%);
+  box-shadow:
+    0 34px 80px -34px rgba(0, 0, 0, 0.92),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.auth-eyebrow {
+  margin: 0 0 8px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+  color: #ffd9a0;
+}
+
+.auth-title {
+  margin: 0 0 6px;
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.auth-sub {
+  margin: 0 0 22px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.auth-sub + .auth-sub {
+  margin-top: -14px;
+}
+
+/* --- Fields ------------------------------------------------------ */
+
+.auth-root .field {
+  margin-bottom: 16px;
+}
+
+.auth-root label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #9aa4b6;
+}
+
+.field-input {
+  position: relative;
+}
+
+.auth-root input {
+  width: 100%;
+  margin: 0;
+  padding: 13px 14px;
+  background: rgba(0, 0, 0, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 11px;
+  color: var(--text);
+  font-size: 16px; /* 16px avoids iOS Safari zooming the page on focus */
+  font-family: inherit;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.auth-root input::placeholder {
+  color: #6b7486;
+}
+
+.auth-root input:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.auth-root input:focus {
+  outline: none;
+  background: rgba(0, 0, 0, 0.5);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(91, 141, 239, 0.22);
+}
+
+.auth-root input[aria-invalid="true"] {
+  border-color: rgba(239, 91, 107, 0.65);
+}
+
+/* Room for the reveal toggle so a long password never runs under it. */
+.auth-root input[type="password"],
+.field-input:has(.field-toggle) input {
+  padding-right: 46px;
+}
+
+.field-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: #8b95a8;
+  cursor: pointer;
+}
+
+.field-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.field-toggle:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.field-note {
+  margin: 7px 0 0;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: #8b95a8;
+}
+
+.field-note.warn {
+  color: #ffd08a;
+}
+
+/* --- Submit ------------------------------------------------------ */
+
+/* White, like Play on the hero — the primary action reads the same way
+   wherever it appears. */
+.auth-root .auth-submit {
+  width: 100%;
+  margin-top: 6px;
+  padding: 13px 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  background: #fff;
+  color: #0b0d11;
+  border: 0;
+  border-radius: 11px;
+  font-size: 0.95rem;
+  font-weight: 650;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
+  box-shadow: 0 10px 26px -12px rgba(255, 255, 255, 0.5);
+}
+
+.auth-root .auth-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px -12px rgba(255, 255, 255, 0.62);
+}
+
+.auth-root .auth-submit:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.auth-root .auth-submit:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+.btn-spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(11, 13, 17, 0.25);
+  border-top-color: #0b0d11;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-root .auth-submit {
+    transition: none;
+  }
+  .auth-root .auth-submit:hover:not(:disabled) {
+    transform: none;
+  }
+  .btn-spinner {
+    animation-duration: 2s;
+  }
+}
+
+/* --- Messages and footer ----------------------------------------- */
+
+.auth-root .error {
+  margin: 0 0 18px;
+  padding: 11px 13px;
+  background: rgba(239, 91, 107, 0.12);
+  border: 1px solid rgba(239, 91, 107, 0.38);
+  border-radius: 10px;
+  color: #ffb3bc;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.auth-root .error:focus {
+  outline: 2px solid rgba(239, 91, 107, 0.6);
+  outline-offset: 2px;
+}
+
+.auth-foot {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.auth-foot p {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: #8b95a8;
+}
+
+.auth-foot strong {
+  color: #cdd4e0;
+  font-weight: 600;
+}
+
+.auth-foot a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* A visible ring on every interactive element for keyboard users, without
+   putting one on things people clicked. */
+.auth-root a:focus-visible,
+.auth-root button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (max-width: 480px) {
+  .auth-root {
+    padding: 28px 16px;
+  }
+  .auth-panel {
+    padding: 26px 20px 22px;
+    border-radius: 16px;
+  }
+  .auth-layout {
+    gap: 22px;
+  }
+}
+
+/* ================================================================ *
+ * Theme — the app, matched to the front door
+ *
+ * Everything here exists so that signing in feels like walking further into
+ * the same building. Same near-black, same two lights, same panel that catches
+ * the beam on its top edge, same aperture, same serif for the moments that
+ * carry a name. The library pages had drifted into generic dark-mode grey.
+ * ================================================================ */
+
+/* --- Ambience ---------------------------------------------------- */
+
+/* A warm wash at the top of the frame, as though the beam that lights the
+   sign-in page is still somewhere above. Short, so it never fights artwork. */
+.ambience-top {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 340px;
+  z-index: -1;
+  background: radial-gradient(
+    90% 100% at 22% 0%,
+    rgba(255, 226, 180, 0.09),
+    rgba(255, 214, 160, 0.03) 42%,
+    transparent 72%
+  );
+  pointer-events: none;
+}
+
+.ambience-grain {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  opacity: 0.035;
+  pointer-events: none;
+}
+
+/* --- App bar ----------------------------------------------------- */
+
+.appbar {
+  padding: 11px 20px;
+  background: linear-gradient(180deg, rgba(6, 7, 10, 0.94), rgba(6, 7, 10, 0.66));
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  backdrop-filter: blur(14px) saturate(120%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* The wordmark replaces the plain bold text, so the mark you first met on the
+   sign-in page stays with you. */
+.appbar .brand {
+  display: inline-flex;
+  align-items: center;
+}
+
+.appbar .brand .wordmark-text {
+  font-size: 1.16rem;
+}
+
+.appbar .brand .brand-mark {
+  filter: drop-shadow(0 0 10px var(--warm-glow));
+}
+
+.appbar nav a {
+  position: relative;
+  padding: 3px 1px;
+  transition: color 0.14s ease;
+}
+
+/* A warm hairline on hover — the brand colour used as a pointer, not as a
+   button. */
+.appbar nav a::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 1px;
+  background: var(--warm);
+  opacity: 0;
+  transition: opacity 0.14s ease;
+}
+
+.appbar nav a:hover::after {
+  opacity: 0.75;
+}
+
+.appbar input {
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.appbar input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(91, 141, 239, 0.2);
+}
+
+/* --- Type -------------------------------------------------------- */
+
+/* Titles are set in the same serif as "A private film club." A film's name is
+   a name, and the shift out of the UI sans is what says so. */
+.hero-content h1,
+.page-head h1,
+.person-text h1 {
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  letter-spacing: -0.015em;
+}
+
+.hero-content h1 {
+  font-size: clamp(2rem, 5.2vw, 3.2rem);
+}
+
+.page-head h1 {
+  font-size: 1.7rem;
+}
+
+.person-text h1 {
+  font-size: 1.55rem;
+}
+
+/* --- Surfaces ---------------------------------------------------- */
+
+/* One panel treatment, everywhere a panel appears. */
+.rating,
+.curator-card,
+.suggest,
+.empty {
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top-color: var(--panel-edge);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.rating,
+.curator-card {
+  border-radius: 12px;
+}
+
+.suggest {
+  border-radius: 14px;
+  box-shadow: 0 26px 60px -28px rgba(0, 0, 0, 0.9);
+}
+
+.empty {
+  border-radius: 14px;
+}
+
+.poster-art {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* --- The club's own voice is warm -------------------------------- */
+
+/* Curator's picks, a recommended subtitle, the mark on a poster: all of these
+   say "a person chose this", which is the one thing this app is for. */
+.curator-card {
+  border-left: 3px solid var(--warm);
+}
+
+.curator-kind,
+.curator-by {
+  color: var(--warm);
+}
+
+.curator-comment {
+  border-left-color: var(--warm-line);
+}
+
+.chip-accent {
+  border-color: var(--warm-line);
+  color: var(--warm);
+}
+
+.poster-badge {
+  color: var(--warm);
+}
+
+.row-note {
+  color: var(--muted);
+}
+
+/* Where you got to in a film — your own thread through the library, so it
+   carries the brand light rather than the interaction blue. */
+.progress span {
+  background: var(--warm);
+}
+
+.watched-badge {
+  border-color: var(--warm-line);
+}
+
+/* --- Interaction stays blue -------------------------------------- */
+
+.cast-card:hover .cast-photo {
+  border-color: var(--warm);
+}
+
+.poster:hover .poster-art {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+/* A visible ring for keyboard users on every page, not just the front door. */
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* --- Player ------------------------------------------------------ */
+
+/* The scrubber in amber. It is the one control you watch for two hours. */
+.vds-player {
+  --media-brand: var(--warm);
+}
+
+/* --- Hero -------------------------------------------------------- */
+
+/* The scrim was tuned against the old, lighter background; on near-black it
+   has to reach further to keep the title legible over a bright frame. */
+.hero::after {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(6, 7, 10, 0.96) 0%,
+      rgba(6, 7, 10, 0.66) 48%,
+      rgba(6, 7, 10, 0.18) 100%
+    ),
+    linear-gradient(0deg, var(--bg) 2%, rgba(6, 7, 10, 0) 62%);
+}
+
+/* Row headings are UI labels, not names, so they stay in the sans — but they
+   were shouting next to the serif titles. */
+.row h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.004em;
+  color: #e8ecf3;
+}
+
+/*
+ * The narrow app bar, laid out deliberately instead of left to wrap.
+ *
+ * The wordmark is wider than the bare "Watch" it replaced, which pushed the
+ * nav past the right edge and stranded Sign out on a line of its own. Three
+ * explicit rows — identity and the way out, then navigation, then search —
+ * instead of whatever order flex-wrap happened to produce.
+ */
+@media (max-width: 700px) {
+  .appbar {
+    row-gap: 9px;
+  }
+  .appbar .brand {
+    order: 1;
+  }
+  .appbar .spacer {
+    display: none;
+  }
+  .appbar button.secondary {
+    order: 2;
+    margin-left: auto;
+  }
+  .appbar nav {
+    order: 3;
+    width: 100%;
+    gap: 18px;
+    font-size: 0.87rem;
+  }
+  .appbar form {
+    order: 4;
+    width: 100%;
+  }
+  .appbar .brand .wordmark-text {
+    font-size: 1.08rem;
   }
 }

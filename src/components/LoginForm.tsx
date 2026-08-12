@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import { PasswordField } from "@/components/auth/PasswordField";
 
 /**
  * Posts credentials to /api/auth/login and follows the redirect on success.
@@ -14,9 +16,29 @@ export function LoginForm({ next }: { next: string }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const errorRef = useRef<HTMLParagraphElement>(null);
+
+  // Move focus to the message when one appears. `role="alert"` announces it to
+  // a screen reader, but a sighted keyboard user whose focus is still in the
+  // password field gets no signal at all without this.
+  useEffect(() => {
+    // preventScroll: the message is already the topmost thing in the
+    // panel, and letting the browser scroll to it jumps the page.
+    if (error) errorRef.current?.focus({ preventScroll: true });
+  }, [error]);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
+
+    // Invite links and usernames get passed around in chat apps, which love to
+    // attach a trailing space to a copied word. Trimming here turns a baffling
+    // "incorrect password" into a successful sign-in.
+    const name = username.trim();
+    if (!name || !password) {
+      setError("Enter your username and password.");
+      return;
+    }
+
     setPending(true);
     setError(null);
 
@@ -24,14 +46,22 @@ export function LoginForm({ next }: { next: string }) {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username: name, password }),
       });
 
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as {
           message?: string;
         };
-        setError(data.message ?? "Sign in failed.");
+        setError(
+          // The server's own wording is good for the cases it knows about. A
+          // 502 is the exception: "the media server is not responding" is
+          // accurate but reads as the viewer's fault, when in fact it means
+          // somebody's home machine is off.
+          response.status === 502
+            ? "Can't reach the library right now. The machine it runs on may be offline — try again in a few minutes."
+            : (data.message ?? "Sign in failed."),
+        );
         setPending(false);
         return;
       }
@@ -40,44 +70,60 @@ export function LoginForm({ next }: { next: string }) {
       // picked up by the server components on the next render.
       window.location.assign(next);
     } catch {
-      setError("Could not reach the server.");
+      setError("No connection. Check your network and try again.");
       setPending(false);
     }
   }
 
   return (
-    <form onSubmit={onSubmit}>
+    <form onSubmit={onSubmit} noValidate>
       {error ? (
-        <p className="error" role="alert">
+        <p className="error" role="alert" tabIndex={-1} ref={errorRef}>
           {error}
         </p>
       ) : null}
 
-      <label htmlFor="username">Username</label>
-      <input
-        id="username"
-        name="username"
-        autoComplete="username"
-        autoCapitalize="none"
-        autoCorrect="off"
-        required
-        value={username}
-        onChange={(event) => setUsername(event.target.value)}
-      />
+      <div className="field">
+        <label htmlFor="username">Username</label>
+        <div className="field-input">
+          <input
+            id="username"
+            name="username"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            // The only thing anyone comes to this page to do.
+            autoFocus
+            required
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+          />
+        </div>
+      </div>
 
-      <label htmlFor="password">Password</label>
-      <input
+      <PasswordField
         id="password"
-        name="password"
-        type="password"
-        autoComplete="current-password"
-        required
+        label="Password"
         value={password}
-        onChange={(event) => setPassword(event.target.value)}
+        onChange={setPassword}
+        autoComplete="current-password"
       />
 
-      <button type="submit" disabled={pending || !username || !password}>
-        {pending ? "Signing in…" : "Sign in"}
+      {/*
+       * Never disabled while fields are empty. A dead button gives no reason
+       * for being dead — pressing it and being told what is missing is both
+       * faster and reachable by a screen reader.
+       */}
+      <button type="submit" className="auth-submit" disabled={pending}>
+        {pending ? (
+          <>
+            <span className="btn-spinner" aria-hidden="true" />
+            Signing in…
+          </>
+        ) : (
+          "Sign in"
+        )}
       </button>
     </form>
   );

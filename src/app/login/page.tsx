@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { AuthShell } from "@/components/auth/AuthShell";
 import { LoginForm } from "@/components/LoginForm";
 import { currentSession } from "@/lib/current-user";
 
@@ -22,13 +23,33 @@ export default async function LoginPage({
   const next =
     requested.startsWith("/") && !requested.startsWith("//") ? requested : "/";
 
+  // Set when middleware bounced someone off a page they asked for, which
+  // usually means their session ran out rather than that they arrived cold.
+  const returning = next !== "/";
+
   return (
-    <main className="center">
-      <div className="card">
-        <h1>Sign in</h1>
-        <p className="sub">Use the account you created from your invite.</p>
-        <LoginForm next={next} />
+    <AuthShell>
+      <h1 className="auth-title">Sign in</h1>
+      <p className="auth-sub">
+        {returning
+          ? "Your session ended. Sign in and we'll take you back to where you were."
+          : "Welcome back."}
+      </p>
+
+      <LoginForm next={next} />
+
+      {/*
+       * The page's second job. Most people who land here uninvited used to hit
+       * a form they could not complete and no explanation — now they get told
+       * how membership actually works, which is the only useful answer.
+       */}
+      <div className="auth-foot">
+        <p>
+          <strong>No account?</strong> Every account here starts with an invite
+          from an existing member. Ask whoever told you about the club to send
+          you a link.
+        </p>
       </div>
-    </main>
+    </AuthShell>
   );
 }

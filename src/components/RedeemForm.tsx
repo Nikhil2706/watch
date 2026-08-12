@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import { PasswordField } from "@/components/auth/PasswordField";
 
 /**
  * Invite redemption. Creates the Jellyfin account and signs the user in.
@@ -16,14 +18,28 @@ export function RedeemForm({ token }: { token: string }) {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const errorRef = useRef<HTMLParagraphElement>(null);
 
   const mismatch = confirm !== "" && confirm !== password;
+
+  // Same reasoning as the sign-in form: `role="alert"` covers screen readers,
+  // this covers a sighted keyboard user whose focus is still in a field.
+  useEffect(() => {
+    // preventScroll: the message is already the topmost thing in the
+    // panel, and letting the browser scroll to it jumps the page.
+    if (error) errorRef.current?.focus({ preventScroll: true });
+  }, [error]);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
 
+    if (password.length < 10) {
+      setError("Your password needs to be at least 10 characters.");
+      return;
+    }
+
     if (password !== confirm) {
-      setError("Passwords do not match.");
+      setError("The two passwords do not match.");
       return;
     }
 
@@ -50,66 +66,72 @@ export function RedeemForm({ token }: { token: string }) {
 
       window.location.assign(data.redirect ?? "/");
     } catch {
-      setError("Could not reach the server.");
+      setError("No connection. Check your network and try again.");
       setPending(false);
     }
   }
 
   return (
-    <form onSubmit={onSubmit}>
+    <form onSubmit={onSubmit} noValidate>
       {error ? (
-        <p className="error" role="alert">
+        <p className="error" role="alert" tabIndex={-1} ref={errorRef}>
           {error}
         </p>
       ) : null}
 
-      <label htmlFor="username">Choose a username</label>
-      <input
-        id="username"
-        name="username"
-        autoComplete="username"
-        autoCapitalize="none"
-        autoCorrect="off"
-        required
-        minLength={2}
-        maxLength={32}
-        pattern="[a-zA-Z0-9][a-zA-Z0-9._\-]{1,31}"
-        value={username}
-        onChange={(event) => setUsername(event.target.value)}
-      />
-      <p className="hint">2–32 characters. Letters, numbers, dot, dash, underscore.</p>
+      <div className="field">
+        <label htmlFor="username">Choose a username</label>
+        <div className="field-input">
+          <input
+            id="username"
+            name="username"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            autoFocus
+            required
+            minLength={2}
+            maxLength={32}
+            pattern="[a-zA-Z0-9][a-zA-Z0-9._\-]{1,31}"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            aria-describedby="username-hint"
+          />
+        </div>
+        <p className="field-note" id="username-hint">
+          2&ndash;32 characters. Letters, numbers, dot, dash, underscore.
+        </p>
+      </div>
 
-      <label htmlFor="password">Choose a password</label>
-      <input
+      <PasswordField
         id="password"
-        name="password"
-        type="password"
-        autoComplete="new-password"
-        required
-        minLength={10}
+        label="Choose a password"
         value={password}
-        onChange={(event) => setPassword(event.target.value)}
-      />
-      <p className="hint">At least 10 characters.</p>
-
-      <label htmlFor="confirm">Confirm password</label>
-      <input
-        id="confirm"
-        name="confirm"
-        type="password"
+        onChange={setPassword}
         autoComplete="new-password"
-        required
-        value={confirm}
-        onChange={(event) => setConfirm(event.target.value)}
-        aria-invalid={mismatch}
+        hint="At least 10 characters."
       />
-      {mismatch ? <p className="hint">Passwords do not match.</p> : null}
 
-      <button
-        type="submit"
-        disabled={pending || !username || password.length < 10 || mismatch}
-      >
-        {pending ? "Creating account…" : "Create account"}
+      <PasswordField
+        id="confirm"
+        label="Confirm password"
+        value={confirm}
+        onChange={setConfirm}
+        autoComplete="new-password"
+        invalid={mismatch}
+        hint={mismatch ? "These do not match yet." : undefined}
+      />
+
+      <button type="submit" className="auth-submit" disabled={pending}>
+        {pending ? (
+          <>
+            <span className="btn-spinner" aria-hidden="true" />
+            Creating account&hellip;
+          </>
+        ) : (
+          "Create account"
+        )}
       </button>
     </form>
   );
