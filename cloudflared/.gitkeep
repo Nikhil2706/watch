@@ -1,0 +1,6 @@
+Placeholder so the default CF_CREDS_DIR mount always has something to point at.
+
+A token-mode tunnel needs no files here at all — this directory just stops the
+compose bind mount from failing on a host that has never run
+`cloudflared tunnel login`. On a machine that HAS logged in, set CF_CREDS_DIR
+in .env to that directory instead.

@@ -196,6 +196,25 @@ services:
     # until it silently did not. Leaving discovery to cloudflared costs a slower
     # reconnect while it times out the unreachable half, and is the only thing
     # that survives the flip.
+    environment:
+      # TWO WAYS TO AUTHENTICATE THIS CONNECTOR.
+      #
+      # 1. Token (default, and the right choice for a machine that is not
+      #    yours). Create the tunnel in the Zero Trust dashboard, copy its
+      #    connector token, put it in .env. Nothing to log into on this host,
+      #    no certificate on its disk, and the ingress rules live in the
+      #    dashboard rather than in a config.yml somebody has to write.
+      #
+      #    The token IS a credential: anyone holding it can run a connector
+      #    for this tunnel. It belongs in .env, which is gitignored.
+      #
+      # 2. Credentials file, for a host that has run `cloudflared tunnel
+      #    login`. Leave TUNNEL_TOKEN unset and point CF_CREDS_DIR at the
+      #    directory holding cert.pem, the tunnel JSON and config.yml.
+      #
+      # Setting both is not an error — an empty TUNNEL_TOKEN is ignored and
+      # cloudflared falls through to the credentials file. Verified.
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
     command: >
       tunnel --loglevel info
       --protocol ${CF_PROTOCOL:-http2}
@@ -210,10 +229,17 @@ services:
       #
       # Read-only: this container has no business rewriting your credentials.
       #
-      # CF_CREDS_DIR exists for Windows, where ${HOME} is not set at all and
-      # the path looks like C:/Users/<name>/.cloudflared (forward slashes;
-      # compose does not want the backslashes Explorer shows you).
-      - ${CF_CREDS_DIR:-${HOME}/.cloudflared}:/etc/cloudflared:ro
+      # Defaults to an empty directory in the repo, which is all a token-mode
+      # connector needs — it reads nothing from disk. A host using the
+      # credentials-file mode sets CF_CREDS_DIR to wherever
+      # `cloudflared tunnel login` wrote them: ~/.cloudflared on Linux, or
+      # C:/Users/<name>/.cloudflared on Windows (forward slashes; compose does
+      # not want the backslashes Explorer shows you).
+      #
+      # The default is NOT ${HOME}/.cloudflared: $HOME does not exist on
+      # Windows, so that path resolves to /.cloudflared and the mount fails on
+      # a machine that was never going to use it.
+      - ${CF_CREDS_DIR:-./cloudflared}:/etc/cloudflared:ro
 
 networks:
   # Carries gate <-> jellyfin traffic.
