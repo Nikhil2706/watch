@@ -31,17 +31,10 @@ services:
       # Read-only: the gateway disables deletion in the user policy, but the
       # container has no business writing to the library either way.
       - ${MEDIA_PATH:-./media}:/media:ro
-    # GPU passthrough for hardware transcoding. The official Jellyfin image
-    # ships its own jellyfin-ffmpeg with working QSV/VAAPI, which is why this
-    # works in Docker even on hosts where the distro ffmpeg cannot do it.
-    #
-    # Then enable it in Dashboard -> Playback: Hardware acceleration = VAAPI
-    # (or QSV), device /dev/dri/renderD128.
-    #
-    # Comment this block out if the host has no /dev/dri, or the container will
-    # refuse to start.
-    devices:
-      - /dev/dri:/dev/dri
+    # Hardware transcoding lives in docker-compose.linux.yml, because /dev/dri
+    # does not exist on a Windows host and naming a missing device stops the
+    # container from starting at all. See that file, and the Windows notes in
+    # the README.
     environment:
       - JELLYFIN_PublishedServerUrl=http://jellyfin:8096
     healthcheck:
@@ -139,15 +132,8 @@ services:
       # Writable here, unlike the read-only mount on the jellyfin service: this
       # is the process that publishes new files into the library.
       - ${MEDIA_PATH:-./media}:/media
-    devices:
-      - /dev/dri:/dev/dri
-    # The container runs as `node` (uid 1000), but /dev/dri/renderD128 is owned
-    # by group `render`. Without this the device is present and unreadable, and
-    # the worker silently falls back to software encoding — roughly 0.7x
-    # realtime instead of several times faster.
-    #   RENDER_GID must match `stat -c %g /dev/dri/renderD128` on the host.
-    group_add:
-      - "${RENDER_GID:-110}"
+    # GPU access is in docker-compose.linux.yml. Without it the worker encodes
+    # in software — correct, just slower.
 
   # Cloudflare tunnel. Outbound-only, so there is no port to forward and no
   # inbound firewall rule to get wrong.
@@ -180,7 +166,15 @@ services:
     # correct for secrets — so the default user cannot even traverse the
     # directory, and cloudflared then starts up believing it has no config
     # and complains that the tunnel ID is missing.
-    user: "${CF_UID:-1000}:${CF_GID:-1000}"
+    # On Linux this must be the owner of ~/.cloudflared: the credentials are
+    # 0600 inside a 0700 directory, so the image's default uid 65532 cannot
+    # even traverse it, and cloudflared then starts up believing it has no
+    # config and complains the tunnel ID is missing.
+    #
+    # On Windows there are no such permissions to satisfy — Docker Desktop
+    # presents bind-mounted host directories as world-readable — so set
+    # CF_USER=0:0 there and stop thinking about it.
+    user: "${CF_USER:-${CF_UID:-1000}:${CF_GID:-1000}}"
     # --protocol http2 forces the TCP transport. cloudflared prefers QUIC,
     # which needs outbound UDP/7844 — blocked on plenty of consumer ISPs,
     # including this one: TCP 7844 connects fine while every QUIC handshake
@@ -215,7 +209,11 @@ services:
       # missing. /etc/cloudflared is in its default search path regardless.
       #
       # Read-only: this container has no business rewriting your credentials.
-      - ${HOME}/.cloudflared:/etc/cloudflared:ro
+      #
+      # CF_CREDS_DIR exists for Windows, where ${HOME} is not set at all and
+      # the path looks like C:/Users/<name>/.cloudflared (forward slashes;
+      # compose does not want the backslashes Explorer shows you).
+      - ${CF_CREDS_DIR:-${HOME}/.cloudflared}:/etc/cloudflared:ro
 
 networks:
   # Carries gate <-> jellyfin traffic.

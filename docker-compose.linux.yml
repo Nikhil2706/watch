@@ -1,0 +1,45 @@
+# ---------------------------------------------------------------------------
+# Hardware transcoding, Linux hosts only.
+#
+# This is an overlay, not a standalone file. Use it with:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d
+#
+# or, better, put this line in .env so the plain `docker compose up -d` picks
+# it up on its own and nobody has to remember the flags:
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.linux.yml
+#
+# WHY IT IS SEPARATE
+# /dev/dri is a Linux device node. It does not exist on a Windows host, and
+# Docker Desktop's WSL2 backend cannot pass an Intel or AMD render node through
+# to a container — so naming the device there does not degrade gracefully, it
+# stops the container from starting at all. Keeping it out of the base file is
+# what lets the same repo deploy to both machines.
+#
+# On Windows, leave this file unused. Jellyfin will transcode in software,
+# which is fine for a library that has already been normalised to 1080p H.264 —
+# most playback direct-plays and never touches an encoder. See the README.
+# ---------------------------------------------------------------------------
+
+services:
+  jellyfin:
+    # The official Jellyfin image ships its own jellyfin-ffmpeg with working
+    # QSV/VAAPI, which is why this works in Docker even on hosts where the
+    # distro ffmpeg cannot do it.
+    #
+    # Then enable it in Dashboard -> Playback: Hardware acceleration = VAAPI
+    # (or QSV), device /dev/dri/renderD128.
+    devices:
+      - /dev/dri:/dev/dri
+
+  worker:
+    devices:
+      - /dev/dri:/dev/dri
+    # The container runs as `node` (uid 1000), but /dev/dri/renderD128 is owned
+    # by group `render`. Without this the device is present and unreadable, and
+    # the worker silently falls back to software encoding — roughly 0.7x
+    # realtime instead of several times faster.
+    #   RENDER_GID must match `stat -c %g /dev/dri/renderD128` on the host.
+    group_add:
+      - "${RENDER_GID:-110}"

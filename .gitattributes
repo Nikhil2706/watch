@@ -1,0 +1,38 @@
+# Line endings.
+#
+# Git for Windows ships with core.autocrlf=true, which rewrites checked-out
+# files to CRLF. Every file here is either run inside a Linux container or read
+# by a tool that treats a carriage return as part of the value, so that rewrite
+# breaks things in ways that are genuinely hard to diagnose:
+#
+#   *.sh      run under Git Bash: `$'\r': command not found` on the first line
+#   .env      compose reads `PUBLIC_URL=https://host\r` and the \r ends up in
+#             the cookie domain, the tunnel hostname and every redirect
+#   *.yml     a trailing \r inside a compose command string is passed to the
+#             process as an argument
+#   Dockerfile / *.mjs  copied into a Linux image and executed there
+#
+# Forcing LF on the way in and out means a Windows clone produces byte-identical
+# files to a Linux one.
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.mjs text eol=lf
+*.mts text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.css text eol=lf
+Dockerfile text eol=lf
+.env.example text eol=lf
+
+# Windows-only helpers are the exception: PowerShell copes with LF, but a
+# native editor on that box will fight anything else.
+*.ps1 text eol=crlf
+
+*.png binary
+*.jpg binary
+*.ico binary

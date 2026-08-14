@@ -435,7 +435,13 @@ cp .env.example .env          # fill in ADMIN_API_KEY and PUBLIC_URL
 export MEDIA_PATH=/path/to/movies
 
 docker compose up -d jellyfin
-node scripts/bootstrap-jellyfin.mjs --url http://127.0.0.1:8096 \
+
+# The bootstrap runs INSIDE the compose network, because the jellyfin service
+# publishes no port for the host to talk to — that is the whole point of it.
+# This also means the host needs no Node installed: the worker image has one.
+docker compose run --rm --no-deps --entrypoint node \
+  -v "$PWD/scripts:/s:ro" worker \
+  /s/bootstrap-jellyfin.mjs --url http://jellyfin:8096 \
   --admin mamnani --password 'a-long-password' --media /media
 # paste the printed JELLYFIN_API_KEY into .env
 
@@ -727,86 +733,183 @@ status page, say — before falling back to the built-in page. That box is only
 contacted after the primary has already failed, and the Worker only runs on the
 page routes, so it never lands in the media path.
 
-## Running as a Windows service alongside Jellyfin
+## Deploying to the Windows box
 
-Jellyfin runs natively on the same box. This app needs to start on boot, restart
-on crash, and never open a console window.
+The whole stack runs in Docker Desktop — Jellyfin, the gateway, the ingest
+worker and the tunnel. Nothing is installed natively, which is what makes the
+Linux laptop and the Windows box run the same four containers from the same
+compose file.
 
-### Recommended: NSSM
+Two things in that file are not portable, and both live outside it: GPU
+passthrough (`docker-compose.linux.yml`, unused here) and the cloudflared
+credentials path (`CF_CREDS_DIR` in `.env`).
 
-[NSSM](https://nssm.cc/) is the least painful option — it supervises an ordinary
-process and handles restarts and log rotation. Unzip it to `C:\nssm`, then from
-an **elevated** prompt:
+### Prerequisites
 
-```bat
-nssm install jellyfin-gate "C:\Program Files\nodejs\node.exe"
-nssm set jellyfin-gate AppDirectory "C:\apps\jellyfin-gate"
-nssm set jellyfin-gate AppParameters "node_modules\next\dist\bin\next start -p 3000 -H 127.0.0.1"
-nssm set jellyfin-gate AppEnvironmentExtra NODE_ENV=production NODE_OPTIONS=--disable-warning=ExperimentalWarning
-nssm set jellyfin-gate AppStdout "C:\apps\jellyfin-gate\logs\out.log"
-nssm set jellyfin-gate AppStderr "C:\apps\jellyfin-gate\logs\err.log"
-nssm set jellyfin-gate AppRotateFiles 1
-nssm set jellyfin-gate AppRotateBytes 10485760
-nssm set jellyfin-gate Start SERVICE_AUTO_START
-nssm start jellyfin-gate
+- **Windows 11** with virtualisation enabled in the BIOS.
+- **WSL2.** `wsl --install` from an elevated PowerShell, then reboot.
+- **Docker Desktop**, WSL2 backend. In Settings → General tick *Start Docker
+  Desktop when you log in*, and in Settings → Resources give WSL at least 4 GB
+  and half the cores — ffmpeg will use everything it is given.
+- **Git for Windows.** The repo carries a `.gitattributes` that forces LF, so
+  the default `core.autocrlf=true` will not corrupt the shell scripts or `.env`.
+- **cloudflared for Windows**, from the Cloudflare downloads page. Only needed
+  once, to mint credentials; the running tunnel is a container.
+
+No Node.js. The bootstrap runs inside the worker image.
+
+### Steps
+
+Run everything in **PowerShell**, from the repo root.
+
+```powershell
+git clone git@github.com:abhigyanverma/watch.git jellyfin-gate
+cd jellyfin-gate
 ```
 
-Point at `node.exe` directly rather than `npm.cmd`. A `.cmd` shim runs under
-`cmd.exe`, and stopping the service then kills the shim while leaving the real
-Node process holding port 3000.
+**1. Make the media folders.** Three of them, and they must be three — the drop
+zone cannot live inside the library or Jellyfin indexes a converted file beside
+its source as a second movie with the same name.
 
-Useful afterwards:
-
-```bat
-nssm status jellyfin-gate
-nssm restart jellyfin-gate
-nssm edit jellyfin-gate
+```powershell
+mkdir D:\Media\movies, D:\Media\incoming
 ```
 
-### Alternative: Task Scheduler
+**2. Mint the tunnel credentials.**
 
-No extra download, but no crash supervision — it will restart on failure only if
-you configure it to, and the retry behaviour is coarser.
-
-```bat
-schtasks /create /tn "jellyfin-gate" /sc onstart /ru "SYSTEM" /rl HIGHEST /tr "cmd /c cd /d C:\apps\jellyfin-gate && node node_modules\next\dist\bin\next start -p 3000 -H 127.0.0.1 >> logs\out.log 2>&1"
+```powershell
+cloudflared tunnel login
+cloudflared tunnel create watch-win
+cloudflared tunnel route dns watch-win watch.abhigyanverma.com
 ```
 
-### Ordering relative to Jellyfin
+`route dns` repoints the DNS record at this machine's tunnel. **Stop the tunnel
+on the laptop before or immediately after this** — if both run, Cloudflare has
+two healthy origins for one hostname and will send traffic to whichever it
+likes, so half your requests land on a machine that may be asleep.
 
-There is no hard dependency to declare. If Jellyfin is not up yet, logins return
-`502` and start working once it is — no restart of this app needed. If you would
-rather make it explicit:
+Then write `%USERPROFILE%\.cloudflared\config.yml`:
 
-```bat
-sc config jellyfin-gate depend= JellyfinServer
+```yaml
+tunnel: watch-win
+credentials-file: /etc/cloudflared/<TUNNEL-UUID>.json
+ingress:
+  - hostname: watch.abhigyanverma.com
+    service: http://gate:3000
+  - service: http_status:404
 ```
 
-Check the exact Jellyfin service name first with `sc query type= service | findstr /i jellyfin`;
-it varies by installer.
+The `credentials-file` path is the one **inside the container**, not the
+Windows path — the directory is mounted at `/etc/cloudflared`. Take the UUID
+from the filename `cloudflared tunnel create` just printed.
 
-### Notes specific to this box
+**3. Write `.env`.** Copy `.env.example` and set:
 
-- **Bind to loopback.** `-H 127.0.0.1` means only cloudflared can reach it. This
-  is what makes `TRUST_CF_CONNECTING_IP=true` safe to enable.
-- **Firewall.** Jellyfin on 8096 and this app on 3000 should both be blocked
-  inbound at the Windows firewall. Nothing on the LAN needs either directly.
-- **Database path.** The default `./data/` is fine, but if the app lives under
-  `C:\Program Files` the service account will not be able to write there. Set
-  `DATABASE_PATH=C:/ProgramData/jellyfin-gate/jellyfin-gate.db` and grant the
-  service account write access to that folder. Forward slashes work fine.
-- **Backups.** Back up the `.db` file *and* its `-wal` sidecar, or stop the
-  service first. Copying the `.db` alone while it is running gives you a
-  database missing the most recent commits.
-- **Transcoding.** The restricted policy leaves playback transcoding enabled, or
-  clients that cannot direct-play get nothing. On an i3-6100 a single 1080p
-  transcode will saturate the CPU. Cap concurrent streams in Jellyfin
-  (**Dashboard → Playback**) rather than here — this app deliberately does not
-  sit in the encoding path.
-- **Memory.** The proxy pipes response bodies and never buffers them. Streaming
-  100 MB through `/jf/*` moves RSS by around 20 MB, not 100 MB. If you ever
-  refactor that route, an `await res.arrayBuffer()` is the one change that will
-  take the box down.
+```ini
+ADMIN_API_KEY=<64 random hex characters, kept by Mamnani>
+PUBLIC_URL=https://watch.abhigyanverma.com
+COOKIE_SECURE=true
+TRUST_CF_CONNECTING_IP=true
+GATE_BIND=127.0.0.1
+
+MEDIA_PATH=D:/Media/movies
+MEDIA_INCOMING=D:/Media/incoming
+
+CF_CREDS_DIR=C:/Users/<name>/.cloudflared
+CF_USER=0:0
+
+OMDB_API_KEY=<optional>
+```
+
+Forward slashes throughout — compose does not want the backslashes Explorer
+shows you. Do **not** set `COMPOSE_FILE`: that pulls in the Linux GPU overlay,
+and `/dev/dri` does not exist here.
+
+`TRUST_CF_CONNECTING_IP=true` is only safe because `GATE_BIND=127.0.0.1` means
+nothing but cloudflared can reach the gateway. Set it without that and anyone
+on the LAN can forge the header and get a fresh rate-limit bucket per request.
+
+**4. Start Jellyfin and run the bootstrap.**
+
+```powershell
+docker compose up -d jellyfin
+
+docker compose run --rm --no-deps --entrypoint node `
+  -v "${PWD}/scripts:/s:ro" worker `
+  /s/bootstrap-jellyfin.mjs --url http://jellyfin:8096 `
+  --admin mamnani --password '<a long password>' --media /media
+```
+
+Paste the printed `JELLYFIN_API_KEY` into `.env`.
+
+**5. Bring up the rest.**
+
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
+All four services should be `Up`, with `jellyfin` healthy.
+
+**6. Check it.**
+
+```powershell
+curl.exe -s -o NUL -w "%{http_code}`n" https://watch.abhigyanverma.com/login
+docker compose logs tunnel --tail 30 | Select-String "Registered tunnel connection"
+```
+
+200, and at least one registered connection.
+
+**7. Copy the films in.** Drop them into `D:\Media\incoming`. The worker picks
+up each file once its size has been stable across two polls, converts anything a
+browser cannot direct-play, publishes the result into `D:\Media\movies` and
+moves the original to `incoming\.processed`. Watch it with
+`docker compose logs -f worker`.
+
+### Keeping it up
+
+- **Sleep is the enemy.** Set *Power & battery → Screen and sleep* to Never on
+  both entries. A sleeping box is indistinguishable from a dead one to
+  Cloudflare, and viewers get error 1033.
+- **Auto-login.** Docker Desktop starts *when you log in*, not at boot. After an
+  unattended reboot — a Windows update at 3am — nothing comes back until
+  somebody signs in. Either enable auto-login (`netplwiz`, untick *Users must
+  enter a user name and password*) or accept that reboots need a person.
+- **Restart policy.** All four containers are `unless-stopped`, so once Docker
+  is running they come back on their own. That does not help if a container was
+  removed with `docker compose down` — then it needs `docker compose up -d`.
+- **Firewall.** Nothing needs an inbound rule. The tunnel is outbound-only and
+  the gateway is bound to loopback.
+
+### Hardware transcoding: you do not get it here
+
+Docker Desktop's WSL2 backend cannot pass an Intel or AMD render node through to
+a container, so both Jellyfin and the ingest worker encode in software on this
+box. That is a deliberate trade, not an oversight:
+
+- **Playback is mostly unaffected.** The worker normalises everything to 1080p
+  H.264 + AAC in MP4, which every browser direct-plays. No encoder runs at all
+  for a normal viewing.
+- **Ingest is slower.** A conversion that ran at several times realtime with
+  VAAPI on the laptop will run at roughly 0.7–1x in software. A two-hour film
+  therefore takes about two hours. The worker already stands down while anybody
+  is streaming, so this costs patience rather than playback quality.
+
+If ingest speed becomes the problem, convert on the laptop and copy the
+finished files over, rather than trying to get GPU passthrough working under
+WSL2.
+
+### Backups
+
+Two things matter and neither is the media:
+
+- `gate-data` — the volume holding invites, sessions, watchlists and the
+  curator's writing. `docker run --rm -v jellyfin-gate_gate-data:/d -v ${PWD}:/b busybox tar czf /b/gate-data.tgz -C /d .`
+- `jellyfin-config` — users, library layout, playback positions.
+
+Back up the `.db` file *and* its `-wal` sidecar, or stop the gate first. Copying
+the `.db` alone while it is running gives you a database missing the most recent
+commits.
 
 ---
 
