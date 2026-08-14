@@ -767,13 +767,54 @@ git clone git@github.com:abhigyanverma/watch.git jellyfin-gate
 cd jellyfin-gate
 ```
 
-**1. Make the media folders.** Three of them, and they must be three — the drop
-zone cannot live inside the library or Jellyfin indexes a converted file beside
-its source as a second movie with the same name.
+**1. Point at the films.** There is no copying step. Docker Desktop's WSL2
+backend bind-mounts a Windows path straight into the container, so a collection
+that already exists stays exactly where it is — you name it in `.env`:
+
+```ini
+MEDIA_PATH=E:/Films          # wherever they already live
+MEDIA_INCOMING=E:/Media/incoming
+```
+
+The drop zone must sit **outside** the library. Jellyfin indexes a converted
+file beside its source as a second movie with the same name, not another
+version of it. Anywhere else, on any drive, is fine.
 
 ```powershell
-mkdir D:\Media\movies, D:\Media\incoming
+mkdir E:\Media\incoming
 ```
+
+> **Set `LIBRARY_SCAN=false` before the first start if you are pointing at a
+> collection that already exists.**
+>
+> The default is `true`, which makes the worker walk the entire library, probe
+> every file, convert anything a browser cannot direct-play, and **move each
+> original out to `MEDIA_ARCHIVE`**. Nothing is deleted, but on a large
+> collection it will re-encode for weeks at software speed and relocate the
+> lot — and when the archive is on another drive, each move is a full copy of a
+> multi-gigabyte file.
+>
+> With the scan off, the library is served exactly as it is, and only new drops
+> into `MEDIA_INCOMING` are converted. Turn it on later, deliberately, once you
+> know what it would touch.
+
+If the films are spread across several folders, mount each one under `/media`
+instead of trying to make `MEDIA_PATH` cover them all. Put this in
+`docker-compose.override.yml`, which compose picks up on its own:
+
+```yaml
+services:
+  jellyfin:
+    volumes:
+      - E:/Films:/media/films:ro
+      - F:/Archive/Cinema:/media/cinema:ro
+  worker:
+    volumes:
+      - E:/Films:/media/films
+      - F:/Archive/Cinema:/media/cinema
+```
+
+Jellyfin's library still points at `/media`, so the two appear as one catalogue.
 
 **2. Mint the tunnel credentials.**
 
@@ -812,8 +853,9 @@ COOKIE_SECURE=true
 TRUST_CF_CONNECTING_IP=true
 GATE_BIND=127.0.0.1
 
-MEDIA_PATH=D:/Media/movies
-MEDIA_INCOMING=D:/Media/incoming
+MEDIA_PATH=E:/Films
+MEDIA_INCOMING=E:/Media/incoming
+LIBRARY_SCAN=false
 
 CF_CREDS_DIR=C:/Users/<name>/.cloudflared
 CF_USER=0:0
@@ -860,9 +902,9 @@ docker compose logs tunnel --tail 30 | Select-String "Registered tunnel connecti
 
 200, and at least one registered connection.
 
-**7. Copy the films in.** Drop them into `D:\Media\incoming`. The worker picks
+**7. Adding films later.** Drop them into `E:\Media\incoming`. The worker picks
 up each file once its size has been stable across two polls, converts anything a
-browser cannot direct-play, publishes the result into `D:\Media\movies` and
+browser cannot direct-play, publishes the result into the library and
 moves the original to `incoming\.processed`. Watch it with
 `docker compose logs -f worker`.
 
