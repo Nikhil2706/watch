@@ -774,12 +774,28 @@ cd jellyfin-gate
 
 **1. Point at the films.** There is no copying step. Docker Desktop's WSL2
 backend bind-mounts a Windows path straight into the container, so a collection
-that already exists stays exactly where it is — you name it in `.env`:
+that already exists stays exactly where it is — you name it in `.env`.
+
+Use the `//<drive-letter>/...` form, not `E:/...` or `E:\\...`:
 
 ```ini
-MEDIA_PATH=E:/Films          # wherever they already live
-MEDIA_INCOMING=E:/Media/incoming
+MEDIA_PATH=//e/Films          # wherever they already live
+MEDIA_INCOMING=//e/Media/incoming
 ```
+
+This is not a style preference. A drive-letter path has a colon in it, and
+compose bind-mount syntax is itself `source:target:mode` — colon-delimited. A
+newer Compose build recognises `C:\` (backslash) as Windows and special-cases
+it, but plenty of installs still hit a parser that does not, splits on every
+colon it sees, and fails with exactly this:
+
+```
+Error response from daemon: invalid volume specification: 'E:/Films:/media:ro'
+```
+
+`//e/Films` has no colon anywhere in it, so there is nothing for any version of
+the parser to trip over. Slashes, not backslashes — a real Windows path here
+resolves one level too high, into the whole `E:\` drive.
 
 The drop zone must sit **outside** the library. Jellyfin indexes a converted
 file beside its source as a second movie with the same name, not another
@@ -788,6 +804,9 @@ version of it. Anywhere else, on any drive, is fine.
 ```powershell
 mkdir E:\Media\incoming
 ```
+
+(`mkdir` here takes an ordinary Windows path — it is PowerShell, not a compose
+value. The `//e/...` rule above applies only inside `.env` and compose files.)
 
 > **Set `LIBRARY_SCAN=false` before the first start if you are pointing at a
 > collection that already exists.**
@@ -811,12 +830,12 @@ instead of trying to make `MEDIA_PATH` cover them all. Put this in
 services:
   jellyfin:
     volumes:
-      - E:/Films:/media/films:ro
-      - F:/Archive/Cinema:/media/cinema:ro
+      - //e/Films:/media/films:ro
+      - //f/Archive/Cinema:/media/cinema:ro
   worker:
     volumes:
-      - E:/Films:/media/films
-      - F:/Archive/Cinema:/media/cinema
+      - //e/Films:/media/films
+      - //f/Archive/Cinema:/media/cinema
 ```
 
 Jellyfin's library still points at `/media`, so the two appear as one catalogue.
@@ -832,8 +851,8 @@ COOKIE_SECURE=false                     # no HTTPS yet
 TRUST_CF_CONNECTING_IP=false            # no Cloudflare in front yet
 GATE_BIND=0.0.0.0                       # reachable from other devices
 
-MEDIA_PATH=E:/Films
-MEDIA_INCOMING=E:/Media/incoming
+MEDIA_PATH=//e/Films
+MEDIA_INCOMING=//e/Media/incoming
 LIBRARY_SCAN=false
 
 OMDB_API_KEY=<optional>
