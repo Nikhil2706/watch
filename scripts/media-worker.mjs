@@ -173,10 +173,50 @@ const VIDEO_EXTENSIONS = new Set([
  * Database
  * ------------------------------------------------------------------ */
 
-mkdirSync(INCOMING, { recursive: true });
-mkdirSync(LIBRARY, { recursive: true });
-mkdirSync(PROCESSED, { recursive: true });
-mkdirSync(ARCHIVE, { recursive: true });
+/**
+ * Create every directory this process needs to write to, and fail with a
+ * diagnosis rather than a bare stack trace if it cannot.
+ *
+ * EACCES here has one overwhelmingly likely cause: the host path behind a
+ * bind mount did not exist when the container was created, so Docker
+ * auto-created it itself — as root, mode 755. This container runs as the
+ * non-root `node` user (see the Dockerfile), which can then read that
+ * directory but not write into it, including creating this very archive
+ * folder. Reproduced exactly: an `EACCES` on `mkdir` of a path one level
+ * below an existing, auto-vivified mount root is the signature of it.
+ *
+ * The fix is not inside the container — chowning it from here would not
+ * survive a recreate, and on a Windows host there is no chown to reach for
+ * in the first place. It is to make sure the real directory exists on the
+ * host BEFORE `docker compose up` ever runs, then recreate this container so
+ * it binds to that instead of to Docker's own stub.
+ */
+function ensureWritable(dir, label) {
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch (error) {
+    if (error.code !== "EACCES") throw error;
+    console.error(
+      `\nFATAL: cannot create "${dir}" (${label}): permission denied.\n\n` +
+        "This almost always means the host directory behind this mount did not\n" +
+        "exist the first time this container started, so Docker created it\n" +
+        "itself as root — which this process, running as a non-root user, then\n" +
+        "cannot write into.\n\n" +
+        "Fix on the host, not in here:\n" +
+        "  1. docker compose down\n" +
+        `  2. Delete the folder currently mounted at "${dir}" (check it is\n` +
+        "     empty first — it should be, this is what failed to create) and\n" +
+        "     create it fresh yourself: mkdir, or via Explorer.\n" +
+        "  3. docker compose up -d\n",
+    );
+    process.exit(1);
+  }
+}
+
+ensureWritable(INCOMING, "MEDIA_INCOMING");
+ensureWritable(LIBRARY, "MEDIA_LIBRARY");
+ensureWritable(PROCESSED, "legacy archive alias");
+ensureWritable(ARCHIVE, "MEDIA_ARCHIVE");
 
 const db = new DatabaseSync(DB_PATH);
 db.exec("PRAGMA journal_mode = WAL");

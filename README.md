@@ -808,6 +808,14 @@ mkdir E:\Media\incoming
 (`mkdir` here takes an ordinary Windows path — it is PowerShell, not a compose
 value. The `//e/...` rule above applies only inside `.env` and compose files.)
 
+**Create this folder before the first `docker compose up`, not after.** If a
+bind-mount source does not exist yet when a container starts, Docker creates
+it itself — owned by root, mode 755 — and the worker then cannot write into
+its own directory, including creating the `.processed` archive folder one
+level inside it. It fails fast with a diagnosis rather than a raw stack trace
+if this happens, but the fix is still the same either way: stop the stack,
+delete the auto-created folder, `mkdir` it properly, start again.
+
 > **Set `LIBRARY_SCAN=false` before the first start if you are pointing at a
 > collection that already exists.**
 >
