@@ -1,6 +1,7 @@
 import "server-only";
 
 import { asRow, getDb } from "./db";
+import { logEvent, recordExternalApiCall } from "./events";
 
 /**
  * External ratings via OMDb.
@@ -22,7 +23,8 @@ const OMDB_ENDPOINT = "https://www.omdbapi.com/";
  * visible title, so without caching a few page loads would exhaust it. Ratings
  * move slowly; a week-old number is fine.
  */
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const RATING_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const CACHE_TTL_MS = RATING_CACHE_TTL_MS;
 
 export interface Ratings {
   imdb: string | null;
@@ -46,6 +48,43 @@ function readCache(imdbId: string): CacheRow | undefined {
   return asRow<CacheRow>(
     getDb().prepare("SELECT * FROM rating_cache WHERE imdb_id = ?").get(imdbId),
   );
+}
+
+export interface CachedRatingNumbers {
+  imdbRating: number | null;
+  imdbVotes: number | null;
+}
+
+/**
+ * Bulk, cache-only read for a whole page of films at once (Browse's
+ * popularity ranking) — deliberately NOT getRatings() in a loop. Calling
+ * getRatings() per film would fire a live OMDb request for every uncached
+ * title on a single page render: hundreds of parallel network calls against
+ * a 1000/day free-tier cap, for a page that just needs whatever numbers are
+ * already on hand. Whatever isn't cached yet simply has no IMDb number here
+ * — it backfills naturally the next time someone visits that film's own
+ * page, which already calls getRatings().
+ */
+export function getCachedRatingsBulk(imdbIds: string[]): Map<string, CachedRatingNumbers> {
+  const result = new Map<string, CachedRatingNumbers>();
+  if (imdbIds.length === 0) return result;
+
+  const db = getDb();
+  const placeholders = imdbIds.map(() => "?").join(",");
+  const rows = db
+    .prepare(`SELECT imdb_id, imdb_rating, imdb_votes FROM rating_cache WHERE imdb_id IN (${placeholders})`)
+    .all(...imdbIds) as Array<{ imdb_id: string; imdb_rating: string | null; imdb_votes: string | null }>;
+
+  for (const row of rows) {
+    const rating = row.imdb_rating ? Number.parseFloat(row.imdb_rating) : null;
+    // OMDb's vote count is comma-formatted ("12,345"), not a bare number.
+    const votes = row.imdb_votes ? Number.parseInt(row.imdb_votes.replace(/,/g, ""), 10) : null;
+    result.set(row.imdb_id, {
+      imdbRating: Number.isFinite(rating) ? rating : null,
+      imdbVotes: Number.isFinite(votes) ? votes : null,
+    });
+  }
+  return result;
 }
 
 function writeCache(imdbId: string, ratings: Omit<Ratings, "cached">): void {
@@ -139,9 +178,19 @@ export async function getRatings(imdbId: string | undefined): Promise<Ratings | 
     };
 
     writeCache(imdbId, ratings);
+    recordExternalApiCall("omdb", true);
     return { ...ratings, cached: false };
   } catch (error) {
     console.warn(`[ratings] OMDb lookup failed for ${imdbId}:`, error);
+    recordExternalApiCall("omdb", false);
+    logEvent({
+      category: "external_api",
+      severity: "warning",
+      source: "omdb",
+      message: `OMDb ratings lookup failed for ${imdbId}`,
+      detail: { imdbId, error: error instanceof Error ? error.message : String(error) },
+      itemId: imdbId,
+    });
     // Stale beats absent.
     if (cached) {
       return {

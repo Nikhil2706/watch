@@ -8,6 +8,8 @@ interface Hit {
   year: number | null;
   poster: string | null;
   reason: string;
+  href?: string;
+  partsCount?: number;
 }
 
 /**
@@ -95,7 +97,7 @@ export function SearchBox({ initialQuery = "" }: { initialQuery?: string }) {
             <div className="suggest-empty">Searching…</div>
           ) : null}
           {hits.map((hit) => (
-            <a key={hit.id} className="suggest-row" href={`/item/${hit.id}`} role="option">
+            <a key={hit.id} className="suggest-row" href={hit.href ?? `/item/${hit.id}`} role="option">
               {hit.poster ? (
                 <img src={hit.poster} alt="" loading="lazy" />
               ) : (
@@ -106,7 +108,9 @@ export function SearchBox({ initialQuery = "" }: { initialQuery?: string }) {
                   {hit.name}
                   {hit.year ? <span className="suggest-year"> {hit.year}</span> : null}
                 </div>
-                <div className="suggest-reason">{hit.reason}</div>
+                <div className="suggest-reason">
+                  {hit.partsCount ? `${hit.partsCount} parts` : hit.reason}
+                </div>
               </div>
             </a>
           ))}

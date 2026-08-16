@@ -42,6 +42,32 @@ import "@vidstack/react/player/styles/plyr/theme.css";
 const TICKS_PER_SECOND = 10_000_000;
 const PROGRESS_INTERVAL_MS = 10_000;
 
+/**
+ * Tells the server this browser hit a playback error — a decode failure, an
+ * unsupported codec, a stream that dropped mid-transfer. This is the only way
+ * "the file is actually corrupt" or "this browser can't play this codec"
+ * would otherwise be visible at all: from the server's side, a failed stream
+ * just looks like a client that stopped asking for more bytes.
+ */
+function reportPlayerError(detail: {
+  message: string;
+  code?: number | string;
+  itemId: string;
+  mode: "direct" | "hls";
+}) {
+  void fetch("/api/client-error", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source: "player",
+      message: detail.message,
+      itemId: detail.itemId,
+      detail: { code: detail.code, mode: detail.mode },
+    }),
+    keepalive: true,
+  }).catch(() => {});
+}
+
 export interface PlayerSubtitle {
   index: number;
   label: string;
@@ -145,6 +171,15 @@ export function Player({
     const onPlay = () => report("");
     const onPause = () => report("/Progress", { IsPaused: true });
     const onEnded = () => report("/Stopped");
+    const onError = () => {
+      const mediaError = instance.state.error;
+      reportPlayerError({
+        message: mediaError?.message || "Playback error",
+        code: mediaError?.code,
+        itemId,
+        mode,
+      });
+    };
 
     const timer = setInterval(() => {
       if (!instance.paused) report("/Progress");
@@ -153,12 +188,14 @@ export function Player({
     instance.addEventListener("play", onPlay);
     instance.addEventListener("pause", onPause);
     instance.addEventListener("ended", onEnded);
+    instance.addEventListener("error", onError);
 
     return () => {
       clearInterval(timer);
       instance.removeEventListener("play", onPlay);
       instance.removeEventListener("pause", onPause);
       instance.removeEventListener("ended", onEnded);
+      instance.removeEventListener("error", onError);
       // keepalive so the final position survives the navigation that usually
       // triggers this cleanup.
       report("/Stopped", {}, true);

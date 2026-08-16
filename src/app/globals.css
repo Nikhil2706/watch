@@ -1197,6 +1197,54 @@ a.curator-card:hover {
   background: #000;
 }
 
+/*
+ * True browser fullscreen (the expand-icon button, not our own in-page
+ * "theater mode"): the player leaves normal document flow entirely and is
+ * promoted to the UA's fullscreen top layer, so .player-stage's grid
+ * centering no longer has any say over it. The `max-height: calc(100dvh -
+ * 52px)` above exists to leave room for our own header bar above the
+ * player in the WINDOWED view — that header doesn't exist in fullscreen,
+ * so the same 52px was being subtracted from a screen that had nothing to
+ * subtract it for, leaving a same-sized gap at the bottom (fullscreen
+ * elements are top-anchored by the UA by default, not vertically centered,
+ * so that shortfall never got redistributed as an even top/bottom letterbox
+ * the way it does in the windowed view's centered grid). Cleared here for
+ * both plausible fullscreen targets (whichever the browser actually
+ * promotes) and centered explicitly instead of relying on an ancestor's
+ * grid, which fullscreen promotion bypasses.
+ */
+.vds-player:fullscreen,
+.player-stage:fullscreen {
+  max-height: none;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+}
+
+.vds-player:-webkit-full-screen,
+.player-stage:-webkit-full-screen {
+  max-height: none;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+}
+
+.vds-player:fullscreen video,
+.player-stage:fullscreen video,
+.vds-player:-webkit-full-screen video,
+.player-stage:-webkit-full-screen video {
+  max-height: 100vh;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .player-note {
   margin: 8px 0 0;
   padding: 0 16px;
@@ -1416,6 +1464,128 @@ a.curator-card:hover {
 .rating-primary .rating-value {
   font-size: 1.5rem;
   line-height: 1.1;
+}
+
+/* The Accolade cell sits inline in the same row as IMDb/RT/Metacritic —
+   same card shape, amber-tinted like the rest of the curator-authored
+   surfaces (--warm), with a serif rank/badge to read as a distinct kind
+   of fact rather than another numeric score. */
+.rating.accolade {
+  border-color: var(--warm-line);
+  background: linear-gradient(180deg, rgba(255, 217, 160, 0.08), transparent 70%), var(--surface);
+}
+
+.rating.accolade .rating-value {
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  color: var(--warm);
+}
+
+.rating.accolade .rating-source {
+  color: var(--warm);
+}
+
+/* ---------------------------------------------------------------- *
+ * Accolades: blurb quote + trivia list, below the ratings row
+ * ---------------------------------------------------------------- */
+
+.blurb-card {
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top-color: var(--panel-edge);
+  border-left: 3px solid var(--warm);
+  border-radius: 12px;
+  padding: 16px 18px;
+  backdrop-filter: blur(12px);
+  margin-top: 14px;
+}
+
+.blurb-quote {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  color: #dbe0ea;
+  font-size: 0.96rem;
+  font-style: italic;
+  line-height: 1.55;
+}
+
+.blurb-quote b, .blurb-quote i, .blurb-quote u, .blurb-quote s, .blurb-quote sub, .blurb-quote sup {
+  font-style: inherit;
+}
+
+.blurb-source {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.blurb-source-name {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.blurb-link {
+  font-size: 0.78rem;
+  color: var(--accent);
+}
+
+.blurb-link:hover {
+  text-decoration: underline;
+}
+
+.accolade-link {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: var(--accent);
+}
+
+.accolade-link:hover {
+  text-decoration: underline;
+}
+
+.trivia-card {
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top-color: var(--panel-edge);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  padding: 16px 18px;
+  backdrop-filter: blur(12px);
+  margin-top: 14px;
+}
+
+.trivia-card h3 {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #e8ecf3;
+}
+
+.trivia-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.trivia-list li {
+  padding-left: 14px;
+  border-left: 2px solid var(--border);
+  font-size: 0.88rem;
+  color: #dbe0ea;
+  line-height: 1.5;
+}
+
+.trivia-source {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.72rem;
+  color: var(--muted);
 }
 
 /* ---------------------------------------------------------------- *
@@ -2248,5 +2418,597 @@ button:focus-visible {
   }
   .appbar .brand .wordmark-text {
     font-size: 1.08rem;
+  }
+}
+
+/* ---------------------------------------------------------------- *
+ * Browse: genre / director / actor / decade, sidebar + grid
+ * ---------------------------------------------------------------- */
+
+.browse-shell {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.browse-sidebar {
+  flex: 0 0 240px;
+  padding: 20px 12px 40px 20px;
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+}
+
+.dim-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+  margin-bottom: 14px;
+}
+
+.dim-tab {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 7px 4px;
+  border-radius: 7px;
+  text-decoration: none;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.dim-tab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.dim-tab.active {
+  color: #fff;
+  background: var(--accent);
+}
+
+.sidebar-search {
+  margin-bottom: 10px;
+}
+
+.sidebar-search input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.value-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.value-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 6px;
+  border-radius: 8px;
+  color: #cdd4e0;
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+
+.value-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.value-row.active {
+  background: rgba(91, 141, 239, 0.14);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.value-row.all-option {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.value-row .vname {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.value-row .vcount {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.value-row .avatar {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--muted);
+  overflow: hidden;
+}
+
+.value-row .avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.value-empty {
+  color: var(--muted);
+  font-size: 0.82rem;
+  padding: 8px 6px;
+}
+
+.browse-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.browse-topbar {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 20px 20px 6px;
+}
+
+.browse-topbar h1 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.browse-count {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.browse-topbar .spacer {
+  flex: 1;
+}
+
+.sort-group {
+  display: flex;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.sort-btn {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: 7px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sort-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sort-btn.active {
+  color: #fff;
+  background: var(--accent);
+}
+
+.browse-main .person-head {
+  padding: 10px 20px 6px;
+}
+
+.person-text h2 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+@media (max-width: 860px) {
+  .browse-shell {
+    flex-direction: column;
+  }
+  .browse-sidebar {
+    flex: 1 1 auto;
+    position: static;
+    max-height: none;
+    width: 100%;
+    padding: 16px 20px 0;
+  }
+  .value-list {
+    max-height: 220px;
+    overflow-y: auto;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Community — viewer ratings, comments and replies
+ * ------------------------------------------------------------------ */
+
+.rating.us {
+  border-color: var(--warm-line);
+  background: linear-gradient(180deg, rgba(255, 217, 160, 0.06), transparent);
+}
+.rating.us .rating-value {
+  color: var(--warm);
+}
+.mark-us {
+  background: var(--warm);
+  color: #2a1f0f;
+}
+
+.community-card {
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top-color: var(--panel-edge);
+  border-radius: 14px;
+  padding: 22px 24px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.rate-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.rate-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.rate-average {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* --- Stars (Stars.tsx) — static display and, via .star-picker, the interactive input --- */
+.stars {
+  display: inline-flex;
+  gap: 1px;
+  vertical-align: middle;
+}
+.star {
+  position: relative;
+  width: var(--star-size, 16px);
+  height: var(--star-size, 16px);
+  display: inline-block;
+  flex: 0 0 auto;
+}
+.star svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.star-outline path {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1.6;
+}
+.star-fill path {
+  fill: var(--warm);
+}
+.star-empty .star-fill {
+  clip-path: inset(0 100% 0 0);
+}
+.star-half .star-fill {
+  clip-path: inset(0 50% 0 0);
+}
+.star-full .star-fill {
+  clip-path: inset(0 0 0 0);
+}
+
+/* The interactive picker: same visual, plus two invisible half-width hit
+   targets per star so a click lands on the near half-star. */
+.star-picker .star {
+  cursor: pointer;
+}
+.star-picker .star-outline path {
+  stroke: var(--muted);
+}
+.star-hit {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.star-hit-left {
+  left: 0;
+}
+.star-hit-right {
+  right: 0;
+}
+
+.composer {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.composer-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 0.88rem;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 40px;
+}
+.composer-input::placeholder {
+  color: var(--muted);
+}
+.composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+.btn-post {
+  background: var(--warm);
+  color: #2a1f0f;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.btn-post:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.comment-list {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.comment {
+  display: flex;
+  gap: 10px;
+  scroll-margin-top: 90px;
+}
+.comment-body {
+  flex: 1;
+  min-width: 0;
+}
+.comment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.comment-author {
+  font-weight: 600;
+  font-size: 0.86rem;
+}
+.comment-time {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+.comment-text {
+  font-size: 0.88rem;
+  margin: 3px 0 6px;
+  color: #dbe0ea;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.comment-text.comment-deleted {
+  color: var(--muted);
+  font-style: italic;
+}
+.comment-actions {
+  display: flex;
+  gap: 14px;
+}
+.comment-actions button {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 600;
+}
+.comment-actions button:hover {
+  color: var(--accent);
+}
+
+.reply-list {
+  margin-top: 14px;
+  padding-left: 16px;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.reply .avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 0.62rem;
+}
+.reply .comment-author {
+  font-size: 0.82rem;
+}
+.reply .comment-text {
+  font-size: 0.84rem;
+}
+
+.reply-composer {
+  margin-top: 14px;
+  padding-left: 16px;
+  display: flex;
+  gap: 8px;
+}
+.reply-composer .composer-input {
+  min-height: 34px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+}
+.reply-composer .avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 0.62rem;
+}
+
+/* --- Notification bell, in the AppBar ------------------------------ */
+
+.bell-wrap {
+  position: relative;
+}
+.bell-btn {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 6px;
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+}
+.bell-btn:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+.bell-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.bell-dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 320px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: #14171f;
+  border: 1px solid var(--panel-edge);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  z-index: 60;
+}
+.bell-dropdown-head {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  background: #14171f;
+}
+.notif-empty {
+  padding: 20px 16px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+.notif-row {
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  text-decoration: none;
+  color: var(--text);
+}
+.notif-row:hover {
+  background: rgba(91, 141, 239, 0.06);
+}
+.notif-row.unread {
+  background: rgba(91, 141, 239, 0.05);
+}
+.notif-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: 0 0 auto;
+  margin-top: 7px;
+}
+.notif-row.read .notif-dot {
+  visibility: hidden;
+}
+.notif-text {
+  flex: 1;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.notif-time {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  margin-top: 2px;
+}
+
+@media (max-width: 700px) {
+  .bell-dropdown {
+    position: fixed;
+    top: 60px;
+    right: 10px;
+    left: 10px;
+    width: auto;
   }
 }

@@ -1,4 +1,5 @@
 import { pruneExpiredSessions } from "@/lib/db";
+import { logEvent } from "@/lib/events";
 import { getClientIp, getUserAgent } from "@/lib/ip";
 import {
   authenticateByName,
@@ -76,6 +77,14 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     if (error instanceof JellyfinError && error.status === 0) {
       console.error("[auth/login] Jellyfin unreachable:", error.message);
+      logEvent({
+        category: "internal_api",
+        severity: "error",
+        source: "auth_login",
+        message: "Jellyfin unreachable during login",
+        detail: { error: error.message },
+        username,
+      });
       return Response.json(
         { error: "upstream_unavailable", message: "The media server is not responding." },
         { status: 502, headers: NO_STORE },
@@ -92,6 +101,13 @@ export async function POST(request: Request): Promise<Response> {
 
   if (!auth?.AccessToken || !auth.User?.Id) {
     console.error("[auth/login] Unexpected Jellyfin auth payload shape.");
+    logEvent({
+      category: "internal_api",
+      severity: "error",
+      source: "auth_login",
+      message: "Jellyfin returned an unexpected auth payload shape",
+      username,
+    });
     return Response.json(
       { error: "upstream_error", message: "The media server returned an unexpected response." },
       { status: 502, headers: NO_STORE },

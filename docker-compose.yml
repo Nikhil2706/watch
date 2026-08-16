@@ -79,8 +79,26 @@ services:
       # Optional. Without it the ratings row falls back to Jellyfin's own
       # TMDB score; with it, IMDb / Rotten Tomatoes / Metacritic appear.
       - OMDB_API_KEY=${OMDB_API_KEY:-}
+      - MEDIA_LIBRARY=/media
+      - MEDIA_EXCLUDED=/excluded
+      # The real Windows path behind /media, for building file:// links the
+      # dashboard can open in Explorer. Container paths mean nothing on the
+      # host side of that link.
+      - HOST_MEDIA_PATH=${MEDIA_PATH:-./media}
     volumes:
       - gate-data:/app/data
+      # Read-write, unlike the jellyfin service's read-only mount: the library
+      # review dashboard (/api/admin/library/*) needs to move files out of the
+      # library (duplicates, excluded items) on the admin's say-so. Jellyfin
+      # itself still can't touch media — this grants the gate the capability,
+      # not Jellyfin.
+      - ${MEDIA_PATH:-./media}:/media
+      # A SEPARATE mount, deliberately not a subfolder of the line above.
+      # Jellyfin scans its library root recursively, so an excluded-items
+      # folder living inside it gets re-indexed as new items on the very next
+      # scan — silently undoing the exclusion. This must be outside whatever
+      # directory MEDIA_PATH points at.
+      - ${MEDIA_EXCLUDED_PATH:-./media-excluded}:/excluded
 
   # Watch-folder ingest. Converts anything a browser cannot direct-play and
   # publishes it into the library Jellyfin actually reads.
@@ -110,10 +128,15 @@ services:
       - MEDIA_INCOMING=/incoming
       - MEDIA_LIBRARY=/media
       - WATCH_POLL_SECONDS=${WATCH_POLL_SECONDS:-30}
+      # "queue" (default): drains only what the gate's Transform button
+      # queued in media_jobs, then exits — no folder watching, no
+      # library-wide auto-discovery. Set WORKER_MODE=watch to restore the
+      # old always-on daemon behaviour below.
+      - WORKER_MODE=${WORKER_MODE:-queue}
       # Continuously upgrade the existing library, not just new drops. Anything
       # a browser cannot direct-play gets converted in place; the original is
       # moved to MEDIA_ARCHIVE, which must sit OUTSIDE the library or Jellyfin
-      # indexes both as separate movies.
+      # indexes both as separate movies. Only takes effect in WORKER_MODE=watch.
       - LIBRARY_SCAN=${LIBRARY_SCAN:-true}
       - LIBRARY_SCAN_INTERVAL_MINUTES=${LIBRARY_SCAN_INTERVAL_MINUTES:-60}
       - MEDIA_ARCHIVE=/incoming/.processed
@@ -196,25 +219,6 @@ services:
     # until it silently did not. Leaving discovery to cloudflared costs a slower
     # reconnect while it times out the unreachable half, and is the only thing
     # that survives the flip.
-    environment:
-      # TWO WAYS TO AUTHENTICATE THIS CONNECTOR.
-      #
-      # 1. Token (default, and the right choice for a machine that is not
-      #    yours). Create the tunnel in the Zero Trust dashboard, copy its
-      #    connector token, put it in .env. Nothing to log into on this host,
-      #    no certificate on its disk, and the ingress rules live in the
-      #    dashboard rather than in a config.yml somebody has to write.
-      #
-      #    The token IS a credential: anyone holding it can run a connector
-      #    for this tunnel. It belongs in .env, which is gitignored.
-      #
-      # 2. Credentials file, for a host that has run `cloudflared tunnel
-      #    login`. Leave TUNNEL_TOKEN unset and point CF_CREDS_DIR at the
-      #    directory holding cert.pem, the tunnel JSON and config.yml.
-      #
-      # Setting both is not an error — an empty TUNNEL_TOKEN is ignored and
-      # cloudflared falls through to the credentials file. Verified.
-      - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
     command: >
       tunnel --loglevel info
       --protocol ${CF_PROTOCOL:-http2}
@@ -229,17 +233,10 @@ services:
       #
       # Read-only: this container has no business rewriting your credentials.
       #
-      # Defaults to an empty directory in the repo, which is all a token-mode
-      # connector needs — it reads nothing from disk. A host using the
-      # credentials-file mode sets CF_CREDS_DIR to wherever
-      # `cloudflared tunnel login` wrote them: ~/.cloudflared on Linux, or
-      # C:/Users/<name>/.cloudflared on Windows (forward slashes; compose does
-      # not want the backslashes Explorer shows you).
-      #
-      # The default is NOT ${HOME}/.cloudflared: $HOME does not exist on
-      # Windows, so that path resolves to /.cloudflared and the mount fails on
-      # a machine that was never going to use it.
-      - ${CF_CREDS_DIR:-./cloudflared}:/etc/cloudflared:ro
+      # CF_CREDS_DIR exists for Windows, where ${HOME} is not set at all and
+      # the path looks like C:/Users/<name>/.cloudflared (forward slashes;
+      # compose does not want the backslashes Explorer shows you).
+      - ${CF_CREDS_DIR:-${HOME}/.cloudflared}:/etc/cloudflared:ro
 
 networks:
   # Carries gate <-> jellyfin traffic.

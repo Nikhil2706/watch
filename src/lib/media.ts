@@ -1,6 +1,20 @@
 import "server-only";
 
+import { parseEpisodeInfo } from "./episode-naming";
 import { userFetch, userPost } from "./jellyfin";
+import {
+  getAllGroupSeriesPosters,
+  getConfirmedPathSet,
+  getExcludedPathSet,
+  getGroup,
+  getGroupedPathMap,
+  getGroupOverview,
+  getGroupSeriesId,
+  getGroupSeriesMeta,
+  getGroupSeriesPoster,
+  getWhitelistedPathSet,
+} from "./library-curation";
+import { getRatings, type Ratings } from "./ratings";
 import { stripCredentials } from "./strip-credentials";
 import type { ResolvedSession } from "./session";
 
@@ -19,6 +33,8 @@ export interface MediaItem {
   Id: string;
   Name: string;
   Type: string;
+  /** Container path, e.g. "/media/Horror/x.mp4" — how excluded/grouped decisions match against a fetched item. */
+  Path?: string;
   Overview?: string;
   ProductionYear?: number;
   CommunityRating?: number;
@@ -73,15 +89,38 @@ interface ItemsResponse {
 const TICKS_PER_MS = 10_000;
 
 // ProviderIds rides along so the featured title can show its IMDb score
-// without a second round trip for the full item.
+// without a second round trip for the full item. Path rides along so the
+// library-curation exclude/group decisions (keyed on path, not item id) can
+// be applied to whatever list this produced — see filterVisible below.
 const LIST_FIELDS =
-  "PrimaryImageAspectRatio,Overview,Genres,ProductionYear,CommunityRating,OfficialRating,MediaSourceCount,RunTimeTicks,UserData,ProviderIds";
+  "PrimaryImageAspectRatio,Overview,Genres,ProductionYear,CommunityRating,OfficialRating,MediaSourceCount,RunTimeTicks,UserData,ProviderIds,Path";
 
 const DETAIL_FIELDS =
-  "Overview,Genres,ProductionYear,CommunityRating,OfficialRating,People,MediaSources,MediaStreams,Studios,Taglines,ProviderIds";
+  "Overview,Genres,ProductionYear,CommunityRating,OfficialRating,People,MediaSources,MediaStreams,Studios,Taglines,ProviderIds,Path";
 
 function creds(session: ResolvedSession) {
   return [session.jellyfinToken, session.jellyfinDeviceId] as const;
+}
+
+function hasNoMetadata(item: MediaItem): boolean {
+  return !item.Overview && !item.ProviderIds?.Tmdb && !item.ProviderIds?.Imdb;
+}
+
+/**
+ * Drops anything the review dashboard excluded, PLUS anything with no fetched
+ * metadata at all that hasn't been explicitly whitelisted — a title with no
+ * overview, no TMDB/IMDb id and no poster is an open question for the review
+ * dashboard, not something to hand a viewer. Two local SQLite reads, not a
+ * Jellyfin call — cheap enough to run on every list this module returns.
+ */
+function filterVisible(items: MediaItem[]): MediaItem[] {
+  const excluded = getExcludedPathSet();
+  const whitelisted = getWhitelistedPathSet();
+  return items.filter((item) => {
+    if (item.Path && excluded.has(item.Path)) return false;
+    if (hasNoMetadata(item) && !(item.Path && whitelisted.has(item.Path))) return false;
+    return true;
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -98,7 +137,7 @@ export async function getResume(session: ResolvedSession): Promise<MediaItem[]> 
     fields: LIST_FIELDS,
     enableImageTypes: "Primary,Backdrop,Thumb",
   });
-  return data?.Items ?? [];
+  return filterVisible(data?.Items ?? []);
 }
 
 export async function getLatest(session: ResolvedSession): Promise<MediaItem[]> {
@@ -111,7 +150,7 @@ export async function getLatest(session: ResolvedSession): Promise<MediaItem[]> 
     fields: LIST_FIELDS,
     enableImageTypes: "Primary,Backdrop",
   });
-  return Array.isArray(data) ? data : [];
+  return filterVisible(Array.isArray(data) ? data : []);
 }
 
 export async function getAllMovies(
@@ -125,12 +164,230 @@ export async function getAllMovies(
     includeItemTypes: "Movie",
     sortBy: options.sortBy ?? "SortName",
     sortOrder: "Ascending",
-    limit: options.limit ?? 200,
+    // Was 200. Silently truncated the library the moment it passed 200 titles
+    // — Browse showed "181 movies" while Jellyfin had 446. 2000 comfortably
+    // covers any library this app is realistically pointed at.
+    limit: options.limit ?? 2000,
     genres: options.genre,
     fields: LIST_FIELDS,
     enableImageTypes: "Primary,Backdrop",
   });
-  return data?.Items ?? [];
+  return filterVisible(data?.Items ?? []);
+}
+
+export interface PersonCredit {
+  Name: string;
+  Type: string;
+  Id: string;
+  PrimaryImageTag?: string;
+}
+
+/**
+ * Every movie's cast/director credits, and NOTHING else — Browse's
+ * director/actor dimensions are the only caller, and even alone the People
+ * field costs ~20 SECONDS against Jellyfin, independent of what else is on
+ * the request (measured directly: a People-only fetch and a People-plus-
+ * every-other-field fetch differed by about two seconds, so the field
+ * itself is the entire cost — trimming the rest of the request doesn't
+ * help). browse-data.ts is responsible for caching this in SQLite so that
+ * cost is paid rarely, not per page load; this function only knows how to
+ * fetch it, not how to cache it.
+ */
+export async function getPeopleForAllMovies(session: ResolvedSession): Promise<Map<string, PersonCredit[]>> {
+  const [token, device] = creds(session);
+  const data = await userFetch<ItemsResponse>(
+    token,
+    device,
+    "/Items",
+    {
+      recursive: true,
+      includeItemTypes: "Movie",
+      limit: 2000,
+      fields: "People",
+    },
+    90_000,
+  );
+  const map = new Map<string, PersonCredit[]>();
+  for (const item of data?.Items ?? []) {
+    map.set(item.Id, item.People ?? []);
+  }
+  return map;
+}
+
+export interface ResolvedGroup {
+  groupId: string;
+  groupName: string;
+  members: MediaItem[];
+}
+
+/**
+ * Splits an already-fetched (already exclude-filtered) item list into what's
+ * ungrouped and what belongs together — the review dashboard's grouping
+ * decisions, resolved against *this* list rather than re-fetched from
+ * Jellyfin. A local SQLite read plus an in-memory path match; no Jellyfin
+ * round trip, and nothing here depends on Jellyfin item ids staying stable.
+ */
+export function splitByGroup(items: MediaItem[]): { ungrouped: MediaItem[]; groups: ResolvedGroup[] } {
+  const groupedPaths = getGroupedPathMap();
+  if (groupedPaths.size === 0) return { ungrouped: items, groups: [] };
+
+  const byGroup = new Map<string, ResolvedGroup>();
+  const ungrouped: MediaItem[] = [];
+  for (const item of items) {
+    const g = item.Path ? groupedPaths.get(item.Path) : undefined;
+    if (!g) {
+      ungrouped.push(item);
+      continue;
+    }
+    let entry = byGroup.get(g.groupId);
+    if (!entry) {
+      entry = { groupId: g.groupId, groupName: g.groupName, members: [] };
+      byGroup.set(g.groupId, entry);
+    }
+    entry.members.push(item);
+  }
+  // A group with only one member currently present (its siblings filtered out
+  // by genre, say) reads better as a normal poster than a "group of one".
+  const groups: ResolvedGroup[] = [];
+  for (const g of byGroup.values()) {
+    if (g.members.length > 1) groups.push(g);
+    else ungrouped.push(...g.members);
+  }
+  return { ungrouped, groups };
+}
+
+export interface CollectionItem {
+  item: MediaItem;
+  /**
+   * "Episode 7", "Episode 7: Title" when the filename carries a season/
+   * episode marker, otherwise null — Jellyfin's own per-file match is often
+   * wrong (each file was matched as its own movie), so this only overrides
+   * the displayed title when the filename itself is confident about the
+   * part number. Nothing here touches item.Name or Jellyfin's stored match.
+   */
+  label: string | null;
+}
+
+export interface CollectionDetail {
+  Id: string;
+  Name: string;
+  Overview?: string;
+  /** The real series' own poster, if the admin has linked one — never any one episode's. */
+  posterSrc?: string | null;
+  genres: string[];
+  actors: string[];
+  director: string[];
+  writer: string[];
+  /** From ratings.ts's own cache, keyed on the series' IMDb id — same source a movie's detail page uses. */
+  ratings: Ratings | null;
+  items: CollectionItem[];
+}
+
+/**
+ * "Episode 7", "Episode 7: Land of Enchantment", or null when the filename
+ * has no episode marker at all. A path the admin has explicitly confirmed
+ * (via Search/Manual/OMDb-fetch on the review dashboard) wins over the
+ * filename's own guess — that's the whole point of fetching real episode
+ * data. An unconfirmed Name is just Jellyfin's automatic guess, often for
+ * the wrong film entirely, so it's never shown here.
+ *
+ * This uses this app's own confirmed-paths record rather than Jellyfin's
+ * LockedFields: LockedFields is set correctly but Jellyfin's /Items LIST
+ * endpoint silently drops it even when requested (verified against
+ * 10.11.11), so it's not readable from the same bulk query this list
+ * already runs.
+ */
+function resolveEpisodeLabel(
+  item: MediaItem,
+  parsed: ReturnType<typeof parseEpisodeInfo>,
+  confirmedPaths: Set<string>,
+): string | null {
+  if (parsed.episode === null) return null;
+  const base = `Episode ${parsed.episode}`;
+  const nameConfirmed = item.Path && confirmedPaths.has(item.Path) && item.Name;
+  const title = nameConfirmed ? item.Name : parsed.title;
+  return title ? `${base}: ${title}` : base;
+}
+
+/** A group's name plus its current members, resolved fresh from Jellyfin by path. */
+export async function getCollection(
+  session: ResolvedSession,
+  groupId: string,
+): Promise<CollectionDetail | null> {
+  const group = getGroup(groupId);
+  if (!group) return null;
+
+  const pathSet = new Set(group.paths);
+  const confirmedPaths = getConfirmedPathSet();
+  const all = await getAllMovies(session, { limit: 2000 });
+  const items: CollectionItem[] = all
+    .filter((item) => item.Path && pathSet.has(item.Path))
+    .map((item) => {
+      const parsed = parseEpisodeInfo(item.Path ?? "");
+      return {
+        item,
+        label: resolveEpisodeLabel(item, parsed, confirmedPaths),
+        sortKey: parsed.sortKey,
+        path: item.Path ?? "",
+      };
+    })
+    .sort((a, b) => a.sortKey - b.sortKey || a.path.localeCompare(b.path))
+    .map(({ item, label }) => ({ item, label }));
+
+  const meta = getGroupSeriesMeta(groupId);
+  const seriesImdbId = getGroupSeriesId(groupId);
+  const ratings = seriesImdbId ? await getRatings(seriesImdbId).catch(() => null) : null;
+
+  return {
+    Id: groupId,
+    Name: group.groupName,
+    Overview: getGroupOverview(groupId) ?? undefined,
+    posterSrc: getGroupSeriesPoster(groupId),
+    genres: meta?.genres ?? [],
+    actors: meta?.actors ?? [],
+    director: meta?.director ?? [],
+    writer: meta?.writer ?? [],
+    ratings,
+    items,
+  };
+}
+
+export interface EpisodeContext {
+  groupId: string;
+  groupName: string;
+  /** Every other episode's Jellyfin item id — for filtering this episode out of its own "More like this" row, which otherwise fills up with its siblings once they all share Genres/People from the same OMDb fetch. */
+  siblingIds: Set<string>;
+  /** Episodes after this one, in air order, for a "Future episodes" row. */
+  future: CollectionItem[];
+}
+
+/**
+ * Resolves which group (if any) an item belongs to, and where it sits in
+ * that group's episode order. Null for anything that isn't part of a group
+ * — an ordinary movie has no "future episodes" and needs no similar-items
+ * filtering.
+ */
+export async function getEpisodeContext(
+  session: ResolvedSession,
+  item: MediaItem,
+): Promise<EpisodeContext | null> {
+  if (!item.Path) return null;
+  const group = getGroupedPathMap().get(item.Path);
+  if (!group) return null;
+
+  const collection = await getCollection(session, group.groupId);
+  if (!collection) return null;
+
+  const index = collection.items.findIndex((ci) => ci.item.Id === item.Id);
+  const siblingIds = new Set(collection.items.map((ci) => ci.item.Id));
+  siblingIds.delete(item.Id);
+
+  return {
+    groupId: group.groupId,
+    groupName: collection.Name,
+    siblingIds,
+    future: index === -1 ? [] : collection.items.slice(index + 1),
+  };
 }
 
 /** Genre names that actually have movies behind them, most populous first. */
@@ -171,7 +428,7 @@ export async function getSimilar(
       `/Items/${encodeURIComponent(itemId)}/Similar`,
       { userId: session.jellyfinUserId, limit: 12, fields: LIST_FIELDS },
     );
-    return data?.Items ?? [];
+    return filterVisible(data?.Items ?? []);
   } catch {
     return [];
   }
@@ -192,7 +449,7 @@ export async function search(
     fields: LIST_FIELDS,
     enableImageTypes: "Primary,Backdrop",
   });
-  return data?.Items ?? [];
+  return filterVisible(data?.Items ?? []);
 }
 
 /* ------------------------------------------------------------------ *
@@ -472,6 +729,11 @@ export interface SearchMatch {
   item: MediaItem;
   /** Why this matched, shown to the user. */
   reason: string;
+  /** Set when this match stands in for a whole grouped title, not one file — links to /collection/{groupId}. */
+  groupId?: string;
+  partsCount?: number;
+  /** The series' own OMDb poster; overrides posterUrl(item) when set. Only present on a group match. */
+  posterSrc?: string | null;
 }
 
 export interface SearchHit {
@@ -480,6 +742,8 @@ export interface SearchHit {
   year: number | null;
   poster: string | null;
   reason: string;
+  href?: string;
+  partsCount?: number;
 }
 
 /** Lightweight shape for the type-ahead dropdown. */
@@ -488,9 +752,95 @@ export function toSearchHit(match: SearchMatch): SearchHit {
     id: match.item.Id,
     name: match.item.Name,
     year: match.item.ProductionYear ?? null,
-    poster: posterUrl(match.item, 120),
+    poster: match.posterSrc !== undefined ? match.posterSrc : posterUrl(match.item, 120),
     reason: match.reason,
+    href: match.groupId ? `/collection/${match.groupId}` : undefined,
+    partsCount: match.partsCount,
   };
+}
+
+export interface CollapsedRow {
+  /** One entry per real movie, plus one synthetic entry per group encountered (its first-seen member's slot). */
+  items: MediaItem[];
+  /** groupId (== the synthetic item's Id) -> /collection/{groupId}, for PosterCard's href override. */
+  hrefs: Map<string, string>;
+  /** groupId -> the series' own OMDb poster (or null if it has none yet), for PosterCard's posterSrc override. */
+  posters: Map<string, string | null>;
+  /** groupId -> episode count, for PosterCard's "N parts" badge. */
+  partsCounts: Map<string, number>;
+  /** groupId -> the show's real name, in case the synthetic item's own Name ever needs overriding too. */
+  titles: Map<string, string>;
+}
+
+/**
+ * Collapses any grouped TV episodes in a list down to one tile per show —
+ * the same "N parts" tile Search and Browse already use — so a title list
+ * assembled from raw Jellyfin items (each episode is its own "Movie" item
+ * to Jellyfin; the grouping only exists in this app's own database) never
+ * shows a show as ten separate, often mis-titled entries.
+ *
+ * Only the FIRST episode of a show encountered in the input list produces a
+ * tile; every later episode from the same show is dropped rather than
+ * turned into a duplicate tile — same reasoning as smartSearch's insertion-
+ * time dedup.
+ *
+ * Deliberately NOT applied to "Continue watching": that row is about
+ * resuming one specific episode's playback position, not browsing titles,
+ * so collapsing it would replace a working "resume where I left off" link
+ * with a link to the show's episode list instead. Apply this only to rows
+ * that are genuinely "browse titles" — More like this, Recently added,
+ * genre rows, a person's filmography, search.
+ */
+export function collapseEpisodeGroups(rawItems: MediaItem[]): CollapsedRow {
+  const groupedPaths = getGroupedPathMap();
+  const seriesPosters = getAllGroupSeriesPosters();
+
+  const items: MediaItem[] = [];
+  const hrefs = new Map<string, string>();
+  const posters = new Map<string, string | null>();
+  const partsCounts = new Map<string, number>();
+  const titles = new Map<string, string>();
+  const seenGroups = new Set<string>();
+
+  for (const item of rawItems) {
+    const g = item.Path ? groupedPaths.get(item.Path) : undefined;
+    if (!g) {
+      items.push(item);
+      continue;
+    }
+    if (seenGroups.has(g.groupId)) continue;
+    seenGroups.add(g.groupId);
+
+    const full = getGroup(g.groupId);
+    const name = full?.groupName ?? g.groupName;
+    items.push({ Id: g.groupId, Name: name, Type: "Group" });
+    hrefs.set(g.groupId, `/collection/${g.groupId}`);
+    partsCounts.set(g.groupId, full?.paths.length ?? 1);
+    posters.set(g.groupId, seriesPosters.get(g.groupId) ?? null);
+    titles.set(g.groupId, name);
+  }
+
+  return { items, hrefs, posters, partsCounts, titles };
+}
+
+/**
+ * Swaps a group's placeholder match (still carrying whichever member item
+ * first matched) for the group's own name, poster and part count — so
+ * "The Curse" reads as the show, not as episode 3 of it.
+ */
+function finalizeGroupMatches(matches: SearchMatch[]): SearchMatch[] {
+  const seriesPosters = getAllGroupSeriesPosters();
+  return matches.map((match) => {
+    if (!match.groupId) return match;
+    const full = getGroup(match.groupId);
+    return {
+      item: { Id: match.groupId, Name: full?.groupName ?? match.item.Name, Type: "Group" },
+      reason: match.reason,
+      groupId: match.groupId,
+      partsCount: full?.paths.length,
+      posterSrc: seriesPosters.get(match.groupId) ?? null,
+    };
+  });
 }
 
 /**
@@ -520,13 +870,22 @@ export async function smartSearch(
 
   const [byTitle, everything] = await Promise.all([
     search(session, query).catch(() => []),
-    getAllMovies(session, { limit: 400 }).catch(() => []),
+    // Same cap that used to silently truncate Browse — matched to the same
+    // fix so a title past the old 400th slot isn't unfindable by fallback.
+    getAllMovies(session, { limit: 2000 }).catch(() => []),
   ]);
 
+  // Grouped episodes are deduped at insertion, not just in the final list:
+  // otherwise a show with ten mis-matched episode files could fill the
+  // entire result limit with copies of itself before any other title got a
+  // slot — the same key groupId ends up landing in this map only once.
+  const groupedPaths = getGroupedPathMap();
   const hits = new Map<string, SearchMatch>();
   const add = (item: MediaItem, reason: string) => {
-    if (hits.has(item.Id) || hits.size >= limit) return;
-    hits.set(item.Id, { item, reason });
+    const g = item.Path ? groupedPaths.get(item.Path) : undefined;
+    const key = g ? `group:${g.groupId}` : item.Id;
+    if (hits.has(key) || hits.size >= limit) return;
+    hits.set(key, { item, reason, groupId: g?.groupId });
   };
 
   for (const item of byTitle) add(item, "Title");
@@ -571,7 +930,7 @@ export async function smartSearch(
     }
   }
 
-  return [...hits.values()];
+  return finalizeGroupMatches([...hits.values()]);
 }
 
 /* ------------------------------------------------------------------ *
@@ -627,7 +986,7 @@ export async function getItemsByPerson(
       fields: LIST_FIELDS,
       enableImageTypes: "Primary,Backdrop",
     });
-    return data?.Items ?? [];
+    return filterVisible(data?.Items ?? []);
   } catch {
     return [];
   }

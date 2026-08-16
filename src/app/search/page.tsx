@@ -21,10 +21,14 @@ export default async function SearchPage({
   // Same engine as the type-ahead. They used to differ, which meant the
   // dropdown could offer matches this page then failed to find.
   const matches = query ? await smartSearch(session, query, 60).catch(() => []) : [];
-  const results = matches.map((m) => m.item);
-  const reasons = new Map(matches.map((m) => [m.item.Id, m.reason]));
 
-  const lists = getMemberships(session.userId, results.map((i) => i.Id));
+  // Only non-group results carry a real Jellyfin id worth looking up a
+  // list membership for — a group's "item" is a synthetic Id that doesn't
+  // exist in Jellyfin.
+  const lists = getMemberships(
+    session.userId,
+    matches.filter((m) => !m.groupId).map((m) => m.item.Id),
+  );
 
   return (
     <>
@@ -38,18 +42,28 @@ export default async function SearchPage({
 
       {!query ? (
         <div className="empty">Type a title in the search box above.</div>
-      ) : results.length === 0 ? (
+      ) : matches.length === 0 ? (
         <div className="empty">No titles matched “{query}”.</div>
       ) : (
         <div className="grid">
-          {results.map((item) => (
-            <PosterCard
-              key={item.Id}
-              item={item}
-              lists={lists.get(item.Id)}
-              badge={reasons.get(item.Id)}
-            />
-          ))}
+          {matches.map((match) =>
+            match.groupId ? (
+              <PosterCard
+                key={match.groupId}
+                item={match.item}
+                href={`/collection/${match.groupId}`}
+                posterSrc={match.posterSrc}
+                partsCount={match.partsCount}
+              />
+            ) : (
+              <PosterCard
+                key={match.item.Id}
+                item={match.item}
+                lists={lists.get(match.item.Id)}
+                badge={match.reason}
+              />
+            ),
+          )}
         </div>
       )}
     </>

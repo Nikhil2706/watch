@@ -59,6 +59,31 @@ export const REDEEM_LIMIT: RateLimitRule = {
   windowMs: 60 * 60 * 1000,
 };
 
+/**
+ * Client-reported errors (player failures, React crashes) — the one log
+ * source anyone who can load the site can trigger, deliberately or not.
+ * Generous enough that a genuinely rough playback session (a few stalls, a
+ * couple of retries) doesn't get clipped, tight enough that a scripted flood
+ * can't turn the event log into noise.
+ */
+export const CLIENT_ERROR_LIMIT: RateLimitRule = {
+  name: "client-error",
+  limit: 20,
+  windowMs: 60 * 60 * 1000,
+};
+
+/**
+ * Posting a comment or a rating — a small trusted group, so this exists as
+ * a sanity guard (a stuck retry loop, a fat-fingered double-submit) rather
+ * than real anti-abuse. Keyed by session id at the call site, not IP, so
+ * housemates sharing a connection don't share a bucket.
+ */
+export const COMMENT_LIMIT: RateLimitRule = {
+  name: "comment",
+  limit: 30,
+  windowMs: 60 * 60 * 1000,
+};
+
 export interface RateLimitResult {
   readonly allowed: boolean;
   readonly remaining: number;
@@ -130,7 +155,7 @@ function sweep(store: LimiterState, now: number): void {
   store.lastSweep = now;
 
   // The longest window in play bounds how far back anything can still matter.
-  const longestWindow = Math.max(LOGIN_LIMIT.windowMs, REDEEM_LIMIT.windowMs);
+  const longestWindow = Math.max(LOGIN_LIMIT.windowMs, REDEEM_LIMIT.windowMs, CLIENT_ERROR_LIMIT.windowMs, COMMENT_LIMIT.windowMs);
   const cutoff = now - longestWindow;
 
   for (const [key, hits] of store.buckets) {

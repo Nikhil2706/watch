@@ -1,0 +1,2778 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Curator's Console</title>
+<style>
+  /* Same palette as the site itself (src/app/globals.css) — this tool should
+     feel like a back room of the same building, not a generic admin panel. */
+  :root {
+    --bg: #06070a; --surface: #12151c; --surface-2: #1a1f28; --border: #232935;
+    --text: #f2f4f8; --muted: #939cad; --accent: #5b8def;
+    --warm: #ffd9a0; --warm-line: rgba(255, 217, 160, 0.3); --warm-glow: rgba(255, 200, 120, 0.35);
+    --ok: #5bd18b; --warn: #ffcc33; --danger: #ef5b6b; --dead: #6c7686;
+    --radius: 10px;
+    --panel: linear-gradient(180deg, rgba(30, 35, 46, 0.72), rgba(14, 17, 23, 0.8));
+    --panel-edge: rgba(255, 255, 255, 0.14);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 0 60px; background: var(--bg); color: var(--text);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* A quiet warm wash at the top, same trick as the site's .ambience-top —
+     just enough to say "same lights, same building" without competing with
+     the working parts of the page below it. */
+  .ambient-top {
+    position: fixed; top: 0; left: 0; right: 0; height: 300px; z-index: -1;
+    background: radial-gradient(90% 100% at 22% 0%, rgba(255, 226, 180, 0.08), rgba(255, 214, 160, 0.02) 42%, transparent 72%);
+    pointer-events: none;
+  }
+
+  /* --- Header -------------------------------------------------------- */
+  .top {
+    display: flex; align-items: center; gap: 12px;
+    padding: 26px 24px 18px; max-width: 1080px; margin: 0 auto;
+  }
+  .brand-mark { color: var(--warm); filter: drop-shadow(0 0 10px var(--warm-glow)); flex: 0 0 auto; }
+  .top h1 {
+    margin: 0; font-size: 1.5rem; font-weight: 400; letter-spacing: -0.01em;
+    font-family: ui-serif, Georgia, "Times New Roman", serif;
+  }
+  .top .sub { margin: 2px 0 0; color: var(--muted); font-size: 0.82rem; }
+
+  /* --- Tabs ------------------------------------------------------------ */
+  .tabs {
+    display: flex; gap: 6px; padding: 0 24px 18px; max-width: 1080px; margin: 0 auto;
+    border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  }
+  .tab-btn {
+    background: transparent; border: 0; color: var(--muted); font-size: 0.88rem;
+    font-weight: 600; padding: 8px 4px; margin-bottom: -1px; cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--text); border-bottom-color: var(--warm); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  h1, h2, h3 { font-family: inherit; }
+  label { display: block; font-size: 0.72rem; font-weight: 600; color: var(--muted);
+          text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px; }
+  input, button, select {
+    font: inherit; border-radius: 8px; border: 1px solid var(--border);
+    padding: 9px 12px; background: rgba(0, 0, 0, 0.35); color: var(--text);
+  }
+  input::placeholder { color: #6b7486; }
+  input:focus, select:focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(91, 141, 239, 0.22);
+  }
+  button {
+    cursor: pointer; border-color: transparent; background: var(--accent); color: #fff;
+    font-weight: 600; transition: filter 0.12s ease, transform 0.12s ease;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.1); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--text); border-color: var(--border); font-weight: 500; }
+  button.ghost:hover:not(:disabled) { filter: none; border-color: var(--accent); }
+  button.danger { background: transparent; color: var(--danger); border-color: var(--border); font-weight: 500; }
+  button.danger:hover:not(:disabled) { filter: none; background: var(--danger); color: #fff; border-color: transparent; }
+  button.warm { background: var(--warm); color: #2a1f0f; }
+
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .row > div { flex: 1 1 150px; }
+  .row > div.narrow { flex: 0 0 110px; }
+
+  .card {
+    background: var(--panel); border: 1px solid rgba(255, 255, 255, 0.08); border-top-color: var(--panel-edge);
+    border-radius: 14px; padding: 18px; margin-bottom: 16px;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  }
+  .card > .row:first-child, .card > div:first-child { margin-top: 0; }
+  .card-title { font-size: 0.98rem; font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+       color: var(--muted); border-bottom: 1px solid var(--border); padding: 8px 10px; white-space: nowrap; }
+  td { padding: 10px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+
+  .pill { display: inline-block; font-size: 0.68rem; font-weight: 700; padding: 3px 9px;
+          border-radius: 20px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .s-active { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+  .s-revoked { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+  .s-expired, .s-exhausted { background: color-mix(in srgb, var(--dead) 20%, transparent); color: var(--dead); }
+
+  code { background: var(--surface-2); padding: 2px 7px; border-radius: 5px;
+         font: 12px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; }
+
+  .link-out {
+    display: flex; gap: 8px; align-items: center; margin-top: 12px; padding: 12px;
+    border-radius: 10px; background: color-mix(in srgb, var(--ok) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+  }
+  .link-out input { flex: 1; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+
+  .note { font-size: 0.8rem; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .msg {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    min-width: 260px; max-width: min(90vw, 640px); z-index: 1000;
+    box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.6);
+    padding: 11px 18px; border-radius: 10px; font-size: 13px; display: none;
+    border: 1px solid transparent;
+  }
+  .msg.err { display: block; background: rgba(239, 91, 107, 0.16); color: #ffb3bc; border-color: rgba(239, 91, 107, 0.4); }
+  .msg.ok  { display: block; background: rgba(91, 209, 139, 0.14); color: var(--ok); border-color: rgba(91, 209, 139, 0.4); }
+  .empty { text-align: center; color: var(--muted); padding: 30px; font-size: 14px; }
+  .muted { color: var(--muted); font-size: 12px; }
+
+  .rv-group {
+    border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px;
+    background: rgba(255, 255, 255, 0.015);
+  }
+  .rv-group-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .rv-group-head strong { font-size: 13px; }
+  .rv-group-head .spacer { flex: 1; }
+  .rv-item {
+    display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px;
+    border-top: 1px solid var(--border);
+  }
+  .rv-item:first-of-type { border-top: 0; }
+  .rv-item .rv-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rv-item .rv-path { color: var(--muted); font-size: 11px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rv-item-actions { display: flex; gap: 6px; flex: 0 0 auto; align-items: center; }
+  .rv-item-actions button { padding: 5px 10px; font-size: 12px; }
+  .rv-openfolder {
+    font-size: 12px; color: var(--accent); text-decoration: none; white-space: nowrap;
+    padding: 5px 10px; border: 1px solid var(--border); border-radius: 8px;
+  }
+  .rv-openfolder:hover { background: rgba(91, 141, 239, 0.12); border-color: var(--accent); }
+  .rv-inline-panel {
+    margin: 6px 0 10px 26px; padding: 12px; border-radius: 10px;
+    background: rgba(91, 141, 239, 0.07); border: 1px solid rgba(91, 141, 239, 0.25);
+  }
+  .rv-inline-panel .row { margin-bottom: 8px; }
+  .rv-candidate {
+    display: flex; gap: 10px; align-items: center; padding: 7px; border-radius: 8px; cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .rv-candidate:hover { background: rgba(91, 141, 239, 0.1); border-color: rgba(91, 141, 239, 0.3); }
+  .rv-candidate img { width: 34px; height: 51px; object-fit: cover; border-radius: 4px; background: var(--surface-2); flex: 0 0 auto; }
+  .rv-candidate .rv-cname { font-size: 13px; font-weight: 600; }
+  .rv-candidate .rv-coverview { font-size: 11px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .rv-folder-toggle { cursor: pointer; user-select: none; }
+  .rv-folder-toggle:hover { color: var(--warm); }
+  .rv-count { font-size: 11px; color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .rv-item.rv-done { opacity: 0.5; }
+  .rv-item.rv-done .rv-name { text-decoration: line-through; }
+  .rv-done-label { flex: 0 0 auto; font-size: 11px; font-weight: 700; color: var(--ok); text-transform: uppercase; letter-spacing: 0.03em; }
+  .cur-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 13px; border-top: 1px solid var(--border); }
+  .cur-row:first-child { border-top: 0; }
+  .cur-row .cur-name { flex: 1; min-width: 0; }
+  .cur-row .cur-path { color: var(--muted); font-size: 11px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cur-row button { padding: 5px 10px; font-size: 12px; }
+  .cur-empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+  .cur-group-manage {
+    margin: 4px 0 14px; padding: 12px 14px; border-radius: 10px;
+    background: rgba(91, 141, 239, 0.07); border: 1px solid rgba(91, 141, 239, 0.25);
+  }
+  .cur-group-manage .row { margin-bottom: 8px; }
+  .cur-group-manage strong { font-size: 13px; }
+
+  /* --- Worker tab ----------------------------------------------------- */
+  .wk-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 0; font-size: 13px;
+    border-top: 1px solid var(--border);
+  }
+  .wk-item:first-of-type { border-top: 0; }
+  .wk-item .wk-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wk-item .wk-path { color: var(--muted); font-size: 11px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wk-quality { font-size: 11px; color: var(--warn); }
+  .wk-status { font-size: 11px; color: var(--muted); text-transform: capitalize; }
+  .wk-status.status-done { color: var(--ok); }
+  .wk-status.status-failed { color: var(--danger); }
+  .wk-status.status-running, .wk-status.status-pending { color: var(--accent); }
+
+  /* --- Accolades tab ---------------------------------------------------- */
+  .subtabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .subtab-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    font-size: 0.8rem; font-weight: 600; padding: 6px 13px; border-radius: 999px; cursor: pointer;
+  }
+  .subtab-btn:hover { color: var(--text); border-color: var(--accent); }
+  .subtab-btn.active { color: var(--text); background: rgba(91,141,239,.14); border-color: var(--accent); }
+  .subpanel { display: none; }
+  .subpanel.active { display: block; }
+
+  .ac-lock-pill { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 9px; border-radius: 999px; margin-left: 8px; }
+  .ac-lock-pill.locked { background: rgba(255,217,160,.15); color: var(--warm); border: 1px solid rgba(255,217,160,.35); }
+  .ac-lock-pill.auto { background: rgba(147,156,173,.12); color: var(--muted); border: 1px solid var(--border); }
+
+  .ac-result-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; cursor: pointer; }
+  .ac-result-row:first-child { border-top: 0; }
+  .ac-result-row:hover { color: var(--accent); }
+  .ac-result-row .ac-r-year { color: var(--muted); font-size: 11px; }
+
+  .ac-poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 14px; margin-top: 12px; }
+  .ac-poster-tile { cursor: pointer; border-radius: 8px; overflow: hidden; border: 2px solid transparent; }
+  .ac-poster-tile:hover { border-color: var(--accent); }
+  .ac-poster-tile img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; background: var(--surface-2); }
+  .ac-poster-tile .ac-tile-ph { width: 100%; aspect-ratio: 2/3; display: grid; place-items: center; background: var(--surface-2); color: var(--muted); font-size: 11px; text-align: center; padding: 6px; }
+  .ac-poster-tile .ac-tile-title { font-size: 0.76rem; padding: 6px 4px 2px; }
+  .ac-poster-tile .ac-tile-sub { font-size: 0.68rem; color: var(--muted); padding: 0 4px 6px; }
+
+  .ac-article-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
+  .ac-article-row:first-child { border-top: 0; }
+  .ac-article-row .ac-a-name { flex: 1; min-width: 0; }
+  .ac-article-row .ac-a-meta { color: var(--muted); font-size: 11px; }
+  .ac-article-row button { padding: 5px 10px; font-size: 12px; }
+
+  .ac-option { display: flex; gap: 10px; align-items: flex-start; padding: 9px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 7px; }
+  .ac-option.picked { border-color: var(--warm); background: rgba(255,217,160,.06); }
+  .ac-option .ac-o-text { font-size: 13px; color: #dbe0ea; }
+  .ac-option .ac-o-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .ac-option .ac-o-actions { flex: 0 0 auto; }
+  .ac-option button { padding: 4px 9px; font-size: 11px; }
+
+  .ac-trivia-row { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-top: 1px solid var(--border); font-size: 13px; }
+  .ac-trivia-row:first-child { border-top: 0; }
+  .ac-trivia-row .ac-t-text { flex: 1; }
+  .ac-trivia-row .ac-t-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .ac-trivia-row button { padding: 4px 9px; font-size: 11px; flex: 0 0 auto; }
+
+  /* Trophy vs. rank-pill: a win outranks a numbered list entry, so it gets
+     the more prominent treatment — mirrors the demo mockup's distinction. */
+  .ac-accolade-trophy { font-family: ui-serif, Georgia, serif; color: var(--warm); font-size: 1.1rem; width: 30px; flex: 0 0 auto; text-align: center; }
+  .ac-rank-pill { flex: 0 0 auto; font-family: ui-serif, Georgia, serif; color: var(--warm); font-size: 0.85rem; width: 30px; text-align: center; }
+  .ac-option .ac-o-current { color: var(--warm); font-weight: 600; }
+
+  /* Rich-text toolbar above a plain textarea — buttons wrap the current
+     selection in one of the six tags AccoladesSection.tsx's sanitizer
+     allows, via textarea.setRangeText(), not contenteditable. */
+  .ac-rt-toolbar { display: flex; gap: 4px; margin-bottom: 6px; }
+  .ac-rt-btn { padding: 4px 9px; font-size: 12px; font-weight: 700; border-radius: 6px; background: transparent; border: 1px solid var(--border); color: var(--text); line-height: 1.4; cursor: pointer; }
+  .ac-rt-btn:hover { border-color: var(--accent); }
+  .ac-rt-btn sub, .ac-rt-btn sup { font-size: 9px; }
+  .ac-rt-preview { margin-top: 6px; font-size: 12.5px; line-height: 1.5; color: var(--muted); font-style: italic; min-height: 1.2em; }
+  .ac-rt-preview:empty::before { content: "Formatted preview appears here."; opacity: .6; }
+
+  /* Floating selection toolbar in the article reader — position:fixed since
+     the reader panel scrolls, so viewport-relative coordinates are the only
+     ones that stay correct as the panel scrolls under it. */
+  .ac-reader-toolbar { display: none; position: fixed; z-index: 50; gap: 4px; background: #1d212b; border: 1px solid var(--panel-edge); border-radius: 8px; box-shadow: 0 14px 34px rgba(0,0,0,.55); padding: 5px; }
+  .ac-reader-toolbar.open { display: flex; }
+  .ac-reader-toolbar button { padding: 5px 10px; font-size: 12px; font-weight: 600; border-radius: 6px; background: rgba(91,141,239,.18); border: 0; color: #cfe0ff; cursor: pointer; white-space: nowrap; }
+  .ac-reader-toolbar button:hover { background: rgba(91,141,239,.32); }
+
+  .ac-reader-collector { margin: 0 0 16px; padding: 12px 14px; border-radius: 10px; background: rgba(255,217,160,.06); border: 1px solid var(--warm-line); }
+  .ac-reader-collector.trivia { background: rgba(91,141,239,.06); border-color: rgba(91,141,239,.25); }
+  .ac-rc-head { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--warm); }
+  .ac-reader-collector.trivia .ac-rc-head { color: var(--accent); }
+  .ac-rc-lines { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .ac-rc-line { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .ac-rc-line .ac-rc-text { flex: 1; }
+  .ac-rc-x { flex: 0 0 auto; background: transparent; border: 1px solid var(--border); color: var(--muted); font-size: 10px; padding: 1px 6px; border-radius: 999px; font-weight: 400; cursor: pointer; }
+  .ac-reader-foot { display: flex; gap: 10px; margin-top: 4px; }
+
+  .ac-reader-backdrop { display: none; position: fixed; inset: 0; background: rgba(4,5,8,.72); z-index: 40; }
+  .ac-reader-backdrop.open { display: block; }
+  .ac-reader-panel {
+    display: none; position: fixed; inset: 4% 10%; z-index: 41; overflow-y: auto;
+    background: #14171f; border: 1px solid var(--panel-edge); border-radius: 16px; padding: 22px 26px;
+    box-shadow: 0 30px 80px rgba(0,0,0,.55);
+  }
+  .ac-reader-panel.open { display: block; }
+  .ac-reader-head { display: flex; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 14px; }
+  .ac-reader-body { font-size: 13.5px; line-height: 1.7; color: #dbe0ea; }
+  .ac-reader-body p { margin: 0 0 14px; }
+  .ac-reader-body ::selection { background: rgba(91,141,239,.4); color: #fff; }
+
+  .ac-builder-item { border-top: 1px solid var(--border); }
+  .ac-builder-item:first-of-type { border-top: 0; }
+  .ac-builder-item > summary { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; cursor: pointer; list-style: none; font-weight: 600; font-size: 14px; }
+  .ac-builder-item > summary::-webkit-details-marker { display: none; }
+  .ac-builder-item .ac-b-meta { color: var(--muted); font-weight: 400; font-size: 11.5px; }
+  .ac-builder-item .ac-builder-editor { padding: 4px 0 16px; }
+
+  .ac-slot-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); }
+  .ac-slot-row:first-child { border-top: 0; }
+  .ac-slot-row .ac-slot-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .ac-slot-row button { padding: 5px 10px; font-size: 12px; flex: 0 0 auto; }
+
+  .ac-source-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); font-size: 13px; }
+  .ac-source-row:first-child { border-top: 0; }
+  .ac-source-row .ac-s-name { flex: 1; }
+  .ac-source-row .ac-s-kind { font-size: 11px; color: var(--muted); }
+  .ac-toggle { font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; cursor: pointer; border: 0; }
+  .ac-toggle.on { background: rgba(91,209,139,.15); color: var(--ok); border: 1px solid rgba(91,209,139,.35); }
+  .ac-toggle.off { background: rgba(147,156,173,.1); color: var(--muted); border: 1px solid var(--border); }
+
+  /* --- Health tab ------------------------------------------------------- */
+  .health-banner { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .health-dot { width: 13px; height: 13px; border-radius: 50%; flex: 0 0 auto; }
+  .health-dot.ok { background: var(--ok); box-shadow: 0 0 12px color-mix(in srgb, var(--ok) 70%, transparent); }
+  .health-dot.warning { background: var(--warn); box-shadow: 0 0 12px color-mix(in srgb, var(--warn) 70%, transparent); }
+  .health-dot.critical { background: var(--danger); box-shadow: 0 0 12px color-mix(in srgb, var(--danger) 70%, transparent); }
+  .health-headline { font-size: 1.05rem; font-weight: 600; }
+  .health-headline.ok { color: var(--ok); }
+  .health-headline.warning { color: var(--warn); }
+  .health-headline.critical { color: var(--danger); }
+  .health-checked { font-size: 0.78rem; color: var(--muted); }
+  .health-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; margin-top: 16px; }
+  .health-card { border: 1px solid var(--border); border-radius: 10px; padding: 13px 14px; background: rgba(255,255,255,.015); }
+  .health-card .hc-label { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 700; }
+  .health-card .hc-value { font-size: 1.25rem; font-weight: 600; margin-top: 5px; line-height: 1.2; }
+  .health-card .hc-sub { font-size: 0.75rem; color: var(--muted); margin-top: 3px; }
+  .health-card.status-ok { border-color: color-mix(in srgb, var(--ok) 30%, var(--border)); }
+  .health-card.status-ok .hc-value { color: var(--ok); }
+  .health-card.status-warning { border-color: color-mix(in srgb, var(--warn) 40%, var(--border)); }
+  .health-card.status-warning .hc-value { color: var(--warn); }
+  .health-card.status-critical { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+  .health-card.status-critical .hc-value { color: var(--danger); }
+  .health-issue-row { font-size: 12.5px; padding: 8px 0; border-top: 1px solid var(--border); }
+  .health-issue-row:first-child { border-top: 0; }
+  .health-issue-row .hi-title { font-weight: 600; }
+  .health-issue-row .hi-meta { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+
+  .health-api-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
+  .health-api-row:first-child { border-top: 0; }
+  .health-api-row .ha-name { flex: 1; font-weight: 600; text-transform: capitalize; }
+  .health-api-row .ha-count { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .health-api-bar { width: 90px; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; flex: 0 0 auto; }
+  .health-api-bar-fill { height: 100%; background: var(--ok); }
+  .health-api-bar-fill.warn { background: var(--warn); }
+  .health-api-bar-fill.crit { background: var(--danger); }
+
+  .log-filters { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
+  .log-filters select { width: auto; padding: 6px 10px; font-size: 12px; }
+  .log-filters button { padding: 6px 12px; font-size: 12px; }
+  .log-row { padding: 9px 0; border-top: 1px solid var(--border); font-size: 12.5px; cursor: pointer; }
+  .log-row:first-child { border-top: 0; }
+  .log-row-head { display: flex; align-items: center; gap: 8px; }
+  .log-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  .log-dot.info { background: var(--dead); }
+  .log-dot.warning { background: var(--warn); }
+  .log-dot.error { background: var(--danger); }
+  .log-dot.critical { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+  .log-source { font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: .03em; color: var(--muted); flex: 0 0 auto; }
+  .log-msg { flex: 1; min-width: 0; }
+  .log-time { color: var(--muted); font-size: 11px; white-space: nowrap; flex: 0 0 auto; }
+  .log-detail {
+    display: none; margin: 6px 0 0 16px; padding: 8px 10px; background: rgba(0,0,0,.3);
+    border-radius: 6px; font: 11px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all;
+  }
+  .log-row.open .log-detail { display: block; }
+
+  .ac-order-btn { padding: 4px 8px !important; font-size: 12px !important; line-height: 1; }
+  .ac-t-actions, .ac-a-actions { display: flex; gap: 4px; align-items: center; flex: 0 0 auto; }
+
+  .ac-match-section { border-bottom: 1px solid var(--border); padding-bottom: 14px; margin-bottom: 14px; }
+  .ac-match-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); }
+  .ac-match-row:first-of-type { border-top: 0; }
+  .ac-match-main { flex: 1; min-width: 0; }
+  .ac-match-title { font-size: 13px; font-weight: 600; }
+  .ac-match-status { font-size: 11px; color: var(--muted); margin-top: 2px; text-transform: capitalize; }
+  .ac-match-status.ok { color: var(--ok); }
+  .ac-match-search { margin-top: 6px; }
+  .ac-match-search-input { font-size: 12px; padding: 6px 9px; }
+  .ac-match-search-results { margin-top: 4px; }
+  .ac-match-result { font-size: 12.5px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+  .ac-match-result:hover { background: rgba(91,141,239,.12); color: var(--accent); }
+  .ac-match-result .ac-r-year { color: var(--muted); font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="ambient-top" aria-hidden="true"></div>
+
+<div class="top">
+  <svg class="brand-mark" width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+    <circle cx="12" cy="12" r="9.4" stroke="currentColor" stroke-width="1.3"></circle>
+    <g stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity="0.9">
+      <path d="M21 12 7.5 19.8"></path><path d="M16.5 19.8 3 12"></path>
+      <path d="M7.5 19.8 7.5 4.2"></path><path d="M3 12 16.5 4.2"></path>
+      <path d="M7.5 4.2 21 12"></path><path d="M16.5 4.2 16.5 19.8"></path>
+    </g>
+  </svg>
+  <div>
+    <h1>Curator's Console</h1>
+    <div class="sub">Library review, groups &amp; episodes, the conversion queue, and invites &mdash; runs entirely in this browser tab</div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div id="msg" class="msg"></div>
+
+  <!-- Connection -->
+  <div class="card">
+    <div class="row">
+      <div>
+        <label for="base">Gate URL</label>
+        <input id="base" value="http://localhost:3000" spellcheck="false">
+      </div>
+      <div style="flex:2 1 260px">
+        <label for="key">Admin API key</label>
+        <input id="key" type="password" placeholder="from .env — ADMIN_API_KEY" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="narrow" style="flex:0 0 auto">
+        <button id="connect">Connect</button>
+      </div>
+    </div>
+    <div class="note">
+      The key is held in this tab's memory only &mdash; never written to disk, never sent anywhere but the gate.
+      Closing the tab forgets it.
+      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-weight:400;margin-left:6px;">
+        <input type="checkbox" id="remember" style="padding:0;width:auto"> remember for this session
+      </label>
+    </div>
+  </div>
+
+  <nav class="tabs" id="tabNav" style="display:none">
+    <button class="tab-btn" data-tab="library">Library</button>
+    <button class="tab-btn" data-tab="worker">Worker</button>
+    <button class="tab-btn" data-tab="accolades">Accolades</button>
+    <button class="tab-btn" data-tab="health">Health</button>
+    <button class="tab-btn" data-tab="notify">Notify</button>
+    <button class="tab-btn" data-tab="invites">Invites</button>
+  </nav>
+
+  <!-- ============================== Library tab ============================== -->
+  <div class="tab-panel" id="tab-library" data-tab="library">
+
+    <!-- Library -->
+    <div class="card" id="libraryCard" style="display:none">
+      <div class="row">
+        <div>
+          <div class="card-title">Scan folder</div>
+          <div class="note" style="margin-top:2px">
+            Rescans the Da Moveesh folder and adds any new files to the library. Also run this after deleting a movie.
+          </div>
+        </div>
+        <div style="flex:0 0 auto">
+          <button id="scanLibrary" class="ghost">Scan folder</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Library review -->
+    <div class="card" id="reviewCard" style="display:none">
+      <div class="row" style="margin-bottom:10px">
+        <div>
+          <div class="card-title">Library review</div>
+          <div class="note" style="margin-top:2px">
+            Duplicate titles, files with no fetched metadata, and visible films with no subtitles.
+            Files with no metadata stay off the site until you fix them, whitelist them, or exclude them.
+          </div>
+        </div>
+        <div style="flex:0 0 auto">
+          <button id="loadReview" class="ghost">Load review</button>
+        </div>
+      </div>
+      <div id="reviewBody" style="display:none">
+        <div id="reviewSummary" class="muted" style="margin-bottom:10px"></div>
+        <div id="dupSection"></div>
+        <div id="thinSection" style="margin-top:18px"></div>
+        <div id="subsSection" style="margin-top:18px"></div>
+      </div>
+    </div>
+
+    <!-- Current decisions: the document -->
+    <div class="card" id="curationCard" style="display:none">
+      <div class="row" style="margin-bottom:10px">
+        <div>
+          <div class="card-title">Current decisions</div>
+          <div class="note" style="margin-top:2px">
+            Every exclude, group and whitelist made from this dashboard, in one place. Nothing here ever touches
+            Da Moveesh &mdash; undo anything below and it's back on the site immediately. Click Manage on a group to
+            reorder episodes, correct a mis-tagged one, or link its real series for OMDb lookups.
+          </div>
+        </div>
+        <div style="flex:0 0 auto">
+          <button id="loadCurationBtn" class="ghost">Refresh</button>
+        </div>
+      </div>
+      <div id="curationBody"></div>
+    </div>
+
+  </div>
+
+  <!-- ============================== Worker tab ============================== -->
+  <div class="tab-panel" id="tab-worker" data-tab="worker">
+
+    <div class="card" id="workerAboutCard">
+      <div class="card-title">The worker never runs on its own</div>
+      <div class="note" style="margin-top:4px">
+        Transform queues a file here &mdash; a row in the database, nothing more. Nothing is converted until you
+        start the worker yourself:
+      </div>
+      <pre style="margin:10px 0 0;padding:10px 12px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:8px;font-size:12px;overflow-x:auto;"><code>docker compose up worker</code></pre>
+      <div class="note" style="margin-top:8px">
+        It drains whatever's queued below and exits on its own &mdash; no folder watching, no library-wide scanning.
+      </div>
+    </div>
+
+    <div class="card" id="candidatesCard" style="display:none">
+      <div class="row" style="margin-bottom:10px">
+        <div>
+          <div class="card-title">Needs conversion</div>
+          <div class="note" style="margin-top:2px">
+            Files that would fall back to a live transcode instead of playing directly in a browser &mdash;
+            read from Jellyfin's own analysis, nothing probed here.
+          </div>
+        </div>
+        <div style="flex:0 0 auto">
+          <button id="loadCandidates" class="ghost">Load candidates</button>
+        </div>
+      </div>
+      <div id="candidatesBody"></div>
+    </div>
+
+    <div class="card" id="queueCard" style="display:none">
+      <div class="row" style="margin-bottom:10px">
+        <div><div class="card-title">Conversion queue</div></div>
+        <div style="flex:0 0 auto">
+          <button id="loadQueue" class="ghost">Refresh</button>
+        </div>
+      </div>
+      <div id="queueBody"></div>
+    </div>
+
+  </div>
+
+  <!-- ============================== Accolades tab ============================== -->
+  <div class="tab-panel" id="tab-accolades" data-tab="accolades">
+
+    <nav class="subtabs" id="acSubtabs">
+      <button class="subtab-btn active" data-subtab="ac-films">Films</button>
+      <button class="subtab-btn" data-subtab="ac-builder">Builder</button>
+      <button class="subtab-btn" data-subtab="ac-sources">Sources</button>
+    </nav>
+
+    <!-- Films -->
+    <div class="subpanel active" id="sub-ac-films">
+      <div class="card">
+        <div class="card-title">Find a film</div>
+        <div class="note" style="margin-top:2px">Search your library, then manage everything found for it — linked articles, blurb, accolades, trivia.</div>
+        <div class="row" style="margin-top:10px">
+          <div><input id="acSearchInput" placeholder="Search your library…" spellcheck="false"></div>
+        </div>
+        <div id="acSearchResults" style="margin-top:6px"></div>
+      </div>
+
+      <div id="acFilmDetail"></div>
+    </div>
+
+    <!-- Builder -->
+    <div class="subpanel" id="sub-ac-builder">
+      <div class="card">
+        <div class="row" style="margin-bottom:4px">
+          <div>
+            <div class="card-title">Accolades you've built</div>
+            <div class="note" style="margin-top:2px">Your own ranked lists or award-style mentions. Click one to open it.</div>
+          </div>
+          <div style="flex:0 0 auto"><button id="acNewAccolade" class="ghost">New accolade</button></div>
+        </div>
+        <div id="acBuilderList"></div>
+      </div>
+    </div>
+
+    <!-- Sources -->
+    <div class="subpanel" id="sub-ac-sources">
+      <div class="card">
+        <div class="row">
+          <div>
+            <div class="card-title">Web sources</div>
+            <div class="note" style="margin-top:2px">Each one is checked against robots.txt/Terms before it's added. Off means configured but not run yet.</div>
+          </div>
+          <div class="narrow" style="flex:0 0 auto">
+            <label for="acYearInput">Year</label>
+            <input id="acYearInput" type="number" style="width:90px">
+          </div>
+          <div style="flex:0 0 auto"><button id="acRunYearendlists">Run Year End Lists</button></div>
+        </div>
+        <div id="acSourcesList" style="margin-top:6px"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Wikipedia lists &amp; awards</div>
+        <div class="note" style="margin-top:2px">Ranked "best of" lists and festival winners, pulled from Wikipedia's own tables — same official API as the per-film fetch above.</div>
+        <div class="row" style="margin-top:10px">
+          <div>
+            <label for="acWikiListPreset">Page</label>
+            <select id="acWikiListPreset">
+              <option value="afi100movies">AFI's 100 Years...100 Movies</option>
+              <option value="afi100laughs">AFI's 100 Years...100 Laughs</option>
+              <option value="afi100thrills">AFI's 100 Years...100 Thrills</option>
+              <option value="oscarsbestpicture">Academy Award for Best Picture (winners)</option>
+              <option value="palmedor">Palme d'Or (Cannes winners)</option>
+              <option value="goldenlion">Golden Lion (Venice winners)</option>
+            </select>
+          </div>
+          <div style="flex:0 0 auto"><button id="acRunWikiList">Run</button></div>
+        </div>
+        <div id="acWikiListStatus" class="muted" style="margin-top:8px;font-size:13px"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Uploaded books</div>
+        <div class="note" style="margin-top:2px">Share a PDF of a film book or essay collection — every mention of a library film gets found and linked automatically.</div>
+        <div class="row" style="margin-top:10px">
+          <div><input id="acPdfFile" type="file" accept="application/pdf"></div>
+          <div style="flex:0 0 auto"><button id="acUploadPdf">Upload</button></div>
+        </div>
+        <div id="acBooksList" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Article full-text reader — shared by every sub-tab that opens one -->
+  <div class="ac-reader-backdrop" id="acReaderBackdrop"></div>
+  <div class="ac-reader-panel" id="acReaderPanel">
+    <div class="ac-reader-head">
+      <div>
+        <div class="card-title" id="acReaderTitle"></div>
+        <div class="note" id="acReaderMeta" style="margin-top:2px"></div>
+      </div>
+      <button class="ghost" id="acReaderClose">✕ Close</button>
+    </div>
+    <div id="acReaderMatches"></div>
+
+    <div class="ac-reader-collector" id="acReaderCollectorBlurb">
+      <div class="ac-rc-head">Your blurb — select text below, then "Add to blurb"</div>
+      <div class="ac-rc-lines" id="acReaderCollectorBlurbLines"></div>
+    </div>
+    <div class="ac-reader-collector trivia" id="acReaderCollectorTrivia">
+      <div class="ac-rc-head">Your trivia facts — select text below, then "Add to trivia"</div>
+      <div class="ac-rc-lines" id="acReaderCollectorTriviaLines"></div>
+    </div>
+
+    <div class="ac-reader-body" id="acReaderBody"></div>
+
+    <div class="ac-reader-foot">
+      <button class="warm" data-ac-action="save-reader-blurb">Lock this blurb</button>
+      <button class="ghost" data-ac-action="save-reader-trivia">Save trivia facts</button>
+    </div>
+  </div>
+
+  <div class="ac-reader-toolbar" id="acReaderToolbar">
+    <button data-ac-action="reader-add-blurb">Add to blurb</button>
+    <button data-ac-action="reader-add-trivia">Add to trivia</button>
+  </div>
+
+  <!-- ============================== Health tab ============================== -->
+  <div class="tab-panel" id="tab-health" data-tab="health">
+    <div class="card">
+      <div class="row" style="align-items:center">
+        <div class="health-banner">
+          <div class="health-dot" id="healthDot"></div>
+          <div>
+            <div class="health-headline" id="healthHeadline">Checking…</div>
+            <div class="health-checked" id="healthChecked"></div>
+          </div>
+        </div>
+        <div style="flex:0 0 auto"><button id="healthRefresh" class="ghost">Refresh</button></div>
+      </div>
+      <div class="note" style="margin-top:10px">
+        A plain-language snapshot of whether the site, the media server, and the background jobs are all
+        behaving. Green is fine, amber is worth a look when you have a minute, red needs attention now.
+      </div>
+      <div class="health-grid" id="healthGrid"></div>
+      <div id="healthIssues"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Storage breakdown</div>
+      <div class="note" style="margin-top:2px">What's actually using disk — your data vs. the app running it.</div>
+      <div id="healthStorageBreakdown" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">External APIs</div>
+      <div class="note" style="margin-top:2px">Today's call usage for the outside services this site depends on.</div>
+      <div id="healthApiList" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Recent activity log</div>
+      <div class="note" style="margin-top:2px">Every external API failure, playback problem, route error, and crash the site has recorded.</div>
+      <div class="log-filters" style="margin-top:10px">
+        <select id="logCategory">
+          <option value="">All categories</option>
+          <option value="internal_api">Internal API</option>
+          <option value="external_api">External API</option>
+          <option value="playback">Playback</option>
+          <option value="client">Client</option>
+          <option value="media_job">Conversion</option>
+          <option value="scrape_job">Scraping</option>
+        </select>
+        <select id="logSeverity">
+          <option value="">All severities</option>
+          <option value="critical">Critical</option>
+          <option value="error">Error</option>
+          <option value="warning">Warning</option>
+          <option value="info">Info</option>
+        </select>
+        <button id="logRefresh" class="ghost">Refresh</button>
+      </div>
+      <div id="logList"></div>
+    </div>
+  </div>
+
+  <!-- ============================== Notify tab ============================== -->
+  <div class="tab-panel" id="tab-notify" data-tab="notify">
+    <div class="card">
+      <div class="card-title">Curator's Pick — Just For You</div>
+      <p class="muted" style="margin:0 0 12px;font-size:13px">Send a targeted recommendation notification to specific users.</p>
+
+      <label for="notifySearchInput">Film</label>
+      <input id="notifySearchInput" placeholder="Search your library…" spellcheck="false">
+      <div id="notifySearchResults" style="margin-top:6px"></div>
+      <div id="notifySelectedFilm" class="muted" style="margin-top:10px;font-size:13px"></div>
+
+      <div style="margin-top:16px">
+        <label>Send to</label>
+        <div id="notifyUserList" style="margin-top:6px;max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px"></div>
+      </div>
+
+      <div style="margin-top:16px">
+        <button id="notifySend" disabled>Send Curator's Pick</button>
+      </div>
+      <div id="notifyStatus" class="muted" style="margin-top:10px;font-size:13px"></div>
+    </div>
+  </div>
+
+  <!-- ============================== Invites tab ============================== -->
+  <div class="tab-panel" id="tab-invites" data-tab="invites">
+
+    <!-- Create -->
+    <div class="card" id="createCard" style="display:none">
+      <div class="row">
+        <div>
+          <label for="label">Label</label>
+          <input id="label" placeholder="who is this for?" spellcheck="false">
+        </div>
+        <div class="narrow">
+          <label for="uses">Max uses</label>
+          <input id="uses" type="number" min="1" value="1">
+        </div>
+        <div class="narrow">
+          <label for="days">Expires (days)</label>
+          <input id="days" type="number" min="1" value="7">
+        </div>
+        <div style="flex:0 0 auto">
+          <button id="create">Create invite</button>
+        </div>
+      </div>
+      <div id="linkOut" class="link-out" style="display:none">
+        <input id="linkVal" readonly>
+        <button id="copy" class="ghost">Copy</button>
+      </div>
+      <div id="linkNote" class="note" style="display:none">
+        Save this now &mdash; the token is hashed on storage and cannot be shown again.
+      </div>
+    </div>
+
+    <!-- List -->
+    <div class="card" id="listCard" style="display:none">
+      <div class="row" style="margin-bottom:12px">
+        <div style="flex:0 0 auto"><strong id="count">&nbsp;</strong></div>
+        <div style="flex:1"></div>
+        <div style="flex:0 0 auto">
+          <select id="filter">
+            <option value="all">All</option>
+            <option value="active">Active only</option>
+            <option value="revoked">Revoked</option>
+            <option value="expired">Expired</option>
+            <option value="exhausted">Exhausted</option>
+          </select>
+        </div>
+        <div style="flex:0 0 auto"><button id="refresh" class="ghost">Refresh</button></div>
+      </div>
+      <div id="tableWrap" style="overflow-x:auto"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var $ = function (id) { return document.getElementById(id); };
+  var state = { base: "", key: "", invites: [] };
+
+  /* ================================================================
+   * Tabs
+   * ================================================================ */
+  function showTab(name) {
+    document.querySelectorAll(".tab-panel").forEach(function (p) {
+      p.classList.toggle("active", p.getAttribute("data-tab") === name);
+    });
+    document.querySelectorAll(".tab-btn").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-tab") === name);
+    });
+    try { sessionStorage.setItem("jfg_tab", name); } catch (e) {}
+  }
+  document.querySelectorAll(".tab-btn").forEach(function (b) {
+    b.addEventListener("click", function () { showTab(b.getAttribute("data-tab")); });
+  });
+
+  function show(kind, text) {
+    var m = $("msg");
+    m.className = "msg " + kind;
+    m.textContent = text;
+    // Fixed-position toast rather than scrollIntoView: deep in a long review
+    // list, jumping the whole page back to the top on every single action
+    // was worse than the invisible-banner problem it replaced.
+    if (kind === "ok") setTimeout(function () { m.className = "msg"; }, 6000);
+  }
+  function clearMsg() { $("msg").className = "msg"; }
+
+  // Single place that talks to the gate, so auth and error shape stay consistent.
+  function api(path, opts) {
+    opts = opts || {};
+    var init = {
+      method: opts.method || "GET",
+      headers: { "X-Admin-Key": state.key }
+    };
+    if (opts.body) {
+      init.headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(opts.body);
+    }
+    return fetch(state.base + path, init).then(function (res) {
+      return res.text().then(function (txt) {
+        var data = null;
+        try { data = txt ? JSON.parse(txt) : null; } catch (e) { /* non-JSON */ }
+        if (!res.ok) {
+          var why = (data && (data.message || data.error)) || txt || ("HTTP " + res.status);
+          if (res.status === 401) why = "Rejected — check the admin key.";
+          throw new Error(why);
+        }
+        return data;
+      });
+    });
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return "—";
+    var d = new Date(iso);
+    if (isNaN(d)) return "—";
+    return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+  }
+
+  function daysLeft(iso) {
+    var d = new Date(iso) - new Date();
+    if (isNaN(d)) return "";
+    if (d <= 0) return "expired";
+    var n = Math.ceil(d / 86400000);
+    return n === 1 ? "1 day left" : n + " days left";
+  }
+
+  function render() {
+    var f = $("filter").value;
+    var rows = state.invites.filter(function (i) { return f === "all" || i.status === f; });
+
+    $("count").textContent = state.invites.length + " invite" + (state.invites.length === 1 ? "" : "s");
+
+    if (!rows.length) {
+      $("tableWrap").innerHTML = '<div class="empty">Nothing to show.</div>';
+      return;
+    }
+
+    var html = '<table><thead><tr>' +
+      '<th>Status</th><th>Label</th><th>Uses</th><th>Expires</th>' +
+      '<th>Redeemed by</th><th></th></tr></thead><tbody>';
+
+    rows.forEach(function (i) {
+      var names = (i.redeemed_usernames || []);
+      html += '<tr>' +
+        '<td><span class="pill s-' + i.status + '">' + i.status + '</span></td>' +
+        '<td>' + esc(i.label || "—") +
+          '<div class="muted">' + esc(i.id.slice(0, 8)) + '…</div></td>' +
+        '<td>' + i.use_count + " / " + i.max_uses + '</td>' +
+        '<td>' + fmtDate(i.expires_at) +
+          '<div class="muted">' + (i.status === "active" ? daysLeft(i.expires_at) : "") + '</div></td>' +
+        '<td>' + (names.length ? esc(names.join(", ")) : '<span class="muted">—</span>') + '</td>' +
+        '<td style="text-align:right">' +
+          (i.status === "active"
+            ? '<button class="danger" data-revoke="' + esc(i.id) + '">Revoke</button>'
+            : '') +
+        '</td></tr>';
+    });
+
+    $("tableWrap").innerHTML = html + "</tbody></table>";
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-revoke]"), function (btn) {
+      btn.addEventListener("click", function () { revoke(btn.getAttribute("data-revoke")); });
+    });
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function load() {
+    return api("/api/admin/invites").then(function (data) {
+      state.invites = (data && data.invites) || [];
+      render();
+    }).catch(function (e) { show("err", e.message); });
+  }
+
+  function revoke(id) {
+    var inv = state.invites.filter(function (i) { return i.id === id; })[0];
+    var who = inv && inv.label ? '"' + inv.label + '"' : id.slice(0, 8);
+    if (!confirm("Revoke invite " + who + "?\n\nThe link stops working immediately.\nAnyone who already signed up with it keeps their account.")) return;
+    api("/api/admin/invites/" + encodeURIComponent(id), { method: "DELETE" })
+      .then(function () { show("ok", "Revoked."); return load(); })
+      .catch(function (e) { show("err", e.message); });
+  }
+
+  $("connect").addEventListener("click", function () {
+    state.base = $("base").value.trim().replace(/\/+$/, "");
+    state.key = $("key").value.trim();
+    if (!state.key) { show("err", "Enter the admin key."); return; }
+    clearMsg();
+    api("/api/admin/invites").then(function (data) {
+      state.invites = (data && data.invites) || [];
+      $("tabNav").style.display = "";
+      $("libraryCard").style.display = "";
+      $("reviewCard").style.display = "";
+      $("curationCard").style.display = "";
+      $("candidatesCard").style.display = "";
+      $("queueCard").style.display = "";
+      $("createCard").style.display = "";
+      $("listCard").style.display = "";
+      showTab(sessionStorage.getItem("jfg_tab") || "library");
+      loadCuration();
+      loadQueue();
+      if (!$("acYearInput").value) $("acYearInput").value = new Date().getFullYear();
+      loadAcSources();
+      loadHealth();
+      loadEvents();
+      if ($("remember").checked) {
+        try { sessionStorage.setItem("jfg_key", state.key); sessionStorage.setItem("jfg_base", state.base); } catch (e) {}
+      }
+      show("ok", "Connected.");
+      render();
+    }).catch(function (e) {
+      // A network-layer failure here is nearly always CORS or the gate being down,
+      // which is worth saying plainly rather than showing "Failed to fetch".
+      if (/failed to fetch|networkerror/i.test(e.message)) {
+        show("err", "Could not reach the gate. Is it running, and is the URL right? " +
+                    "If this file is opened from disk, the gate needs the CORS header for /api/admin/*.");
+      } else {
+        show("err", e.message);
+      }
+    });
+  });
+
+  $("create").addEventListener("click", function () {
+    var body = { label: $("label").value.trim() };
+    var u = parseInt($("uses").value, 10);
+    var d = parseInt($("days").value, 10);
+    if (u > 1) body.max_uses = u;
+    if (d && d !== 7) body.expires_in_days = d;
+    if (!body.label) { show("err", "Give it a label so you can tell them apart."); return; }
+    clearMsg();
+    api("/api/admin/invites", { method: "POST", body: body }).then(function (data) {
+      $("linkVal").value = data.url;
+      $("linkOut").style.display = "";
+      $("linkNote").style.display = "";
+      $("label").value = "";
+      return load();
+    }).catch(function (e) { show("err", e.message); });
+  });
+
+  $("copy").addEventListener("click", function () {
+    var el = $("linkVal");
+    el.select();
+    var done = function () { $("copy").textContent = "Copied"; setTimeout(function () { $("copy").textContent = "Copy"; }, 1500); };
+    if (navigator.clipboard) navigator.clipboard.writeText(el.value).then(done, function () { document.execCommand("copy"); done(); });
+    else { document.execCommand("copy"); done(); }
+  });
+
+  $("scanLibrary").addEventListener("click", function () {
+    clearMsg();
+    var btn = $("scanLibrary");
+    btn.disabled = true;
+    btn.textContent = "Scanning…";
+    api("/api/admin/library/scan", { method: "POST" })
+      .then(function () { show("ok", "Scan started. Jellyfin picks up new and removed files in the background."); })
+      .catch(function (e) { show("err", e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = "Scan folder"; });
+  });
+
+  /* ================================================================
+   * Health
+   * ================================================================ */
+  var healthTimer = null;
+
+  function fmtBytes(n) {
+    if (n === null || n === undefined) return "—";
+    var gb = n / 1e9;
+    if (gb >= 1) return gb.toFixed(1) + " GB";
+    return (n / 1e6).toFixed(0) + " MB";
+  }
+
+  function fmtAgo(ms) {
+    if (ms === null || ms === undefined) return "never";
+    var mins = Math.round((Date.now() - ms) / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return mins + " min ago";
+    var hours = Math.round(mins / 60);
+    if (hours < 48) return hours + " hr ago";
+    return Math.round(hours / 24) + " days ago";
+  }
+
+  function healthCard(label, value, sub, status) {
+    return '<div class="health-card' + (status ? " status-" + status : "") + '">' +
+      '<div class="hc-label">' + esc(label) + "</div>" +
+      '<div class="hc-value">' + value + "</div>" +
+      (sub ? '<div class="hc-sub">' + sub + "</div>" : "") +
+      "</div>";
+  }
+
+  function renderHealth(h) {
+    $("healthDot").className = "health-dot " + h.overall;
+    $("healthHeadline").className = "health-headline " + h.overall;
+    $("healthHeadline").textContent =
+      h.overall === "ok" ? "Everything looks fine" :
+      h.overall === "warning" ? "Mostly fine, a couple of things worth a look" :
+      "Something needs attention now";
+    $("healthChecked").textContent = "Checked " + fmtAgo(h.checkedAt);
+
+    var cards = [];
+    cards.push(healthCard(
+      "Public site",
+      h.publicSite.reachable ? "Reachable" : "Unreachable",
+      h.publicSite.reachable
+        ? (h.publicSite.responseMs != null ? h.publicSite.responseMs + " ms round trip" : "")
+        : esc(h.publicSite.error || "No response"),
+      h.publicSite.reachable ? "ok" : "critical"
+    ));
+    cards.push(healthCard(
+      "Jellyfin",
+      h.jellyfin.reachable ? "Reachable" : "Unreachable",
+      h.jellyfin.reachable
+        ? (h.jellyfin.responseMs + " ms" + (h.jellyfin.version ? " · v" + esc(h.jellyfin.version) : ""))
+        : esc(h.jellyfin.error || "No response"),
+      h.jellyfin.reachable ? "ok" : "critical"
+    ));
+    cards.push(healthCard(
+      "Viewers now",
+      h.sessions ? String(h.sessions.playing) + " streaming" : "—",
+      h.sessions ? h.sessions.signedIn + " signed in total" : "Unavailable (Jellyfin unreachable)",
+      "ok"
+    ));
+    var storageStatus = h.storage.freeFraction == null ? "" : h.storage.freeFraction < 0.1 ? "critical" : h.storage.freeFraction < 0.2 ? "warning" : "ok";
+    cards.push(healthCard(
+      "Storage free",
+      h.storage.freeBytes != null ? fmtBytes(h.storage.freeBytes) : "—",
+      h.storage.totalBytes != null
+        ? Math.round((h.storage.freeFraction || 0) * 100) + "% free of " + fmtBytes(h.storage.totalBytes)
+        : esc(h.storage.error || ""),
+      storageStatus
+    ));
+    var queueStatus = h.conversionQueue.stuck.length > 0 ? "critical" : h.conversionQueue.failedRecent > 0 ? "warning" : "ok";
+    cards.push(healthCard(
+      "Conversion queue",
+      h.conversionQueue.pending + h.conversionQueue.running,
+      h.conversionQueue.running + " running, " + h.conversionQueue.pending + " waiting" +
+        (h.conversionQueue.failedRecent > 0 ? " · " + h.conversionQueue.failedRecent + " failed this week" : ""),
+      queueStatus
+    ));
+    var scrapeStatus = h.scraping.recentFailures.length > 0 ? "warning" : "ok";
+    cards.push(healthCard(
+      "Accolades scraping",
+      h.scraping.recentFailures.length > 0 ? h.scraping.recentFailures.length + " failed" : "Clean",
+      h.scraping.recentFailures.length > 0 ? "in the last 7 days" : "no failures in the last 7 days",
+      scrapeStatus
+    ));
+    cards.push(healthCard(
+      "Last library scan",
+      h.lastLibraryScan.triggeredAt ? fmtAgo(h.lastLibraryScan.triggeredAt) : "Never recorded",
+      "scanning is manual (LIBRARY_SCAN=false)",
+      h.lastLibraryScan.triggeredAt ? "" : "warning"
+    ));
+    cards.push(healthCard(
+      "Database size",
+      fmtBytes(h.database.sizeBytes),
+      "",
+      ""
+    ));
+    $("healthGrid").innerHTML = cards.join("");
+
+    var sb = h.storageBreakdown;
+    if (sb) {
+      var sbRows = [
+        { name: "Scraped data", bytes: sb.scrapedDataBytes, note: "reviews, books, lists — the actual scraped text" },
+        { name: "Cached API data", bytes: sb.cachedApiDataBytes, note: "ratings, cast/director bios — kept so we don't re-fetch" },
+        { name: "Other database", bytes: sb.otherDataBytes, note: "users, comments, notifications, jobs, locks" },
+        { name: "Codebase", bytes: sb.codebaseBytes, note: "the app itself — same on every deploy, not your data" }
+      ];
+      var sbMax = Math.max.apply(null, sbRows.map(function (r) { return r.bytes || 0; })) || 1;
+      $("healthStorageBreakdown").innerHTML = sbRows.map(function (r) {
+        var pct = Math.round(((r.bytes || 0) / sbMax) * 100);
+        return '<div class="health-api-row"><div class="ha-name" style="text-transform:none">' + esc(r.name) +
+          '<div class="note" style="margin-top:1px;font-size:11px">' + esc(r.note) + '</div></div>' +
+          '<div class="health-api-bar"><div class="health-api-bar-fill" style="width:' + pct + '%"></div></div>' +
+          '<div class="ha-count">' + fmtBytes(r.bytes) + '</div></div>';
+      }).join("");
+    }
+
+    var apiRows = (h.externalApis || []).map(function (a) {
+      var total = a.successCount + a.failureCount;
+      var fraction = a.dailyCap ? Math.min(1, total / a.dailyCap) : null;
+      var barClass = fraction == null ? "" : fraction >= 0.9 ? "crit" : fraction >= 0.7 ? "warn" : "";
+      var bar = a.dailyCap
+        ? '<div class="health-api-bar"><div class="health-api-bar-fill ' + barClass + '" style="width:' + Math.round(fraction * 100) + '%"></div></div>'
+        : "";
+      var countText = a.dailyCap
+        ? total + " / " + a.dailyCap + " today"
+        : total + " call" + (total === 1 ? "" : "s") + " today";
+      if (a.failureCount > 0) countText += " · " + a.failureCount + " failed";
+      return '<div class="health-api-row"><div class="ha-name">' + esc(a.source) + '</div>' +
+        bar + '<div class="ha-count">' + countText + '</div></div>';
+    });
+    if (h.omdbBackfill) {
+      var bf = h.omdbBackfill;
+      apiRows.push(
+        '<div class="health-api-row" style="border-top-style:dashed">' +
+          '<div class="ha-name" style="text-transform:none;font-weight:400;color:var(--muted);font-size:12px">' +
+            'OMDb catch-up: ' + bf.missing + ' movie(s) never rated, ' + bf.stale + ' overdue for a refresh, of ' + bf.totalKnown + ' known' +
+            (bf.lastTickAt ? ' · last batch ' + fmtAgo(bf.lastTickAt) + ' (' + bf.lastTickProcessed + ' processed)' : ' · not run yet') +
+          '</div>' +
+        '</div>'
+      );
+    }
+    if (h.wikipediaBackfill) {
+      var wbf = h.wikipediaBackfill;
+      apiRows.push(
+        '<div class="health-api-row" style="border-top-style:dashed">' +
+          '<div class="ha-name" style="text-transform:none;font-weight:400;color:var(--muted);font-size:12px">' +
+            'Wikipedia catch-up: ' + wbf.neverAttempted + ' movie(s) never tried, of ' + wbf.totalKnown + ' known' +
+            (wbf.lastTickAt ? ' · last batch ' + fmtAgo(wbf.lastTickAt) + ' (' + wbf.lastTickProcessed + ' processed)' : ' · not run yet') +
+          '</div>' +
+        '</div>'
+      );
+    }
+    if (h.libraryNotify) {
+      var ln = h.libraryNotify;
+      apiRows.push(
+        '<div class="health-api-row" style="border-top-style:dashed">' +
+          '<div class="ha-name" style="text-transform:none;font-weight:400;color:var(--muted);font-size:12px">' +
+            'New-item notifications: ' + ln.knownItemCount + ' movie(s) tracked' +
+            (ln.lastTickAt ? ' · last check ' + fmtAgo(ln.lastTickAt) + ' (' + ln.lastTickNewItems + ' notified)' : ' · not run yet') +
+          '</div>' +
+        '</div>'
+      );
+    }
+    $("healthApiList").innerHTML = apiRows.length ? apiRows.join("") : '<div class="cur-empty">No external API calls recorded yet.</div>';
+
+    var issues = [];
+    h.conversionQueue.stuck.forEach(function (j) {
+      issues.push('<div class="health-issue-row"><div class="hi-title">Stuck conversion: ' + esc(j.title) + '</div>' +
+        '<div class="hi-meta">Running ' + j.hoursRunning + ' hours &mdash; check the Worker tab</div></div>');
+    });
+    h.scraping.recentFailures.forEach(function (f) {
+      issues.push('<div class="health-issue-row"><div class="hi-title">Scrape failed: ' + esc(f.sourceId) + '</div>' +
+        '<div class="hi-meta">' + esc(f.error || "Unknown error") + " · " + fmtAgo(f.finishedAt) + '</div></div>');
+    });
+    $("healthIssues").innerHTML = issues.length
+      ? '<div class="card-title" style="margin-top:16px">Things worth a look</div>' + issues.join("")
+      : "";
+  }
+
+  function loadHealth() {
+    return api("/api/admin/health").then(function (h) {
+      renderHealth(h);
+    }).catch(function (e) {
+      $("healthHeadline").className = "health-headline critical";
+      $("healthHeadline").textContent = "Could not load health data";
+      $("healthChecked").textContent = esc(e.message);
+      $("healthDot").className = "health-dot critical";
+    });
+  }
+
+  function renderEvents(events) {
+    if (!events.length) {
+      $("logList").innerHTML = '<div class="cur-empty">Nothing recorded for this filter.</div>';
+      return;
+    }
+    $("logList").innerHTML = events.map(function (e) {
+      var detail = "";
+      if (e.detail) {
+        try { detail = JSON.stringify(JSON.parse(e.detail), null, 2); } catch (err) { detail = e.detail; }
+      }
+      return '<div class="log-row">' +
+        '<div class="log-row-head">' +
+          '<span class="log-dot ' + esc(e.severity) + '"></span>' +
+          '<span class="log-source">' + esc(e.source) + '</span>' +
+          '<span class="log-msg">' + esc(e.message) + '</span>' +
+          '<span class="log-time">' + fmtAgo(e.created_at) + '</span>' +
+        '</div>' +
+        (detail ? '<div class="log-detail">' + esc(detail) + (e.username ? "\n\nuser: " + esc(e.username) : "") + (e.item_id ? "\nitem: " + esc(e.item_id) : "") + '</div>' : "") +
+      '</div>';
+    }).join("");
+    $("logList").querySelectorAll(".log-row").forEach(function (row) {
+      row.addEventListener("click", function () { row.classList.toggle("open"); });
+    });
+  }
+
+  function loadEvents() {
+    var params = new URLSearchParams();
+    if ($("logCategory").value) params.set("category", $("logCategory").value);
+    if ($("logSeverity").value) params.set("severity", $("logSeverity").value);
+    params.set("limit", "40");
+    return api("/api/admin/events?" + params.toString()).then(function (data) {
+      renderEvents((data && data.events) || []);
+    }).catch(function (e) {
+      $("logList").innerHTML = '<div class="cur-empty">' + esc(e.message) + '</div>';
+    });
+  }
+
+  $("healthRefresh").addEventListener("click", function () { loadHealth(); loadEvents(); });
+  $("logRefresh").addEventListener("click", loadEvents);
+  $("logCategory").addEventListener("change", loadEvents);
+  $("logSeverity").addEventListener("change", loadEvents);
+
+  document.querySelector('.tab-btn[data-tab="health"]').addEventListener("click", function () {
+    loadHealth();
+    loadEvents();
+    if (healthTimer) clearInterval(healthTimer);
+    healthTimer = setInterval(function () { loadHealth(); loadEvents(); }, 30000);
+  });
+
+  /* ================================================================
+   * Notify tab — Curator's Pick, sent to specific users
+   * ================================================================ */
+  var notifyState = { film: null, users: [], usersLoaded: false };
+  var notifySearchTimer = null;
+
+  function notifyRenderUsers() {
+    var el = $("notifyUserList");
+    if (!notifyState.users.length) {
+      el.innerHTML = '<div class="muted" style="font-size:13px">No users yet.</div>';
+      return;
+    }
+    el.innerHTML = notifyState.users.map(function (u) {
+      return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer">' +
+        '<input type="checkbox" class="notify-user-cb" data-user-id="' + esc(u.id) + '"> ' + esc(u.username) +
+        '</label>';
+    }).join("");
+  }
+
+  function notifyLoadUsers() {
+    if (notifyState.usersLoaded) return;
+    api("/api/admin/users").then(function (data) {
+      notifyState.users = data.users || [];
+      notifyState.usersLoaded = true;
+      notifyRenderUsers();
+    }).catch(function (e) { $("notifyUserList").innerHTML = '<div class="muted" style="font-size:13px">' + esc(e.message) + '</div>'; });
+  }
+
+  function notifyUpdateSendState() {
+    var anyChecked = !!document.querySelector(".notify-user-cb:checked");
+    $("notifySend").disabled = !(notifyState.film && anyChecked);
+  }
+
+  $("notifySearchInput").addEventListener("input", function () {
+    clearTimeout(notifySearchTimer);
+    var q = $("notifySearchInput").value.trim();
+    if (q.length < 2) { $("notifySearchResults").innerHTML = ""; return; }
+    notifySearchTimer = setTimeout(function () {
+      api("/api/admin/accolades/search?q=" + encodeURIComponent(q)).then(function (data) {
+        var results = data.results || [];
+        $("notifySearchResults").innerHTML = results.length
+          ? results.map(function (r) {
+              return '<div class="ac-result-row" data-notify-select-imdb="' + esc(r.imdbId) + '" data-notify-select-name="' + esc(r.name) +
+                '" data-notify-select-href="' + esc(r.href) + '">' + esc(r.name) + ' <span class="ac-r-year">' + (r.year || "") + '</span></div>';
+            }).join("")
+          : '<div class="muted" style="padding:6px 0;font-size:13px">No matches.</div>';
+      }).catch(function () {});
+    }, 250);
+  });
+
+  $("notifySearchResults").addEventListener("click", function (e) {
+    var row = e.target.closest("[data-notify-select-imdb]");
+    if (!row) return;
+    notifyState.film = {
+      imdbId: row.getAttribute("data-notify-select-imdb"),
+      name: row.getAttribute("data-notify-select-name"),
+      href: row.getAttribute("data-notify-select-href"),
+    };
+    $("notifySearchResults").innerHTML = "";
+    $("notifySearchInput").value = notifyState.film.name;
+    $("notifySelectedFilm").textContent = "Selected: " + notifyState.film.name;
+    notifyUpdateSendState();
+  });
+
+  $("notifyUserList").addEventListener("change", function (e) {
+    if (e.target.classList.contains("notify-user-cb")) notifyUpdateSendState();
+  });
+
+  $("notifySend").addEventListener("click", function () {
+    if (!notifyState.film) return;
+    var userIds = Array.prototype.slice.call(document.querySelectorAll(".notify-user-cb:checked")).map(function (cb) {
+      return cb.getAttribute("data-user-id");
+    });
+    if (!userIds.length) return;
+    $("notifySend").disabled = true;
+    $("notifyStatus").textContent = "Sending…";
+    api("/api/admin/notifications/curators-pick", {
+      method: "POST",
+      body: { imdbId: notifyState.film.imdbId, filmTitle: notifyState.film.name, filmHref: notifyState.film.href, userIds: userIds },
+    }).then(function (data) {
+      $("notifyStatus").textContent = "Sent to " + data.notified + " user" + (data.notified === 1 ? "" : "s") + ".";
+      notifyUpdateSendState();
+    }).catch(function (e) {
+      $("notifyStatus").textContent = "Failed: " + e.message;
+      notifyUpdateSendState();
+    });
+  });
+
+  document.querySelector('.tab-btn[data-tab="notify"]').addEventListener("click", notifyLoadUsers);
+
+  /* ================================================================
+   * Library review — duplicates & no-metadata items
+   * ================================================================ */
+  var review = { duplicates: [], thinMetadata: [], missingSubtitles: [], itemsById: {} };
+
+  function shortPath(p) {
+    if (!p) return "";
+    var parts = p.split("/");
+    return parts.length > 3 ? ".../" + parts.slice(-2).join("/") : p;
+  }
+
+  // A file:// link only exists when HOST_MEDIA_PATH is configured server-side —
+  // absent that, this quietly renders nothing rather than a dead link.
+  function folderLinkHtml(it) {
+    if (!it.fileUrl) return "";
+    return '<a class="rv-openfolder" href="' + esc(it.fileUrl) + '" title="' + esc(it.localPath || "") + '">Open folder</a>';
+  }
+
+  function guessSearchName(name) {
+    // Strip the usual release-tag noise so the search box starts with a
+    // plausible title instead of a raw filename.
+    return name.replace(/[._]/g, " ")
+      .replace(/\b(1080p|2160p|720p|480p|4k|uhd|web[- ]?dl|webrip|bluray|blu[- ]?ray|brrip|bdrip|dvdrip|hdrip|hdtv|x264|x265|h ?264|h ?265|hevc|avc|aac\d*|ac3|remux|proper|repack)\b.*$/i, "")
+      .trim();
+  }
+
+  $("loadReview").addEventListener("click", function () {
+    clearMsg();
+    var btn = $("loadReview");
+    btn.disabled = true;
+    btn.textContent = "Loading…";
+    api("/api/admin/library/review").then(function (data) {
+      review.duplicates = data.duplicates || [];
+      review.thinMetadata = data.thinMetadata || [];
+      review.missingSubtitles = data.missingSubtitles || [];
+      review.itemsById = {};
+      review.duplicates.forEach(function (g) { g.items.forEach(function (it) { review.itemsById[it.id] = it; }); });
+      review.thinMetadata.forEach(function (g) { g.items.forEach(function (it) { review.itemsById[it.id] = it; }); });
+      review.missingSubtitles.forEach(function (it) { review.itemsById[it.id] = it; });
+      $("reviewBody").style.display = "";
+      $("reviewSummary").textContent = data.totalMovies + " movies scanned — " +
+        review.duplicates.length + " duplicate-title group" + (review.duplicates.length === 1 ? "" : "s") +
+        ", " + review.thinMetadata.reduce(function (n, g) { return n + g.items.length; }, 0) +
+        " with no fetched metadata across " + review.thinMetadata.length + " folder" + (review.thinMetadata.length === 1 ? "" : "s") +
+        ", " + review.missingSubtitles.length + " visible film" + (review.missingSubtitles.length === 1 ? "" : "s") + " with no subtitles.";
+      renderDuplicates();
+      renderThin();
+      renderMissingSubtitles();
+    }).catch(function (e) { show("err", e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = "Load review"; });
+  });
+
+  function renderDuplicates() {
+    var el = $("dupSection");
+    if (!review.duplicates.length) { el.innerHTML = '<div class="muted">No duplicate titles found.</div>'; return; }
+    var html = "<strong>Duplicates</strong>";
+    review.duplicates.forEach(function (g, gi) {
+      html += '<div class="rv-group" data-group-kind="dup" data-group-index="' + gi + '">' +
+        '<div class="rv-group-head"><strong>' + esc(g.items[0].name) + '</strong>' +
+        '<span class="rv-count">' + g.items.length + ' copies</span><span class="spacer"></span>' +
+        '<button class="ghost" data-action="dup-keep">Keep checked, discard rest</button>' +
+        '<button class="ghost" data-action="dup-group">Group checked as one</button></div>';
+      g.items.forEach(function (it) {
+        html += '<div class="rv-item" data-item-id="' + it.id + '"><input type="checkbox" data-item-id="' + it.id + '">' +
+          '<div class="rv-name">' + esc(it.name) + (it.year ? " (" + it.year + ")" : "") +
+          '<span class="rv-path">' + esc(shortPath(it.path)) + '</span></div>' +
+          '<div class="rv-item-actions">' + folderLinkHtml(it) + '</div></div>';
+      });
+      html += "</div>";
+    });
+    el.innerHTML = html;
+  }
+
+  function renderThin() {
+    var el = $("thinSection");
+    if (!review.thinMetadata.length) { el.innerHTML = '<div class="muted">Everything has some metadata.</div>'; return; }
+    var html = "<strong>No fetched metadata</strong>";
+    review.thinMetadata.forEach(function (g, gi) {
+      var folderLabel = g.folder.split("/").slice(-1)[0] || g.folder;
+      html += '<div class="rv-group" data-group-kind="thin" data-group-index="' + gi + '">' +
+        '<div class="rv-group-head"><strong class="rv-folder-toggle" data-action="toggle-folder">' + esc(folderLabel) +
+        '</strong><span class="rv-count">' + g.items.length + ' file' + (g.items.length === 1 ? "" : "s") + '</span>' +
+        '<span class="spacer"></span>' +
+        '<button class="ghost" data-action="thin-group">Group checked as one</button></div>' +
+        '<div class="rv-folder-body" style="display:' + (g.items.length <= 4 ? "" : "none") + '">';
+      g.items.forEach(function (it) {
+        html += '<div class="rv-item" data-item-id="' + it.id + '"><input type="checkbox" data-item-id="' + it.id + '">' +
+          '<div class="rv-name">' + esc(it.name) +
+          '<span class="rv-path">' + esc(shortPath(it.path)) + '</span></div>' +
+          '<div class="rv-item-actions">' +
+          folderLinkHtml(it) +
+          '<button class="ghost" data-action="whitelist" data-item-id="' + it.id + '">Show anyway</button>' +
+          '<button class="ghost" data-action="search" data-item-id="' + it.id + '">Search</button>' +
+          '<button class="ghost" data-action="manual" data-item-id="' + it.id + '">Manual</button>' +
+          '<button class="danger" data-action="exclude" data-item-id="' + it.id + '">Exclude</button>' +
+          '</div></div>' +
+          '<div class="rv-panel-slot" data-panel-for="' + it.id + '"></div>';
+      });
+      html += "</div></div>";
+    });
+    el.innerHTML = html;
+  }
+
+  function renderMissingSubtitles() {
+    var el = $("subsSection");
+    var items = review.missingSubtitles;
+    if (!items.length) {
+      el.innerHTML = '<strong>Missing subtitles</strong>' +
+        '<div class="muted" style="margin-top:6px">Everything visible has at least one subtitle track.</div>';
+      return;
+    }
+    var html = '<strong>Missing subtitles</strong><span class="rv-count"> ' +
+      items.length + ' visible film' + (items.length === 1 ? "" : "s") + '</span>' +
+      '<div class="note" style="margin:2px 0 8px">' +
+      'On the site now, but nothing to caption with yet. Open the folder and drop a matching .srt in.' +
+      '</div><div class="rv-group">';
+    items.forEach(function (it) {
+      html += '<div class="rv-item"><div class="rv-name">' + esc(it.name) + (it.year ? " (" + it.year + ")" : "") +
+        '<span class="rv-path">' + esc(shortPath(it.path)) + '</span></div>' +
+        '<div class="rv-item-actions">' + folderLinkHtml(it) + '</div></div>';
+    });
+    html += "</div>";
+    el.innerHTML = html;
+  }
+
+  // The only reliable proof an action landed: mark the exact row it touched,
+  // right where the admin is already looking, rather than relying on them to
+  // notice a banner at the top of a page they're scrolled deep into.
+  function markRowDone(itemId, label) {
+    var row = document.querySelector('.rv-item[data-item-id="' + itemId + '"]');
+    if (!row) return;
+
+    row.classList.add("rv-done");
+    row.querySelectorAll(".rv-item-actions button").forEach(function (b) { b.disabled = true; });
+    var cb = row.querySelector('input[type="checkbox"]');
+    if (cb) { cb.checked = false; cb.disabled = true; }
+
+    var doneLabel = document.createElement("span");
+    doneLabel.className = "rv-done-label";
+    doneLabel.textContent = "✓ " + label;
+    row.appendChild(doneLabel);
+  }
+
+  function closePanel(itemId) {
+    var slot = document.querySelector('.rv-panel-slot[data-panel-for="' + itemId + '"]');
+    if (slot) slot.innerHTML = "";
+  }
+
+  function openSearchPanel(itemId) {
+    var it = review.itemsById[itemId];
+    var slot = document.querySelector('.rv-panel-slot[data-panel-for="' + itemId + '"]');
+    if (!it || !slot) return;
+    slot.innerHTML =
+      '<div class="rv-inline-panel">' +
+      '<div class="row">' +
+      '<div><label>Search title</label><input type="text" data-search-name value="' + esc(guessSearchName(it.name)) + '"></div>' +
+      '<div class="narrow"><label>Year</label><input type="number" data-search-year value="' + (it.year || "") + '"></div>' +
+      '<div style="flex:0 0 auto"><button data-action="run-search" data-item-id="' + itemId + '">Search</button>' +
+      '<button class="ghost" data-action="close-panel" data-item-id="' + itemId + '">Cancel</button></div>' +
+      '</div>' +
+      '<div class="row">' +
+      '<div><label>Or paste an IMDb/TMDB link</label>' +
+      '<input type="text" data-search-provider placeholder="https://www.imdb.com/title/tt.../ or a TMDB link/id"></div>' +
+      '</div>' +
+      '<div data-candidates></div></div>';
+  }
+
+  function runSearch(itemId) {
+    var slot = document.querySelector('.rv-panel-slot[data-panel-for="' + itemId + '"]');
+    var name = slot.querySelector("[data-search-name]").value.trim();
+    var year = parseInt(slot.querySelector("[data-search-year]").value, 10);
+    var providerLink = slot.querySelector("[data-search-provider]").value.trim();
+    var candidatesEl = slot.querySelector("[data-candidates]");
+    candidatesEl.innerHTML = '<div class="muted">Searching…</div>';
+    api("/api/admin/library/identify", {
+      method: "POST",
+      body: { itemId: itemId, name: name, year: year || undefined, providerLink: providerLink || undefined },
+    })
+      .then(function (data) {
+        var candidates = data.candidates || [];
+        if (!candidates.length) { candidatesEl.innerHTML = '<div class="muted">No matches. Try Manual instead.</div>'; return; }
+        var html = "";
+        candidates.forEach(function (c, ci) {
+          html += '<div class="rv-candidate" data-action="apply-candidate" data-item-id="' + itemId + '" data-candidate-index="' + ci + '">' +
+            (c.ImageUrl && c.ImageUrl !== "N/A" ? '<img src="' + esc(c.ImageUrl) + '">' : '<div class="rv-candidate img" style="width:34px;height:51px;flex:0 0 auto"></div>') +
+            '<div><div class="rv-cname">' + esc(c.Name) + (c.ProductionYear ? " (" + c.ProductionYear + ")" : "") + '</div>' +
+            (c.Overview ? '<div class="rv-coverview">' + esc(c.Overview) + '</div>' : "") + '</div></div>';
+        });
+        candidatesEl.innerHTML = html;
+        candidatesEl.dataset.candidatesJson = JSON.stringify(candidates);
+      })
+      .catch(function (e) { candidatesEl.innerHTML = '<div class="muted">' + esc(e.message) + '</div>'; });
+  }
+
+  function applyCandidate(itemId, index) {
+    var slot = document.querySelector('.rv-panel-slot[data-panel-for="' + itemId + '"]');
+    var candidatesEl = slot.querySelector("[data-candidates]");
+    var candidates = JSON.parse(candidatesEl.dataset.candidatesJson || "[]");
+    var candidate = candidates[index];
+    if (!candidate) return;
+    var it = review.itemsById[itemId];
+    candidatesEl.innerHTML = '<div class="muted">Applying…</div>';
+    api("/api/admin/library/apply-match", { method: "POST", body: { itemId: itemId, candidate: candidate, path: it && it.path } })
+      .then(function () {
+        show("ok", "Matched “" + candidate.Name + "”.");
+        closePanel(itemId);
+        markRowDone(itemId, "Matched: " + candidate.Name);
+      })
+      .catch(function (e) { show("err", e.message); openSearchPanel(itemId); });
+  }
+
+  function openManualPanel(itemId) {
+    var it = review.itemsById[itemId];
+    var slot = document.querySelector('.rv-panel-slot[data-panel-for="' + itemId + '"]');
+    if (!it || !slot) return;
+    slot.innerHTML =
+      '<div class="rv-inline-panel">' +
+      '<div class="row">' +
+      '<div><label>Title</label><input type="text" data-manual-name value="' + esc(guessSearchName(it.name)) + '"></div>' +
+      '<div class="narrow"><label>Year</label><input type="number" data-manual-year value="' + (it.year || "") + '"></div>' +
+      '</div><div class="row">' +
+      '<div><label>Overview</label><input type="text" data-manual-overview placeholder="A line or two about it"></div>' +
+      '</div><div class="row">' +
+      '<button data-action="save-manual" data-item-id="' + itemId + '">Save</button>' +
+      '<button class="ghost" data-action="close-panel" data-item-id="' + itemId + '">Cancel</button>' +
+      '</div></div>';
+  }
+
+  function saveManual(itemId) {
+    var slot = document.querySelector('.rv-panel-slot[data-panel-for="' + itemId + '"]');
+    var saveBtn = slot.querySelector('[data-action="save-manual"]');
+    var it = review.itemsById[itemId];
+    var body = {
+      itemId: itemId,
+      name: slot.querySelector("[data-manual-name]").value.trim(),
+      overview: slot.querySelector("[data-manual-overview]").value.trim(),
+      year: parseInt(slot.querySelector("[data-manual-year]").value, 10) || undefined,
+      path: it && it.path,
+    };
+    if (!body.name) { show("err", "Give it a title."); return; }
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving…";
+    api("/api/admin/library/manual-metadata", { method: "POST", body: body })
+      .then(function () {
+        show("ok", "Saved “" + body.name + "”.");
+        closePanel(itemId);
+        markRowDone(itemId, "Saved: " + body.name);
+      })
+      .catch(function (e) { show("err", e.message); saveBtn.disabled = false; saveBtn.textContent = "Save"; });
+  }
+
+  function excludeItem(itemId) {
+    var it = review.itemsById[itemId];
+    if (!it || !it.path) return;
+    if (!confirm('Hide "' + it.name + '" from the site?\n\nDa Moveesh is not touched — this just records the decision. Undo any time from "Current decisions" below.')) return;
+    var btn = document.querySelector('.rv-item-actions [data-action="exclude"][data-item-id="' + itemId + '"]');
+    if (btn) { btn.disabled = true; btn.textContent = "Excluding…"; }
+    api("/api/admin/library/exclude", { method: "POST", body: { path: it.path } })
+      .then(function () {
+        show("ok", "Excluded “" + it.name + "”.");
+        markRowDone(itemId, "Excluded");
+        loadCuration();
+      })
+      .catch(function (e) { show("err", e.message); if (btn) { btn.disabled = false; btn.textContent = "Exclude"; } });
+  }
+
+  function whitelistItem(itemId) {
+    var it = review.itemsById[itemId];
+    if (!it || !it.path) return;
+    var btn = document.querySelector('.rv-item-actions [data-action="whitelist"][data-item-id="' + itemId + '"]');
+    if (btn) { btn.disabled = true; btn.textContent = "Showing…"; }
+    api("/api/admin/library/whitelist", { method: "POST", body: { path: it.path } })
+      .then(function () {
+        show("ok", "“" + it.name + "” will show on the site now, even without fetched metadata.");
+        markRowDone(itemId, "Shown anyway");
+        loadCuration();
+      })
+      .catch(function (e) { show("err", e.message); if (btn) { btn.disabled = false; btn.textContent = "Show anyway"; } });
+  }
+
+  function checkedIdsIn(groupEl) {
+    return Array.prototype.slice.call(groupEl.querySelectorAll('input[type="checkbox"]:checked'))
+      .map(function (cb) { return cb.getAttribute("data-item-id"); });
+  }
+
+  function keepCheckedDiscardRest(groupEl) {
+    var all = Array.prototype.slice.call(groupEl.querySelectorAll('input[type="checkbox"]'))
+      .map(function (cb) { return cb.getAttribute("data-item-id"); });
+    var keep = checkedIdsIn(groupEl);
+    if (!keep.length) { show("err", "Check at least one copy to keep first."); return; }
+    var discard = all.filter(function (id) { return keep.indexOf(id) === -1; });
+    if (!discard.length) { show("err", "Check fewer than all of them — nothing left to discard."); return; }
+    if (!confirm("Hide " + discard.length + " other cop" + (discard.length === 1 ? "y" : "ies") + " from the site? Da Moveesh is not touched.")) return;
+
+    var actionBtn = groupEl.querySelector('[data-action="dup-keep"]');
+    if (actionBtn) { actionBtn.disabled = true; actionBtn.textContent = "Discarding…"; }
+    // Per-item, not Promise.all: one bad id shouldn't hide that the other
+    // nine succeeded, and each row gets marked the moment its own call lands
+    // rather than all-or-nothing at the end.
+    var succeeded = 0, failed = 0;
+    var remaining = discard.length;
+    discard.forEach(function (id) {
+      var it = review.itemsById[id];
+      if (!it || !it.path) { failed++; remaining--; return; }
+      api("/api/admin/library/exclude", { method: "POST", body: { path: it.path } })
+        .then(function () { succeeded++; markRowDone(id, "Excluded"); })
+        .catch(function () { failed++; })
+        .then(function () {
+          remaining--;
+          if (remaining === 0) {
+            if (actionBtn) { actionBtn.disabled = false; actionBtn.textContent = "Keep checked, discard rest"; }
+            show(failed ? "err" : "ok",
+              "Discarded " + succeeded + (failed ? (", " + failed + " failed") : "") + ".");
+            loadCuration();
+          }
+        });
+    });
+  }
+
+  function groupChecked(groupEl) {
+    var ids = checkedIdsIn(groupEl);
+    if (ids.length < 2) { show("err", "Check at least 2 items to group."); return; }
+    var paths = ids.map(function (id) { return review.itemsById[id] && review.itemsById[id].path; }).filter(Boolean);
+    if (paths.length < 2) { show("err", "Couldn't resolve file paths for those items."); return; }
+    var name = prompt("Name for this group?", review.itemsById[ids[0]] ? guessSearchName(review.itemsById[ids[0]].name) : "");
+    if (!name) return;
+    var actionBtn = groupEl.querySelector('[data-action="dup-group"], [data-action="thin-group"]');
+    if (actionBtn) { actionBtn.disabled = true; actionBtn.textContent = "Grouping…"; }
+    api("/api/admin/library/group", { method: "POST", body: { name: name, paths: paths } })
+      .then(function () {
+        show("ok", "Grouped as “" + name + "”. It shows as one entry on Browse right away — no rescan needed.");
+        ids.forEach(function (id) { markRowDone(id, "Grouped: " + name); });
+        loadCuration();
+      })
+      .catch(function (e) {
+        show("err", e.message);
+        if (actionBtn) { actionBtn.disabled = false; actionBtn.textContent = "Group checked as one"; }
+      });
+  }
+
+  // Delegated on document.body, not just #reviewBody: the same Search/
+  // Manual/Exclude actions are reused inside the group-management panel
+  // under "Current decisions", which lives in a different container. Every
+  // handler below already looks its target up globally (by item id), so
+  // widening the listener is the only change needed to make that work.
+  document.body.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    var action = btn.getAttribute("data-action");
+    var itemId = btn.getAttribute("data-item-id");
+    var groupEl = btn.closest(".rv-group");
+
+    if (action === "search") openSearchPanel(itemId);
+    else if (action === "manual") openManualPanel(itemId);
+    else if (action === "exclude") excludeItem(itemId);
+    else if (action === "whitelist") whitelistItem(itemId);
+    else if (action === "close-panel") closePanel(itemId);
+    else if (action === "run-search") runSearch(itemId);
+    else if (action === "save-manual") saveManual(itemId);
+    else if (action === "apply-candidate") applyCandidate(itemId, parseInt(btn.getAttribute("data-candidate-index"), 10));
+    else if (action === "dup-keep") keepCheckedDiscardRest(groupEl);
+    else if (action === "dup-group" || action === "thin-group") groupChecked(groupEl);
+    else if (action === "toggle-folder") {
+      var body = groupEl.querySelector(".rv-folder-body");
+      body.style.display = body.style.display === "none" ? "" : "none";
+    }
+    else if (action === "remove-from-group") removeItemFromGroup(itemId, btn.getAttribute("data-group-id"), btn);
+    else if (action === "save-group-name") saveGroupName(btn.getAttribute("data-group-id"), btn);
+    else if (action === "save-group-overview") saveGroupOverview(btn.getAttribute("data-group-id"), btn);
+    else if (action === "save-group-series") saveGroupSeries(btn.getAttribute("data-group-id"), btn);
+    else if (action === "fetch-episode") {
+      fetchEpisode(itemId, btn.getAttribute("data-group-id"),
+        parseInt(btn.getAttribute("data-season"), 10), parseInt(btn.getAttribute("data-episode"), 10), btn)
+        .then(function (result) { show("ok", "Applied: " + result.name + (result.posterSet ? "" : " (poster unavailable)")); })
+        .catch(function () {});
+    }
+    else if (action === "fetch-all-episodes") fetchAllEpisodes(btn.getAttribute("data-group-id"), btn);
+    else if (action === "transform") transformCandidate(itemId, btn);
+  });
+
+  /* ================================================================
+   * Current decisions — the document, and undo
+   * ================================================================ */
+  function shortName(path) {
+    if (!path) return "";
+    var parts = path.split("/");
+    return parts[parts.length - 1];
+  }
+
+  function loadCuration() {
+    return api("/api/admin/library/curation").then(function (data) {
+      renderCuration(data.excluded || [], data.groups || [], data.whitelisted || []);
+    }).catch(function () { /* quiet — this is a secondary panel, not worth a banner on its own */ });
+  }
+
+  function renderCuration(excluded, groups, whitelisted) {
+    var el = $("curationBody");
+    var html = "";
+
+    html += "<strong>Excluded (" + excluded.length + ")</strong>";
+    if (!excluded.length) {
+      html += '<div class="cur-empty">Nothing excluded.</div>';
+    } else {
+      excluded.forEach(function (e) {
+        html += '<div class="cur-row"><div class="cur-name">' + esc(shortName(e.path)) +
+          '<span class="cur-path">' + esc(e.path) + '</span></div>' +
+          '<button class="ghost" data-cur-action="unexclude" data-path="' + esc(e.path) + '">Undo</button></div>';
+      });
+    }
+
+    html += '<div style="margin-top:16px"><strong>Groups (' + groups.length + ')</strong></div>';
+    if (!groups.length) {
+      html += '<div class="cur-empty">Nothing grouped.</div>';
+    } else {
+      groups.forEach(function (g) {
+        html += '<div class="cur-row"><div class="cur-name">' + esc(g.groupName) +
+          '<span class="cur-path">' + g.paths.length + ' parts</span></div>' +
+          '<button class="ghost" data-cur-action="manage-group" data-group-id="' + esc(g.groupId) + '">Manage</button>' +
+          '<button class="ghost" data-cur-action="ungroup" data-group-id="' + esc(g.groupId) + '">Dissolve</button></div>' +
+          '<div class="cur-group-panel-slot" data-panel-for-group="' + esc(g.groupId) + '" data-open="0"></div>';
+      });
+    }
+
+    html += '<div style="margin-top:16px"><strong>Whitelisted (' + whitelisted.length + ')</strong></div>';
+    if (!whitelisted.length) {
+      html += '<div class="cur-empty">Nothing whitelisted.</div>';
+    } else {
+      whitelisted.forEach(function (w) {
+        html += '<div class="cur-row"><div class="cur-name">' + esc(shortName(w.path)) +
+          '<span class="cur-path">' + esc(w.path) + '</span></div>' +
+          '<button class="ghost" data-cur-action="unwhitelist" data-path="' + esc(w.path) + '">Undo</button></div>';
+      });
+    }
+
+    el.innerHTML = html;
+  }
+
+  /* ================================================================
+   * Group management — episode order, rename, synopsis, per-episode
+   * metadata correction (reuses the same Search/Manual/Exclude actions
+   * as the review dashboard, plus Remove-from-group).
+   * ================================================================ */
+  function toggleGroupManage(groupId) {
+    var slot = document.querySelector('.cur-group-panel-slot[data-panel-for-group="' + groupId + '"]');
+    if (!slot) return;
+    if (slot.dataset.open === "1") { slot.innerHTML = ""; slot.dataset.open = "0"; return; }
+    slot.innerHTML = '<div class="muted">Loading…</div>';
+    slot.dataset.open = "1";
+    api("/api/admin/library/group-detail?groupId=" + encodeURIComponent(groupId))
+      .then(function (detail) {
+        detail.items.forEach(function (it) { review.itemsById[it.id] = it; });
+        renderGroupManage(slot, detail);
+      })
+      .catch(function (e) { slot.innerHTML = '<div class="muted">' + esc(e.message) + '</div>'; });
+  }
+
+  function renderGroupManage(slot, detail) {
+    var html = '<div class="cur-group-manage">' +
+      '<div class="row">' +
+      '<div><label>Group name</label><input type="text" data-group-rename value="' + esc(detail.groupName) + '"></div>' +
+      '<div style="flex:0 0 auto"><button data-action="save-group-name" data-group-id="' + esc(detail.groupId) + '">Save name</button></div>' +
+      '</div>' +
+      '<div class="row">' +
+      '<div><label>Synopsis (shown on the collection page)</label>' +
+      '<input type="text" data-group-overview value="' + esc(detail.overview || "") + '" placeholder="A line or two about it"></div>' +
+      '<div style="flex:0 0 auto"><button data-action="save-group-overview" data-group-id="' + esc(detail.groupId) + '">Save synopsis</button></div>' +
+      '</div>' +
+      '<div class="row">' +
+      '<div><label>Series IMDb link (also fetches the real poster)</label>' +
+      '<input type="text" data-group-series value="' + esc(detail.seriesImdbId || "") + '" placeholder="https://www.imdb.com/title/tt.../"></div>' +
+      '<div style="flex:0 0 auto"><button data-action="save-group-series" data-group-id="' + esc(detail.groupId) + '">Save series</button></div>' +
+      '</div>' +
+      '<div class="row" style="margin-bottom:6px;align-items:center">' +
+      '<strong>Episodes (' + detail.items.length + ')</strong><span class="spacer"></span>' +
+      '<button class="ghost" data-action="fetch-all-episodes" data-group-id="' + esc(detail.groupId) + '">Fetch all from OMDb</button>' +
+      '</div>';
+
+    detail.items.forEach(function (it) {
+      var primary = it.label || it.name;
+      var mismatch = it.label && it.name && primary !== it.name;
+      html += '<div class="rv-item" data-item-id="' + it.id + '"><div class="rv-name">' + esc(primary) +
+        (mismatch ? '<span class="rv-path">Currently tagged as: ' + esc(it.name) + '</span>' : '') +
+        '<span class="rv-path">' + esc(shortPath(it.path)) + '</span></div>' +
+        '<div class="rv-item-actions">' +
+        folderLinkHtml(it) +
+        (it.episode !== null
+          ? '<button class="ghost" data-action="fetch-episode" data-item-id="' + it.id + '" data-group-id="' + esc(detail.groupId) + '" data-season="' + (it.season || 1) + '" data-episode="' + it.episode + '">Fetch OMDb</button>'
+          : "") +
+        '<button class="ghost" data-action="search" data-item-id="' + it.id + '">Search</button>' +
+        '<button class="ghost" data-action="manual" data-item-id="' + it.id + '">Manual</button>' +
+        '<button class="danger" data-action="exclude" data-item-id="' + it.id + '">Exclude</button>' +
+        '<button class="ghost" data-action="remove-from-group" data-item-id="' + it.id + '" data-group-id="' + esc(detail.groupId) + '">Remove</button>' +
+        '</div></div>' +
+        '<div class="rv-panel-slot" data-panel-for="' + it.id + '"></div>';
+    });
+
+    html += "</div>";
+    slot.innerHTML = html;
+  }
+
+  function fetchEpisode(itemId, groupId, season, episode, btn) {
+    var it = review.itemsById[itemId];
+    btn.disabled = true;
+    btn.textContent = "Fetching…";
+    return api("/api/admin/library/episode-fetch", {
+      method: "POST",
+      body: { itemId: itemId, groupId: groupId, season: season, episode: episode, path: it && it.path },
+    })
+      .then(function (result) {
+        markRowDone(itemId, "OMDb: " + result.name);
+        return result;
+      })
+      .catch(function (e) {
+        show("err", (it ? it.name + ": " : "") + e.message);
+        btn.disabled = false;
+        btn.textContent = "Fetch OMDb";
+        throw e;
+      });
+  }
+
+  function fetchAllEpisodes(groupId, btn) {
+    var panel = btn.closest(".cur-group-manage");
+    var buttons = Array.prototype.slice.call(
+      panel.querySelectorAll('[data-action="fetch-episode"][data-group-id="' + groupId + '"]:not(:disabled)'),
+    );
+    if (!buttons.length) { show("err", "Nothing left to fetch."); return; }
+    btn.disabled = true;
+    btn.textContent = "Fetching " + buttons.length + "…";
+
+    var succeeded = 0, failed = 0;
+    // Sequential, not Promise.all: OMDb is a shared free-tier key, and one
+    // bad series id shouldn't fire ten simultaneous doomed requests.
+    var chain = Promise.resolve();
+    buttons.forEach(function (epBtn) {
+      chain = chain.then(function () {
+        return fetchEpisode(
+          epBtn.getAttribute("data-item-id"),
+          groupId,
+          parseInt(epBtn.getAttribute("data-season"), 10),
+          parseInt(epBtn.getAttribute("data-episode"), 10),
+          epBtn,
+        ).then(function () { succeeded++; }).catch(function () { failed++; });
+      });
+    });
+    chain.then(function () {
+      btn.disabled = false;
+      btn.textContent = "Fetch all from OMDb";
+      show(failed ? "err" : "ok", "Fetched " + succeeded + (failed ? (", " + failed + " failed") : "") + ".");
+    });
+  }
+
+  function saveGroupName(groupId, btn) {
+    var panel = btn.closest(".cur-group-manage");
+    var val = panel.querySelector("[data-group-rename]").value.trim();
+    if (!val) { show("err", "Name can't be empty."); return; }
+    btn.disabled = true;
+    api("/api/admin/library/group-rename", { method: "POST", body: { groupId: groupId, name: val } })
+      .then(function () { show("ok", "Renamed to “" + val + "”."); loadCuration(); })
+      .catch(function (e) { show("err", e.message); })
+      .then(function () { btn.disabled = false; });
+  }
+
+  function saveGroupOverview(groupId, btn) {
+    var panel = btn.closest(".cur-group-manage");
+    var val = panel.querySelector("[data-group-overview]").value.trim();
+    btn.disabled = true;
+    api("/api/admin/library/group-overview", { method: "POST", body: { groupId: groupId, overview: val } })
+      .then(function () { show("ok", "Synopsis saved."); })
+      .catch(function (e) { show("err", e.message); })
+      .then(function () { btn.disabled = false; });
+  }
+
+  function saveGroupSeries(groupId, btn) {
+    var panel = btn.closest(".cur-group-manage");
+    var val = panel.querySelector("[data-group-series]").value.trim();
+    if (!val) { show("err", "Paste the series' IMDb link or id."); return; }
+    btn.disabled = true;
+    api("/api/admin/library/group-series", { method: "POST", body: { groupId: groupId, providerLink: val } })
+      .then(function (data) {
+        show("ok", "Series linked" + (data && data.seriesName ? " — " + data.seriesName : "") +
+          (data && data.posterFound ? ". Poster found for Browse and the collection page." : ". Fetch OMDb is ready for each episode."));
+      })
+      .catch(function (e) { show("err", e.message); })
+      .then(function () { btn.disabled = false; });
+  }
+
+  function removeItemFromGroup(itemId, groupId, btn) {
+    var it = review.itemsById[itemId];
+    if (!it || !it.path) return;
+    if (!confirm('Remove "' + (it.label || it.name) + '" from this group? It goes back to showing on its own on Browse.')) return;
+    btn.disabled = true;
+    api("/api/admin/library/remove-from-group", { method: "POST", body: { path: it.path } })
+      .then(function () {
+        // loadCuration() rebuilds #curationBody from scratch, which closes
+        // this panel along with it — simplest correct behaviour, since the
+        // group's part count changed and needs a fresh render anyway.
+        show("ok", "Removed from group.");
+        loadCuration();
+      })
+      .catch(function (e) { show("err", e.message); btn.disabled = false; });
+  }
+
+  $("loadCurationBtn").addEventListener("click", function () { clearMsg(); loadCuration(); });
+
+  $("curationBody").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-cur-action]");
+    if (!btn) return;
+    var action = btn.getAttribute("data-cur-action");
+
+    if (action === "unexclude") {
+      var path = btn.getAttribute("data-path");
+      btn.disabled = true;
+      api("/api/admin/library/unexclude", { method: "POST", body: { path: path } })
+        .then(function () { show("ok", "Restored to the site."); loadCuration(); })
+        .catch(function (e) { show("err", e.message); btn.disabled = false; });
+    } else if (action === "ungroup") {
+      var groupId = btn.getAttribute("data-group-id");
+      if (!confirm("Dissolve this group? Its parts go back to showing individually on Browse.")) return;
+      btn.disabled = true;
+      api("/api/admin/library/ungroup", { method: "POST", body: { groupId: groupId } })
+        .then(function () { show("ok", "Group dissolved."); loadCuration(); })
+        .catch(function (e) { show("err", e.message); btn.disabled = false; });
+    } else if (action === "manage-group") {
+      toggleGroupManage(btn.getAttribute("data-group-id"));
+    } else if (action === "unwhitelist") {
+      var wPath = btn.getAttribute("data-path");
+      btn.disabled = true;
+      api("/api/admin/library/unwhitelist", { method: "POST", body: { path: wPath } })
+        .then(function () { show("ok", "Hidden again until it has fetched metadata."); loadCuration(); })
+        .catch(function (e) { show("err", e.message); btn.disabled = false; });
+    }
+  });
+
+  /* ================================================================
+   * Worker — transform candidates and the conversion queue.
+   * The worker container is never started from here: this only ever
+   * writes a row to media_jobs. See workerAboutCard for how to run it.
+   * ================================================================ */
+  var candidatesById = {};
+
+  $("loadCandidates").addEventListener("click", function () {
+    clearMsg();
+    var btn = $("loadCandidates");
+    btn.disabled = true;
+    btn.textContent = "Loading…";
+    api("/api/admin/worker/candidates").then(function (data) {
+      var candidates = data.candidates || [];
+      candidatesById = {};
+      candidates.forEach(function (c) { candidatesById[c.id] = c; });
+      renderCandidates(candidates);
+    }).catch(function (e) { show("err", e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = "Load candidates"; });
+  });
+
+  function renderCandidates(candidates) {
+    var el = $("candidatesBody");
+    if (!candidates.length) {
+      el.innerHTML = '<div class="muted">Everything in the library plays directly in a browser.</div>';
+      return;
+    }
+    var html = "";
+    candidates.forEach(function (it) {
+      html += '<div class="wk-item" data-item-id="' + it.id + '">' +
+        '<div class="wk-name">' + esc(it.name) + (it.year ? " (" + it.year + ")" : "") +
+        '<span class="wk-path">' + esc(shortPath(it.path)) + '</span></div>' +
+        (it.quality ? '<span class="wk-quality">' + esc(it.quality) + '</span>' : "") +
+        '<div class="rv-item-actions">' +
+        folderLinkHtml(it) +
+        '<button class="ghost" data-action="transform" data-item-id="' + it.id + '">Transform</button>' +
+        '</div></div>';
+    });
+    el.innerHTML = html;
+  }
+
+  function transformCandidate(itemId, btn) {
+    var it = candidatesById[itemId];
+    if (!it || !it.path) return;
+    btn.disabled = true;
+    btn.textContent = "Queuing…";
+    api("/api/admin/worker/transform", { method: "POST", body: { path: it.path, title: it.name } })
+      .then(function (result) {
+        if (result.queued) {
+          show("ok", "Queued “" + it.name + "”. Run the worker to convert it.");
+          markRowDone(itemId, "Queued");
+        } else {
+          show("ok", "“" + it.name + "” was already queued or processed before.");
+        }
+        loadQueue();
+      })
+      .catch(function (e) { show("err", e.message); btn.disabled = false; btn.textContent = "Transform"; });
+  }
+
+  function loadQueue() {
+    return api("/api/admin/worker/jobs").then(function (data) {
+      renderQueue(data.jobs || []);
+    }).catch(function () { /* quiet — secondary panel */ });
+  }
+  $("loadQueue").addEventListener("click", function () { clearMsg(); loadQueue(); });
+
+  function renderQueue(jobs) {
+    var el = $("queueBody");
+    if (!jobs.length) {
+      el.innerHTML = '<div class="cur-empty">Nothing queued yet.</div>';
+      return;
+    }
+    var html = "";
+    jobs.forEach(function (j) {
+      html += '<div class="cur-row"><div class="cur-name">' + esc(j.title) +
+        '<span class="cur-path">' + esc(j.source_path) + '</span></div>' +
+        '<span class="wk-status status-' + esc(j.status) + '">' +
+        (j.status === "running" || j.status === "paused" ? j.status + " " + j.progress + "%" : j.status) +
+        '</span></div>';
+    });
+    el.innerHTML = html;
+  }
+
+  $("refresh").addEventListener("click", function () { clearMsg(); load(); });
+  $("filter").addEventListener("change", render);
+  $("key").addEventListener("keydown", function (e) { if (e.key === "Enter") $("connect").click(); });
+
+  /* ================================================================
+   * Accolades
+   * ================================================================ */
+
+  // Sub-tabs, nested one level below the top-level tab bar.
+  document.querySelectorAll(".subtab-btn").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var target = "sub-" + b.getAttribute("data-subtab");
+      var nav = b.parentElement;
+      nav.querySelectorAll(".subtab-btn").forEach(function (x) { x.classList.toggle("active", x === b); });
+      nav.parentElement.querySelectorAll(".subpanel").forEach(function (p) {
+        p.classList.toggle("active", p.id === target);
+      });
+    });
+  });
+
+  /* ---- Rich-text toolbar ----------------------------------------------
+   * setRangeText() on a plain <textarea>, not contenteditable — guarantees
+   * the exact tag names sanitizeRichText's allowlist expects, and avoids
+   * the toggle-off/newline-eating/paste-mess problems a hand-rolled
+   * contenteditable editor would introduce for what's just occasional
+   * bold/italic emphasis in a pull-quote. */
+  var AC_RT_ALLOWED = { b: 1, i: 1, u: 1, s: 1, sub: 1, sup: 1 };
+  // Kept in sync with src/lib/scraping/rich-text.ts's sanitizeRichText —
+  // this is a client-side preview only, the server re-sanitizes on write.
+  function clientSanitizeRichText(input) {
+    return String(input).replace(/<\/?([a-zA-Z0-9]+)[^>]*>/g, function (full, rawTag) {
+      var tag = rawTag.toLowerCase();
+      if (!AC_RT_ALLOWED[tag]) return "";
+      return full.charAt(1) === "/" ? "</" + tag + ">" : "<" + tag + ">";
+    });
+  }
+  function wrapSelectionInTag(textarea, tag) {
+    var s = textarea.selectionStart, e = textarea.selectionEnd;
+    if (s === e) return;
+    var selected = textarea.value.slice(s, e);
+    textarea.setRangeText("<" + tag + ">" + selected + "</" + tag + ">", s, e, "select");
+    textarea.focus();
+    acUpdateRtPreview(textarea);
+  }
+  function acUpdateRtPreview(textarea) {
+    var previewEl = $(textarea.id + "Preview");
+    if (previewEl) previewEl.innerHTML = clientSanitizeRichText(textarea.value);
+  }
+  $("acFilmDetail").addEventListener("input", function (e) {
+    if (e.target.id === "acCustomBlurb" || e.target.id === "acCustomTrivia") acUpdateRtPreview(e.target);
+  });
+
+  // Article reader — shared by every place that offers "Read full text".
+  function acOpenReader(title, meta, body) {
+    $("acReaderTitle").textContent = title;
+    $("acReaderMeta").textContent = meta;
+    // Paragraphs as separate <p> elements (not one .textContent dump) so a
+    // selection's toolbar can be positioned per-line — still built via esc()
+    // per paragraph, never raw innerHTML of scraped content.
+    $("acReaderBody").innerHTML = String(body).split("\n\n").map(function (p) {
+      return "<p>" + esc(p) + "</p>";
+    }).join("");
+    $("acReaderBackdrop").classList.add("open");
+    $("acReaderPanel").classList.add("open");
+    acBlurbPicks = [];
+    acTriviaPicks = [];
+    acRenderReaderCollectors();
+    acHideReaderToolbar();
+  }
+  function acCloseReader() {
+    $("acReaderBackdrop").classList.remove("open");
+    $("acReaderPanel").classList.remove("open");
+    acHideReaderToolbar();
+    acBlurbPicks = [];
+    acTriviaPicks = [];
+  }
+  $("acReaderClose").addEventListener("click", acCloseReader);
+  $("acReaderBackdrop").addEventListener("click", acCloseReader);
+
+  var acCurrentArticleId = null;
+  var acCurrentArticle = null;
+
+  function acReadArticle(articleId) {
+    api("/api/admin/accolades/article/" + encodeURIComponent(articleId)).then(function (data) {
+      acCurrentArticleId = articleId;
+      acCurrentArticle = data.article;
+      var a = data.article;
+      var fetched = new Date(a.fetched_at).toLocaleDateString();
+      acRenderMatches(data.links || []);
+      acOpenReader(a.title, a.source_id + " — fetched " + fetched, a.full_text);
+    }).catch(function (e) { show("err", e.message); });
+  }
+
+  /* ---- Passage picker: select text in the reader, pick it as a blurb or
+   * trivia candidate, lock/save straight from here. Reuses the exact same
+   * lock-blurb/trivia endpoints the plain textareas already post to — the
+   * server has no way to know the text came from a selection vs. typing. */
+  var acBlurbPicks = [];
+  var acTriviaPicks = [];
+  var acPendingSelectionText = "";
+
+  function acRenderReaderCollectors() {
+    var blurbEl = $("acReaderCollectorBlurbLines");
+    blurbEl.innerHTML = acBlurbPicks.length
+      ? acBlurbPicks.map(function (text, i) {
+          return '<div class="ac-rc-line"><div class="ac-rc-text">' + (i + 1) + '. "' + esc(text) + '"</div>' +
+            '<button class="ac-rc-x" data-ac-action="remove-reader-pick" data-kind="blurb" data-index="' + i + '" title="Remove">✕</button></div>';
+        }).join("")
+      : '<div class="ac-rc-line" style="color:var(--muted);font-style:italic">Nothing selected yet.</div>';
+
+    var triviaEl = $("acReaderCollectorTriviaLines");
+    triviaEl.innerHTML = acTriviaPicks.length
+      ? acTriviaPicks.map(function (text, i) {
+          return '<div class="ac-rc-line"><div class="ac-rc-text">' + esc(text) + '</div>' +
+            '<button class="ac-rc-x" data-ac-action="remove-reader-pick" data-kind="trivia" data-index="' + i + '" title="Remove">✕</button></div>';
+        }).join("")
+      : '<div class="ac-rc-line" style="color:var(--muted);font-style:italic">Nothing selected yet.</div>';
+  }
+
+  function acHideReaderToolbar() {
+    $("acReaderToolbar").classList.remove("open");
+  }
+
+  var acReaderBody = $("acReaderBody");
+  acReaderBody.addEventListener("mouseup", function () {
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) { acHideReaderToolbar(); return; }
+    var range = sel.getRangeAt(0);
+    if (!acReaderBody.contains(range.commonAncestorContainer)) { acHideReaderToolbar(); return; }
+    var text = sel.toString().trim();
+    if (!text) { acHideReaderToolbar(); return; }
+    acPendingSelectionText = text;
+    var rect = range.getBoundingClientRect();
+    var toolbar = $("acReaderToolbar");
+    toolbar.classList.add("open");
+    toolbar.style.top = Math.max(8, rect.top - toolbar.offsetHeight - 8) + "px";
+    toolbar.style.left = Math.max(8, rect.left) + "px";
+  });
+  $("acReaderPanel").addEventListener("scroll", acHideReaderToolbar);
+  $("acReaderToolbar").addEventListener("mousedown", function (e) { e.preventDefault(); });
+
+  // Every film this article/book mentions — matched (with an Unlink) or
+  // unmatched (with a search box to link it, or Discard to reject it
+  // entirely). Whatever fetched this article found, the curator reviews it
+  // right here rather than trusting the automatic match blindly.
+  function acRenderMatches(links) {
+    var el = $("acReaderMatches");
+    if (!links.length) { el.innerHTML = ""; return; }
+    var html = '<div class="ac-match-section"><strong style="font-size:13px;display:block;margin-bottom:8px">Films this mentions (' + links.length + ')</strong>';
+    links.forEach(function (l) {
+      html += '<div class="ac-match-row" data-link-id="' + esc(l.id) + '"><div class="ac-match-main">' +
+        '<div class="ac-match-title">' + esc(l.raw_title) + (l.raw_year ? ' (' + l.raw_year + ')' : '') + '</div>';
+      if (l.imdb_id) {
+        html += '<div class="ac-match-status ok">Matched — ' + esc(l.confidence) + '</div></div>' +
+          '<button class="ghost small" data-ac-action="unlink-article" data-link-id="' + esc(l.id) + '">Unlink</button></div>';
+      } else {
+        html += '<div class="ac-match-status">Not matched yet</div>' +
+          '<div class="ac-match-search"><input class="ac-match-search-input" placeholder="Search your library to link this…">' +
+          '<div class="ac-match-search-results"></div></div></div>' +
+          '<button class="ghost small" data-ac-action="unlink-article" data-link-id="' + esc(l.id) + '">Discard</button></div>';
+      }
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  }
+
+  $("acReaderMatches").addEventListener("input", function (e) {
+    if (!e.target.classList.contains("ac-match-search-input")) return;
+    var input = e.target;
+    var row = input.closest(".ac-match-row");
+    var resultsEl = row.querySelector(".ac-match-search-results");
+    clearTimeout(input._acTimer);
+    var q = input.value.trim();
+    if (q.length < 2) { resultsEl.innerHTML = ""; return; }
+    input._acTimer = setTimeout(function () {
+      api("/api/admin/accolades/search?q=" + encodeURIComponent(q)).then(function (data) {
+        var results = data.results || [];
+        resultsEl.innerHTML = results.length
+          ? results.map(function (r) {
+              return '<div class="ac-match-result" data-ac-action="link-match" data-link-id="' + row.getAttribute("data-link-id") +
+                '" data-imdb-id="' + esc(r.imdbId) + '">' + esc(r.name) + ' <span class="ac-r-year">' + (r.year || "") + '</span></div>';
+            }).join("")
+          : '<div class="muted" style="padding:4px 0">No matches.</div>';
+      }).catch(function () {});
+    }, 250);
+  });
+
+  /* ---- Films sub-tab --------------------------------------------- */
+  var acCurrentImdb = null;
+  var acSearchTimer = null;
+
+  function acSearch() {
+    var q = $("acSearchInput").value.trim();
+    var el = $("acSearchResults");
+    if (q.length < 2) { el.innerHTML = ""; return; }
+    api("/api/admin/accolades/search?q=" + encodeURIComponent(q)).then(function (data) {
+      var results = data.results || [];
+      if (!results.length) { el.innerHTML = '<div class="muted" style="padding:6px 0">No matches.</div>'; return; }
+      el.innerHTML = '<div class="ac-poster-grid">' + results.map(function (r) {
+        var posterSrc = r.posterUrl ? (r.posterUrl.indexOf("http") === 0 ? r.posterUrl : state.base + r.posterUrl) : null;
+        var poster = posterSrc
+          ? '<img src="' + esc(posterSrc) + '" alt="">'
+          : '<div class="ac-tile-ph">No poster</div>';
+        return '<div class="ac-poster-tile" data-ac-action="select-film" data-imdb-id="' + esc(r.imdbId) + '" data-name="' + esc(r.name) + '">' +
+          poster + '<div class="ac-tile-title">' + esc(r.name) + '</div>' +
+          '<div class="ac-tile-sub">' + (r.year || "") + '</div></div>';
+      }).join("") + '</div>';
+    }).catch(function (e) { show("err", e.message); });
+  }
+  $("acSearchInput").addEventListener("input", function () {
+    clearTimeout(acSearchTimer);
+    acSearchTimer = setTimeout(acSearch, 250);
+  });
+
+  function acLoadFilmDetail(imdbId, name) {
+    acCurrentImdb = imdbId;
+    $("acSearchResults").innerHTML = "";
+    $("acSearchInput").value = name;
+    $("acFilmDetail").innerHTML = '<div class="muted" style="padding:10px 0">Loading…</div>';
+    api("/api/admin/accolades/film/" + encodeURIComponent(imdbId)).then(function (data) {
+      acRenderFilmDetail(name, data);
+    }).catch(function (e) { show("err", e.message); });
+  }
+
+  function acRenderFilmDetail(name, data) {
+    var lock = data.lock || {};
+    var blurbLocked = !!(lock.locked_blurb_candidate_id || lock.locked_blurb_text);
+    var accoladeLocked = !!(lock.locked_accolade_link_id || lock.locked_accolade_entry_id);
+
+    var html = '<div class="card"><div class="card-title">' + esc(name) +
+      '<span class="muted" style="font-weight:400;margin-left:8px">' + esc(data.imdbId) + '</span></div>' +
+      '<div class="row" style="margin-top:10px"><div style="flex:0 0 auto"><button class="ghost small" data-ac-action="fetch-wikipedia">Fetch Wikipedia data</button></div></div>';
+
+    html += '<strong style="font-size:13px;display:block;margin-top:14px">Linked articles</strong>';
+    if (!data.articles.length) {
+      html += '<div class="muted" style="padding:6px 0">Nothing found yet.</div>';
+    } else {
+      data.articles.forEach(function (a) {
+        html += '<div class="ac-article-row"><div class="ac-a-name">' + esc(a.title) +
+          '<span class="ac-a-meta"> — ' + esc(a.source_id) + '</span></div>' +
+          '<div class="ac-a-actions">' +
+          '<button class="ghost small" data-ac-action="read-article" data-article-id="' + esc(a.id) + '">Read full text</button>' +
+          '<button class="ghost small" data-ac-action="unlink-article" data-article-id="' + esc(a.id) + '" data-link-id="' + esc(a.link.id) + '">Unlink</button>' +
+          '</div></div>';
+      });
+    }
+    html += '</div>';
+
+    html += '<div class="card"><div class="card-title">Blurb<span class="ac-lock-pill ' + (blurbLocked ? "locked" : "auto") + '">' + (blurbLocked ? "Locked" : "Auto") + '</span></div>';
+    if (!data.blurbCandidates.length) {
+      html += '<div class="muted" style="padding:6px 0">No candidates yet.</div>';
+    } else {
+      data.blurbCandidates.forEach(function (c) {
+        var picked = lock.locked_blurb_candidate_id === c.id;
+        html += '<div class="ac-option' + (picked ? " picked" : "") + '"><div style="flex:1"><div class="ac-o-text">"' + esc(c.passage_text) + '"</div>' +
+          '<div class="ac-o-meta">' + esc(c.source_name) + '</div></div>' +
+          '<div class="ac-o-actions"><button class="ghost" data-ac-action="lock-blurb" data-candidate-id="' + esc(c.id) + '">Lock this</button></div></div>';
+      });
+    }
+    html += '<label style="margin-top:10px">Or write your own — or paste one copied from a site we don\'t scrape</label>' +
+      '<div class="ac-rt-toolbar">' +
+      '<button type="button" class="ac-rt-btn" data-ac-action="rt-format" data-tag="b" data-target="acCustomBlurb" title="Bold"><b>B</b></button>' +
+      '<button type="button" class="ac-rt-btn" data-ac-action="rt-format" data-tag="i" data-target="acCustomBlurb" title="Italic"><i>I</i></button>' +
+      '<button type="button" class="ac-rt-btn" data-ac-action="rt-format" data-tag="u" data-target="acCustomBlurb" title="Underline"><u>U</u></button>' +
+      '<button type="button" class="ac-rt-btn" data-ac-action="rt-format" data-tag="s" data-target="acCustomBlurb" title="Strikethrough"><s>S</s></button>' +
+      '<button type="button" class="ac-rt-btn" data-ac-action="rt-format" data-tag="sub" data-target="acCustomBlurb" title="Subscript">X<sub>2</sub></button>' +
+      '<button type="button" class="ac-rt-btn" data-ac-action="rt-format" data-tag="sup" data-target="acCustomBlurb" title="Superscript">X<sup>2</sup></button>' +
+      '</div>' +
+      '<textarea id="acCustomBlurb" placeholder="Type or paste a blurb…">' + (lock.locked_blurb_text ? esc(lock.locked_blurb_text) : "") + '</textarea>' +
+      '<div class="ac-rt-preview" id="acCustomBlurbPreview"></div>' +
+      '<div class="row" style="margin-top:8px">' +
+      '<div><input id="acCustomBlurbSource" placeholder="Source name (optional, e.g. \'Roger Ebert\')" value="' + (lock.locked_blurb_source_label ? esc(lock.locked_blurb_source_label) : "") + '"></div>' +
+      '<div><input id="acCustomBlurbUrl" placeholder="Review link (optional)" value="' + (lock.locked_blurb_source_url ? esc(lock.locked_blurb_source_url) : "") + '"></div>' +
+      '</div>' +
+      '<div class="row" style="margin-top:8px">' +
+      '<div style="flex:0 0 auto"><button class="warm" data-ac-action="lock-custom-blurb">Lock this blurb</button></div>' +
+      '<div style="flex:0 0 auto"><button class="ghost" data-ac-action="unlock-blurb">Back to auto</button></div></div></div>';
+
+    html += '<div class="card"><div class="card-title">Accolades<span class="ac-lock-pill ' + (accoladeLocked ? "locked" : "auto") + '">' + (accoladeLocked ? "Locked" : "Auto") + '</span></div>';
+    var mentions = (data.accoladeMentions || []).map(function (m) {
+      return { kind: "link", id: m.id, label: m.accolade_label ? m.accolade_label : ("#" + m.accolade_rank), meta: m.article_title + " — " + m.source_name };
+    }).concat((data.curatorAccoladeMentions || []).map(function (e) {
+      return { kind: "entry", id: e.id, label: "#" + (e.slot + 1), meta: e.accolade_name };
+    }));
+    if (!mentions.length) {
+      html += '<div class="muted" style="padding:6px 0">No accolade mentions yet.</div>';
+    } else {
+      mentions.forEach(function (m) {
+        var picked = (m.kind === "link" && lock.locked_accolade_link_id === m.id) || (m.kind === "entry" && lock.locked_accolade_entry_id === m.id);
+        var isWin = /^Won/i.test(m.label);
+        var rankMatch = m.label.match(/^#(\d+)/);
+        var badge = isWin
+          ? '<div class="ac-accolade-trophy" title="Win">🏆</div>'
+          : '<div class="ac-rank-pill">' + (rankMatch ? esc(rankMatch[0]) : "•") + '</div>';
+        html += '<div class="ac-option' + (picked ? " picked" : "") + '">' + badge +
+          '<div style="flex:1"><div class="ac-o-text">' + esc(m.label) + '</div>' +
+          '<div class="ac-o-meta">' + esc(m.meta) + (picked ? ' <span class="ac-o-current">· currently showing</span>' : '') + '</div></div>' +
+          '<div class="ac-o-actions"><button class="ghost" data-ac-action="lock-accolade-' + m.kind + '" data-id="' + esc(m.id) + '">Lock this</button></div></div>';
+      });
+    }
+    html += '<div class="row" style="margin-top:8px"><div style="flex:0 0 auto"><button class="ghost" data-ac-action="unlock-accolade">Back to auto</button></div></div></div>';
+
+    var triviaCurated = data.triviaSelections.length > 0;
+    html += '<div class="card"><div class="card-title">Trivia<span class="ac-lock-pill ' + (triviaCurated ? "locked" : "auto") + '">' + (triviaCurated ? "Curated" : "Auto") + '</span></div>';
+    if (triviaCurated) {
+      html += '<strong style="font-size:13px;display:block;margin-top:10px">Curated list</strong>';
+      data.triviaSelections.forEach(function (t, i) {
+        html += '<div class="ac-trivia-row" data-selection-id="' + esc(t.id) + '"><div><div class="ac-t-text">' + esc(t.text) + '</div><div class="ac-t-meta">' + esc(t.sourceLabel) + '</div></div>' +
+          '<div class="ac-t-actions">' +
+          '<button class="ghost ac-order-btn" data-ac-action="move-trivia" data-direction="up"' + (i === 0 ? " disabled" : "") + ' title="Move up">↑</button>' +
+          '<button class="ghost ac-order-btn" data-ac-action="move-trivia" data-direction="down"' + (i === data.triviaSelections.length - 1 ? " disabled" : "") + ' title="Move down">↓</button>' +
+          (t.custom ? '<button class="ghost small" data-ac-action="edit-trivia">Edit</button>' : "") +
+          '<button class="ghost small" data-ac-action="remove-trivia" data-selection-id="' + esc(t.id) + '">Remove</button>' +
+          '</div></div>';
+      });
+    }
+    html += '<strong style="font-size:13px;display:block;margin-top:12px">Candidates found</strong>';
+    if (!data.triviaCandidates.length) {
+      html += '<div class="muted" style="padding:6px 0">None yet.</div>';
+    } else {
+      data.triviaCandidates.forEach(function (t) {
+        html += '<div class="ac-trivia-row"><div><div class="ac-t-text">' + esc(t.fact_text) + '</div><div class="ac-t-meta">' + esc(t.article_title) + '</div></div>' +
+          '<button class="ghost" data-ac-action="add-trivia-candidate" data-candidate-id="' + esc(t.id) + '">Add to curated list</button></div>';
+      });
+    }
+    html += '<label style="margin-top:12px">Add your own</label>' +
+      '<div class="ac-rt-toolbar">' +
+      '<button type="button" class="ac-rt-btn" data-ac-action="rt-format" data-tag="b" data-target="acCustomTrivia" title="Bold"><b>B</b></button>' +
+      '<button type="button" class="ac-rt-btn" data-ac-action="rt-format" data-tag="i" data-target="acCustomTrivia" title="Italic"><i>I</i></button>' +
+      '<button type="button" class="ac-rt-btn" data-ac-action="rt-format" data-tag="u" data-target="acCustomTrivia" title="Underline"><u>U</u></button>' +
+      '<button type="button" class="ac-rt-btn" data-ac-action="rt-format" data-tag="s" data-target="acCustomTrivia" title="Strikethrough"><s>S</s></button>' +
+      '<button type="button" class="ac-rt-btn" data-ac-action="rt-format" data-tag="sub" data-target="acCustomTrivia" title="Subscript">X<sub>2</sub></button>' +
+      '<button type="button" class="ac-rt-btn" data-ac-action="rt-format" data-tag="sup" data-target="acCustomTrivia" title="Superscript">X<sup>2</sup></button>' +
+      '</div>' +
+      '<textarea id="acCustomTrivia" placeholder="Type a trivia fact…"></textarea>' +
+      '<div class="ac-rt-preview" id="acCustomTriviaPreview"></div>' +
+      '<div class="row" style="margin-top:8px"><div style="flex:0 0 auto"><button class="warm" data-ac-action="add-custom-trivia">Add fact</button></div></div></div>';
+
+    $("acFilmDetail").innerHTML = html;
+  }
+
+  function acReloadFilmDetail() {
+    if (!acCurrentImdb) return Promise.resolve();
+    var name = $("acSearchInput").value;
+    return api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb)).then(function (data) {
+      acRenderFilmDetail(name, data);
+    });
+  }
+
+  /* ---- Builder sub-tab --------------------------------------------- */
+  function acLoadBuilder() {
+    api("/api/admin/accolades/builder").then(function (data) {
+      acRenderBuilder(data.accolades || []);
+    }).catch(function (e) { show("err", e.message); });
+  }
+
+  function acRenderBuilder(accolades) {
+    var el = $("acBuilderList");
+    if (!accolades.length) { el.innerHTML = '<div class="muted" style="padding:10px 0">Nothing built yet — "New accolade" above to start one.</div>'; return; }
+    var html = "";
+    accolades.forEach(function (a) {
+      html += '<details class="ac-builder-item" data-accolade-id="' + esc(a.id) + '"><summary>' + esc(a.name) +
+        ' <span class="ac-b-meta">' + a.entries.length + ' slot' + (a.entries.length === 1 ? "" : "s") + '</span></summary>';
+      html += '<div class="ac-builder-editor">';
+      html += '<div class="row"><div><label>Name</label><input class="ac-rename-input" value="' + esc(a.name) + '"></div>' +
+        '<div style="flex:0 0 auto"><button class="ghost small" data-ac-action="builder-rename">Rename</button></div>' +
+        '<div style="flex:0 0 auto"><button class="ghost small" data-ac-action="builder-delete">Delete list</button></div></div>';
+      a.entries.forEach(function (e, i) {
+        html += '<div class="ac-slot-row" data-entry-id="' + esc(e.id) + '" data-slot="' + e.slot + '">' +
+          '<div class="ac-slot-main"><input class="ac-slot-title" value="' + esc(e.raw_title) + '" placeholder="Search your library…">' +
+          '<textarea class="ac-slot-blurb" placeholder="Blurb (optional)">' + (e.blurb_text ? esc(e.blurb_text) : "") + '</textarea>' +
+          '<div class="muted">' + (e.imdb_id ? "Matched" : "Not yet in your library — will auto-link if it's ever added") + '</div></div>' +
+          '<button class="ghost ac-order-btn" data-ac-action="move-slot" data-direction="up"' + (i === 0 ? " disabled" : "") + ' title="Move up">↑</button>' +
+          '<button class="ghost ac-order-btn" data-ac-action="move-slot" data-direction="down"' + (i === a.entries.length - 1 ? " disabled" : "") + ' title="Move down">↓</button>' +
+          '<button class="ghost" data-ac-action="save-slot">Save</button>' +
+          '<button class="ghost" data-ac-action="delete-slot">✕</button></div>';
+      });
+      html += '<div class="row" style="margin-top:10px"><div style="flex:0 0 auto"><button class="ghost small" data-ac-action="add-slot">Add slot</button></div></div>';
+      html += '</div></details>';
+    });
+    el.innerHTML = html;
+  }
+
+  $("acNewAccolade").addEventListener("click", function () {
+    var name = prompt("Name for this accolade?");
+    if (!name || !name.trim()) return;
+    api("/api/admin/accolades/builder", { method: "POST", body: { name: name.trim() } })
+      .then(function () { show("ok", "Created."); acLoadBuilder(); })
+      .catch(function (e) { show("err", e.message); });
+  });
+
+  /* ---- Sources sub-tab --------------------------------------------- */
+  function loadAcSources() {
+    api("/api/admin/accolades/sources").then(function (data) {
+      acRenderSources(data.sources || []);
+    }).catch(function (e) { show("err", e.message); });
+    api("/api/admin/accolades/sources/uploaded-books/articles").then(function (data) {
+      acRenderBooks(data.articles || []);
+    }).catch(function (e) { show("err", e.message); });
+  }
+
+  var SOURCE_RUN_ROUTES = {
+    reverseshot: "/api/admin/accolades/run-reverseshot",
+    "the-ringer": "/api/admin/accolades/run-ringer",
+    brightwalldarkroom: "/api/admin/accolades/run-brightwalldarkroom"
+  };
+
+  function acRenderSources(sources) {
+    var web = sources.filter(function (s) { return s.source_type === "web"; });
+    var html = web.map(function (s) {
+      var lastJob = s.recentJobs && s.recentJobs[0];
+      var jobNote = lastJob ? (" — last run " + new Date(lastJob.created_at).toLocaleDateString() + ": " + lastJob.status +
+        (lastJob.found_count != null ? " (" + lastJob.found_count + " found, " + lastJob.matched_count + " matched)" : "")) : "";
+      var runBtn = SOURCE_RUN_ROUTES[s.id]
+        ? '<button class="ghost small" data-ac-action="test-run-source" data-source-id="' + esc(s.id) + '">Test run</button>'
+        : "";
+      return '<div class="ac-source-row"><div class="ac-s-name">' + esc(s.name) +
+        ' <span class="ac-s-kind">' + esc(s.kind) + jobNote + '</span></div>' +
+        '<div style="display:flex;gap:6px;align-items:center">' + runBtn +
+        '<button class="ac-toggle ' + (s.enabled ? "on" : "off") + '" data-ac-action="toggle-source" data-source-id="' + esc(s.id) + '">' +
+        (s.enabled ? "On" : "Off") + '</button></div></div>';
+    }).join("");
+    $("acSourcesList").innerHTML = html;
+  }
+
+  function acRenderBooks(articles) {
+    var el = $("acBooksList");
+    if (!articles.length) { el.innerHTML = '<div class="muted" style="padding:6px 0">Nothing uploaded yet.</div>'; return; }
+    el.innerHTML = articles.map(function (a) {
+      return '<div class="ac-article-row"><div class="ac-a-name">' + esc(a.title) +
+        '<span class="ac-a-meta"> — ' + a.matched_count + ' matched' + (a.unmatched_count ? ", " + a.unmatched_count + " unmatched" : "") + '</span></div>' +
+        '<button class="ghost small" data-ac-action="read-article" data-article-id="' + esc(a.id) + '">Read full text</button></div>';
+    }).join("");
+  }
+
+  $("acRunYearendlists").addEventListener("click", function () {
+    var btn = $("acRunYearendlists");
+    var year = Number($("acYearInput").value) || new Date().getFullYear();
+    btn.disabled = true; btn.textContent = "Running…";
+    api("/api/admin/accolades/run-yearendlists", { method: "POST", body: { year: year } })
+      .then(function (r) {
+        show("ok", "Found " + r.entriesFound + " entries across " + r.listsProcessed + " lists (" + r.matchedCount + " matched).");
+        loadAcSources();
+      })
+      .catch(function (e) { show("err", e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = "Run Year End Lists"; });
+  });
+
+  var WIKI_LIST_PRESETS = {
+    afi100movies: { page_title: "AFI's 100 Years...100 Movies", kind: "ranked", rank_column_hint: "2007" },
+    afi100laughs: { page_title: "AFI's 100 Years...100 Laughs", kind: "ranked" },
+    afi100thrills: { page_title: "AFI's 100 Years...100 Thrills", kind: "ranked" },
+    oscarsbestpicture: { page_title: "Academy Award for Best Picture", kind: "winners", award_label: "Academy Award for Best Picture", winners_only: false },
+    palmedor: { page_title: "Palme d'Or", kind: "winners", award_label: "Palme d'Or, Cannes Film Festival" },
+    goldenlion: { page_title: "Golden Lion", kind: "winners", award_label: "Golden Lion, Venice Film Festival" }
+  };
+
+  $("acRunWikiList").addEventListener("click", function () {
+    var btn = $("acRunWikiList");
+    var preset = WIKI_LIST_PRESETS[$("acWikiListPreset").value];
+    btn.disabled = true; btn.textContent = "Running…";
+    $("acWikiListStatus").textContent = "Fetching " + preset.page_title + "…";
+    api("/api/admin/accolades/run-wikipedia-list", { method: "POST", body: preset })
+      .then(function (r) {
+        $("acWikiListStatus").textContent = "Found " + r.entriesFound + " entries in \"" + r.pageTitle + "\" (" + r.matchedCount + " matched to library films).";
+        loadAcSources();
+      })
+      .catch(function (e) { $("acWikiListStatus").textContent = "Failed: " + e.message; })
+      .then(function () { btn.disabled = false; btn.textContent = "Run"; });
+  });
+
+  $("acUploadPdf").addEventListener("click", function () {
+    var input = $("acPdfFile");
+    var file = input.files && input.files[0];
+    if (!file) { show("err", "Choose a PDF first."); return; }
+    var btn = $("acUploadPdf");
+    btn.disabled = true; btn.textContent = "Uploading…";
+    var form = new FormData();
+    form.append("file", file);
+    fetch(state.base + "/api/admin/accolades/upload-book", {
+      method: "POST",
+      headers: { "X-Admin-Key": state.key },
+      body: form,
+    }).then(function (res) {
+      return res.text().then(function (txt) {
+        var data = null;
+        try { data = txt ? JSON.parse(txt) : null; } catch (e) {}
+        if (!res.ok) throw new Error((data && data.message) || txt || ("HTTP " + res.status));
+        return data;
+      });
+    }).then(function (r) {
+      show("ok", "Found " + r.filmsFound + " films mentioned (" + r.matchedCount + " matched).");
+      input.value = "";
+      loadAcSources();
+    }).catch(function (e) { show("err", e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = "Upload"; });
+  });
+
+  /* ---- Delegated actions --------------------------------------------- */
+  document.body.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-ac-action]");
+    if (!btn) return;
+    var action = btn.getAttribute("data-ac-action");
+
+    if (action === "select-film") {
+      acLoadFilmDetail(btn.getAttribute("data-imdb-id"), btn.getAttribute("data-name"));
+    } else if (action === "rt-format") {
+      wrapSelectionInTag($(btn.getAttribute("data-target")), btn.getAttribute("data-tag"));
+    } else if (action === "read-article") {
+      acReadArticle(btn.getAttribute("data-article-id"));
+    } else if (action === "reader-add-blurb") {
+      if (!acPendingSelectionText) return;
+      acBlurbPicks.push(acPendingSelectionText);
+      acRenderReaderCollectors();
+      acHideReaderToolbar();
+    } else if (action === "reader-add-trivia") {
+      if (!acPendingSelectionText) return;
+      acTriviaPicks.push(acPendingSelectionText);
+      acRenderReaderCollectors();
+      acHideReaderToolbar();
+    } else if (action === "remove-reader-pick") {
+      var pickKind = btn.getAttribute("data-kind");
+      var pickIndex = parseInt(btn.getAttribute("data-index"), 10);
+      (pickKind === "blurb" ? acBlurbPicks : acTriviaPicks).splice(pickIndex, 1);
+      acRenderReaderCollectors();
+    } else if (action === "save-reader-blurb") {
+      if (!acCurrentImdb) { show("err", "Select a film in the Films tab first."); return; }
+      if (!acBlurbPicks.length) { show("err", "Select at least one passage first."); return; }
+      api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb) + "/lock-blurb", {
+        method: "POST",
+        body: {
+          text: acBlurbPicks.join(" … "),
+          source_label: acCurrentArticle ? acCurrentArticle.source_id : undefined,
+          source_url: acCurrentArticle ? acCurrentArticle.url : undefined,
+        },
+      }).then(function () {
+        show("ok", "Blurb locked.");
+        acCloseReader();
+        return acReloadFilmDetail();
+      }).catch(function (err) { show("err", err.message); });
+    } else if (action === "save-reader-trivia") {
+      if (!acCurrentImdb) { show("err", "Select a film in the Films tab first."); return; }
+      if (!acTriviaPicks.length) { show("err", "Select at least one passage first."); return; }
+      var picksToSave = acTriviaPicks.slice();
+      var saveNext = function () {
+        if (!picksToSave.length) {
+          show("ok", "Trivia facts saved.");
+          acCloseReader();
+          return acReloadFilmDetail();
+        }
+        var text = picksToSave.shift();
+        return api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb) + "/trivia", {
+          method: "POST", body: { text: text },
+        }).then(saveNext);
+      };
+      saveNext().catch(function (err) { show("err", err.message); });
+    } else if (action === "fetch-wikipedia") {
+      btn.disabled = true; btn.textContent = "Fetching…";
+      api("/api/admin/accolades/fetch-wikipedia", { method: "POST", body: { imdb_id: acCurrentImdb } })
+        .then(function (r) { show("ok", r.found ? "Wikipedia data fetched." : "No Wikipedia page found."); return acReloadFilmDetail(); })
+        .catch(function (err) { show("err", err.message); btn.disabled = false; btn.textContent = "Fetch Wikipedia data"; });
+    } else if (action === "lock-blurb") {
+      api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb) + "/lock-blurb", { method: "POST", body: { candidate_id: btn.getAttribute("data-candidate-id") } })
+        .then(function () { show("ok", "Blurb locked."); return acReloadFilmDetail(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "lock-custom-blurb") {
+      var blurbText = $("acCustomBlurb").value.trim();
+      if (!blurbText) { show("err", "Type a blurb first."); return; }
+      var blurbSourceLabel = $("acCustomBlurbSource").value.trim();
+      var blurbSourceUrl = $("acCustomBlurbUrl").value.trim();
+      api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb) + "/lock-blurb", {
+        method: "POST",
+        body: { text: blurbText, source_label: blurbSourceLabel || undefined, source_url: blurbSourceUrl || undefined },
+      })
+        .then(function () { show("ok", "Blurb locked."); return acReloadFilmDetail(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "test-run-source") {
+      var srcId = btn.getAttribute("data-source-id");
+      var runRoute = SOURCE_RUN_ROUTES[srcId];
+      if (!runRoute) return;
+      btn.disabled = true; btn.textContent = "Running…";
+      api(runRoute, { method: "POST", body: { limit: 10 } })
+        .then(function (r) {
+          var processed = r.reviewsProcessed != null ? r.reviewsProcessed : r.articlesProcessed;
+          show("ok", "Fetched " + processed + " article(s), " + r.matchedCount + " matched to library films.");
+          loadAcSources();
+        })
+        .catch(function (e) { show("err", e.message); btn.disabled = false; btn.textContent = "Test run"; });
+    } else if (action === "unlock-blurb") {
+      api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb) + "/lock-blurb", { method: "DELETE" })
+        .then(function () { show("ok", "Back to auto."); return acReloadFilmDetail(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "lock-accolade-link") {
+      api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb) + "/lock-accolade", { method: "POST", body: { link_id: btn.getAttribute("data-id") } })
+        .then(function () { show("ok", "Accolade locked."); return acReloadFilmDetail(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "lock-accolade-entry") {
+      api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb) + "/lock-accolade", { method: "POST", body: { entry_id: btn.getAttribute("data-id") } })
+        .then(function () { show("ok", "Accolade locked."); return acReloadFilmDetail(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "unlock-accolade") {
+      api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb) + "/lock-accolade", { method: "DELETE" })
+        .then(function () { show("ok", "Back to auto."); return acReloadFilmDetail(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "remove-trivia") {
+      api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb) + "/trivia/" + encodeURIComponent(btn.getAttribute("data-selection-id")), { method: "DELETE" })
+        .then(function () { return acReloadFilmDetail(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "move-trivia") {
+      var mtRow = btn.closest(".ac-trivia-row");
+      var mtSelId = mtRow.getAttribute("data-selection-id");
+      api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb) + "/trivia/" + encodeURIComponent(mtSelId) + "/move", {
+        method: "POST", body: { direction: btn.getAttribute("data-direction") },
+      }).then(function () { return acReloadFilmDetail(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "edit-trivia") {
+      var editRow = btn.closest(".ac-trivia-row");
+      var editSelId = editRow.getAttribute("data-selection-id");
+      var currentText = editRow.querySelector(".ac-t-text").textContent;
+      var newTriviaText = prompt("Edit this fact:", currentText);
+      if (newTriviaText === null || !newTriviaText.trim()) return;
+      api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb) + "/trivia/" + encodeURIComponent(editSelId), {
+        method: "PATCH", body: { text: newTriviaText.trim() },
+      }).then(function () { return acReloadFilmDetail(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "unlink-article") {
+      var unlinkArticleId = btn.getAttribute("data-article-id") || acCurrentArticleId;
+      var unlinkLinkId = btn.getAttribute("data-link-id");
+      if (!confirm("Unlink this article from this film? This can't be undone (the article stays — just this mention goes).")) return;
+      api("/api/admin/accolades/article/" + encodeURIComponent(unlinkArticleId) + "/links/" + encodeURIComponent(unlinkLinkId), { method: "DELETE" })
+        .then(function () {
+          show("ok", "Unlinked.");
+          if (acCurrentArticleId === unlinkArticleId) acReadArticle(acCurrentArticleId);
+          if (acCurrentImdb) return acReloadFilmDetail();
+        }).catch(function (err) { show("err", err.message); });
+    } else if (action === "link-match") {
+      api("/api/admin/accolades/article/" + encodeURIComponent(acCurrentArticleId) + "/links/" + encodeURIComponent(btn.getAttribute("data-link-id")), {
+        method: "POST", body: { imdb_id: btn.getAttribute("data-imdb-id") },
+      }).then(function () { show("ok", "Linked."); acReadArticle(acCurrentArticleId); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "add-trivia-candidate") {
+      api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb) + "/trivia", { method: "POST", body: { candidate_id: btn.getAttribute("data-candidate-id") } })
+        .then(function () { return acReloadFilmDetail(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "add-custom-trivia") {
+      var triviaText = $("acCustomTrivia").value.trim();
+      if (!triviaText) { show("err", "Type a fact first."); return; }
+      api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb) + "/trivia", { method: "POST", body: { text: triviaText } })
+        .then(function () { return acReloadFilmDetail(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "builder-rename") {
+      var renameDetails = btn.closest(".ac-builder-item");
+      var renameId = renameDetails.getAttribute("data-accolade-id");
+      var newName = renameDetails.querySelector(".ac-rename-input").value.trim();
+      if (!newName) { show("err", "Name required."); return; }
+      api("/api/admin/accolades/builder/" + encodeURIComponent(renameId), { method: "PATCH", body: { name: newName } })
+        .then(function () { show("ok", "Renamed."); acLoadBuilder(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "builder-delete") {
+      var deleteDetails = btn.closest(".ac-builder-item");
+      var deleteId = deleteDetails.getAttribute("data-accolade-id");
+      if (!confirm("Delete this whole accolade list? This can't be undone.")) return;
+      api("/api/admin/accolades/builder/" + encodeURIComponent(deleteId), { method: "DELETE" })
+        .then(function () { show("ok", "Deleted."); acLoadBuilder(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "save-slot") {
+      var slotRow = btn.closest(".ac-slot-row");
+      var slotDetails = btn.closest(".ac-builder-item");
+      var slotAccoladeId = slotDetails.getAttribute("data-accolade-id");
+      var slotNum = Number(slotRow.getAttribute("data-slot"));
+      var slotTitle = slotRow.querySelector(".ac-slot-title").value.trim();
+      var slotBlurb = slotRow.querySelector(".ac-slot-blurb").value.trim();
+      if (!slotTitle) { show("err", "Title required."); return; }
+      api("/api/admin/accolades/builder/" + encodeURIComponent(slotAccoladeId) + "/entries", {
+        method: "POST",
+        body: { slot: slotNum, title: slotTitle, blurb_text: slotBlurb || null },
+      }).then(function () { show("ok", "Saved."); acLoadBuilder(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "move-slot") {
+      var moveRow = btn.closest(".ac-slot-row");
+      var moveEntryId = moveRow.getAttribute("data-entry-id");
+      var moveDetails = btn.closest(".ac-builder-item");
+      var moveAccoladeId = moveDetails.getAttribute("data-accolade-id");
+      if (!moveEntryId || btn.disabled) return;
+      api("/api/admin/accolades/builder/" + encodeURIComponent(moveAccoladeId) + "/entries/" + encodeURIComponent(moveEntryId) + "/move", {
+        method: "POST", body: { direction: btn.getAttribute("data-direction") },
+      }).then(function () { acLoadBuilder(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "delete-slot") {
+      var delRow = btn.closest(".ac-slot-row");
+      var delEntryId = delRow.getAttribute("data-entry-id");
+      var delDetails = btn.closest(".ac-builder-item");
+      var delAccoladeId = delDetails.getAttribute("data-accolade-id");
+      if (!delEntryId) { delRow.remove(); return; }
+      api("/api/admin/accolades/builder/" + encodeURIComponent(delAccoladeId) + "/entries/" + encodeURIComponent(delEntryId), { method: "DELETE" })
+        .then(function () { show("ok", "Removed."); acLoadBuilder(); }).catch(function (err) { show("err", err.message); });
+    } else if (action === "add-slot") {
+      var addDetails = btn.closest(".ac-builder-item");
+      var nextSlot = addDetails.querySelectorAll(".ac-slot-row").length;
+      var newRow = document.createElement("div");
+      newRow.className = "ac-slot-row";
+      newRow.setAttribute("data-slot", String(nextSlot));
+      newRow.innerHTML = '<div class="ac-slot-main"><input class="ac-slot-title" placeholder="Search your library…">' +
+        '<textarea class="ac-slot-blurb" placeholder="Blurb (optional)"></textarea></div>' +
+        '<button class="ghost" data-ac-action="save-slot">Save</button>' +
+        '<button class="ghost" data-ac-action="delete-slot">✕</button>';
+      addDetails.querySelector(".ac-builder-editor").insertBefore(newRow, btn.closest(".row"));
+    } else if (action === "toggle-source") {
+      api("/api/admin/accolades/sources/" + encodeURIComponent(btn.getAttribute("data-source-id")) + "/toggle", { method: "POST" })
+        .then(function () { loadAcSources(); }).catch(function (err) { show("err", err.message); });
+    }
+  });
+
+  // Sub-tab content loads once, the first time its tab is shown.
+  var acBuilderLoaded = false;
+  document.querySelectorAll('.subtab-btn[data-subtab="ac-builder"]').forEach(function (b) {
+    b.addEventListener("click", function () { if (!acBuilderLoaded) { acBuilderLoaded = true; acLoadBuilder(); } });
+  });
+
+  // Restore a same-session key so a refresh does not mean retyping it.
+  try {
+    var k = sessionStorage.getItem("jfg_key");
+    if (k) {
+      $("key").value = k;
+      $("base").value = sessionStorage.getItem("jfg_base") || $("base").value;
+      $("remember").checked = true;
+      $("connect").click();
+    }
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>

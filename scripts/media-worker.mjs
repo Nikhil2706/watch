@@ -98,6 +98,18 @@ const FFPROBE = process.env.FFPROBE_PATH ?? "ffprobe";
 const POLL_SECONDS = Number(process.env.WATCH_POLL_SECONDS ?? 30);
 
 /**
+ * "queue" (default): touches nothing on its own. Drains whatever is already
+ * sitting in media_jobs — rows the gate's admin dashboard inserted when an
+ * admin explicitly clicked Transform on a specific file — then exits. No
+ * folder watching, no library-wide auto-discovery, no daemon left running.
+ *
+ * "watch": the original always-on behaviour — watches MEDIA_INCOMING and
+ * periodically walks the whole library queuing anything unplayable, for
+ * anyone who wants the worker to run that way instead.
+ */
+const WORKER_MODE = (process.env.WORKER_MODE ?? "queue").trim().toLowerCase();
+
+/**
  * Continuous library upgrade.
  *
  * The watch folder only ever sees NEW files. A library that predates this
@@ -173,50 +185,10 @@ const VIDEO_EXTENSIONS = new Set([
  * Database
  * ------------------------------------------------------------------ */
 
-/**
- * Create every directory this process needs to write to, and fail with a
- * diagnosis rather than a bare stack trace if it cannot.
- *
- * EACCES here has one overwhelmingly likely cause: the host path behind a
- * bind mount did not exist when the container was created, so Docker
- * auto-created it itself — as root, mode 755. This container runs as the
- * non-root `node` user (see the Dockerfile), which can then read that
- * directory but not write into it, including creating this very archive
- * folder. Reproduced exactly: an `EACCES` on `mkdir` of a path one level
- * below an existing, auto-vivified mount root is the signature of it.
- *
- * The fix is not inside the container — chowning it from here would not
- * survive a recreate, and on a Windows host there is no chown to reach for
- * in the first place. It is to make sure the real directory exists on the
- * host BEFORE `docker compose up` ever runs, then recreate this container so
- * it binds to that instead of to Docker's own stub.
- */
-function ensureWritable(dir, label) {
-  try {
-    mkdirSync(dir, { recursive: true });
-  } catch (error) {
-    if (error.code !== "EACCES") throw error;
-    console.error(
-      `\nFATAL: cannot create "${dir}" (${label}): permission denied.\n\n` +
-        "This almost always means the host directory behind this mount did not\n" +
-        "exist the first time this container started, so Docker created it\n" +
-        "itself as root — which this process, running as a non-root user, then\n" +
-        "cannot write into.\n\n" +
-        "Fix on the host, not in here:\n" +
-        "  1. docker compose down\n" +
-        `  2. Delete the folder currently mounted at "${dir}" (check it is\n` +
-        "     empty first — it should be, this is what failed to create) and\n" +
-        "     create it fresh yourself: mkdir, or via Explorer.\n" +
-        "  3. docker compose up -d\n",
-    );
-    process.exit(1);
-  }
-}
-
-ensureWritable(INCOMING, "MEDIA_INCOMING");
-ensureWritable(LIBRARY, "MEDIA_LIBRARY");
-ensureWritable(PROCESSED, "legacy archive alias");
-ensureWritable(ARCHIVE, "MEDIA_ARCHIVE");
+mkdirSync(INCOMING, { recursive: true });
+mkdirSync(LIBRARY, { recursive: true });
+mkdirSync(PROCESSED, { recursive: true });
+mkdirSync(ARCHIVE, { recursive: true });
 
 const db = new DatabaseSync(DB_PATH);
 db.exec("PRAGMA journal_mode = WAL");
@@ -479,6 +451,26 @@ const finishJob = db.prepare(
   `UPDATE media_jobs SET status = ?, output_path = ?, bytes_out = ?, error = ?,
           progress = ?, finished_at = ? WHERE id = ?`,
 );
+
+/**
+ * Writes straight into the gate app's event_log table (see src/lib/events.ts
+ * for the reader side) — this process has its own DatabaseSync handle on the
+ * same WAL-mode file, so no IPC is needed to keep worker failures in the same
+ * unified feed the dashboard reads for everything else. Never throws: a
+ * failed log write must not be the reason a real failure goes unrecorded in
+ * media_jobs, which already has its own `error` column as the source of truth.
+ */
+const insertEvent = db.prepare(
+  `INSERT INTO event_log (id, category, severity, source, message, detail, item_id, username, created_at)
+   VALUES (?, 'media_job', 'error', 'worker', ?, ?, NULL, NULL, ?)`,
+);
+function logWorkerFailure(message, detail) {
+  try {
+    insertEvent.run(randomUUID(), message.slice(0, 2000), JSON.stringify(detail ?? {}).slice(0, 4000), Date.now());
+  } catch (err) {
+    log("event log write failed:", err.message);
+  }
+}
 /**
  * Pause is implemented with SIGSTOP/SIGCONT rather than by killing ffmpeg.
  *
@@ -898,6 +890,10 @@ async function processOne() {
   const info = await probe(job.source_path);
   if (!info) {
     finishJob.run("failed", null, null, "Not a readable video file", 0, Date.now(), job.id);
+    logWorkerFailure(`Unreadable file — likely corrupt or an unsupported container: "${job.title}"`, {
+      title: job.title,
+      sourcePath: job.source_path,
+    });
     log(`unreadable: ${job.source_path}`);
     return true;
   }
@@ -920,6 +916,7 @@ async function processOne() {
       await refreshJellyfin();
     } catch (error) {
       finishJob.run("failed", null, null, `Move failed: ${error.message}`, 0, Date.now(), job.id);
+      logWorkerFailure(`Move failed for "${job.title}"`, { title: job.title, sourcePath: job.source_path, error: error.message });
     }
     return true;
   }
@@ -931,6 +928,7 @@ async function processOne() {
       if (existsSync(result.temp)) unlinkSync(result.temp);
     } catch { /* best effort */ }
     finishJob.run("failed", null, null, result.error, 0, Date.now(), job.id);
+    logWorkerFailure(`Conversion failed for "${job.title}"`, { title: job.title, sourcePath: job.source_path, error: result.error });
     log(`FAILED "${job.title}": ${result.error}`);
     return true;
   }
@@ -970,6 +968,7 @@ async function processOne() {
     await refreshJellyfin();
   } catch (error) {
     finishJob.run("failed", null, null, `Publish failed: ${error.message}`, 0, Date.now(), job.id);
+    logWorkerFailure(`Publish failed for "${job.title}"`, { title: job.title, sourcePath: job.source_path, error: error.message });
     log(`publish failed for "${job.title}": ${error.message}`);
   }
 
@@ -988,34 +987,59 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   });
 }
 
-log(`watching   ${INCOMING}`);
-log(`library    ${LIBRARY} (scan ${LIBRARY_SCAN ? "on" : "off"}, every ${LIBRARY_SCAN_INTERVAL_MS / 60000}m)`);
+log(`mode       ${WORKER_MODE}`);
 log(`publishing ${LIBRARY}`);
 log(`originals  ${ARCHIVE}`);
 log(`database   ${DB_PATH}`);
 
-while (!stopping) {
-  scanIncoming();
-  await scanLibrary();
+if (WORKER_MODE === "watch") {
+  log(`watching   ${INCOMING}`);
+  log(`library    ${LIBRARY} (scan ${LIBRARY_SCAN ? "on" : "off"}, every ${LIBRARY_SCAN_INTERVAL_MS / 60000}m)`);
 
-  if (await someoneIsWatching()) {
-    log("someone is watching — deferring conversions");
+  while (!stopping) {
+    scanIncoming();
+    await scanLibrary();
+
+    if (await someoneIsWatching()) {
+      log("someone is watching — deferring conversions");
+      await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
+      continue;
+    }
+
+    // Strictly one conversion at a time. Two parallel ffmpeg jobs on a
+    // four-thread box make both of them slower than running them in sequence,
+    // and starve the transcoder serving anyone actually watching.
+    let worked = await processOne();
+    while (worked && !stopping) {
+      worked = await processOne();
+    }
+
+    if (stopping) break;
     await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
-    continue;
   }
 
+  db.close();
+  log("stopped");
+} else {
+  // Queue-only: touch nothing that wasn't explicitly queued (by the gate's
+  // Transform button), then exit. No folder watching, no library-wide
+  // auto-discovery — this is what "the worker never runs on its own" means
+  // in practice, short of never starting the container at all.
+  let queued = nextPending.get() !== undefined;
+  if (!queued) {
+    log("nothing queued — exiting");
+  }
 
-  // Strictly one conversion at a time. Two parallel ffmpeg jobs on a
-  // four-thread box make both of them slower than running them in sequence,
-  // and starve the transcoder serving anyone actually watching.
   let worked = await processOne();
   while (worked && !stopping) {
+    if (await someoneIsWatching()) {
+      log("someone is watching — deferring conversions");
+      await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
+      continue;
+    }
     worked = await processOne();
   }
 
-  if (stopping) break;
-  await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
+  db.close();
+  log(stopping ? "stopped" : "queue drained — exiting");
 }
-
-db.close();
-log("stopped");

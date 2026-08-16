@@ -1,5 +1,8 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
+
 import { asRows, getDb } from "./db";
 
 /**
@@ -114,6 +117,35 @@ export function formatEta(seconds: number | null): string | null {
  * suspends the process rather than killing it — there is no mid-file resume, so
  * killing a two-hour encode at 80% would throw all of it away.
  */
+/**
+ * Queues a file for the worker to convert — the gate never runs ffmpeg
+ * itself (only the worker image carries it), so this writes the same row
+ * shape media-worker.mjs writes when it discovers a file on its own, and
+ * leaves actually converting it to whenever the worker is next started.
+ *
+ * source_path is UNIQUE, so a file already queued or previously processed
+ * silently no-ops rather than erroring — `queued: false` tells the caller
+ * that happened, so the dashboard can say "already queued" instead of
+ * pretending a new job was created.
+ */
+export function queueTransform(path: string, title: string): { queued: boolean; jobId: string } {
+  const jobId = randomUUID();
+  let bytesIn: number | null = null;
+  try {
+    bytesIn = statSync(path).size;
+  } catch {
+    /* worth queuing even if the size can't be read from here */
+  }
+
+  const result = getDb()
+    .prepare(
+      `INSERT OR IGNORE INTO media_jobs (id, source_path, title, status, progress, created_at, bytes_in)
+       VALUES (?, ?, ?, 'pending', 0, ?, ?)`,
+    )
+    .run(jobId, path, title, Date.now(), bytesIn);
+  return { queued: Number(result.changes) > 0, jobId };
+}
+
 export function requestJobControl(jobId: string, action: "pause" | "resume"): boolean {
   const job = getDb()
     .prepare("SELECT status FROM media_jobs WHERE id = ?")

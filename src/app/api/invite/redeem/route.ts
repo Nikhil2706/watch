@@ -1,3 +1,4 @@
+import { logEvent } from "@/lib/events";
 import { getClientIp, getUserAgent } from "@/lib/ip";
 import { claimInvite, releaseInviteClaim } from "@/lib/invites";
 import {
@@ -163,6 +164,14 @@ export async function POST(request: Request): Promise<Response> {
             "automatic cleanup failed, delete it manually in the Jellyfin dashboard.",
           cleanupError,
         );
+        logEvent({
+          category: "internal_api",
+          severity: "critical",
+          source: "invite_redeem",
+          message: `Orphaned Jellyfin user ${jellyfinUserId} (${username}) — cleanup failed`,
+          detail: { jellyfinUserId, error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError) },
+          username,
+        });
       }
     }
     releaseInviteClaim(claim.inviteId);
@@ -173,18 +182,34 @@ export async function POST(request: Request): Promise<Response> {
       );
 
       if (error.status === 0) {
+        logEvent({
+          category: "internal_api",
+          severity: "error",
+          source: "invite_redeem",
+          message: "Jellyfin unreachable during invite redemption",
+          detail: { error: error.message },
+          username,
+        });
         return Response.json(
           { error: "upstream_unavailable", message: "The media server is not responding. Your invite has not been used — try again shortly." },
           { status: 502, headers: NO_STORE },
         );
       }
       if (error.status === 400 || error.status === 409) {
-        // Overwhelmingly the "username already exists" case.
+        // Overwhelmingly the "username already exists" case — routine, not logged.
         return Response.json(
           { error: "username_taken", message: "That username is not available. Pick another." },
           { status: 409, headers: NO_STORE },
         );
       }
+      logEvent({
+        category: "internal_api",
+        severity: "error",
+        source: "invite_redeem",
+        message: `Jellyfin rejected invite redemption (${error.status})`,
+        detail: { status: error.status, body: error.body },
+        username,
+      });
       return Response.json(
         { error: "upstream_error", message: "The media server rejected the request. Your invite has not been used." },
         { status: 502, headers: NO_STORE },
@@ -192,6 +217,14 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     console.error("[invite/redeem] failed:", error);
+    logEvent({
+      category: "internal_api",
+      severity: "error",
+      source: "invite_redeem",
+      message: "Invite redemption failed",
+      detail: { error: error instanceof Error ? error.message : String(error) },
+      username,
+    });
     return Response.json(
       { error: "internal_error", message: "Could not complete signup. Your invite has not been used." },
       { status: 500, headers: NO_STORE },

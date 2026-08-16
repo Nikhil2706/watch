@@ -1,0 +1,26 @@
+# Token-based (remotely-managed) tunnel.
+#
+# Use with:  docker compose -f docker-compose.yml -f docker-compose.token.yml up -d
+#
+# The base file is built for the `cloudflared tunnel login` flow: a cert.pem plus
+# a credentials JSON and a local config.yml describing ingress. A token replaces
+# all three. TUNNEL_TOKEN carries the tunnel id, its credentials and the account,
+# so `tunnel run` needs no ID argument and no local config at all.
+#
+# THE IMPORTANT CONSEQUENCE: ingress is no longer defined here. With a token the
+# hostname -> service mapping lives in the Cloudflare dashboard, under
+# Zero Trust -> Networks -> Tunnels -> <tunnel> -> Public Hostnames. The service
+# there must be http://gate:3000 — the compose service name, reachable over the
+# `edge` network — NOT localhost, which inside the cloudflared container means
+# the container itself.
+services:
+  tunnel:
+    # cloudflared reads TUNNEL_TOKEN natively; no --token flag needed, which
+    # also keeps the secret out of the process list and `docker inspect` args.
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env}
+    # The base file mounts CF_CREDS_DIR at /etc/cloudflared. Token mode needs no
+    # credentials on disk, but compose merges volumes rather than replacing them,
+    # so CF_CREDS_DIR must still point at a directory that exists. ./cf is an
+    # empty placeholder; cloudflared finds no config there and uses the token.
+    user: "${CF_USER:-0:0}"

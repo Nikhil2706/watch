@@ -9,6 +9,7 @@ import { getActiveJobs } from "@/lib/jobs";
 import { getMemberships } from "@/lib/lists";
 import { getRatings } from "@/lib/ratings";
 import {
+  collapseEpisodeGroups,
   getAllMovies,
   getGenres,
   getLatest,
@@ -43,17 +44,22 @@ export default async function HomePage() {
   const genreRows = await Promise.all(
     genres.slice(0, 4).map(async (genre) => ({
       genre,
-      items: await getAllMovies(session, { genre, limit: 20 }).catch(() => []),
+      // Collapsed here, not "Continue watching": these are browse-titles
+      // rows, so a newly-added or genre-tagged show should read as one tile,
+      // not one per episode — same reasoning as More like this below.
+      collapsed: collapseEpisodeGroups(await getAllMovies(session, { genre, limit: 20 }).catch(() => [])),
     })),
   );
+  const collapsedLatest = collapseEpisodeGroups(latest);
 
   // One batched membership lookup for every card on the page, rather than one
-  // query per poster.
+  // query per poster. Group tiles' synthetic ids simply match nothing here,
+  // which is fine — PosterCard never renders list toggles for a group tile.
   const lists = getMemberships(session.userId, [
     ...new Set([
       ...resume.map((i) => i.Id),
-      ...latest.map((i) => i.Id),
-      ...genreRows.flatMap((row) => row.items.map((i) => i.Id)),
+      ...collapsedLatest.items.map((i) => i.Id),
+      ...genreRows.flatMap((row) => row.collapsed.items.map((i) => i.Id)),
     ]),
   ]);
 
@@ -85,9 +91,24 @@ export default async function HomePage() {
       <AppBar username={session.username} />
       <Hero item={featured} imdb={featuredRatings?.imdb} />
       <Row title="Continue watching" items={resume} lists={lists} />
-      <Row title="Recently added" items={latest} lists={lists} />
-      {genreRows.map(({ genre, items }) => (
-        <Row key={genre} title={genre} items={items} lists={lists} />
+      <Row
+        title="Recently added"
+        items={collapsedLatest.items}
+        lists={lists}
+        itemHrefs={collapsedLatest.hrefs}
+        itemPosters={collapsedLatest.posters}
+        itemPartsCounts={collapsedLatest.partsCounts}
+      />
+      {genreRows.map(({ genre, collapsed }) => (
+        <Row
+          key={genre}
+          title={genre}
+          items={collapsed.items}
+          lists={lists}
+          itemHrefs={collapsed.hrefs}
+          itemPosters={collapsed.posters}
+          itemPartsCounts={collapsed.partsCounts}
+        />
       ))}
       {/* Last, deliberately: this is operational detail, and someone arriving to
           watch something should meet the library before a progress bar. */}

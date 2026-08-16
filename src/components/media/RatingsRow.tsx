@@ -1,4 +1,7 @@
 import type { Ratings } from "@/lib/ratings";
+import { scoreToStars } from "@/lib/stars";
+
+import { Stars } from "./Stars";
 
 /**
  * Ratings strip on the detail page.
@@ -57,13 +60,28 @@ function Mark({ source }: { source: string }) {
   }
 }
 
+export interface AccoladeCell {
+  /** "#7" for a ranked mention, "Won"/"Nom." for an award result. */
+  badge: string;
+  /** e.g. "The Ringer's 25 Best Sports Movies" or "92nd Academy Awards". */
+  detail: string;
+  /** The original article, when it came from a real URL — lets us send the click back to the site we scraped it from. */
+  sourceUrl?: string | null;
+}
+
 export function RatingsRow({
   ratings,
   community,
+  accolade,
+  usRating,
 }: {
   ratings: Ratings | null;
   /** Jellyfin's own (TMDB) score, always available. */
   community?: number;
+  /** Resolved via resolve.ts — the accolade renders as one more cell in this same row, per curator feedback, rather than a separate boxed section. */
+  accolade?: AccoladeCell | null;
+  /** The room's own average, from user_ratings — absent (not just zero) until at least one person here has rated it. */
+  usRating?: { average: number; count: number } | null;
 }) {
   const cells: Array<{
     source: string;
@@ -108,7 +126,7 @@ export function RatingsRow({
     });
   }
 
-  if (cells.length === 0) return null;
+  if (cells.length === 0 && !accolade && !usRating) return null;
 
   return (
     <>
@@ -127,6 +145,37 @@ export function RatingsRow({
             {cell.note ? <div className="rating-note">{cell.note}</div> : null}
           </div>
         ))}
+        {usRating ? (
+          <div className="rating us">
+            <div className="rating-head">
+              <span className="mark mark-us">Us</span>
+              <span className="rating-source">Us</span>
+            </div>
+            <Stars value={scoreToStars(usRating.average)} size={15} />
+            <div className="rating-note">
+              {scoreToStars(usRating.average).toFixed(1)} · {usRating.count} rating{usRating.count === 1 ? "" : "s"}
+            </div>
+          </div>
+        ) : null}
+        {accolade ? (
+          <div className="rating accolade">
+            <div className="rating-head">
+              <span className="rating-source">Accolade</span>
+            </div>
+            <div className="rating-value">{accolade.badge}</div>
+            <div className="rating-note">{accolade.detail}</div>
+            {accolade.sourceUrl ? (
+              <a
+                className="accolade-link"
+                href={accolade.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Read the source →
+              </a>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       {!ratings ? (
         <p className="hint" style={{ marginTop: 8 }}>

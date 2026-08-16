@@ -82,6 +82,31 @@ export function optionalInt(
   throw new ValidationError(`${key} must be a number.`);
 }
 
+/**
+ * Pulls an IMDb or TMDB id out of whatever an admin pastes — a full URL
+ * ("https://www.imdb.com/title/tt0079636/"), or just the bare id
+ * ("tt0079636", "11216"). Accepts either provider; returns whichever one
+ * matched, or both if the input happens to satisfy both patterns (it won't
+ * in practice, but the caller only needs to check what's present).
+ */
+export function parseProviderLink(value: unknown): { imdb?: string; tmdb?: string } {
+  if (typeof value !== "string" || !value.trim()) return {};
+  const v = value.trim();
+
+  const imdbId = v.match(/\b(tt\d{6,9})\b/i)?.[1];
+  if (imdbId) return { imdb: imdbId.toLowerCase() };
+
+  const tmdbId = v.match(/themoviedb\.org\/movie\/(\d+)/i)?.[1];
+  if (tmdbId) return { tmdb: tmdbId };
+
+  // A bare number, with nothing else on the line, is only unambiguous as a
+  // TMDB id — IMDb ids always carry the "tt" prefix, so there's no case
+  // where a plain digit string could mean anything else here.
+  if (/^\d+$/.test(v)) return { tmdb: v };
+
+  return {};
+}
+
 export function optionalString(
   body: Record<string, unknown>,
   key: string,

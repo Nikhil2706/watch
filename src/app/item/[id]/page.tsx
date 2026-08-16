@@ -2,19 +2,26 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { AppBar } from "@/components/AppBar";
+import { AccoladesSection } from "@/components/media/AccoladesSection";
 import { CastRow } from "@/components/media/CastRow";
+import { CommunitySection } from "@/components/media/CommunitySection";
 import { CuratorPicks } from "@/components/media/CuratorPicks";
 import { ListButtons } from "@/components/media/ListButtons";
 import { RatingsRow } from "@/components/media/RatingsRow";
+import { getRatingSummary } from "@/lib/community";
 import { curationsForItem } from "@/lib/curations";
 import { getMemberships } from "@/lib/lists";
 import { getRatings } from "@/lib/ratings";
+import { resolveAccolade, resolveBlurb } from "@/lib/scraping/resolve";
+import { resolveTriviaForFilm } from "@/lib/scraping/trivia";
 import { listSubtitles } from "@/lib/subtitles";
 import { Row } from "@/components/media/Row";
 import { currentSession } from "@/lib/current-user";
 import {
   backdropUrl,
+  collapseEpisodeGroups,
   formatRuntime,
+  getEpisodeContext,
   getItem,
   getSimilar,
   qualityLabel,
@@ -35,14 +42,45 @@ export default async function ItemPage({
   const item = await getItem(session, id);
   if (!item) notFound();
 
-  const [similar, ratings] = await Promise.all([
+  const [similar, ratings, episodeContext] = await Promise.all([
     getSimilar(session, id).catch(() => []),
     // The IMDb id comes from Jellyfin, so no title matching is needed.
     getRatings(item.ProviderIds?.Imdb).catch(() => null),
+    // Null for anything that isn't a grouped episode.
+    getEpisodeContext(session, item).catch(() => null),
   ]);
+  // Once every episode in a group shares the same OMDb Genres/People, they
+  // become each other's best "similar" match by Jellyfin's own metric — so
+  // without this, "More like this" on episode 1 fills up with episodes 2-10
+  // instead of anything actually similar. Siblings get their own row below.
+  const similarOthers = episodeContext
+    ? similar.filter((s) => !episodeContext.siblingIds.has(s.Id))
+    : similar;
+  // Every episode Jellyfin's own /Similar picked from a DIFFERENT show (not
+  // this one — those were already filtered above) collapses to one "N parts"
+  // tile for that show, same as Search and Browse already do.
+  const collapsedSimilar = collapseEpisodeGroups(similarOthers);
+  const futureTitles = new Map(
+    (episodeContext?.future ?? [])
+      .filter((f) => f.label)
+      .map((f) => [f.item.Id, f.label as string]),
+  );
+  // Synchronous local-DB reads, not network fetches — no Promise.all needed.
+  // The public read path only ever touches resolve.ts (blurb/accolade) and
+  // trivia.ts's resolveTriviaForFilm: both return short display strings,
+  // never a scraped_articles.full_text.
+  const imdbId = item.ProviderIds?.Imdb;
+  const blurb = imdbId ? resolveBlurb(imdbId) : null;
+  const accolade = imdbId ? resolveAccolade(imdbId) : null;
+  const trivia = imdbId ? resolveTriviaForFilm(imdbId) : [];
+  const ratingSummary = imdbId ? getRatingSummary(imdbId) : null;
+  const usRating = ratingSummary && ratingSummary.count > 0 ? { average: ratingSummary.average!, count: ratingSummary.count } : null;
+
   const picks = curationsForItem(id);
   const subtitles = listSubtitles(item);
-  const lists = getMemberships(session.userId, [id]).get(id);
+  const futureIds = (episodeContext?.future ?? []).map((f) => f.item.Id);
+  const allLists = getMemberships(session.userId, [id, ...futureIds]);
+  const lists = allLists.get(id);
   const backdrop = backdropUrl(item, 1600);
   const runtime = formatRuntime(item.RunTimeTicks);
   const quality = qualityLabel(item);
@@ -111,14 +149,14 @@ export default async function ItemPage({
         {item.Genres?.length ? (
           <div className="chip-line">
             {item.Genres.map((g) => (
-              <Link key={g} className="chip" href={`/browse?genre=${encodeURIComponent(g)}`}>
+              <Link key={g} className="chip" href={`/browse?dim=genre&value=${encodeURIComponent(g)}`}>
                 {g}
               </Link>
             ))}
           </div>
         ) : null}
 
-        <RatingsRow ratings={ratings} community={item.CommunityRating} />
+        <RatingsRow ratings={ratings} community={item.CommunityRating} accolade={accolade} usRating={usRating} />
 
         {/* Which languages are available matters to a room deciding what to
             put on; the codec and container do not. Those moved to the footer. */}
@@ -137,11 +175,24 @@ export default async function ItemPage({
             ))}
           </div>
         ) : null}
+
+        <AccoladesSection blurb={blurb} trivia={trivia} />
       </div>
 
       <CastRow people={cast} />
       {directors.length > 0 ? (
         <CastRow people={directors} heading="Directed by" limit={4} />
+      ) : null}
+
+      {episodeContext && episodeContext.future.length > 0 ? (
+        <div style={{ marginTop: 28 }}>
+          <Row
+            title="Future episodes"
+            items={episodeContext.future.map((f) => f.item)}
+            lists={allLists}
+            itemTitles={futureTitles}
+          />
+        </div>
       ) : null}
 
       {picks.length > 0 ? (
@@ -150,9 +201,27 @@ export default async function ItemPage({
         </div>
       ) : null}
 
-      {similar.length > 0 ? (
+      {imdbId ? (
         <div style={{ marginTop: 28 }}>
-          <Row title="More like this" items={similar} />
+          <CommunitySection
+            imdbId={imdbId}
+            filmTitle={item.Name}
+            filmHref={`/item/${item.Id}`}
+            currentUserId={session.userId}
+            currentUsername={session.username}
+          />
+        </div>
+      ) : null}
+
+      {collapsedSimilar.items.length > 0 ? (
+        <div style={{ marginTop: 28 }}>
+          <Row
+            title="More like this"
+            items={collapsedSimilar.items}
+            itemHrefs={collapsedSimilar.hrefs}
+            itemPosters={collapsedSimilar.posters}
+            itemPartsCounts={collapsedSimilar.partsCounts}
+          />
         </div>
       ) : null}
 

@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { PlayerMount } from "@/components/media/PlayerMount";
 import { currentSession } from "@/lib/current-user";
+import { logEvent } from "@/lib/events";
 import { getItem, getPlaybackPlan, posterUrl, resumeSeconds } from "@/lib/media";
 import { defaultTrack, listSubtitles } from "@/lib/subtitles";
 
@@ -30,6 +31,15 @@ export default async function WatchPage({
     plan = await getPlaybackPlan(session, id);
   } catch (error) {
     console.error("[watch] PlaybackInfo failed:", error);
+    logEvent({
+      category: "playback",
+      severity: "error",
+      source: "playback_info",
+      message: `PlaybackInfo failed for item ${id}`,
+      detail: { error: error instanceof Error ? error.message : String(error) },
+      itemId: id,
+      username: session.username,
+    });
     planError = "The media server could not prepare this title for playback.";
   }
 

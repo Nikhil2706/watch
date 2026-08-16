@@ -185,6 +185,7 @@ Jellyfin is not.
 | `DELETE /api/admin/invites/:id` | `X-Admin-Key` | Revoke an invite |
 | `GET /api/admin/sessions` | `X-Admin-Key` | List live sessions |
 | `DELETE /api/admin/sessions/:id` | `X-Admin-Key` | Revoke a session immediately |
+| `POST /api/admin/library/scan` | `X-Admin-Key` | Trigger a Jellyfin library scan |
 | `GET /invite/<token>` | none | Redemption page |
 | `POST /api/invite/redeem` | none, rate limited | Create the Jellyfin account, sign in |
 | `POST /api/auth/login` | none, rate limited | Sign in against Jellyfin |
@@ -760,121 +761,76 @@ No Node.js. The bootstrap runs inside the worker image.
 
 ### Steps
 
-Run everything in **PowerShell**, from the repo root. Two phases: get it
-working on the local network first, then put it on the internet.
-
----
-
-### Phase 1 — running on the LAN
+Run everything in **PowerShell**, from the repo root.
 
 ```powershell
 git clone git@github.com:abhigyanverma/watch.git jellyfin-gate
 cd jellyfin-gate
 ```
 
-**1. Point at the films.** There is no copying step. Docker Desktop's WSL2
-backend bind-mounts a Windows path straight into the container, so a collection
-that already exists stays exactly where it is — you name it in `.env`.
-
-Use the `//<drive-letter>/...` form, not `E:/...` or `E:\\...`:
-
-```ini
-MEDIA_PATH=//e/Films          # wherever they already live
-MEDIA_INCOMING=//e/Media/incoming
-```
-
-This is not a style preference. A drive-letter path has a colon in it, and
-compose bind-mount syntax is itself `source:target:mode` — colon-delimited. A
-newer Compose build recognises `C:\` (backslash) as Windows and special-cases
-it, but plenty of installs still hit a parser that does not, splits on every
-colon it sees, and fails with exactly this:
-
-```
-Error response from daemon: invalid volume specification: 'E:/Films:/media:ro'
-```
-
-`//e/Films` has no colon anywhere in it, so there is nothing for any version of
-the parser to trip over. Slashes, not backslashes — a real Windows path here
-resolves one level too high, into the whole `E:\` drive.
-
-The drop zone must sit **outside** the library. Jellyfin indexes a converted
-file beside its source as a second movie with the same name, not another
-version of it. Anywhere else, on any drive, is fine.
+**1. Make the media folders.** Three of them, and they must be three — the drop
+zone cannot live inside the library or Jellyfin indexes a converted file beside
+its source as a second movie with the same name.
 
 ```powershell
-mkdir E:\Media\incoming
+mkdir D:\Media\movies, D:\Media\incoming
 ```
 
-(`mkdir` here takes an ordinary Windows path — it is PowerShell, not a compose
-value. The `//e/...` rule above applies only inside `.env` and compose files.)
+**2. Mint the tunnel credentials.**
 
-**Create this folder before the first `docker compose up`, not after.** If a
-bind-mount source does not exist yet when a container starts, Docker creates
-it itself — owned by root, mode 755 — and the worker then cannot write into
-its own directory, including creating the `.processed` archive folder one
-level inside it. It fails fast with a diagnosis rather than a raw stack trace
-if this happens, but the fix is still the same either way: stop the stack,
-delete the auto-created folder, `mkdir` it properly, start again.
+```powershell
+cloudflared tunnel login
+cloudflared tunnel create watch-win
+cloudflared tunnel route dns watch-win watch.abhigyanverma.com
+```
 
-> **Set `LIBRARY_SCAN=false` before the first start if you are pointing at a
-> collection that already exists.**
->
-> The default is `true`, which makes the worker walk the entire library, probe
-> every file, convert anything a browser cannot direct-play, and **move each
-> original out to `MEDIA_ARCHIVE`**. Nothing is deleted, but on a large
-> collection it will re-encode for weeks at software speed and relocate the
-> lot — and when the archive is on another drive, each move is a full copy of a
-> multi-gigabyte file.
->
-> With the scan off, the library is served exactly as it is, and only new drops
-> into `MEDIA_INCOMING` are converted. Turn it on later, deliberately, once you
-> know what it would touch.
+`route dns` repoints the DNS record at this machine's tunnel. **Stop the tunnel
+on the laptop before or immediately after this** — if both run, Cloudflare has
+two healthy origins for one hostname and will send traffic to whichever it
+likes, so half your requests land on a machine that may be asleep.
 
-If the films are spread across several folders, mount each one under `/media`
-instead of trying to make `MEDIA_PATH` cover them all. Put this in
-`docker-compose.override.yml`, which compose picks up on its own:
+Then write `%USERPROFILE%\.cloudflared\config.yml`:
 
 ```yaml
-services:
-  jellyfin:
-    volumes:
-      - //e/Films:/media/films:ro
-      - //f/Archive/Cinema:/media/cinema:ro
-  worker:
-    volumes:
-      - //e/Films:/media/films
-      - //f/Archive/Cinema:/media/cinema
+tunnel: watch-win
+credentials-file: /etc/cloudflared/<TUNNEL-UUID>.json
+ingress:
+  - hostname: watch.abhigyanverma.com
+    service: http://gate:3000
+  - service: http_status:404
 ```
 
-Jellyfin's library still points at `/media`, so the two appear as one catalogue.
+The `credentials-file` path is the one **inside the container**, not the
+Windows path — the directory is mounted at `/etc/cloudflared`. Take the UUID
+from the filename `cloudflared tunnel create` just printed.
 
-**2. Write `.env`.** Copy `.env.example`. Start in **LAN mode** — get the stack
-working on the local network before anything is exposed publicly, so that when
-something breaks you know whether it is the app or the tunnel.
+**3. Write `.env`.** Copy `.env.example` and set:
 
 ```ini
 ADMIN_API_KEY=<64 random hex characters, kept by Mamnani>
-PUBLIC_URL=http://192.168.1.50:3000     # this box's LAN address
-COOKIE_SECURE=false                     # no HTTPS yet
-TRUST_CF_CONNECTING_IP=false            # no Cloudflare in front yet
-GATE_BIND=0.0.0.0                       # reachable from other devices
+PUBLIC_URL=https://watch.abhigyanverma.com
+COOKIE_SECURE=true
+TRUST_CF_CONNECTING_IP=true
+GATE_BIND=127.0.0.1
 
-MEDIA_PATH=//e/Films
-MEDIA_INCOMING=//e/Media/incoming
-LIBRARY_SCAN=false
+MEDIA_PATH=D:/Media/movies
+MEDIA_INCOMING=D:/Media/incoming
+
+CF_CREDS_DIR=C:/Users/<name>/.cloudflared
+CF_USER=0:0
 
 OMDB_API_KEY=<optional>
 ```
 
-`COOKIE_SECURE=false` is required here: a `Secure` cookie is discarded by the
-browser over plain HTTP, so with it on you would log in successfully and land
-back on the login page forever. `TRUST_CF_CONNECTING_IP=false` matters just as
-much — with `GATE_BIND=0.0.0.0` anyone on the LAN could otherwise forge the
-header and get a fresh rate-limit bucket per request.
+Forward slashes throughout — compose does not want the backslashes Explorer
+shows you. Do **not** set `COMPOSE_FILE`: that pulls in the Linux GPU overlay,
+and `/dev/dri` does not exist here.
 
-Find the LAN address with `ipconfig` (the IPv4 address of the active adapter).
+`TRUST_CF_CONNECTING_IP=true` is only safe because `GATE_BIND=127.0.0.1` means
+nothing but cloudflared can reach the gateway. Set it without that and anyone
+on the LAN can forge the header and get a fresh rate-limit bucket per request.
 
-**3. Start Jellyfin and run the bootstrap.**
+**4. Start Jellyfin and run the bootstrap.**
 
 ```powershell
 docker compose up -d jellyfin
@@ -887,113 +843,27 @@ docker compose run --rm --no-deps --entrypoint node `
 
 Paste the printed `JELLYFIN_API_KEY` into `.env`.
 
-**4. Bring up the app, without the tunnel.**
+**5. Bring up the rest.**
 
 ```powershell
-docker compose up -d --build --scale tunnel=0
+docker compose up -d --build
 docker compose ps
 ```
 
-`--scale tunnel=0` is how you skip a service that is part of the stack.
+All four services should be `Up`, with `jellyfin` healthy.
 
-**5. Test it on the LAN.** From the box itself, then from a phone on the same
-Wi-Fi:
-
-```powershell
-curl.exe -s -o NUL -w "%{http_code}`n" http://localhost:3000/login
-```
-
-Then open `http://192.168.1.50:3000` on the phone. Mint yourself an invite with
-the admin key (see the curl cookbook at the top of this README), redeem it,
-and play something. **Do not go further until a film plays from another
-device.** Everything after this is networking; if playback is broken now, the
-tunnel will only make it harder to see why.
-
----
-
-### Phase 2 — going public, without logging in on that box
-
-Cloudflare has two kinds of tunnel. The one this project used first is
-*locally-managed*: `cloudflared tunnel login` opens a browser, drops a
-certificate on the machine, and the routing lives in a `config.yml` you write
-by hand. That means signing into a Cloudflare account on somebody else's
-computer and leaving a credential there.
-
-The other kind is *remotely-managed*, and it is the better fit here. You create
-the tunnel in **your** dashboard, in **your** browser, and all that machine ever
-receives is a connector token. No login, no certificate, no config file — the
-ingress rules live in the dashboard where you can change them without touching
-his box.
-
-**6. Create the tunnel — on your own machine.**
-
-1. **Cloudflare dashboard → Zero Trust → Networks → Tunnels → Create a tunnel**
-2. Choose **Cloudflared**, name it something like `watch-mamnani`, save.
-3. The install instructions that appear contain the token — the long
-   `eyJ...` string after `--token`. Copy that; it is the only part you need.
-4. Open the tunnel's **Public Hostname** tab and add:
-   - Subdomain `watch`, domain `abhigyanverma.com`
-   - Type **HTTP**, URL **`gate:3000`**
-
-   `gate` is the service name on the compose network, which is why nothing has
-   to be published on the host.
-
-The DNS record is created for you. If the hostname already points at the old
-tunnel, the dashboard will offer to overwrite it — accept.
-
-> The token is a credential in its own right: anyone holding it can run a
-> connector for this tunnel and receive your traffic. Send it to that box the
-> way you would send a password, and keep it in `.env`, which is gitignored.
-
-**7. Stop the old tunnel first.** On the laptop:
-
-```bash
-docker compose stop tunnel
-```
-
-If both connectors run, Cloudflare has two healthy origins for one hostname and
-will send traffic to whichever it likes — so roughly half of all requests would
-land on a laptop that may be asleep. This is the single easiest way to make the
-site look randomly broken.
-
-**8. Switch `.env` to public mode** on the Windows box:
-
-```ini
-TUNNEL_TOKEN=eyJ...                     # from step 6
-PUBLIC_URL=https://watch.abhigyanverma.com
-COOKIE_SECURE=true
-TRUST_CF_CONNECTING_IP=true
-GATE_BIND=127.0.0.1                     # nothing but cloudflared reaches it now
-```
-
-All four changes go together. `TRUST_CF_CONNECTING_IP=true` is only safe
-*because* of `GATE_BIND=127.0.0.1`; and `COOKIE_SECURE=true` is only correct
-once traffic actually arrives over HTTPS.
-
-**9. Bring the whole stack up, tunnel included.**
-
-```powershell
-docker compose up -d
-```
-
-**10. Check it.**
+**6. Check it.**
 
 ```powershell
 curl.exe -s -o NUL -w "%{http_code}`n" https://watch.abhigyanverma.com/login
-docker compose logs tunnel --tail 40 | Select-String "Registered tunnel connection"
+docker compose logs tunnel --tail 30 | Select-String "Registered tunnel connection"
 ```
 
-200, and at least one registered connection. If you get **error 1033** or a
-**530**, the tunnel has not registered yet — give it two minutes. This network
-can only reach one of Cloudflare's two edge regions at a time and cloudflared
-has to time out the unreachable half first; see *If the tunnel will not
-connect* above.
+200, and at least one registered connection.
 
-### Afterwards
-
-**Adding films.** Drop them into `E:\Media\incoming`. The worker picks
+**7. Copy the films in.** Drop them into `D:\Media\incoming`. The worker picks
 up each file once its size has been stable across two polls, converts anything a
-browser cannot direct-play, publishes the result into the library and
+browser cannot direct-play, publishes the result into `D:\Media\movies` and
 moves the original to `incoming\.processed`. Watch it with
 `docker compose logs -f worker`.
 

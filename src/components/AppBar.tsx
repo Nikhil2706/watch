@@ -4,6 +4,7 @@ import { Ambience } from "@/components/Ambience";
 import { Wordmark } from "@/components/Brand";
 
 import { LogoutButton } from "./LogoutButton";
+import { NotificationBell } from "./NotificationBell";
 import { SearchBox } from "./SearchBox";
 
 /** Persistent top bar. Search is a plain GET form, so it needs no JavaScript. */
@@ -23,6 +24,7 @@ export function AppBar({ username, query }: { username: string; query?: string }
         </nav>
         <div className="spacer" />
         <SearchBox initialQuery={query ?? ""} />
+        <NotificationBell />
         <span className="who">{username}</span>
         <LogoutButton />
       </header>

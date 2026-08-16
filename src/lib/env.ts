@@ -103,6 +103,31 @@ export const env = {
   defaultInviteMaxUses: int("INVITE_DEFAULT_MAX_USES", 1),
   defaultInviteExpiryDays: int("INVITE_DEFAULT_EXPIRY_DAYS", 7),
 
+  /**
+   * Where the library lives inside this container — read-write, unlike
+   * Jellyfin's own read-only mount of the same host path. Only the library
+   * review admin routes touch this; nothing else in the app reads from disk.
+   */
+  mediaLibraryPath: optional("MEDIA_LIBRARY", "/media"),
+
+  /**
+   * Where excluded files are moved to — deliberately a SEPARATE mount, not a
+   * subfolder of mediaLibraryPath. A subfolder was tried first and was wrong:
+   * Jellyfin scans its library root recursively, so a "_Excluded" folder
+   * living inside it got re-indexed as new items on the very next scan,
+   * silently undoing the exclusion. This path must sit outside whatever
+   * Jellyfin's library root is.
+   */
+  mediaExcludedPath: optional("MEDIA_EXCLUDED", "/excluded"),
+
+  /**
+   * The real Windows path behind mediaLibraryPath (e.g. "E:/Da Moveesh"), for
+   * building file:// links the dashboard can open directly in Explorer.
+   * Container paths like /media mean nothing on the host side of a link —
+   * this is the one place that translation lives.
+   */
+  hostMediaPath: optional("HOST_MEDIA_PATH", ""),
+
   isProduction: process.env.NODE_ENV === "production",
 } as const;
 

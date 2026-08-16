@@ -14,9 +14,12 @@
     "db:init": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/init-db.mts"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.6",
     "@vidstack/react": "^1.15.6",
+    "cheerio": "^1.2.0",
     "hls.js": "^1.6.17",
     "next": "16.3.0",
+    "pdf-parse": "^2.4.5",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1"

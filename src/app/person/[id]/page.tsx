@@ -4,7 +4,7 @@ import { AppBar } from "@/components/AppBar";
 import { PosterCard } from "@/components/media/PosterCard";
 import { currentSession } from "@/lib/current-user";
 import { getMemberships } from "@/lib/lists";
-import { getItemsByPerson, getPerson, personPhotoUrl } from "@/lib/media";
+import { collapseEpisodeGroups, getItemsByPerson, getPerson, personPhotoUrl } from "@/lib/media";
 
 export const dynamic = "force-dynamic";
 
@@ -30,10 +30,15 @@ export default async function PersonPage({
 
   if (!person) notFound();
 
+  // A show this person appears in becomes one "N parts" tile, same as
+  // everywhere else a browse-titles list is shown — otherwise an actor in a
+  // ten-episode season shows up here as ten near-identical entries.
+  const collapsed = collapseEpisodeGroups(items);
+
   const photo = personPhotoUrl(person, 260);
   const lists = getMemberships(
     session.userId,
-    items.map((item) => item.Id),
+    collapsed.items.map((item) => item.Id),
   );
 
   return (
@@ -57,9 +62,9 @@ export default async function PersonPage({
         <div className="person-text">
           <h1>{person.Name}</h1>
           <p className="person-count">
-            {items.length === 0
+            {collapsed.items.length === 0
               ? "Nothing else in the library"
-              : `${items.length} title${items.length === 1 ? "" : "s"} here`}
+              : `${collapsed.items.length} title${collapsed.items.length === 1 ? "" : "s"} here`}
           </p>
           {person.Overview ? (
             <p className="person-bio">{person.Overview}</p>
@@ -67,10 +72,17 @@ export default async function PersonPage({
         </div>
       </section>
 
-      {items.length > 0 ? (
+      {collapsed.items.length > 0 ? (
         <div className="grid">
-          {items.map((item) => (
-            <PosterCard key={item.Id} item={item} lists={lists.get(item.Id)} />
+          {collapsed.items.map((item) => (
+            <PosterCard
+              key={item.Id}
+              item={item}
+              lists={lists.get(item.Id)}
+              href={collapsed.hrefs.get(item.Id)}
+              posterSrc={collapsed.posters.get(item.Id)}
+              partsCount={collapsed.partsCounts.get(item.Id)}
+            />
           ))}
         </div>
       ) : (

@@ -23,26 +23,38 @@ export function PosterCard({
   item,
   lists,
   badge,
+  href,
+  posterSrc,
+  partsCount,
+  title,
 }: {
   item: MediaItem;
   /** Which lists this item is already on, for the toggle initial state. */
   lists?: Set<ListKind>;
   /** Optional caption, e.g. why a search matched. */
   badge?: string;
+  /** Overrides the default /item/{id} link — used for Collection tiles. */
+  href?: string;
+  /** Overrides the computed poster URL — used when a Collection has no image of its own. */
+  posterSrc?: string | null;
+  /** When set, this card represents a group of films rather than one — shown as "N parts". */
+  partsCount?: number;
+  /** Overrides the displayed title — used for episode labels ("Episode 7: ..."), without touching item.Name. */
+  title?: string;
 }) {
-  const src = posterUrl(item);
+  const src = posterSrc !== undefined ? posterSrc : posterUrl(item);
   const progress = progressPercent(item);
   const watched = item.UserData?.Played === true;
   const runtime = formatRuntime(item.RunTimeTicks);
 
   return (
     <div className="poster">
-      <Link href={`/item/${item.Id}`} className="poster-link">
+      <Link href={href ?? `/item/${item.Id}`} className="poster-link">
         <div className="poster-art">
           {src ? (
             <img src={src} alt="" loading="lazy" decoding="async" />
           ) : (
-            <div className="fallback">{item.Name}</div>
+            <div className="fallback">{title ?? item.Name}</div>
           )}
 
           {/* "Have I seen this?" is the question a shared library gets asked
@@ -55,11 +67,15 @@ export function PosterCard({
 
           {runtime ? <span className="runtime-badge">{runtime}</span> : null}
 
-          <ListButtons
-            itemId={item.Id}
-            initialFavourite={lists?.has("favourite") ?? false}
-            initialRewatch={lists?.has("rewatch") ?? false}
-          />
+          {/* A Collection tile isn't a playable item — favouriting/rewatch-marking
+              it wouldn't mean anything Jellyfin can act on. */}
+          {partsCount === undefined ? (
+            <ListButtons
+              itemId={item.Id}
+              initialFavourite={lists?.has("favourite") ?? false}
+              initialRewatch={lists?.has("rewatch") ?? false}
+            />
+          ) : null}
 
           {progress > 0 && !watched ? (
             <div
@@ -75,8 +91,10 @@ export function PosterCard({
           ) : null}
         </div>
 
-        <div className="poster-title">{item.Name}</div>
-        {badge ? (
+        <div className="poster-title">{title ?? item.Name}</div>
+        {partsCount !== undefined ? (
+          <div className="poster-badge">{partsCount} parts</div>
+        ) : badge ? (
           <div className="poster-badge">{badge}</div>
         ) : item.ProductionYear ? (
           <div className="poster-sub">{item.ProductionYear}</div>

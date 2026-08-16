@@ -1,0 +1,97 @@
+import "server-only";
+
+import { listAllMoviesAdmin } from "../jellyfin";
+import { normaliseTitle } from "../library-review";
+
+/**
+ * Resolves a raw scraped/uploaded title against the current library. Shared
+ * by every ingestion path (yearendlists, Wikipedia, PDF uploads, and the
+ * curator's own accolade builder) and by the library-scan relink pass, so
+ * "how confident is this match" means the same thing everywhere.
+ */
+
+export type MatchConfidence = "exact" | "fuzzy" | "unmatched";
+
+export interface MatchResult {
+  imdbId: string | null;
+  confidence: MatchConfidence;
+}
+
+interface LibraryEntry {
+  imdbId: string;
+  year: number | null;
+}
+
+// Rebuilt from Jellyfin on first use per process, then reused — a scrape run
+// checks dozens to hundreds of titles against the same library snapshot, and
+// nothing about the library changes mid-run. invalidateLibraryIndex() clears
+// it after a library scan so the next scrape/relink sees new titles.
+let cachedIndex: Map<string, LibraryEntry[]> | null = null;
+
+export function invalidateLibraryIndex(): void {
+  cachedIndex = null;
+}
+
+async function getLibraryIndex(): Promise<Map<string, LibraryEntry[]>> {
+  if (cachedIndex) return cachedIndex;
+
+  const movies = await listAllMoviesAdmin();
+  const index = new Map<string, LibraryEntry[]>();
+  for (const movie of movies) {
+    const imdbId = movie.ProviderIds?.Imdb;
+    if (!imdbId) continue;
+    const key = normaliseTitle(movie.Name);
+    if (!key) continue;
+    if (!index.has(key)) index.set(key, []);
+    index.get(key)!.push({ imdbId, year: movie.ProductionYear ?? null });
+  }
+  cachedIndex = index;
+  return index;
+}
+
+function withinYearTolerance(entryYear: number | null, rawYear: number | null): boolean {
+  if (entryYear == null || rawYear == null) return true;
+  return Math.abs(entryYear - rawYear) <= 1;
+}
+
+/**
+ * "exact" — the normalised title matches a library title exactly (and the
+ * year, if either side has one, is within a year).
+ * "fuzzy" — enough word overlap to catch punctuation drift ("Ford vs.
+ * Ferrari" vs "Ford v Ferrari") or a missing plural ("The Nice Guy" vs "The
+ * Nice Guys"), still within year tolerance.
+ * "unmatched" — nothing close enough to guess automatically; the caller
+ * stores raw_title/raw_year and leaves it for the curator or a future scan.
+ */
+export async function matchTitle(rawTitle: string, rawYear: number | null): Promise<MatchResult> {
+  const index = await getLibraryIndex();
+  const key = normaliseTitle(rawTitle);
+  if (!key) return { imdbId: null, confidence: "unmatched" };
+
+  const exact = index.get(key);
+  if (exact) {
+    const hit = exact.find((e) => withinYearTolerance(e.year, rawYear)) ?? exact[0];
+    if (hit) return { imdbId: hit.imdbId, confidence: "exact" };
+  }
+
+  const keyTokens = new Set(key.split(" ").filter(Boolean));
+  if (keyTokens.size === 0) return { imdbId: null, confidence: "unmatched" };
+
+  let best: { entry: LibraryEntry; score: number } | null = null;
+  for (const [candidateKey, entries] of index) {
+    const candidateTokens = candidateKey.split(" ").filter(Boolean);
+    if (candidateTokens.length === 0) continue;
+    const overlap = candidateTokens.filter((t) => keyTokens.has(t)).length;
+    const score = overlap / Math.max(candidateTokens.length, keyTokens.size);
+    // 0.7 tolerates one dropped/changed token in a multi-word title (a
+    // punctuation split, a missing plural) without matching on title alone.
+    if (score < 0.7) continue;
+    for (const entry of entries) {
+      if (!withinYearTolerance(entry.year, rawYear)) continue;
+      if (!best || score > best.score) best = { entry, score };
+    }
+  }
+
+  if (best) return { imdbId: best.entry.imdbId, confidence: "fuzzy" };
+  return { imdbId: null, confidence: "unmatched" };
+}

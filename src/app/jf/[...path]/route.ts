@@ -1,4 +1,5 @@
 import { env } from "@/lib/env";
+import { logEvent } from "@/lib/events";
 import { getSessionFromRequest, sessionCookie, touchSession } from "@/lib/session";
 import { stripCredentials } from "@/lib/strip-credentials";
 
@@ -332,10 +333,32 @@ async function proxy(request: Request): Promise<Response> {
       return new Response(null, { status: 499 });
     }
     console.error(`[jf] upstream fetch failed for ${request.method} /${decodedPath}:`, error);
+    logEvent({
+      category: "internal_api",
+      severity: "error",
+      source: "jf_proxy",
+      message: `Jellyfin unreachable for ${request.method} /${decodedPath}`,
+      detail: { method: request.method, path: decodedPath, error: error instanceof Error ? error.message : String(error) },
+      username: session.username,
+    });
     return Response.json(
       { error: "upstream_unavailable", message: "The media server is not responding." },
       { status: 502, headers: { "Cache-Control": "no-store" } },
     );
+  }
+
+  if (upstream.status >= 500) {
+    // Jellyfin itself failed the request — often how a corrupt file or a
+    // transcode crash first shows up, since the browser just sees a stream
+    // that stops. Logged, not blocked: the response still passes through.
+    logEvent({
+      category: "playback",
+      severity: "warning",
+      source: "jellyfin",
+      message: `Jellyfin returned ${upstream.status} for ${request.method} /${decodedPath}`,
+      detail: { method: request.method, path: decodedPath, status: upstream.status },
+      username: session.username,
+    });
   }
 
   const headers = buildDownstreamHeaders(upstream);
