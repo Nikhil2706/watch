@@ -511,6 +511,56 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
+### 2026-08-16 — First round of performance work: caching, indexes, image sizing
+Executed the "Tier 1" items from a full-stack performance audit (three
+parallel investigations across the data-fetching layer, Docker/Jellyfin
+infra, and the frontend/DB layer — see the Performance Roadmap sent for
+review). Held off on Tier 2/3 deliberately: hardware transcoding on this
+Windows host is genuinely uncertain (a research spike, not a safe change to
+just make), and Search's full-library pull needs its own investigation into
+*why* it's there before it's touched.
+
+- **The big one**: `getAllMovies()` (the up-to-2000-item Jellyfin pull used
+  by Browse, Search's fallback, and — via `getCollection()` — every
+  Collection page and every grouped-episode item page) now carries a
+  20-second, per-user in-memory cache. Doesn't remove the cold-cache cost of
+  the first request, but a burst of clicks through one show's episodes, or
+  repeat Browse/Collection views, now shares one Jellyfin round trip instead
+  of paying for a fresh one every time. Measured live on a real Collection
+  page: 1.53s cold → ~0.5s cached, roughly 3x.
+- **Two missing indexes**: `rating_cache.fetched_at` (the OMDb backfill
+  loop's `WHERE fetched_at < ?` query was a full table scan every 10
+  minutes, forever, getting slower as more films get rated) and
+  `article_film_links.article_id` (a real query hot spot with no index
+  despite being a foreign key — SQLite doesn't auto-index those). Schema
+  bumped to v22, purely additive `CREATE INDEX IF NOT EXISTS`.
+- **Poster/backdrop images now cache for a year** at the `/jf/` proxy
+  (`Cache-Control: public, max-age=31536000, immutable`) — every URL this
+  app builds already carries a content-addressed `tag`, so this was free
+  correctness the proxy just wasn't asserting.
+- **One real size mismatch fixed**: Browse's genre/director/actor filter-list
+  photos display at 24×24 CSS px but were fetched at 200×200 — over 8x
+  oversized for what's on screen, and Jellyfin had to generate and cache
+  that oversized variant for no visual benefit. Dropped to 48×48 (2x
+  retina). Checked every other "poster"/"person photo" size across the
+  codebase against its actual CSS display size first — the rest turned out
+  to already be reasonably matched, so left alone rather than force a
+  broader "standardization" the evidence didn't support.
+
+Hit one real bug along the way: a code comment containing backticks broke
+the `SCHEMA_SQL` template literal it lived inside, failing the Next.js
+production build — invisible in `tsc --noEmit` (which doesn't evaluate the
+string), only caught because the build's exit code stopped being silently
+swallowed by a `| tail` pipe. Fixed, and the pipe habit dropped for build
+commands going forward.
+
+Verified live end-to-end with a throwaway session: real Collection page
+timing (above), confirmed cache-control header on a real poster response,
+confirmed all page types (Browse/Item/Search/Collection/home) still load
+correctly and episode data still renders right, confirmed the schema
+actually migrated to v22 with both new indexes present on the live
+database. Session and account cleaned up afterward.
+
 ### 2026-08-16 — Accolades console brought in line with the approved mockup
 Auditing the Curator's Console's Accolades tab against the mockup you'd
 approved earlier (`demo-dashboard.html`) turned up four real gaps between

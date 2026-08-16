@@ -153,10 +153,50 @@ export async function getLatest(session: ResolvedSession): Promise<MediaItem[]> 
   return filterVisible(Array.isArray(data) ? data : []);
 }
 
+/**
+ * Short-lived cache for getAllMovies()'s result, keyed per Jellyfin user
+ * (the response carries that user's own UserData — watch state, favorites —
+ * so a shared cache across users would leak one viewer's progress into
+ * another's page). Several call sites (Browse, Search's broad-match fallback,
+ * and — via getCollection() — every Collection page and every grouped-episode
+ * item page) each independently pull up to 2000 items just to filter it down
+ * to what they actually need; this doesn't remove that per-call cost on a
+ * cold cache, but it means a user browsing several pages or episodes in one
+ * sitting pays for one Jellyfin round trip instead of one per click. The TTL
+ * is short enough that a mark-watched/rating change is stale for at most a
+ * few seconds — well under what would be noticeable, and far shorter than
+ * browse_people_cache's 12h TTL because this one carries per-user state.
+ */
+const ALL_MOVIES_CACHE_TTL_MS = 20_000;
+
+interface AllMoviesCacheEntry {
+  data: MediaItem[];
+  expiresAt: number;
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __jellyfinGateAllMoviesCache: Map<string, AllMoviesCacheEntry> | undefined;
+}
+
+function allMoviesCache(): Map<string, AllMoviesCacheEntry> {
+  if (!globalThis.__jellyfinGateAllMoviesCache) {
+    globalThis.__jellyfinGateAllMoviesCache = new Map();
+  }
+  return globalThis.__jellyfinGateAllMoviesCache;
+}
+
 export async function getAllMovies(
   session: ResolvedSession,
   options: { limit?: number; sortBy?: string; genre?: string } = {},
 ): Promise<MediaItem[]> {
+  const cacheKey = `${session.jellyfinUserId}:${options.limit ?? 2000}:${options.sortBy ?? "SortName"}:${options.genre ?? ""}`;
+  const cache = allMoviesCache();
+  const cached = cache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
   const [token, device] = creds(session);
   const data = await userFetch<ItemsResponse>(token, device, "/Items", {
     userId: session.jellyfinUserId,
@@ -172,7 +212,9 @@ export async function getAllMovies(
     fields: LIST_FIELDS,
     enableImageTypes: "Primary,Backdrop",
   });
-  return filterVisible(data?.Items ?? []);
+  const result = filterVisible(data?.Items ?? []);
+  cache.set(cacheKey, { data: result, expiresAt: Date.now() + ALL_MOVIES_CACHE_TTL_MS });
+  return result;
 }
 
 export interface PersonCredit {

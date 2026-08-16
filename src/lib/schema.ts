@@ -19,7 +19,7 @@
  * schema state (PRAGMA table_info) before acting and is therefore safe to run
  * on every migration regardless of how many times it fires.
  */
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -161,6 +161,11 @@ CREATE TABLE IF NOT EXISTS rating_cache (
   metacritic   TEXT,
   fetched_at   INTEGER NOT NULL
 ) STRICT;
+
+-- The OMDb backfill loop runs a WHERE fetched_at < ? ORDER BY fetched_at ASC
+-- LIMIT ? query (and a matching COUNT) every 10 minutes, forever — without
+-- this, that's a full table scan that gets slower as more films get rated.
+CREATE INDEX IF NOT EXISTS idx_rating_cache_fetched_at ON rating_cache(fetched_at);
 
 -- Browse's director/actor dimensions need every movie's cast/director
 -- credits, and asking Jellyfin's bulk /Items endpoint for the People field
@@ -407,6 +412,9 @@ CREATE TABLE IF NOT EXISTS article_film_links (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_article_film_links_imdb ON article_film_links(imdb_id);
+-- article_id is a real query hot spot (unlinking an article, reading its
+-- matches) despite being a foreign key — SQLite does not auto-index FKs.
+CREATE INDEX IF NOT EXISTS idx_article_film_links_article ON article_film_links(article_id);
 CREATE INDEX IF NOT EXISTS idx_article_film_links_unmatched ON article_film_links(imdb_id) WHERE imdb_id IS NULL;
 
 -- Candidate pull-quotes, scoped to one film MENTION (link_id), not the whole

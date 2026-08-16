@@ -170,7 +170,18 @@ function buildUpstreamHeaders(
   return headers;
 }
 
-function buildDownstreamHeaders(upstream: Response): Headers {
+/**
+ * Every poster/backdrop/photo URL this app builds (see posterUrl() etc. in
+ * src/lib/media.ts) carries a `tag` query param that changes only when the
+ * underlying artwork does — the URL is already content-addressed, so it is
+ * safe to cache indefinitely rather than defaulting to `no-store` like
+ * everything else this proxy serves.
+ */
+function isCacheableImage(decodedPath: string, url: URL): boolean {
+  return decodedPath.includes("/images/") && url.searchParams.has("tag");
+}
+
+function buildDownstreamHeaders(upstream: Response, cacheableImage: boolean): Headers {
   const headers = new Headers();
 
   for (const [key, value] of upstream.headers) {
@@ -196,7 +207,10 @@ function buildDownstreamHeaders(upstream: Response): Headers {
     headers.set("Accept-Ranges", "bytes");
   }
 
-  headers.set("Cache-Control", headers.get("cache-control") ?? "private, no-store");
+  headers.set(
+    "Cache-Control",
+    cacheableImage ? "public, max-age=31536000, immutable" : (headers.get("cache-control") ?? "private, no-store"),
+  );
   return headers;
 }
 
@@ -361,7 +375,7 @@ async function proxy(request: Request): Promise<Response> {
     });
   }
 
-  const headers = buildDownstreamHeaders(upstream);
+  const headers = buildDownstreamHeaders(upstream, isCacheableImage(decodedPath, url));
 
   // Sliding renewal. `touchSession` is a no-op until the session has burned
   // most of its lifetime, which keeps a seek-heavy playback session from

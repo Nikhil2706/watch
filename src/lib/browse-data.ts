@@ -290,8 +290,11 @@ function indexKnownPeople(allItems: MediaItem[]): Map<string, { id: string; phot
       if (map.has(p.Name)) continue;
       map.set(p.Name, {
         id: p.Id,
+        // Displayed at 24x24 CSS px (.value-row .avatar in globals.css) — 48
+        // is already 2x for retina; the old 200 asked Jellyfin to generate
+        // and cache a variant over 8x larger than anything on screen needs.
         photo: p.PrimaryImageTag
-          ? `/jf/Items/${p.Id}/Images/Primary?fillWidth=200&fillHeight=200&quality=90&tag=${p.PrimaryImageTag}`
+          ? `/jf/Items/${p.Id}/Images/Primary?fillWidth=48&fillHeight=48&quality=90&tag=${p.PrimaryImageTag}`
           : null,
       });
     }
