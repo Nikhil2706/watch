@@ -49,6 +49,15 @@ function openDatabase(): DatabaseSync {
   db.exec("PRAGMA foreign_keys = ON");
   // If a write does contend, wait rather than throwing SQLITE_BUSY immediately.
   db.exec("PRAGMA busy_timeout = 5000");
+  // Standard tuning for this scale, left at SQLite's defaults until now: an
+  // 8MB page cache (negative = KB, so -8000 = 8,000 KB) instead of the ~2MB
+  // default, a 256MB mmap so reads on the hot-path tables can go through the
+  // OS page cache instead of read() syscalls, and temp b-trees (used for
+  // ORDER BY/DISTINCT on larger result sets) kept in memory rather than
+  // spilling to a temp file on disk.
+  db.exec("PRAGMA cache_size = -8000");
+  db.exec("PRAGMA mmap_size = 268435456");
+  db.exec("PRAGMA temp_store = MEMORY");
 
   migrate(db);
   return db;

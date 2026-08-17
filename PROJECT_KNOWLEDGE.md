@@ -511,6 +511,62 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
+### 2026-08-17 — Second round of performance work: worker image, resource limits, cache decoupling
+Researched every Tier 2/3 item from the Performance Roadmap to a real
+conclusion, then executed everything that came back "ready" (full research
+writeup is in the roadmap artifact, kept up to date at the same link):
+
+- **Worker image, 796MB → 416MB.** `mesa-va-gallium` was pulling in `mesa`
+  + `llvm22-libs` (182MB alone, the single biggest thing in the old image)
+  for AMD/nouveau VAAPI drivers — wrong GPU vendor for this host's Intel
+  iGPU regardless of platform. `intel-media-driver` (39MB) and `ffmpeg-libs`
+  (0 unique bytes — `ffmpeg` alone already pulls in the same sub-packages)
+  came out too. All three were gated behind a `/dev/dri/renderD128` check
+  in `media-worker.mjs` that can never pass on this host (see below), so
+  this is a real no-op removal, not a regression.
+- **Hardware transcoding: researched and closed, not just deferred.**
+  WSL2 exposes GPUs to Docker Desktop's own host distro via `/dev/dxg`, not
+  the `/dev/dri` DRM path VAAPI needs, and passing `/dev/dri` through into a
+  *nested* container from there is an open, unresolved Microsoft WSL bug —
+  confirmed locally too, `/dev/dri` genuinely doesn't exist in this
+  machine's `docker-desktop` WSL2 distro. Not pursuable as this stack is
+  architected today; revisit only on native Linux.
+- **Search's full-library pull: researched and left alone.** Traced
+  exactly what it contributes beyond Jellyfin's own title search — genre,
+  year, synopsis, and cast/director matching, none of which exist without
+  it, explicitly justified in the code's own docstring. Removing it would
+  silently drop real functionality. Already mitigated by the Tier-1 cache.
+- **globals.css splitting: researched and declined.** Mapped every "route-
+  specific" class against what actually uses it — only the Notification
+  Bell section is genuinely clean; everything else (`.avatar`, `.hint`,
+  `.rating`, `.person-head`) is entangled across 3-7 unrelated routes each.
+  Not worth the untangling risk for a file that's already one cached
+  resource across the whole site.
+- **CPU/memory limits + `cpu_shares`**, sized to this host's real specs
+  (Intel i3-6100, 2 cores/4 threads, 7.9GB RAM) and live `docker stats`
+  baselines: gate gets the highest `cpu_shares` (wins scheduling under
+  contention) despite the lowest `cpus` ceiling, since it's what a real
+  visitor is waiting on; jellyfin/worker get the CPU headroom they need for
+  software transcoding but can no longer claim the box unbounded.
+- **Known-films cache decoupled** from reactive refresh — its own proactive
+  timer now keeps the ~90-second admin pull off the critical path of any
+  backfill tick.
+- **SQLite pragmas** (`cache_size`, `mmap_size`, `temp_store`) added
+  alongside the existing WAL/synchronous/foreign_keys settings.
+
+This round hit real infrastructure trouble unrelated to the code changes
+themselves: the Docker build hung for over an hour with zero log progress
+(genuine CPU burn but no forward progress — Docker Desktop/WSL2 degrading,
+not a slow build), requiring a PC restart. A second attempt then hit a
+`read-only file system` error from Docker's own internal containerd
+metadata store mid-deploy, which briefly took Jellyfin itself down
+(confirmed via `docker inspect`, fixed as the immediate priority once
+found) — requiring a second restart. Both were host/WSL2-level failures
+independent of anything in this diff; verified working end-to-end
+afterward with a throwaway test account (real Collection/Browse page
+loads, real resource-limit values confirmed via `docker inspect`, real
+image sizes confirmed via `docker images`).
+
 ### 2026-08-16 — First round of performance work: caching, indexes, image sizing
 Executed the "Tier 1" items from a full-stack performance audit (three
 parallel investigations across the data-fetching layer, Docker/Jellyfin

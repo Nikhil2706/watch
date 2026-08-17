@@ -59,8 +59,8 @@ CMD ["node", "server.js"]
 # ---------------------------------------------------------------------------
 # Watch-folder worker.
 #
-# A separate target rather than a fatter runtime image: ffmpeg and its codec
-# libraries are around 100 MB, and the gateway — which only ever pipes bytes —
+# A separate target rather than a fatter runtime image: ffmpeg and its real
+# codec libraries are ~141 MB, and the gateway — which only ever pipes bytes —
 # has no use for them. Only the worker pays for it.
 #
 # Build with:  docker compose build worker
@@ -71,15 +71,23 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NODE_OPTIONS=--disable-warning=ExperimentalWarning
 
-# ffmpeg-libs carries the VAAPI/libva support that makes hardware encoding
-# usable when /dev/dri is passed through.
-# intel-media-driver is the iHD driver, required by Gen11 and newer Intel
-# graphics. libva-intel-driver is the older i965 one, which on a 12th-gen
-# chip fails to open the device at all — ffmpeg reports a bare
-# "I/O error" on -vaapi_device, which looks like a permissions problem
-# and is not.
-RUN apk add --no-cache ffmpeg ffmpeg-libs intel-media-driver libva-utils mesa-va-gallium
-ENV LIBVA_DRIVER_NAME=iHD
+# Software encode only: no VAAPI driver package is installed. This was tried
+# (intel-media-driver + libva-utils + mesa-va-gallium) and measured to cost an
+# extra ~266 MB, dominated by mesa-va-gallium pulling in llvm22-libs alone
+# (182 MB) for AMD/nouveau drivers this host's Intel iGPU can't use anyway.
+# The real blocker isn't the driver choice: WSL2 exposes GPUs to Docker
+# Desktop's own host distro via /dev/dxg, not /dev/dri, and passing /dev/dri
+# through into a *nested* container from there is an open, unresolved WSL bug
+# (microsoft/WSL#11846) — confirmed locally, /dev/dri does not exist in this
+# machine's docker-desktop WSL2 distro. media-worker.mjs's detectHardware()
+# already checks for /dev/dri/renderD128 and falls back to libx264 when it's
+# absent, so this is a real no-op removal, not a regression.
+#
+# If this ever runs on real Linux hardware with GPU passthrough: this host's
+# iGPU is a 6th-gen (Skylake) Intel HD 530, which needs the OLDER i965 driver
+# (libva-intel-driver), not intel-media-driver (iHD, for Gen11+) — re-check
+# the actual GPU generation before reinstalling either package.
+RUN apk add --no-cache ffmpeg
 
 # The worker is a single dependency-free script; it needs no node_modules.
 COPY --chown=node:node scripts/media-worker.mjs ./scripts/media-worker.mjs

@@ -23,6 +23,14 @@ services:
     image: jellyfin/jellyfin:10.11.11
     container_name: jellyfin
     restart: unless-stopped
+    # This host is a 2-core/4-thread i3-6100 — Jellyfin's own software
+    # transcode is the single biggest CPU consumer on the box, so it gets the
+    # most headroom, but capped below the full logical count so the gate
+    # always has room to breathe. cpu_shares is the relative-priority weight
+    # under real contention (works without Swarm); the gate's is 4x this one.
+    cpus: "2.5"
+    mem_limit: 2g
+    cpu_shares: 512
     networks:
       - internal
     volumes:
@@ -55,6 +63,13 @@ services:
       target: runtime
     container_name: jellyfin-gate
     restart: unless-stopped
+    # Deliberately the lowest cpus ceiling of the three real services but the
+    # highest cpu_shares (relative-priority weight) — this is the process a
+    # real visitor is waiting on, so under CPU contention from a transcode it
+    # should win scheduling even though its own ceiling is modest.
+    cpus: "1.5"
+    mem_limit: 512m
+    cpu_shares: 2048
     depends_on:
       jellyfin:
         condition: service_healthy
@@ -112,10 +127,17 @@ services:
       context: .
       dockerfile: Dockerfile
       # Separate target: it carries ffmpeg, which the gateway image does not
-      # need and which costs ~100 MB.
+      # need and which costs ~141 MB.
       target: worker
     container_name: jellyfin-gate-worker
     restart: unless-stopped
+    # Same weight class as jellyfin: it's the other software-encode process
+    # on this box, and PAUSE_WHILE_STREAMING already keeps it from running
+    # concurrently with active playback by design — this ceiling is a safety
+    # net for the cases that doesn't cover (multiple simultaneous conversions).
+    cpus: "1.5"
+    mem_limit: 1g
+    cpu_shares: 512
     depends_on:
       jellyfin:
         condition: service_healthy
@@ -177,6 +199,10 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: jellyfin-gate-tunnel
     restart: unless-stopped
+    # A lightweight outbound-only proxy — no real CPU need, capped mainly so
+    # a runaway reconnect loop can't become a resource problem of its own.
+    cpus: "0.25"
+    mem_limit: 128m
     depends_on:
       - gate
     networks:

@@ -36,6 +36,7 @@ export async function register(): Promise<void> {
   void startOmdbBackfillLoop();
   void startWikipediaBackfillLoop();
   void startLibraryNotifyLoop();
+  void startKnownFilmsRefreshLoop();
 }
 
 declare global {
@@ -45,6 +46,8 @@ declare global {
   var __jellyfinGateWikipediaBackfillTimer: ReturnType<typeof setInterval> | undefined;
   // eslint-disable-next-line no-var
   var __jellyfinGateLibraryNotifyTimer: ReturnType<typeof setInterval> | undefined;
+  // eslint-disable-next-line no-var
+  var __jellyfinGateKnownFilmsTimer: ReturnType<typeof setInterval> | undefined;
 }
 
 /**
@@ -105,6 +108,30 @@ async function startLibraryNotifyLoop(): Promise<void> {
     console.log("[boot] library notify loop started");
   } catch (error) {
     console.error("[boot] library notify loop failed to start (new-item notifications will not fire):", error);
+  }
+}
+
+/**
+ * Proactively refreshes src/lib/known-films.ts's shared cache on its own
+ * schedule (see REFRESH_INTERVAL_MS there for why it's shorter than the
+ * cache's own TTL) instead of leaving it to whichever of the three backfill
+ * loops happens to hit a stale cache first — that reactive path pays the
+ * ~90-second admin pull synchronously inside a 10-minute tick, in the same
+ * process serving real requests. An initial fire-and-forget call warms it at
+ * boot too, same reasoning as warmBrowseCache() below.
+ */
+async function startKnownFilmsRefreshLoop(): Promise<void> {
+  if (globalThis.__jellyfinGateKnownFilmsTimer) return;
+
+  try {
+    const { REFRESH_INTERVAL_MS, refreshKnownFilmsNow } = await import("./lib/known-films");
+    void refreshKnownFilmsNow().catch((error) => console.error("[boot] known films warm-up failed (will refresh on-demand):", error));
+    globalThis.__jellyfinGateKnownFilmsTimer = setInterval(() => {
+      void refreshKnownFilmsNow().catch((error) => console.error("[boot] known films refresh failed:", error));
+    }, REFRESH_INTERVAL_MS);
+    console.log("[boot] known films refresh loop started");
+  } catch (error) {
+    console.error("[boot] known films refresh loop failed to start (will still refresh reactively on-demand):", error);
   }
 }
 
