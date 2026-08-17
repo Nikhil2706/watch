@@ -696,9 +696,19 @@
     </div>
 
     <div class="card">
-      <div class="card-title">External APIs</div>
-      <div class="note" style="margin-top:2px">Today's call usage for the outside services this site depends on.</div>
+      <div class="row" style="align-items:center">
+        <div style="flex:1">
+          <div class="card-title">External APIs</div>
+          <div class="note" style="margin-top:2px">Today's call usage for the outside services this site depends on.</div>
+        </div>
+        <div style="flex:0 0 auto"><button id="scrapeNow" class="ghost">Scrape now</button></div>
+      </div>
+      <div class="note" id="scrapeNowNote" style="margin-top:2px;display:none"></div>
       <div id="healthApiList" style="margin-top:10px"></div>
+      <div class="note" style="margin-top:10px">
+        The OMDb/Wikipedia catch-up rows below only do real work when you click "Scrape now" or automatically
+        once a week, Wednesday 5:30am — not continuously.
+      </div>
     </div>
 
     <div class="card">
@@ -1268,6 +1278,28 @@
   }
 
   $("healthRefresh").addEventListener("click", function () { loadHealth(); loadEvents(); });
+
+  $("scrapeNow").addEventListener("click", function () {
+    var btn = $("scrapeNow");
+    var note = $("scrapeNowNote");
+    btn.disabled = true;
+    btn.textContent = "Starting…";
+    api("/api/admin/scrape/run-now", { method: "POST" }).then(function (data) {
+      note.style.display = "";
+      if (data.started) {
+        note.textContent = "Scraping started — this can take several minutes on a big backlog. Progress shows up in the rows below as it runs; hit Refresh to check in.";
+      } else {
+        note.textContent = data.reason || "Could not start — a pass may already be running.";
+      }
+      btn.disabled = false;
+      btn.textContent = "Scrape now";
+    }).catch(function (e) {
+      note.style.display = "";
+      note.textContent = "Failed to start: " + e.message;
+      btn.disabled = false;
+      btn.textContent = "Scrape now";
+    });
+  });
   $("logRefresh").addEventListener("click", loadEvents);
   $("logCategory").addEventListener("change", loadEvents);
   $("logSeverity").addEventListener("change", loadEvents);

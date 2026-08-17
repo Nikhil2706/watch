@@ -33,17 +33,14 @@ export async function register(): Promise<void> {
   // restart once the previous warm-up's 12-hour cache entry has lapsed.
   void warmBrowseCache();
 
-  void startOmdbBackfillLoop();
-  void startWikipediaBackfillLoop();
+  void startAutoScrapeLoop();
   void startLibraryNotifyLoop();
   void startKnownFilmsRefreshLoop();
 }
 
 declare global {
   // eslint-disable-next-line no-var
-  var __jellyfinGateOmdbBackfillTimer: ReturnType<typeof setInterval> | undefined;
-  // eslint-disable-next-line no-var
-  var __jellyfinGateWikipediaBackfillTimer: ReturnType<typeof setInterval> | undefined;
+  var __jellyfinGateAutoScrapeTimer: ReturnType<typeof setInterval> | undefined;
   // eslint-disable-next-line no-var
   var __jellyfinGateLibraryNotifyTimer: ReturnType<typeof setInterval> | undefined;
   // eslint-disable-next-line no-var
@@ -51,44 +48,28 @@ declare global {
 }
 
 /**
- * Keeps OMDb ratings coverage catching up in small, budget-respecting
- * batches for as long as the process runs — see src/lib/omdb-backfill.ts for
- * why this exists instead of any kind of "refresh everything now" pass. A
- * global-pinned timer, same reasoning as the rate limiter's bucket map: dev
- * mode re-runs register() on every hot reload, and without pinning this
- * would start a second (and third, and fourth...) overlapping interval.
+ * The OMDb/Wikipedia catch-up loops used to fire unconditionally every 10
+ * minutes for as long as the process ran. They now only do real work on a
+ * curator's "Scrape now" click (src/app/api/admin/scrape/run-now/route.ts)
+ * or once a week, Wednesday 5:30am — see src/lib/scrape-schedule.ts. This
+ * loop just checks the clock every 10 minutes and calls through when the
+ * window is open; the check itself is nearly free.
  */
-async function startOmdbBackfillLoop(): Promise<void> {
-  if (globalThis.__jellyfinGateOmdbBackfillTimer) return;
+async function startAutoScrapeLoop(): Promise<void> {
+  if (globalThis.__jellyfinGateAutoScrapeTimer) return;
 
   try {
-    const { TICK_INTERVAL_MS, runOmdbBackfillTick } = await import("./lib/omdb-backfill");
-    globalThis.__jellyfinGateOmdbBackfillTimer = setInterval(() => {
-      void runOmdbBackfillTick().catch((error) => console.error("[boot] omdb backfill tick failed:", error));
-    }, TICK_INTERVAL_MS);
-    console.log("[boot] omdb backfill loop started");
+    const { runAutoScrapePassIfScheduled } = await import("./lib/scrape-schedule");
+    globalThis.__jellyfinGateAutoScrapeTimer = setInterval(() => {
+      void runAutoScrapePassIfScheduled()
+        .then((result) => {
+          if (result) console.log("[boot] weekly auto-scrape pass finished:", result);
+        })
+        .catch((error) => console.error("[boot] weekly auto-scrape pass failed:", error));
+    }, 10 * 60 * 1000);
+    console.log("[boot] auto-scrape schedule loop started (Wednesday 5:30am, or manual trigger)");
   } catch (error) {
-    console.error("[boot] omdb backfill loop failed to start (ratings will still refresh on-demand):", error);
-  }
-}
-
-/**
- * Same shape as startOmdbBackfillLoop, for src/lib/wikipedia-backfill.ts —
- * works through the library's Wikipedia coverage a few films at a time for
- * as long as the process runs, instead of leaving it at "one film at a
- * time, whenever a curator happens to click the button."
- */
-async function startWikipediaBackfillLoop(): Promise<void> {
-  if (globalThis.__jellyfinGateWikipediaBackfillTimer) return;
-
-  try {
-    const { TICK_INTERVAL_MS, runWikipediaBackfillTick } = await import("./lib/wikipedia-backfill");
-    globalThis.__jellyfinGateWikipediaBackfillTimer = setInterval(() => {
-      void runWikipediaBackfillTick().catch((error) => console.error("[boot] wikipedia backfill tick failed:", error));
-    }, TICK_INTERVAL_MS);
-    console.log("[boot] wikipedia backfill loop started");
-  } catch (error) {
-    console.error("[boot] wikipedia backfill loop failed to start (Wikipedia data will still be fetchable on-demand):", error);
+    console.error("[boot] auto-scrape schedule loop failed to start (still runnable manually via the console):", error);
   }
 }
 

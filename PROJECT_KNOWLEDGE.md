@@ -511,6 +511,39 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
+### 2026-08-17 — OMDb/Wikipedia catch-up now runs on a schedule, not continuously
+The OMDb ratings backfill and Wikipedia accolades backfill used to fire
+unconditionally every 10 minutes for as long as the process ran. They now
+only do real work in two circumstances: a curator clicking the new
+"Scrape now" button on the Health tab, or one automatic pass a week
+(Wednesday 5:30am) — see `src/lib/scrape-schedule.ts`. Either path runs
+the same full-catch-up pass (loops the existing tick functions to
+exhaustion, respecting OMDb's daily budget, instead of one small batch),
+so both actually clear the backlog rather than nibbling at it.
+
+- **`src/lib/scrape-schedule.ts`** (new) — `isAutoScrapeWindow()`,
+  `runFullScrapePass()` (loops `runOmdbBackfillTick()` +
+  `runWikipediaBackfillTick()` with a 25-minute wall-clock safety cap),
+  `runManualScrapePass()`, `runAutoScrapePassIfScheduled()`.
+- **`src/instrumentation.ts`** — replaced the two unconditional 10-minute
+  intervals with one `startAutoScrapeLoop()` that checks the clock every
+  10 minutes and only calls through during the Wednesday window.
+- **`src/app/api/admin/scrape/run-now/route.ts`** (new) — fire-and-forget
+  POST, guarded against overlapping runs.
+- **`curator.html`** — "Scrape now" button on the Health tab's External
+  APIs card.
+- **Verified live**: triggered a real pass after deploying. Turned up
+  something worth knowing rather than a bug — OMDb (315/315 rated, 0
+  missing, 0 stale) and Wikipedia accolade coverage were both already
+  fully caught up, because the old unconditional loops had already been
+  running continuously for the many hours of this session before the
+  schedule gate went in. Confirmed against the database directly, not
+  just the tick's own report. The Health tab's Wikipedia "never
+  attempted" count (still showing ~20) looks like a pre-existing display
+  inaccuracy unrelated to this change — likely duplicate IMDb ids across
+  a grouped show's individual episodes throwing off a length-based
+  estimate — not a scraping gap; worth a follow-up look someday.
+
 ### 2026-08-17 — Invites can email themselves at creation time
 `POST /api/admin/invites` now accepts an optional `email`. When given, the
 invite still gets created and the link is still returned exactly as before
