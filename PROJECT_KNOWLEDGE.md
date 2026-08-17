@@ -511,6 +511,47 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
+### 2026-08-17 — Invites can email themselves at creation time
+`POST /api/admin/invites` now accepts an optional `email`. When given, the
+invite still gets created and the link is still returned exactly as before
+— but the request also fires off an email to that address via Resend (a
+plain `fetch()` POST, no SDK, matching every other third-party integration
+in this codebase) carrying the same link. A failed or unconfigured send
+never fails the request or rolls back the invite: `email_sent` and
+`email_error` come back on the response so the curator can tell at a
+glance whether to still share the link by hand.
+
+- **Schema v23** — `invites.email TEXT`, nullable, migrated the same
+  guarded way as every other column addition here (`columnExists()` check,
+  never a bare `ALTER TABLE` in `SCHEMA_SQL`).
+- **`src/lib/email.ts` (new)** — `sendInviteEmail()`. Reads
+  `RESEND_API_KEY` / `INVITE_EMAIL_FROM` directly at point of use and
+  degrades gracefully with a reason string if either is unset, the same
+  optional-key pattern `OMDB_API_KEY` already uses — nothing added to the
+  central required-env validation in `src/lib/env.ts`, since this genuinely
+  isn't required for the app to function.
+- **`curator.html`** — the create-invite form gained an "Email (optional)"
+  field. On success it shows "Emailed to X" when `email_sent` is true, or a
+  visible "email didn't send, share the link yourself" note (with the
+  reason) when it's false — the existing copy-link flow is unchanged for
+  the no-email case.
+- **Not yet configured on this deployment** — `RESEND_API_KEY` and
+  `INVITE_EMAIL_FROM` are still blank in `.env`. Invites work exactly as
+  before until a Resend account + verified sender are set up; verified this
+  gracefully-degrading path directly (`email_sent: false` with a clear
+  reason) with a throwaway invite before writing this entry.
+
+Separately: the 15-minute Docker/site health watchdog (Windows Scheduled
+Task, runs as SYSTEM, restarts the PC on sustained failure) had a real bug
+since it was registered — it called `docker` by bare name, but SYSTEM's
+PATH doesn't include Docker Desktop's CLI directory (only the interactive
+user's PATH has it), so every single check saw `docker ps` as "command not
+found" and treated that as a Docker outage even though the site was always
+healthy. It had been restarting the PC roughly every 30 minutes as a
+result. Fixed by calling `docker.exe` via its full path instead of relying
+on PATH; confirmed fixed both interactively and by manually triggering the
+real scheduled task.
+
 ### 2026-08-17 — Second round of performance work: worker image, resource limits, cache decoupling
 Researched every Tier 2/3 item from the Performance Roadmap to a real
 conclusion, then executed everything that came back "ready" (full research

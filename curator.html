@@ -120,6 +120,8 @@
   .link-out input { flex: 1; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 
   .note { font-size: 0.8rem; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .note.err { color: #ffb3bc; }
+  .note.ok { color: var(--ok); }
   .msg {
     position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
     min-width: 260px; max-width: min(90vw, 640px); z-index: 1000;
@@ -766,10 +768,17 @@
           <label for="days">Expires (days)</label>
           <input id="days" type="number" min="1" value="7">
         </div>
-        <div style="flex:0 0 auto">
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label for="inviteEmail">Email (optional)</label>
+          <input id="inviteEmail" type="email" placeholder="send the invite straight to them" spellcheck="false" autocomplete="off">
+        </div>
+        <div style="flex:0 0 auto;align-self:flex-end">
           <button id="create">Create invite</button>
         </div>
       </div>
+      <div id="emailStatus" class="note" style="margin-top:8px;display:none"></div>
       <div id="linkOut" class="link-out" style="display:none">
         <input id="linkVal" readonly>
         <button id="copy" class="ghost">Copy</button>
@@ -980,15 +989,32 @@
     var body = { label: $("label").value.trim() };
     var u = parseInt($("uses").value, 10);
     var d = parseInt($("days").value, 10);
+    var email = $("inviteEmail").value.trim();
     if (u > 1) body.max_uses = u;
     if (d && d !== 7) body.expires_in_days = d;
+    if (email) body.email = email;
     if (!body.label) { show("err", "Give it a label so you can tell them apart."); return; }
     clearMsg();
     api("/api/admin/invites", { method: "POST", body: body }).then(function (data) {
       $("linkVal").value = data.url;
       $("linkOut").style.display = "";
       $("linkNote").style.display = "";
+      var statusEl = $("emailStatus");
+      if (data.email) {
+        if (data.email_sent) {
+          statusEl.className = "note ok";
+          statusEl.textContent = "Emailed to " + data.email + ". The link below still works too.";
+        } else {
+          statusEl.className = "note err";
+          statusEl.textContent = "Created, but the email to " + data.email + " didn't send (" +
+            (data.email_error || "unknown reason") + "). Share the link yourself.";
+        }
+        statusEl.style.display = "";
+      } else {
+        statusEl.style.display = "none";
+      }
       $("label").value = "";
+      $("inviteEmail").value = "";
       return load();
     }).catch(function (e) { show("err", e.message); });
   });

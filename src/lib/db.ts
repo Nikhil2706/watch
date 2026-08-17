@@ -164,6 +164,13 @@ function runVersionedMigrations(db: DatabaseSync): void {
     db.exec("ALTER TABLE film_curation_locks ADD COLUMN locked_blurb_source_label TEXT");
     db.exec("ALTER TABLE film_curation_locks ADD COLUMN locked_blurb_source_url TEXT");
   }
+
+  // v23: invites gained an optional email column, so createInvite() can send
+  // the link itself at creation time instead of a curator always having to
+  // copy/paste it somewhere else by hand.
+  if (tableExists(db, "invites") && !columnExists(db, "invites", "email")) {
+    db.exec("ALTER TABLE invites ADD COLUMN email TEXT");
+  }
 }
 
 /**

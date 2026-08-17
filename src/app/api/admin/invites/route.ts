@@ -19,10 +19,14 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
 
 /**
  * POST /api/admin/invites
- * Body: { label?, max_uses?, expires_in_days? }
- * -> { id, token, url, ... }
+ * Body: { label?, max_uses?, expires_in_days?, email? }
+ * -> { id, token, url, ..., email_sent? }
  *
  * The `token` field in this response is the only time the plaintext exists.
+ * When `email` is given, the invite is emailed as part of this same request
+ * — no separate "send" step. A failed send never fails the request itself;
+ * `email_sent: false` + `email_error` tell the caller to fall back to
+ * sharing `url` by hand.
  */
 export async function POST(request: Request): Promise<Response> {
   const denied = requireAdmin(request);
@@ -31,10 +35,11 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const body = await readJsonBody(request);
 
-    const invite = createInvite({
+    const invite = await createInvite({
       label: optionalString(body, "label") ?? null,
       maxUses: optionalInt(body, "max_uses"),
       expiresInDays: optionalInt(body, "expires_in_days"),
+      email: optionalString(body, "email") ?? null,
     });
 
     return Response.json(
@@ -45,6 +50,9 @@ export async function POST(request: Request): Promise<Response> {
         label: invite.label,
         max_uses: invite.maxUses,
         expires_at: new Date(invite.expiresAt).toISOString(),
+        email: invite.email,
+        email_sent: invite.emailSent,
+        email_error: invite.emailError,
         note: "Save the url now. The token is hashed on storage and cannot be shown again.",
       },
       { status: 201, headers: NO_STORE },

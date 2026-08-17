@@ -23,6 +23,23 @@ export function validateUsername(value: unknown): string {
   return username;
 }
 
+// Deliberately loose — this only guards against obvious typos before an
+// invite email gets sent, not full RFC 5322 compliance. The email provider
+// itself is the real source of truth on whether an address is deliverable.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function validateEmail(value: unknown): string {
+  if (typeof value !== "string") throw new ValidationError("Email must be a string.");
+  const email = value.trim();
+  if (!EMAIL_PATTERN.test(email)) {
+    throw new ValidationError("That doesn't look like a valid email address.");
+  }
+  if (email.length > 254) {
+    throw new ValidationError("Email is too long.");
+  }
+  return email;
+}
+
 export function validatePassword(value: unknown): string {
   if (typeof value !== "string") throw new ValidationError("Password is required.");
   // No trimming: leading/trailing spaces are legitimate password characters and

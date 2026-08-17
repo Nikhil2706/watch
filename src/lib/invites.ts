@@ -3,6 +3,8 @@ import "server-only";
 import { env } from "./env";
 import { generateId, generateToken, sha256Hex } from "./crypto";
 import { asRow, asRows, getDb, transaction } from "./db";
+import { sendInviteEmail } from "./email";
+import { validateEmail } from "./validation";
 
 export interface InviteRow {
   id: string;
@@ -13,6 +15,7 @@ export interface InviteRow {
   expires_at: number;
   revoked_at: number | null;
   created_at: number;
+  email: string | null;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -25,13 +28,24 @@ export interface CreatedInvite {
   label: string | null;
   maxUses: number;
   expiresAt: number;
+  email: string | null;
+  /**
+   * Only present when `input.email` was given. `true` means the email is
+   * confirmed sent; `false` means the invite was still created (the link
+   * above is always valid) but the email itself didn't go out — see
+   * `emailError` for why, so the caller can fall back to sharing the link
+   * by hand instead of assuming it already reached someone.
+   */
+  emailSent?: boolean;
+  emailError?: string;
 }
 
-export function createInvite(input: {
+export async function createInvite(input: {
   label?: string | null;
   maxUses?: number;
   expiresInDays?: number;
-}): CreatedInvite {
+  email?: string | null;
+}): Promise<CreatedInvite> {
   const maxUses = input.maxUses ?? env.defaultInviteMaxUses;
   const expiresInDays = input.expiresInDays ?? env.defaultInviteExpiryDays;
 
@@ -41,36 +55,39 @@ export function createInvite(input: {
   if (!Number.isFinite(expiresInDays) || expiresInDays <= 0 || expiresInDays > 3650) {
     throw new InviteValidationError("expires_in_days must be between 1 and 3650");
   }
+  const email = input.email?.trim() ? validateEmail(input.email) : null;
 
   const now = Date.now();
   const id = generateId();
   const token = generateToken();
+  const label = input.label?.trim() || null;
+  const expiresAt = now + Math.round(expiresInDays * DAY_MS);
 
   // Only the hash is written. There is no code path anywhere in this app that
   // can recover the plaintext afterwards — losing the link means issuing a new
   // invite, by design.
   getDb()
     .prepare(
-      `INSERT INTO invites (id, token_hash, label, max_uses, use_count, expires_at, revoked_at, created_at)
-       VALUES (?, ?, ?, ?, 0, ?, NULL, ?)`,
+      `INSERT INTO invites (id, token_hash, label, max_uses, use_count, expires_at, revoked_at, created_at, email)
+       VALUES (?, ?, ?, ?, 0, ?, NULL, ?, ?)`,
     )
-    .run(
-      id,
-      sha256Hex(token),
-      input.label?.trim() || null,
-      maxUses,
-      now + Math.round(expiresInDays * DAY_MS),
-      now,
-    );
+    .run(id, sha256Hex(token), label, maxUses, expiresAt, now, email);
 
-  return {
-    id,
-    token,
-    url: `${env.publicUrl}/invite/${token}`,
-    label: input.label?.trim() || null,
-    maxUses,
-    expiresAt: now + Math.round(expiresInDays * DAY_MS),
-  };
+  const url = `${env.publicUrl}/invite/${token}`;
+  const result: CreatedInvite = { id, token, url, label, maxUses, expiresAt, email };
+
+  // Sending happens after the row is committed, and never rolls the invite
+  // back on failure: a curator who typed the email wrong (or whose provider
+  // is briefly down) should still get a valid link to copy and send by hand
+  // — a working invite is the thing that actually matters, email is just a
+  // convenience on top of it.
+  if (email) {
+    const sendResult = await sendInviteEmail({ to: email, url, label, expiresAt });
+    result.emailSent = sendResult.sent;
+    if (!sendResult.sent) result.emailError = sendResult.reason;
+  }
+
+  return result;
 }
 
 export class InviteValidationError extends Error {
@@ -91,6 +108,7 @@ export interface InviteSummary {
   revoked_at: string | null;
   status: "active" | "revoked" | "expired" | "exhausted";
   redeemed_usernames: string[];
+  email: string | null;
 }
 
 export function listInvites(): InviteSummary[] {
@@ -124,6 +142,7 @@ export function listInvites(): InviteSummary[] {
       revoked_at: row.revoked_at === null ? null : new Date(row.revoked_at).toISOString(),
       status,
       redeemed_usernames: usernames,
+      email: row.email,
     };
   });
 }

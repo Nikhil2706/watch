@@ -19,7 +19,7 @@
  * schema state (PRAGMA table_info) before acting and is therefore safe to run
  * on every migration regardless of how many times it fires.
  */
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 23;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -33,7 +33,12 @@ CREATE TABLE IF NOT EXISTS invites (
   use_count     INTEGER NOT NULL DEFAULT 0,
   expires_at    INTEGER NOT NULL,
   revoked_at    INTEGER,
-  created_at    INTEGER NOT NULL
+  created_at    INTEGER NOT NULL,
+  -- Optional. When set, createInvite() sends the link here itself instead
+  -- of only handing it back in the API response for a curator to copy.
+  -- Stored for reference (the Invites list can show who it went to) --
+  -- never used for anything but that one send at creation time.
+  email         TEXT
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS users (
