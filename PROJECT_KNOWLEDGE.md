@@ -511,6 +511,67 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
+### 2026-08-18 — Full-site scrapes: Ringer/BWDR reach their real archives, plus David Bordwell and Kinoeye
+The Ringer, Bright Wall/Dark Room, and Reverse Shot adapters had only ever
+pulled from a single listing page each ("no pagination crawl, kept
+deliberately small for now" per their own original comments) — genuinely
+scraping "the whole site" meant building real archive discovery for each,
+not just raising a limit number. Also added two new sources never
+scraped before.
+
+- **The Ringer** — `/topic/movies` turned out to be JS-rendered (infinite
+  scroll, no server-side pagination), and the API behind it is one of the
+  two paths its robots.txt actually disallows. Switched discovery to the
+  site's own declared `/sitemap.xml` → `sitemaps/articles/index.xml` → 7
+  dated "chunk" sitemaps, filtered down to movie-review URLs — fully
+  within robots.txt, and the only way to reach the real archive.
+- **Bright Wall/Dark Room** — confirmed live at 144 pages of standard
+  WordPress pagination (`/page/N/`). Discovery now walks it, stopping when
+  a page yields no new article links.
+- **Reverse Shot** — left alone this round: every path on the site,
+  confirmed directly, currently redirects to a generic "System Error"
+  page — a real outage on their end today, not a scraping or robots.txt
+  problem. Worth a retry once their site recovers.
+- **David Bordwell's site (davidbordwell.net)** — new adapter. robots.txt
+  permits ordinary posts (only the usual WordPress admin/plugin paths are
+  blocked) but declares `Crawl-delay: 10`, the strictest of any source
+  here — `bordwell.ts` uses a 10s delay to match, not the 1200ms used
+  elsewhere. No single structured way of naming the reviewed film (many
+  posts are theory essays, not single-subject reviews); the blog's own
+  convention of writing a title in ALL CAPS on first mention is used as a
+  best-effort guess, with the post title as a fallback — a real portion
+  of posts come back unmatched, which is inherent to how the blog is
+  written, not a parsing bug.
+- **Kinoeye (kinoeye.org)** — new adapter, a small finite archive (an
+  online European-film journal published 2001-2004, now static). No
+  robots.txt exists at all. Its own `archive/*.php` "browse by title"
+  indexes return a truncated, near-empty response to a plain fetch on
+  every one tried — likely a PHP fatal error in code untouched since the
+  mid-2000s — so discovery instead walks a bounded grid of the site's own
+  per-issue index pages (`index_VV_II.php`), which work fine.
+- **Bug found and fixed during Bordwell's first test run**: a `FOREIGN
+  KEY constraint failed` traced to adding the new `davidbordwell` scrape
+  source directly into `SCHEMA_SQL`'s seed block without a
+  `SCHEMA_VERSION` bump — `SCHEMA_SQL` only replays when the database is
+  behind the current version, so an already-migrated database (this one)
+  never saw the new row. Fixed with a proper versioned migration (v24,
+  and v25 for kinoeye the same way) — the seed block stays too, for a
+  fresh install. Second bug, same adapter: Bordwell's own internal links
+  are consistently `http://`, not `https://`, so the naive
+  `url.replace(BASE_URL, "")` path-stripping silently built a malformed
+  double-origin URL for every discovered post and failed quietly (0
+  processed, no error). Fixed by normalising to `https://` at discovery
+  time. Both caught and fixed before the real run, not after.
+- **Verified live, full runs**: Kinoeye 166 articles (0 matched — an
+  obscure, decades-old journal against a modern personal library),
+  Ringer 326 reviews (4 matched), Bright Wall/Dark Room 1,749 articles
+  (24 matched — by far the deepest archive of the four), Bordwell 521
+  posts (0 matched, expected per the title-guessing caveat above).
+  Nothing from any of this is visible to viewers yet — matching a scraped
+  mention to a library title only stores a candidate; a curator still has
+  to review and lock a specific blurb or trivia fact by hand for it to
+  appear on a film page, same as every existing source.
+
 ### 2026-08-17 — OMDb/Wikipedia catch-up now runs on a schedule, not continuously
 The OMDb ratings backfill and Wikipedia accolades backfill used to fire
 unconditionally every 10 minutes for as long as the process ran. They now

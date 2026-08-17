@@ -19,7 +19,7 @@
  * schema state (PRAGMA table_info) before acting and is therefore safe to run
  * on every migration regardless of how many times it fires.
  */
-export const SCHEMA_VERSION = 23;
+export const SCHEMA_VERSION = 25;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -560,7 +560,9 @@ INSERT OR IGNORE INTO scrape_sources (id, name, base_url, source_type, kind, ena
   ('wikipedia', 'Wikipedia', 'https://en.wikipedia.org', 'web', 'accolade', 1, CAST(strftime('%s','now') AS INTEGER) * 1000),
   ('the-ringer', 'The Ringer', 'https://www.theringer.com', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000),
   ('brightwalldarkroom', 'Bright Wall/Dark Room', 'https://www.brightwalldarkroom.com', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000),
-  ('reverseshot', 'Reverse Shot', 'https://reverseshot.org', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000);
+  ('reverseshot', 'Reverse Shot', 'https://reverseshot.org', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000),
+  ('davidbordwell', 'David Bordwell''s Website on Cinema', 'https://www.davidbordwell.net', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000),
+  ('kinoeye', 'Kinoeye', 'https://www.kinoeye.org', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000);
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user     ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires  ON sessions(expires_at);

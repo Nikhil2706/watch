@@ -171,6 +171,29 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "invites") && !columnExists(db, "invites", "email")) {
     db.exec("ALTER TABLE invites ADD COLUMN email TEXT");
   }
+
+  // v24: davidbordwell added as a scrape source. This row also lives in
+  // SCHEMA_SQL's own INSERT OR IGNORE seed block (so a fresh install gets it
+  // for free), but SCHEMA_SQL only replays when current < SCHEMA_VERSION —
+  // an already-migrated database sitting at the prior version would never
+  // see a bare SCHEMA_SQL addition otherwise, hence a real version bump and
+  // this explicit insert rather than relying on the seed block alone.
+  if (tableExists(db, "scrape_sources")) {
+    db.prepare(
+      `INSERT OR IGNORE INTO scrape_sources (id, name, base_url, source_type, kind, enabled, created_at)
+       VALUES ('davidbordwell', ?, ?, 'web', 'review', 0, ?)`,
+    ).run("David Bordwell's Website on Cinema", "https://www.davidbordwell.net", Date.now());
+  }
+
+  // v25: same shape as v24, for kinoeye — see that block's comment for why
+  // a version bump + explicit insert is needed rather than relying on the
+  // SCHEMA_SQL seed block alone.
+  if (tableExists(db, "scrape_sources")) {
+    db.prepare(
+      `INSERT OR IGNORE INTO scrape_sources (id, name, base_url, source_type, kind, enabled, created_at)
+       VALUES ('kinoeye', ?, ?, 'web', 'review', 0, ?)`,
+    ).run("Kinoeye", "https://www.kinoeye.org", Date.now());
+  }
 }
 
 /**

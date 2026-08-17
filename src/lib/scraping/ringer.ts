@@ -29,6 +29,16 @@ import { upsertScrapedArticle, type FilmMentionInput } from "./articles";
  * hyphens for spaces — confirmed against four real review URLs, all four
  * matched (including one, "I Love Boosters", that also happened to be
  * separately confirmable via its quoted headline).
+ *
+ * URL discovery goes through the sitemap, not /topic/movies: that listing
+ * page is JS-rendered (infinite scroll, no server-side pagination or
+ * `?page=` parameter — confirmed live, nothing else on the page reveals
+ * older articles), and the underlying API it calls is one of the two paths
+ * robots.txt actually disallows. /sitemap.xml is a declared, fully-allowed
+ * sitemap index -> sitemaps/articles/index.xml -> several dated "chunk"
+ * sitemaps covering the whole site's articles, which this walks and
+ * filters down to movie-review URLs — the only way to reach the real
+ * archive rather than whatever the last ~10-20 published reviews are.
  */
 
 const BASE_URL = "https://www.theringer.com";
@@ -40,8 +50,13 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function fetchHtml(path: string): Promise<string | null> {
+  return fetchUrl(`${BASE_URL}${path}`);
+}
+
+/** Same as fetchHtml but takes a full URL — the sitemap chunk files live at their own absolute locations, not under a fixed BASE_URL path. */
+async function fetchUrl(url: string): Promise<string | null> {
   try {
-    const res = await fetch(`${BASE_URL}${path}`, {
+    const res = await fetch(url, {
       headers: { "User-Agent": USER_AGENT },
       signal: AbortSignal.timeout(15_000),
     });
@@ -57,27 +72,40 @@ async function fetchHtml(path: string): Promise<string | null> {
       category: "external_api",
       severity: "warning",
       source: "ringer",
-      message: `The Ringer request failed: ${path}`,
-      detail: { path, error: error instanceof Error ? error.message : String(error) },
+      message: `The Ringer request failed: ${url}`,
+      detail: { url, error: error instanceof Error ? error.message : String(error) },
     });
     return null;
   }
 }
 
-/** Movie REVIEW URLs from the /topic/movies listing — same "one listing page, no pagination crawl" scope as reverseshot.ts. */
+const MOVIE_REVIEW_URL = /^https:\/\/www\.theringer\.com\/\d{4}\/\d{2}\/\d{2}\/movies\/.+-review-/;
+
+/**
+ * Movie REVIEW URLs, discovered by walking the site's own sitemap rather
+ * than the JS-rendered /topic/movies listing (see the file header comment
+ * for why). `limit` caps the total collected, not the number of chunk
+ * sitemaps visited — every chunk is checked so an older chunk with fewer
+ * movie reviews doesn't get skipped just because an earlier one was dense.
+ */
 export async function discoverRingerReviewUrls(limit = 10): Promise<string[]> {
-  const html = await fetchHtml("/topic/movies");
-  if (!html) return [];
-  const $ = cheerio.load(html);
+  const indexXml = await fetchUrl(`${BASE_URL}/sitemaps/articles/index.xml`);
+  if (!indexXml) return [];
+
+  const chunkUrls = [...indexXml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]!);
 
   const urls = new Set<string>();
-  $("a[href*='/movies/']").each((_, el) => {
-    const href = $(el).attr("href");
-    if (!href) return;
-    // /YYYY/MM/DD/movies/{slug}-review-... — the movies-only + reviews-only filter.
-    if (!/^\/\d{4}\/\d{2}\/\d{2}\/movies\/.+-review-/.test(href)) return;
-    urls.add(href.startsWith("http") ? href : `${BASE_URL}${href}`);
-  });
+  for (const chunkUrl of chunkUrls) {
+    if (urls.size >= limit) break;
+    const xml = await fetchUrl(chunkUrl);
+    await sleep(REQUEST_DELAY_MS);
+    if (!xml) continue;
+
+    for (const m of xml.matchAll(/<loc>([^<]+)<\/loc>/g)) {
+      const loc = m[1]!;
+      if (MOVIE_REVIEW_URL.test(loc)) urls.add(loc);
+    }
+  }
 
   return [...urls].slice(0, limit);
 }

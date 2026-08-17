@@ -61,19 +61,34 @@ async function fetchHtml(path: string): Promise<string | null> {
   }
 }
 
-/** Article URLs from the homepage — same "one listing page, no pagination crawl" scope as reverseshot.ts. */
-export async function discoverBwdrArticleUrls(limit = 10): Promise<string[]> {
-  const html = await fetchHtml("/");
-  if (!html) return [];
-  const $ = cheerio.load(html);
+/**
+ * Article URLs, walking standard WordPress pagination (/page/2/, /page/3/,
+ * ...) rather than just the homepage's first listing — confirmed live at
+ * 144 pages deep. Stops when a page yields no new article links (past the
+ * real last page WordPress serves the final page's content again rather
+ * than a 404, so "no new links" is the reliable stop condition, not the
+ * HTTP status) or the safety cap is hit, whichever comes first.
+ */
+const MAX_PAGES = 200;
 
+export async function discoverBwdrArticleUrls(limit = 10): Promise<string[]> {
   const urls = new Set<string>();
-  $("a[href*='brightwalldarkroom.com/']").each((_, el) => {
-    const href = $(el).attr("href");
-    if (!href) return;
-    if (!/brightwalldarkroom\.com\/\d{4}\/\d{2}\/\d{2}\/[^/]+\/?$/.test(href)) return;
-    urls.add(href);
-  });
+
+  for (let page = 1; page <= MAX_PAGES && urls.size < limit; page++) {
+    const html = await fetchHtml(page === 1 ? "/" : `/page/${page}/`);
+    if (page > 1) await sleep(REQUEST_DELAY_MS);
+    if (!html) break;
+
+    const $ = cheerio.load(html);
+    const before = urls.size;
+    $("a[href*='brightwalldarkroom.com/']").each((_, el) => {
+      const href = $(el).attr("href");
+      if (!href) return;
+      if (!/brightwalldarkroom\.com\/\d{4}\/\d{2}\/\d{2}\/[^/]+\/?$/.test(href)) return;
+      urls.add(href);
+    });
+    if (urls.size === before) break;
+  }
 
   return [...urls].slice(0, limit);
 }
