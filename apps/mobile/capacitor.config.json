@@ -1,0 +1,9 @@
+{
+  "appId": "com.abhigyanverma.watch",
+  "appName": "Watch",
+  "webDir": "www",
+  "server": {
+    "url": "https://watch2.abhigyanverma.com",
+    "androidScheme": "https"
+  }
+}
