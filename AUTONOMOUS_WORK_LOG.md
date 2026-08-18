@@ -244,3 +244,28 @@ hindsight, may not have actually been necessary for the eventual recovery
 — the filesystem seems to have cleared on its own sometime between the
 01:26 and 01:47 checks, well after that restart). Resuming the PWA
 middleware-fix deploy now, cautiously, one Docker operation at a time.
+
+## PWA baseline: deployed, verified, shipped (01:50-01:55)
+
+`docker compose up -d gate` succeeded cleanly (had to `cd` back into the
+project directory first — the shell's working directory had reset to
+`Downloads` at some point during the long monitoring stretch). Verified all
+six new PWA assets live: `manifest.json`, both icon sizes,
+`apple-touch-icon.png`, `favicon-32.png`, `sw.js` all return 200 with
+correct content (manifest is real JSON, `sw.js` serves as
+`application/javascript`) — the middleware fix works. Regression-checked
+`/login` (200) and an unauthenticated `/browse` (307, unchanged). Committed
+and pushed to `platform-additions` (commit `18cd9ac`).
+
+Also noticed in passing: the separately-spawned background task for the
+`matchTitle()` exact-fallback bug (flagged as a follow-up during the
+film-series work earlier tonight) had already completed and pushed its own
+commit (`14ed7cc`) independently while I was monitoring the Docker
+incident — picked up automatically on this push, no conflict.
+
+**Phone App Roadmap Phase 1 (PWA baseline) is done.** Next: Capacitor
+Android scaffold (Phase 2, as far as Node-only tooling reaches — no
+Android SDK/Gradle/JDK on this machine, so this stops at generating the
+project structure, not a real build). Proceeding cautiously given the
+Docker incident that just resolved — one operation at a time, checking
+health between steps.

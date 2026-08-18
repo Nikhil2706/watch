@@ -511,6 +511,55 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
+### 2026-08-19 — Phone/desktop app work begins: PWA baseline shipped, Android and desktop app shells scaffolded
+Per "make as much progress as you can on android and desktop apps full auto
+mode as can be done without me" — the first real slice of the Phone App and
+Desktop App Roadmap artifacts, not just planning anymore. Full session
+detail in `AUTONOMOUS_WORK_LOG.md` at the repo root; this entry is the short
+version.
+
+- **PWA baseline shipped and live** (Phone App Roadmap Phase 1): a real
+  `manifest.json`, a placeholder icon set (simple "W" monogram in the
+  site's existing dark/blue theme — not final branding), and a hand-rolled
+  app-shell service worker (`public/sw.js`) that caches Next's
+  content-hashed static assets cache-first and everything else
+  network-first-with-cache-fallback, explicitly never touching `/jf/*`,
+  `/watch/*`, or `/api/*`.
+- **Real bug caught before it shipped**: `middleware.ts`'s allowlist for
+  unauthenticated requests didn't include any of the new PWA files, so
+  `manifest.json`/the icons/`sw.js` all silently redirected to `/login` —
+  which would have made the site permanently uninstallable (a manifest
+  fetch returning an HTML login page isn't valid JSON) and broken service
+  worker registration outright. Fixed and verified live: all six now
+  return 200 with correct content, no regression on `/login` or the normal
+  auth redirect.
+- **Android (Capacitor) and Desktop (Tauri) app shells scaffolded**, both
+  in **remote-URL mode** — they load the actual deployed site through a
+  WebView, not a bundled static copy, per both roadmap artifacts'
+  architecture decision. This machine has no Android SDK/Gradle/JDK and no
+  Rust/Cargo installed, confirmed directly (not assumed) by running each
+  toolchain's own diagnostic — `gradlew tasks` fails on a missing
+  `JAVA_HOME`, `tauri info` reports rustc/cargo as not installed — so both
+  stop at real, buildable project scaffolding rather than an actual
+  `.apk`/installer. Each app's own `README.md` documents exactly what's
+  needed to pick up the build later. One piece *did* complete for real
+  without Rust: `tauri icon` is a pure image-processing command, so the
+  desktop app's Windows/Mac/iOS/Android icon set was generated from the
+  same placeholder brand SVG, not left as Tauri's generic default logo.
+- **A roughly 70-minute Docker/WSL2 incident in the middle of this**,
+  unrelated to app work directly but worth recording: deploying the
+  middleware fix hit a genuine read-only-filesystem fault in Docker
+  Desktop's containerd store (not just a slow daemon), which took the live
+  site down (502) for a stretch. The existing health watchdog caught and
+  restarted through the first occurrence, but the fault recurred within 20
+  minutes of that restart with shifting symptoms (read-only errors → API
+  500s → plain hangs) before finally clearing on its own. Also found a real
+  gap in the watchdog's own health check during this — it treats any HTTP
+  response, including a 502, as "reachable," so it logged "healthy" more
+  than once while the site was still genuinely down. Full blow-by-blow,
+  including what was deliberately *not* attempted (further restarts,
+  `wsl --shutdown`) and why, is in `AUTONOMOUS_WORK_LOG.md`.
+
 ### 2026-08-19 — Fixed the same-titled-remake matching bug flagged yesterday
 Closes the "known limitation" called out at the bottom of the entry just
 below this one: the shared `matchTitle()` matcher (used by every scraper —
