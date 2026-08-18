@@ -511,6 +511,66 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
+### 2026-08-18 (later) — "In this series" row, plus a scraped-data browse dashboard
+A film's page now shows every other film in its franchise, in release order —
+owned ones link straight to their page, unowned ones show as plain
+placeholder tiles ("here's the whole series," not just what you have).
+
+- **Where the data comes from**: not the per-film Wikipedia infobox
+  `preceded_by`/`followed_by` fields — checked live on The Dark Knight, Iron
+  Man 2, and Halloween II (1981), none had them populated, so that
+  convention isn't reliable anymore. Instead, Wikipedia's own maintained
+  meta-index at "Lists of feature film series" → eleven "List of feature
+  film series with N entries" pages, each written in one consistent
+  WikiProject bullet-list format. One regex parser handles all eleven pages
+  because of that shared convention.
+- **Two real parsing bugs, both caught against the live database before
+  this shipped and fixed before the real ingest counted**: (1) a header-line
+  regex that only recognised one of the two header formats Wikipedia
+  actually uses for a franchise name — missing the second form doesn't just
+  skip that franchise, it leaves the parser's "current franchise" pointer on
+  whatever opened before it, so every one of the missed franchise's films
+  gets silently filed under the WRONG one. First real run: all 14 Sherlock
+  Holmes films landed under "Star Trek." (2) A year-capture regex that
+  never actually captured a year, on any of the ~7,300 entries scraped — a
+  lazy `.*?` followed by an optional trailing group can always succeed by
+  matching the year part as absent, so it did, every time. That silently
+  defeated the shared `matchTitle()` matcher's year-tolerance check (used by
+  every scraper, not just this one) and caused wrong-year matches — "The
+  Dark Knight" (2008) matched onto The Dark Knight Rises' IMDb id purely on
+  title-word overlap. Fixed both; re-ran the ingest each time until the data
+  came back clean (confirmed: Star Trek/Sherlock Holmes correctly split,
+  The Dark Knight correctly comes back unmatched since the library doesn't
+  own it separately, 25 of 7,283 entries genuinely lack a year on Wikipedia's
+  page rather than 7,283 of 7,283).
+- **Also fixed in passing**: the item page's watchlist-membership lookup
+  only covered the film itself and its future episodes, so list badges on
+  the new series row's tiles never reflected whether an owned entry was
+  actually on a list.
+- **Known limitation, not fixed tonight (flagged as a follow-up)**: the
+  shared `matchTitle()` matcher falls back to a same-titled library film
+  even when nothing is within a year of the scraped entry, still labeling it
+  "exact." Surfaced by a genuine edge case in this data — an unreleased 2026
+  "Resident Evil" reboot entry falls back to matching the 2002 film's IMDb
+  id. This affects every scraper, not just film-series, so it wasn't changed
+  without more thought given to the ripple effects.
+- **Real ingest, live**: 699 series, 7,283 entries, 25 matched to the
+  library. Route: `POST /api/admin/accolades/run-filmseries`. Schema bumps:
+  v26 (film_series/film_series_entries tables — the first attempt at this
+  forgot the version bump entirely and was a silent no-op, caught live and
+  fixed same session) and v27 (the `filmseries` row in `scrape_sources` —
+  same class of mistake as v24/v25's davidbordwell/kinoeye rows, caught the
+  same way: a real "FOREIGN KEY constraint failed" against the live database
+  on the first real ingest attempt).
+- **Also shipped this round, built in a prior session but not yet
+  committed**: the scraped-data browse dashboard (new "Browse" sub-tab
+  under Accolades in `curator.html` — cross-source stats, per-source
+  breakdown, searchable article grid) and wiring
+  `relinkUnmatchedArticleLinks()`/`relinkUnmatchedAccoladeEntries()`/
+  `relinkUnmatchedFilmSeriesEntries()` into `POST /api/admin/library/scan` —
+  the first two existed in the codebase for a while but were never actually
+  called anywhere despite their own doc comments claiming otherwise.
+
 ### 2026-08-18 — Full-site scrapes: Ringer/BWDR reach their real archives, plus David Bordwell and Kinoeye
 The Ringer, Bright Wall/Dark Room, and Reverse Shot adapters had only ever
 pulled from a single listing page each ("no pagination crawl, kept
