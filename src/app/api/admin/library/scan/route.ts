@@ -1,6 +1,8 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { getDb } from "@/lib/db";
 import { JellyfinError, refreshLibrary } from "@/lib/jellyfin";
+import { relinkUnmatchedAccoladeEntries, relinkUnmatchedArticleLinks } from "@/lib/scraping/articles";
+import { relinkUnmatchedFilmSeriesEntries } from "@/lib/scraping/film-series";
 import { promoteSubtitles } from "@/lib/subtitle-promotion";
 
 export const runtime = "nodejs";
@@ -38,6 +40,24 @@ export async function POST(request: Request): Promise<Response> {
          ON CONFLICT(id) DO UPDATE SET triggered_at = excluded.triggered_at`,
       )
       .run(Date.now());
+
+    // Fire-and-forget: a newly-scanned film might resolve mentions that were
+    // sitting unmatched from before it was owned (a scraped review, an
+    // accolade entry, a film-series slot). None of these existed as call
+    // sites before now despite their own doc comments claiming this hook —
+    // wiring them in here, not awaited, since a library with a real backlog
+    // of unmatched rows could take a while and this response shouldn't wait
+    // on it.
+    void relinkUnmatchedArticleLinks().catch((error) =>
+      console.error("[admin/library/scan] article relink failed:", error),
+    );
+    void relinkUnmatchedAccoladeEntries().catch((error) =>
+      console.error("[admin/library/scan] accolade relink failed:", error),
+    );
+    void relinkUnmatchedFilmSeriesEntries().catch((error) =>
+      console.error("[admin/library/scan] film-series relink failed:", error),
+    );
+
     return Response.json(
       { scanning: true, subtitlesPromoted: subtitles.promoted.length },
       { headers: NO_STORE },

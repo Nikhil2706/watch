@@ -351,6 +351,45 @@
   .health-api-bar-fill.warn { background: var(--warn); }
   .health-api-bar-fill.crit { background: var(--danger); }
 
+  /* ---- Accolades: Browse (scraped-data visualizer) ---- */
+  .ac-browse-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+  .ac-stat-card {
+    background: var(--panel); border: 1px solid var(--panel-edge); border-radius: var(--radius);
+    padding: 18px 20px; position: relative; overflow: hidden;
+  }
+  .ac-stat-card::before {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+    background: linear-gradient(135deg, var(--accent), transparent 60%); opacity: .35;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none;
+  }
+  .ac-stat-val { font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .ac-stat-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-top: 4px; font-weight: 600; }
+
+  .ac-browse-sources { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px; }
+  .ac-src-row { display: flex; align-items: center; gap: 12px; padding: 7px 0; cursor: pointer; border-radius: 6px; transition: background .12s; }
+  .ac-src-row:hover { background: rgba(255,255,255,.03); }
+  .ac-src-row.active .ac-src-name { color: var(--warm); }
+  .ac-src-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+  .ac-src-name { flex: 0 0 150px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ac-src-track { flex: 1; height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; position: relative; }
+  .ac-src-fill { height: 100%; border-radius: 4px; transition: width .5s cubic-bezier(.22,1,.36,1); }
+  .ac-src-fill-matched { height: 100%; border-radius: 4px; background: var(--warm); opacity: .85; transition: width .5s cubic-bezier(.22,1,.36,1); }
+  .ac-src-count { flex: 0 0 auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; width: 110px; text-align: right; }
+
+  .ac-browse-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 14px; }
+  .ac-browse-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 13px 14px;
+    cursor: pointer; transition: transform .15s, border-color .15s, box-shadow .15s; border-left: 3px solid var(--src-color, var(--accent));
+  }
+  .ac-browse-card:hover { transform: translateY(-2px); border-color: var(--panel-edge); box-shadow: 0 10px 24px -12px rgba(0,0,0,.6); }
+  .ac-browse-card .ab-title { font-size: 13.5px; font-weight: 600; line-height: 1.35; margin-bottom: 8px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .ac-browse-card .ab-meta { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  .ac-browse-card .ab-src { font-weight: 700; text-transform: uppercase; letter-spacing: .04em; font-size: 10px; color: var(--src-color, var(--accent)); }
+  .ac-browse-card .ab-match { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 99px; font-weight: 700; font-size: 10px; }
+  .ac-browse-card .ab-match.yes { background: rgba(91,209,139,.14); color: var(--ok); }
+  .ac-browse-card .ab-match.no { background: rgba(147,156,173,.12); color: var(--muted); }
+
   .log-filters { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
   .log-filters select { width: auto; padding: 6px 10px; font-size: 12px; }
   .log-filters button { padding: 6px 12px; font-size: 12px; }
@@ -554,6 +593,7 @@
       <button class="subtab-btn active" data-subtab="ac-films">Films</button>
       <button class="subtab-btn" data-subtab="ac-builder">Builder</button>
       <button class="subtab-btn" data-subtab="ac-sources">Sources</button>
+      <button class="subtab-btn" data-subtab="ac-browse">Browse</button>
     </nav>
 
     <!-- Films -->
@@ -629,6 +669,30 @@
           <div style="flex:0 0 auto"><button id="acUploadPdf">Upload</button></div>
         </div>
         <div id="acBooksList" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <!-- Browse: cross-source scraped-data visualizer -->
+    <div class="subpanel" id="sub-ac-browse">
+      <div class="ac-browse-stats" id="acBrowseStats"></div>
+
+      <div class="ac-browse-sources" id="acBrowseSources"></div>
+
+      <div class="card">
+        <div class="row" style="align-items:center">
+          <div style="flex:1"><input id="acBrowseSearch" placeholder="Search scraped titles…" spellcheck="false"></div>
+          <div class="narrow" style="flex:0 0 auto">
+            <select id="acBrowseMatchFilter">
+              <option value="">All articles</option>
+              <option value="only">Matched only</option>
+              <option value="none">Unmatched only</option>
+            </select>
+          </div>
+        </div>
+        <div class="ac-browse-grid" id="acBrowseGrid"></div>
+        <div style="text-align:center;margin-top:14px">
+          <button class="ghost" id="acBrowseLoadMore" style="display:none">Load more</button>
+        </div>
       </div>
     </div>
 
@@ -2135,6 +2199,126 @@
         p.classList.toggle("active", p.id === target);
       });
     });
+  });
+
+  /* ---- Browse: cross-source scraped-data visualizer -------------------- */
+  var SRC_PALETTE = ["#5b8def", "#e8935a", "#6fc98a", "#c98ed1", "#e8c85a", "#6ba3c9", "#e8695a", "#8f9cad"];
+  var acBrowseSourceColors = {};
+  function acSrcColor(id) {
+    if (!acBrowseSourceColors[id]) {
+      var n = Object.keys(acBrowseSourceColors).length;
+      acBrowseSourceColors[id] = SRC_PALETTE[n % SRC_PALETTE.length];
+    }
+    return acBrowseSourceColors[id];
+  }
+
+  var acBrowseState = { q: "", source: "", matched: "", offset: 0, articles: [] };
+  var acBrowseLoaded = false;
+
+  function acBrowseRenderStats(totals, bySource) {
+    var sourceCount = bySource.length;
+    $("acBrowseStats").innerHTML =
+      '<div class="ac-stat-card"><div class="ac-stat-val">' + totals.total_articles.toLocaleString() + '</div><div class="ac-stat-label">Articles scraped</div></div>' +
+      '<div class="ac-stat-card"><div class="ac-stat-val">' + totals.total_matched.toLocaleString() + '</div><div class="ac-stat-label">Matched to your library</div></div>' +
+      '<div class="ac-stat-card"><div class="ac-stat-val">' + sourceCount + '</div><div class="ac-stat-label">Source' + (sourceCount === 1 ? "" : "s") + ' with data</div></div>';
+  }
+
+  function acBrowseRenderSources(bySource) {
+    var max = bySource.reduce(function (m, s) { return Math.max(m, s.article_count); }, 1);
+    $("acBrowseSources").innerHTML = bySource.map(function (s) {
+      var color = acSrcColor(s.source_id);
+      var widthPct = Math.max(2, Math.round((s.article_count / max) * 100));
+      var matchedPct = s.article_count ? Math.round((s.matched_count / s.article_count) * widthPct) : 0;
+      var isActive = acBrowseState.source === s.source_id;
+      return '<div class="ac-src-row' + (isActive ? " active" : "") + '" data-source-id="' + esc(s.source_id) + '">' +
+        '<span class="ac-src-dot" style="background:' + color + '"></span>' +
+        '<span class="ac-src-name">' + esc(s.source_name) + '</span>' +
+        '<span class="ac-src-track"><span class="ac-src-fill" style="width:' + widthPct + '%;background:' + color + '"></span>' +
+          '<span class="ac-src-fill-matched" style="width:' + matchedPct + '%;position:absolute;top:0;left:0"></span></span>' +
+        '<span class="ac-src-count">' + s.article_count.toLocaleString() + ' · ' + s.matched_count.toLocaleString() + ' matched</span>' +
+      '</div>';
+    }).join("");
+
+    $("acBrowseSources").querySelectorAll(".ac-src-row").forEach(function (row) {
+      row.addEventListener("click", function () {
+        var id = row.getAttribute("data-source-id");
+        acBrowseState.source = acBrowseState.source === id ? "" : id;
+        acBrowseState.offset = 0;
+        acBrowseFetch(false);
+      });
+    });
+  }
+
+  function acBrowseCardHtml(a) {
+    var color = acSrcColor(a.source_id);
+    var fetched = new Date(a.fetched_at).toLocaleDateString();
+    var matched = a.matched_count > 0;
+    return '<div class="ac-browse-card" style="--src-color:' + color + '" data-article-id="' + esc(a.id) + '">' +
+      '<div class="ab-title">' + esc(a.title) + '</div>' +
+      '<div class="ab-meta">' +
+        '<span class="ab-src" style="color:' + color + '">' + esc(a.source_name) + '</span>' +
+        '<span class="ab-match ' + (matched ? "yes" : "no") + '">' + (matched ? "✓ " + a.matched_count + " matched" : "unmatched") + '</span>' +
+      '</div>' +
+      '<div style="margin-top:6px;font-size:10.5px;color:var(--muted)">' + fetched + '</div>' +
+    '</div>';
+  }
+
+  function acBrowseRenderGrid(append) {
+    var html = acBrowseState.articles.map(acBrowseCardHtml).join("");
+    if (append) {
+      $("acBrowseGrid").insertAdjacentHTML("beforeend", html);
+    } else {
+      $("acBrowseGrid").innerHTML = html || '<div class="empty" style="grid-column:1/-1">Nothing scraped yet' + (acBrowseState.q || acBrowseState.source || acBrowseState.matched ? " matching this filter." : ".") + '</div>';
+    }
+    $("acBrowseGrid").querySelectorAll(".ac-browse-card").forEach(function (card) {
+      card.addEventListener("click", function () { acReadArticle(card.getAttribute("data-article-id")); });
+    });
+  }
+
+  function acBrowseFetch(append) {
+    var params = new URLSearchParams();
+    if (acBrowseState.q) params.set("q", acBrowseState.q);
+    if (acBrowseState.source) params.set("source", acBrowseState.source);
+    if (acBrowseState.matched) params.set("matched", acBrowseState.matched);
+    params.set("offset", String(acBrowseState.offset));
+
+    api("/api/admin/accolades/browse?" + params.toString()).then(function (data) {
+      acBrowseState.articles = append ? acBrowseState.articles.concat(data.articles) : data.articles;
+      acBrowseRenderGrid(append);
+      acBrowseRenderStats(data.totals, data.bySource);
+      acBrowseRenderSources(data.bySource);
+      $("acBrowseLoadMore").style.display = data.hasMore ? "" : "none";
+    }).catch(function (e) { show("err", e.message); });
+  }
+
+  function acBrowseLoad() {
+    acBrowseLoaded = true;
+    acBrowseState.offset = 0;
+    acBrowseFetch(false);
+  }
+
+  var acBrowseSearchTimer = null;
+  $("acBrowseSearch").addEventListener("input", function () {
+    clearTimeout(acBrowseSearchTimer);
+    var val = this.value;
+    acBrowseSearchTimer = setTimeout(function () {
+      acBrowseState.q = val.trim();
+      acBrowseState.offset = 0;
+      acBrowseFetch(false);
+    }, 300);
+  });
+  $("acBrowseMatchFilter").addEventListener("change", function () {
+    acBrowseState.matched = this.value;
+    acBrowseState.offset = 0;
+    acBrowseFetch(false);
+  });
+  $("acBrowseLoadMore").addEventListener("click", function () {
+    acBrowseState.offset += acBrowseState.articles.length;
+    acBrowseFetch(true);
+  });
+
+  document.querySelectorAll('.subtab-btn[data-subtab="ac-browse"]').forEach(function (b) {
+    b.addEventListener("click", function () { if (!acBrowseLoaded) acBrowseLoad(); });
   });
 
   /* ---- Rich-text toolbar ----------------------------------------------

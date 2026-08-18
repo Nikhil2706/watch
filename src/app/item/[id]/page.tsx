@@ -16,6 +16,7 @@ import { resolveAccolade, resolveBlurb } from "@/lib/scraping/resolve";
 import { resolveTriviaForFilm } from "@/lib/scraping/trivia";
 import { listSubtitles } from "@/lib/subtitles";
 import { Row } from "@/components/media/Row";
+import { SeriesRow } from "@/components/media/SeriesRow";
 import { currentSession } from "@/lib/current-user";
 import {
   backdropUrl,
@@ -23,10 +24,12 @@ import {
   formatRuntime,
   getEpisodeContext,
   getItem,
+  getItemByImdbId,
   getSimilar,
   qualityLabel,
   resumeSeconds,
 } from "@/lib/media";
+import { getSeriesContextForFilm } from "@/lib/scraping/film-series";
 
 export const dynamic = "force-dynamic";
 
@@ -76,10 +79,27 @@ export default async function ItemPage({
   const ratingSummary = imdbId ? getRatingSummary(imdbId) : null;
   const usRating = ratingSummary && ratingSummary.count > 0 ? { average: ratingSummary.average!, count: ratingSummary.count } : null;
 
+  // "In this series" — every film Wikipedia's own film-series lists carry
+  // for this franchise (see film-series.ts), not just the ones owned. The
+  // context lookup is a synchronous local read; resolving which entries are
+  // actually owned needs one Jellyfin call per matched imdb id, done here in
+  // parallel rather than inside SeriesRow so the component stays a plain
+  // synchronous render.
+  const seriesContext = imdbId ? getSeriesContextForFilm(imdbId) : null;
+  const seriesItemPairs = await Promise.all(
+    (seriesContext?.entries ?? [])
+      .filter((e) => e.imdb_id)
+      .map(async (e) => [e.imdb_id as string, await getItemByImdbId(session, e.imdb_id as string).catch(() => null)] as const),
+  );
+  const seriesItems = new Map(
+    seriesItemPairs.filter((pair): pair is [string, NonNullable<(typeof pair)[1]>] => pair[1] !== null),
+  );
+
   const picks = curationsForItem(id);
   const subtitles = listSubtitles(item);
   const futureIds = (episodeContext?.future ?? []).map((f) => f.item.Id);
-  const allLists = getMemberships(session.userId, [id, ...futureIds]);
+  const seriesItemIds = Array.from(seriesItems.values(), (i) => i.Id);
+  const allLists = getMemberships(session.userId, [id, ...futureIds, ...seriesItemIds]);
   const lists = allLists.get(id);
   const backdrop = backdropUrl(item, 1600);
   const runtime = formatRuntime(item.RunTimeTicks);
@@ -191,6 +211,18 @@ export default async function ItemPage({
             items={episodeContext.future.map((f) => f.item)}
             lists={allLists}
             itemTitles={futureTitles}
+          />
+        </div>
+      ) : null}
+
+      {seriesContext && seriesContext.entries.length > 1 ? (
+        <div style={{ marginTop: 28 }}>
+          <SeriesRow
+            title={`In the ${seriesContext.seriesName} series`}
+            entries={seriesContext.entries}
+            items={seriesItems}
+            lists={allLists}
+            currentImdbId={imdbId}
           />
         </div>
       ) : null}

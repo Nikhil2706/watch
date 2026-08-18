@@ -19,7 +19,7 @@
  * schema state (PRAGMA table_info) before acting and is therefore safe to run
  * on every migration regardless of how many times it fires.
  */
-export const SCHEMA_VERSION = 25;
+export const SCHEMA_VERSION = 27;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -453,6 +453,38 @@ CREATE TABLE IF NOT EXISTS article_trivia_candidates (
 
 CREATE INDEX IF NOT EXISTS idx_article_trivia_candidates_link ON article_trivia_candidates(link_id);
 
+-- One row per franchise, sourced from Wikipedia's "Lists of feature film
+-- series" meta-index (see src/lib/scraping/film-series.ts). wiki_page
+-- records which of the ~11 "List of feature film series with N entries"
+-- pages this came from, purely for provenance/debugging, not looked up by.
+CREATE TABLE IF NOT EXISTS film_series (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL UNIQUE,
+  wiki_page  TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+) STRICT;
+
+-- One row per film-in-a-series slot, in release order (position). imdb_id
+-- is null until matchTitle() resolves it — same confidence vocabulary as
+-- article_film_links, and the same "re-attempt on every library scan" relink
+-- pattern (relinkUnmatchedFilmSeriesEntries), so a film added to the library
+-- after its series was already scraped still links up automatically.
+CREATE TABLE IF NOT EXISTS film_series_entries (
+  id         TEXT PRIMARY KEY,
+  series_id  TEXT NOT NULL REFERENCES film_series(id) ON DELETE CASCADE,
+  position   INTEGER NOT NULL,
+  raw_title  TEXT NOT NULL,
+  raw_year   INTEGER,
+  imdb_id    TEXT,
+  confidence TEXT NOT NULL, -- 'exact' | 'fuzzy' | 'unmatched'
+  created_at INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_film_series_entries_series ON film_series_entries(series_id);
+CREATE INDEX IF NOT EXISTS idx_film_series_entries_imdb ON film_series_entries(imdb_id);
+CREATE INDEX IF NOT EXISTS idx_film_series_entries_unmatched ON film_series_entries(imdb_id) WHERE imdb_id IS NULL;
+
 -- The curator's override, one row per film. Absence of a row means "auto":
 -- a random blurb candidate and the highest-ranked accolade mention. A
 -- locked blurb points at a specific scraped PASSAGE (locked_blurb_
@@ -562,7 +594,8 @@ INSERT OR IGNORE INTO scrape_sources (id, name, base_url, source_type, kind, ena
   ('brightwalldarkroom', 'Bright Wall/Dark Room', 'https://www.brightwalldarkroom.com', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000),
   ('reverseshot', 'Reverse Shot', 'https://reverseshot.org', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000),
   ('davidbordwell', 'David Bordwell''s Website on Cinema', 'https://www.davidbordwell.net', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000),
-  ('kinoeye', 'Kinoeye', 'https://www.kinoeye.org', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000);
+  ('kinoeye', 'Kinoeye', 'https://www.kinoeye.org', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000),
+  ('filmseries', 'Wikipedia Film Series Index', 'https://en.wikipedia.org', 'web', 'accolade', 1, CAST(strftime('%s','now') AS INTEGER) * 1000);
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user     ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires  ON sessions(expires_at);

@@ -194,6 +194,52 @@ function runVersionedMigrations(db: DatabaseSync): void {
        VALUES ('kinoeye', ?, ?, 'web', 'review', 0, ?)`,
     ).run("Kinoeye", "https://www.kinoeye.org", Date.now());
   }
+
+  // v26: film_series / film_series_entries, added to SCHEMA_SQL without a
+  // version bump at first — same class of mistake as v24/v25 above, caught
+  // live this time (a real "table does not exist" check against the running
+  // database, not just reasoning about it) before the real ingest ran.
+  // CREATE TABLE/INDEX IF NOT EXISTS is safe to just re-run directly, no
+  // existence guard needed the way an ALTER TABLE would.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS film_series (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL UNIQUE,
+      wiki_page  TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS film_series_entries (
+      id         TEXT PRIMARY KEY,
+      series_id  TEXT NOT NULL REFERENCES film_series(id) ON DELETE CASCADE,
+      position   INTEGER NOT NULL,
+      raw_title  TEXT NOT NULL,
+      raw_year   INTEGER,
+      imdb_id    TEXT,
+      confidence TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE INDEX IF NOT EXISTS idx_film_series_entries_series ON film_series_entries(series_id);
+    CREATE INDEX IF NOT EXISTS idx_film_series_entries_imdb ON film_series_entries(imdb_id);
+    CREATE INDEX IF NOT EXISTS idx_film_series_entries_unmatched ON film_series_entries(imdb_id) WHERE imdb_id IS NULL;
+  `);
+
+  // v27: same class of mistake as v24/v25 again — createScrapeJob("filmseries")
+  // needs a matching row in scrape_sources (FK: scrape_jobs.source_id
+  // REFERENCES scrape_sources(id)), which v26 forgot even though it added the
+  // filmseries tables. Caught live: the first real ingest run threw "FOREIGN
+  // KEY constraint failed" because no such row existed on the already-
+  // migrated database. This row also lives in SCHEMA_SQL's own seed block for
+  // a fresh install; an already-migrated database only sees it via this
+  // explicit insert, same reasoning as v24/v25.
+  if (tableExists(db, "scrape_sources")) {
+    db.prepare(
+      `INSERT OR IGNORE INTO scrape_sources (id, name, base_url, source_type, kind, enabled, created_at)
+       VALUES ('filmseries', ?, ?, 'web', 'accolade', 1, ?)`,
+    ).run("Wikipedia Film Series Index", "https://en.wikipedia.org", Date.now());
+  }
 }
 
 /**

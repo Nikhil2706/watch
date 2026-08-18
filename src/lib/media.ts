@@ -443,6 +443,34 @@ export async function getGenres(session: ResolvedSession): Promise<string[]> {
   return (data?.Items ?? []).map((g) => g.Name);
 }
 
+/**
+ * Reverse of getItem(): given an IMDb id (already resolved against the
+ * library by matchTitle() at scrape time — see film-series.ts), find the
+ * Jellyfin item it belongs to, for building a poster/link on a page that
+ * only has the id, not the item, on hand. A single targeted query, not the
+ * heavy admin-only listAllMoviesAdmin() pull — this runs on every viewer's
+ * item-page render, not a background scrape.
+ */
+export async function getItemByImdbId(
+  session: ResolvedSession,
+  imdbId: string,
+): Promise<MediaItem | null> {
+  const [token, device] = creds(session);
+  try {
+    const result = await userFetch<{ Items: MediaItem[] }>(token, device, "/Items", {
+      userId: session.jellyfinUserId,
+      includeItemTypes: "Movie",
+      recursive: true,
+      anyProviderIdEquals: `Imdb.${imdbId}`,
+      fields: "ProviderIds,ProductionYear,ImageTags",
+      limit: 1,
+    });
+    return result.Items[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getItem(
   session: ResolvedSession,
   itemId: string,
