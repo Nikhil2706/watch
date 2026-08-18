@@ -511,6 +511,35 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
+### 2026-08-19 (later) — "Langlois mode": per-user raw film + subtitle downloads
+Named for Henri Langlois, the film archivist who believed prints belonged
+in people's hands, not just on a screen. A curator can now grant a
+specific invited person the ability to download a film's actual original
+file (not a stream) plus its subtitle track, straight from the film's
+page — everyone else still only ever streams.
+
+- **How it's granted**: a new checkbox in the Invites tab, "Langlois mode —
+  raw film file + subtitle download, not just streaming." Set at
+  invite-creation time; whoever redeems that invite gets it on their
+  account permanently (editing or deleting the invite afterward has no
+  effect on accounts already created from it — the flag is copied onto the
+  new user's own row at the moment of signup, not looked up live).
+- **How it actually works, technically**: no new download route was
+  needed. Every user's Jellyfin account already gets a full permissions
+  policy pushed on signup (`applyRestrictedPolicy()`), which explicitly
+  turns off Jellyfin's own "allow downloading" permission for everyone —
+  Langlois mode is that one setting flipped to on, for that one account,
+  in Jellyfin itself. The existing proxy that already handles all
+  streaming traffic was never blocking the download endpoint in the first
+  place; it simply never worked before because Jellyfin itself said no.
+  Subtitle downloads reuse the exact link the video player already uses to
+  show subtitles on screen — Langlois-mode users just get a "save this
+  file" version of that same link.
+- **Verified live**: created a real test invite with the flag on through
+  the admin API, confirmed it shows correctly in the Invites list, revoked
+  it to clean up. Schema change (v28) confirmed against the running
+  database directly, not just by reading the code.
+
 ### 2026-08-19 — Phone/desktop app work begins: PWA baseline shipped, Android and desktop app shells scaffolded
 Per "make as much progress as you can on android and desktop apps full auto
 mode as can be done without me" — the first real slice of the Phone App and
