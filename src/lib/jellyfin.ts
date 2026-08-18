@@ -264,8 +264,19 @@ export async function deleteUser(userId: string): Promise<void> {
  * This policy is the primary authorisation boundary for everything a logged-in
  * user can do through the /jf/* proxy. Jellyfin itself enforces it on every
  * request; the proxy's deny-list is a second layer, not the only one.
+ *
+ * `langloisMode` is the one deliberate exception carved into this otherwise
+ * fixed policy: it flips EnableContentDownloading on for this user's Jellyfin
+ * account, which is what makes GET /jf/Items/{id}/Download actually succeed
+ * for them — that path is already reachable through the proxy (it was never
+ * on the deny-list; there was simply no user whose Jellyfin policy allowed
+ * Jellyfin itself to honour it before this). See the `langlois_mode` column
+ * comment in schema.ts for the full reasoning.
  */
-export async function applyRestrictedPolicy(userId: string): Promise<void> {
+export async function applyRestrictedPolicy(
+  userId: string,
+  options?: { langloisMode?: boolean },
+): Promise<void> {
   const user = await getUser(userId);
   const existing = user.Policy ?? {};
 
@@ -278,7 +289,7 @@ export async function applyRestrictedPolicy(userId: string): Promise<void> {
     EnableLiveTvManagement: false,
     EnableContentDeletion: false,
     EnableContentDeletionFromFolders: [],
-    EnableContentDownloading: false,
+    EnableContentDownloading: options?.langloisMode === true,
     EnableSyncTranscoding: false,
     EnableMediaConversion: false,
     EnableSubtitleManagement: false,

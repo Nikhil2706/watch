@@ -240,6 +240,18 @@ function runVersionedMigrations(db: DatabaseSync): void {
        VALUES ('filmseries', ?, ?, 'web', 'accolade', 1, ?)`,
     ).run("Wikipedia Film Series Index", "https://en.wikipedia.org", Date.now());
   }
+
+  // v28: langlois_mode added to invites and users — this one genuinely is a
+  // straightforward ALTER TABLE ADD COLUMN case (an existing table gaining a
+  // column, not a new table or a seed row), the class of change this
+  // function exists for in the first place. Defaults to 0 on every existing
+  // row, which is correct: nobody had download access before this shipped.
+  if (tableExists(db, "invites") && !columnExists(db, "invites", "langlois_mode")) {
+    db.exec("ALTER TABLE invites ADD COLUMN langlois_mode INTEGER NOT NULL DEFAULT 0");
+  }
+  if (tableExists(db, "users") && !columnExists(db, "users", "langlois_mode")) {
+    db.exec("ALTER TABLE users ADD COLUMN langlois_mode INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 /**

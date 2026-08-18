@@ -161,6 +161,18 @@ export default async function ItemPage({
                 Start over
               </Link>
             ) : null}
+            {session.langloisMode ? (
+              // "Langlois mode" — a per-user grant (see the langlois_mode
+              // column comment in schema.ts), curator-set from the Invites
+              // tab. Goes through the same /jf/* proxy as everything else;
+              // it succeeds here (and 403s for anyone else) purely because
+              // applyRestrictedPolicy() turned EnableContentDownloading on
+              // for this user's Jellyfin account and no one else's — no
+              // extra gating needed in this route.
+              <a className="btn ghost" href={`/jf/Items/${item.Id}/Download`}>
+                ⬇ Download film
+              </a>
+            ) : null}
           </div>
         </div>
       </section>
@@ -183,16 +195,29 @@ export default async function ItemPage({
         {subtitles.length > 0 ? (
           <div className="subtitle-line">
             <span className="subtitle-label">Subtitles</span>
-            {subtitles.map((track) => (
-              <span
-                key={track.index}
-                className={`chip${track.recommended ? " chip-accent" : ""}`}
-                title={track.recommended ? "Recommended by the curator" : undefined}
-              >
-                {track.recommended ? "\u2605 " : ""}
-                {track.label}
-              </span>
-            ))}
+            {subtitles.map((track) =>
+              session.langloisMode ? (
+                <a
+                  key={track.index}
+                  className={`chip${track.recommended ? " chip-accent" : ""}`}
+                  title={(track.recommended ? "Recommended by the curator \u2014 " : "") + "Download this subtitle file"}
+                  href={track.url}
+                  download={`${item.Name} - ${track.label}.vtt`}
+                >
+                  {track.recommended ? "\u2605 " : ""}
+                  {track.label} \u2b07
+                </a>
+              ) : (
+                <span
+                  key={track.index}
+                  className={`chip${track.recommended ? " chip-accent" : ""}`}
+                  title={track.recommended ? "Recommended by the curator" : undefined}
+                >
+                  {track.recommended ? "\u2605 " : ""}
+                  {track.label}
+                </span>
+              ),
+            )}
           </div>
         ) : null}
 

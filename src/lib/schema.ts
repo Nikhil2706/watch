@@ -19,7 +19,7 @@
  * schema state (PRAGMA table_info) before acting and is therefore safe to run
  * on every migration regardless of how many times it fires.
  */
-export const SCHEMA_VERSION = 27;
+export const SCHEMA_VERSION = 28;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -38,7 +38,16 @@ CREATE TABLE IF NOT EXISTS invites (
   -- of only handing it back in the API response for a curator to copy.
   -- Stored for reference (the Invites list can show who it went to) --
   -- never used for anything but that one send at creation time.
-  email         TEXT
+  email         TEXT,
+  -- "Langlois mode" (named for Henri Langlois, the archivist who believed
+  -- prints belonged in people's hands, not just on a screen): whoever
+  -- redeems this invite gets EnableContentDownloading=true on their
+  -- Jellyfin account (see applyRestrictedPolicy in jellyfin.ts) instead of
+  -- the usual hard denial, plus a raw-file/subtitle download affordance on
+  -- the film page. Copied onto the resulting users row at redemption —
+  -- see users.langlois_mode below — so later changes to this invite (or
+  -- its deletion) never retroactively affect an account already created.
+  langlois_mode INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS users (
@@ -48,7 +57,11 @@ CREATE TABLE IF NOT EXISTS users (
   -- Kept even if the invite row is later deleted, so provenance is not lost.
   invited_by_invite_id TEXT REFERENCES invites(id) ON DELETE SET NULL,
   created_at           INTEGER NOT NULL,
-  last_seen_at         INTEGER NOT NULL
+  last_seen_at         INTEGER NOT NULL,
+  -- Copied from invites.langlois_mode at redemption time — see that
+  -- column's comment. The authoritative per-user flag; invites.langlois_mode
+  -- is only ever read once, at the moment this row is created.
+  langlois_mode        INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS sessions (

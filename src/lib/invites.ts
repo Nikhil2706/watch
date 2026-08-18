@@ -16,6 +16,7 @@ export interface InviteRow {
   revoked_at: number | null;
   created_at: number;
   email: string | null;
+  langlois_mode: number;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -29,6 +30,7 @@ export interface CreatedInvite {
   maxUses: number;
   expiresAt: number;
   email: string | null;
+  langloisMode: boolean;
   /**
    * Only present when `input.email` was given. `true` means the email is
    * confirmed sent; `false` means the invite was still created (the link
@@ -45,6 +47,7 @@ export async function createInvite(input: {
   maxUses?: number;
   expiresInDays?: number;
   email?: string | null;
+  langloisMode?: boolean;
 }): Promise<CreatedInvite> {
   const maxUses = input.maxUses ?? env.defaultInviteMaxUses;
   const expiresInDays = input.expiresInDays ?? env.defaultInviteExpiryDays;
@@ -63,18 +66,20 @@ export async function createInvite(input: {
   const label = input.label?.trim() || null;
   const expiresAt = now + Math.round(expiresInDays * DAY_MS);
 
+  const langloisMode = input.langloisMode ?? false;
+
   // Only the hash is written. There is no code path anywhere in this app that
   // can recover the plaintext afterwards — losing the link means issuing a new
   // invite, by design.
   getDb()
     .prepare(
-      `INSERT INTO invites (id, token_hash, label, max_uses, use_count, expires_at, revoked_at, created_at, email)
-       VALUES (?, ?, ?, ?, 0, ?, NULL, ?, ?)`,
+      `INSERT INTO invites (id, token_hash, label, max_uses, use_count, expires_at, revoked_at, created_at, email, langlois_mode)
+       VALUES (?, ?, ?, ?, 0, ?, NULL, ?, ?, ?)`,
     )
-    .run(id, sha256Hex(token), label, maxUses, expiresAt, now, email);
+    .run(id, sha256Hex(token), label, maxUses, expiresAt, now, email, langloisMode ? 1 : 0);
 
   const url = `${env.publicUrl}/invite/${token}`;
-  const result: CreatedInvite = { id, token, url, label, maxUses, expiresAt, email };
+  const result: CreatedInvite = { id, token, url, label, maxUses, expiresAt, email, langloisMode };
 
   // Sending happens after the row is committed, and never rolls the invite
   // back on failure: a curator who typed the email wrong (or whose provider
@@ -109,6 +114,7 @@ export interface InviteSummary {
   status: "active" | "revoked" | "expired" | "exhausted";
   redeemed_usernames: string[];
   email: string | null;
+  langlois_mode: boolean;
 }
 
 export function listInvites(): InviteSummary[] {
@@ -143,6 +149,7 @@ export function listInvites(): InviteSummary[] {
       status,
       redeemed_usernames: usernames,
       email: row.email,
+      langlois_mode: row.langlois_mode === 1,
     };
   });
 }
@@ -186,7 +193,7 @@ export function peekInvite(
 }
 
 export type ClaimResult =
-  | { ok: true; inviteId: string }
+  | { ok: true; inviteId: string; langloisMode: boolean }
   | { ok: false; reason: string };
 
 /**
@@ -225,11 +232,11 @@ export function claimInvite(token: string): ClaimResult {
       .run(tokenHash, now);
 
     if (Number(claimed.changes) === 1) {
-      const row = asRow<{ id: string }>(
-        db.prepare("SELECT id FROM invites WHERE token_hash = ?").get(tokenHash),
+      const row = asRow<{ id: string; langlois_mode: number }>(
+        db.prepare("SELECT id, langlois_mode FROM invites WHERE token_hash = ?").get(tokenHash),
       );
       // The UPDATE matched, so the row exists; this is belt and braces.
-      if (row) return { ok: true, inviteId: row.id };
+      if (row) return { ok: true, inviteId: row.id, langloisMode: row.langlois_mode === 1 };
     }
 
     // Nothing was claimed. Work out why, for a useful error message. Still

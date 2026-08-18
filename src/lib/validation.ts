@@ -99,6 +99,18 @@ export function optionalInt(
   throw new ValidationError(`${key} must be a number.`);
 }
 
+export function optionalBoolean(
+  body: Record<string, unknown>,
+  key: string,
+): boolean | undefined {
+  const value = body[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "boolean") return value;
+  if (value === "true" || value === 1) return true;
+  if (value === "false" || value === 0) return false;
+  throw new ValidationError(`${key} must be a boolean.`);
+}
+
 /**
  * Pulls an IMDb or TMDB id out of whatever an admin pastes — a full URL
  * ("https://www.imdb.com/title/tt0079636/"), or just the bare id

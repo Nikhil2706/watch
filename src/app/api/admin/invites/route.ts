@@ -5,6 +5,7 @@ import {
   listInvites,
 } from "@/lib/invites";
 import {
+  optionalBoolean,
   optionalInt,
   optionalString,
   readJsonBody,
@@ -40,6 +41,7 @@ export async function POST(request: Request): Promise<Response> {
       maxUses: optionalInt(body, "max_uses"),
       expiresInDays: optionalInt(body, "expires_in_days"),
       email: optionalString(body, "email") ?? null,
+      langloisMode: optionalBoolean(body, "langlois_mode"),
     });
 
     return Response.json(
@@ -51,6 +53,7 @@ export async function POST(request: Request): Promise<Response> {
         max_uses: invite.maxUses,
         expires_at: new Date(invite.expiresAt).toISOString(),
         email: invite.email,
+        langlois_mode: invite.langloisMode,
         email_sent: invite.emailSent,
         email_error: invite.emailError,
         note: "Save the url now. The token is hashed on storage and cannot be shown again.",

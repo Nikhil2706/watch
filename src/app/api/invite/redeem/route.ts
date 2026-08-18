@@ -120,7 +120,7 @@ export async function POST(request: Request): Promise<Response> {
 
     // Step 3 of the brief. If this throws, the catch below deletes the user
     // rather than leaving an account with default (unrestricted) permissions.
-    await applyRestrictedPolicy(jellyfinUserId);
+    await applyRestrictedPolicy(jellyfinUserId, { langloisMode: claim.langloisMode });
 
     // Log the new user in through the normal path so the token in the session
     // row is a real user token, not the admin key.
@@ -139,6 +139,7 @@ export async function POST(request: Request): Promise<Response> {
       jellyfinDeviceId: deviceId,
       userAgent: getUserAgent(request),
       ip,
+      langloisMode: claim.langloisMode,
     });
 
     // A successful redemption should not count against the limiter — someone

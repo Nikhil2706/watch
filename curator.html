@@ -852,6 +852,14 @@
           <button id="create">Create invite</button>
         </div>
       </div>
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input id="langloisMode" type="checkbox" style="width:auto">
+            Langlois mode — raw film file + subtitle download, not just streaming
+          </label>
+        </div>
+      </div>
       <div id="emailStatus" class="note" style="margin-top:8px;display:none"></div>
       <div id="linkOut" class="link-out" style="display:none">
         <input id="linkVal" readonly>
@@ -979,6 +987,7 @@
       html += '<tr>' +
         '<td><span class="pill s-' + i.status + '">' + i.status + '</span></td>' +
         '<td>' + esc(i.label || "—") +
+          (i.langlois_mode ? ' <span class="pill" title="Raw film file + subtitle download">Langlois</span>' : '') +
           '<div class="muted">' + esc(i.id.slice(0, 8)) + '…</div></td>' +
         '<td>' + i.use_count + " / " + i.max_uses + '</td>' +
         '<td>' + fmtDate(i.expires_at) +
@@ -1067,12 +1076,14 @@
     if (u > 1) body.max_uses = u;
     if (d && d !== 7) body.expires_in_days = d;
     if (email) body.email = email;
+    if ($("langloisMode").checked) body.langlois_mode = true;
     if (!body.label) { show("err", "Give it a label so you can tell them apart."); return; }
     clearMsg();
     api("/api/admin/invites", { method: "POST", body: body }).then(function (data) {
       $("linkVal").value = data.url;
       $("linkOut").style.display = "";
       $("linkNote").style.display = "";
+      $("langloisMode").checked = false;
       var statusEl = $("emailStatus");
       if (data.email) {
         if (data.email_sent) {

@@ -42,11 +42,13 @@ export interface ResolvedSession {
   jellyfinToken: string;
   jellyfinDeviceId: string;
   expiresAt: number;
+  langloisMode: boolean;
 }
 
 interface JoinedRow extends SessionRow {
   username: string;
   jellyfin_user_id: string;
+  langlois_mode: number;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -67,6 +69,7 @@ export function createUserAndSession(input: {
   jellyfinDeviceId: string;
   userAgent: string | null;
   ip: string | null;
+  langloisMode?: boolean;
 }): { sessionId: string; userId: string } {
   const now = Date.now();
   const userId = generateId();
@@ -74,8 +77,8 @@ export function createUserAndSession(input: {
 
   transaction((db) => {
     db.prepare(
-      `INSERT INTO users (id, jellyfin_user_id, username, invited_by_invite_id, created_at, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, jellyfin_user_id, username, invited_by_invite_id, created_at, last_seen_at, langlois_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       userId,
       input.jellyfinUserId,
@@ -83,6 +86,7 @@ export function createUserAndSession(input: {
       input.invitedByInviteId,
       now,
       now,
+      input.langloisMode ? 1 : 0,
     );
 
     db.prepare(
@@ -186,7 +190,7 @@ export function getSession(sessionId: string | null): ResolvedSession | null {
   const row = asRow<JoinedRow>(
     getDb()
       .prepare(
-        `SELECT s.*, u.username, u.jellyfin_user_id
+        `SELECT s.*, u.username, u.jellyfin_user_id, u.langlois_mode
            FROM sessions s
            JOIN users u ON u.id = s.user_id
           WHERE s.id = ?`,
@@ -209,6 +213,7 @@ export function getSession(sessionId: string | null): ResolvedSession | null {
     jellyfinToken: row.jellyfin_token,
     jellyfinDeviceId: row.jellyfin_device_id,
     expiresAt: row.expires_at,
+    langloisMode: row.langlois_mode === 1,
   };
 }
 
