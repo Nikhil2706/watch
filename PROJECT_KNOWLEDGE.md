@@ -511,6 +511,52 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
+### 2026-08-19 — Fixed the same-titled-remake matching bug flagged yesterday
+Closes the "known limitation" called out at the bottom of the entry just
+below this one: the shared `matchTitle()` matcher (used by every scraper —
+yearendlists, Wikipedia accolades, PDF uploads, film-series, and the
+library-scan relink pass) fell back to a same-titled library film even when
+nothing was within a year of the scraped entry, still labeling it "exact"
+confidence. The real case that surfaced it: an unreleased 2026 "Resident
+Evil" reboot silently resolved to the 2002 film's IMDb id, purely because it
+was the only same-titled entry in the library.
+
+- **The fix**: an exact title match now only counts as "exact" confidence
+  when a candidate's year actually falls within tolerance. When it doesn't,
+  it falls through to the existing fuzzy-matching pass and, from there, to
+  "unmatched" if nothing else fits — the same safe outcome a title with no
+  library match at all gets. Checked how "fuzzy" vs "unmatched" are treated
+  everywhere downstream first: nowhere does the codebase currently treat
+  "fuzzy" any differently from "exact" (same DB storage, same "Matched" row
+  in the curator's review panel, same real poster rendered on public pages)
+  — only a null `imdb_id` triggers the safe placeholder tile, lands the item
+  in the curator's actionable search box, and gets retried on the next scan.
+  So "unmatched" was the only choice that actually changes behavior, and the
+  right one for a same-titled collision nothing can be certain about
+  automatically.
+- **Already-stored bad matches, not just future ones**: the relink passes
+  (`relinkUnmatchedArticleLinks`, `relinkUnmatchedFilmSeriesEntries`, wired
+  into `POST /api/admin/library/scan`) used to only retry rows with a null
+  `imdb_id` — so simply re-running them wouldn't have touched the Resident
+  Evil row, since it already had a (wrong) `imdb_id` set. Both now also
+  re-check existing "exact" rows, writing an update only when the result
+  actually changes, so a `matchTitle()` fix like this one self-corrects
+  already-scraped data the next time a scan runs, not only new scrapes.
+  Verified live: triggered the scan, confirmed the 2026 "Resident Evil"
+  entry now correctly comes back `imdb_id: null, confidence: "unmatched"`
+  while the real 2002 film's own row is untouched.
+- **Also**: while testing this, the `JellyfinGateWatchdog` scheduled task
+  restarted the PC mid-deploy (it saw the site as briefly unreachable during
+  a container recreate and treated that as a real outage) and left Docker
+  Desktop's WSL2 backend in a bad state — `jellyfin-gate` crash-looping with
+  `read-only file system` errors on its own container filesystem, `docker
+  ps`/`docker exec` giving inconsistent answers about whether it was even
+  running. Fixed with a clean `wsl --shutdown` + Docker Desktop relaunch (no
+  data lost — the database lives outside the container's writable layer).
+  The watchdog task itself has been disabled at the user's request and needs
+  a deliberate `schtasks /Change /TN "JellyfinGateWatchdog" /ENABLE` to come
+  back — it is not currently protecting against a real Docker/site outage.
+
 ### 2026-08-18 (later) — "In this series" row, plus a scraped-data browse dashboard
 A film's page now shows every other film in its franchise, in release order —
 owned ones link straight to their page, unowned ones show as plain

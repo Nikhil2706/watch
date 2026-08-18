@@ -377,17 +377,27 @@ interface UnmatchedRow {
  * Sequential rather than Promise.all: matchTitle's library index is built
  * once and cached, so there is no concurrency to gain, and this keeps each
  * row's write ordered and simple to reason about during a scan.
+ *
+ * Also re-checks existing "exact" rows, not just null imdb_id ones: exact is
+ * the one confidence level matchTitle() treats as reliable enough not to
+ * need a curator's eyes, so if its own logic changes (e.g. tightening the
+ * year-tolerance fallback), previously-stored exact matches need the same
+ * re-validation as a brand-new title would get, not just future scrapes.
+ * Rows that come back unchanged (same imdb_id and confidence) are skipped —
+ * only real corrections get written.
  */
 export async function relinkUnmatchedArticleLinks(): Promise<number> {
-  const unmatched = asRows<UnmatchedRow>(
+  const candidates = asRows<UnmatchedRow & { imdb_id: string | null; confidence: string }>(
     getDb()
-      .prepare("SELECT id, raw_title, raw_year FROM article_film_links WHERE imdb_id IS NULL")
+      .prepare(
+        "SELECT id, raw_title, raw_year, imdb_id, confidence FROM article_film_links WHERE imdb_id IS NULL OR confidence = 'exact'",
+      )
       .all(),
   );
   let relinked = 0;
-  for (const row of unmatched) {
+  for (const row of candidates) {
     const match = await matchTitle(row.raw_title, row.raw_year);
-    if (match.confidence === "unmatched") continue;
+    if (match.imdbId === row.imdb_id && match.confidence === row.confidence) continue;
     getDb()
       .prepare("UPDATE article_film_links SET imdb_id = ?, confidence = ? WHERE id = ?")
       .run(match.imdbId, match.confidence, row.id);

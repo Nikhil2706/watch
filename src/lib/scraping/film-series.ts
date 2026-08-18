@@ -211,15 +211,31 @@ export async function runFilmSeriesIngest(): Promise<FilmSeriesIngestResult> {
   return { seriesProcessed, entriesProcessed, matchedCount };
 }
 
-/** Same "try again, now that the library has more in it" pass as relinkUnmatchedArticleLinks(), for series entries. */
+/**
+ * Same "try again, now that the library has more in it" pass as
+ * relinkUnmatchedArticleLinks(), for series entries — and, like that
+ * function, also re-checks existing "exact" rows so a matchTitle() logic
+ * change corrects already-stored matches, not just future ones. Rows that
+ * come back unchanged are skipped, only real corrections get written.
+ */
 export async function relinkUnmatchedFilmSeriesEntries(): Promise<number> {
-  const unmatched = asRows<{ id: string; raw_title: string; raw_year: number | null }>(
-    getDb().prepare("SELECT id, raw_title, raw_year FROM film_series_entries WHERE imdb_id IS NULL").all(),
+  const candidates = asRows<{
+    id: string;
+    raw_title: string;
+    raw_year: number | null;
+    imdb_id: string | null;
+    confidence: string;
+  }>(
+    getDb()
+      .prepare(
+        "SELECT id, raw_title, raw_year, imdb_id, confidence FROM film_series_entries WHERE imdb_id IS NULL OR confidence = 'exact'",
+      )
+      .all(),
   );
   let relinked = 0;
-  for (const row of unmatched) {
+  for (const row of candidates) {
     const match = await matchTitle(row.raw_title, row.raw_year);
-    if (match.confidence === "unmatched") continue;
+    if (match.imdbId === row.imdb_id && match.confidence === row.confidence) continue;
     getDb()
       .prepare("UPDATE film_series_entries SET imdb_id = ?, confidence = ? WHERE id = ?")
       .run(match.imdbId, match.confidence, row.id);

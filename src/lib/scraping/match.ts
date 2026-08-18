@@ -70,7 +70,11 @@ export async function matchTitle(rawTitle: string, rawYear: number | null): Prom
 
   const exact = index.get(key);
   if (exact) {
-    const hit = exact.find((e) => withinYearTolerance(e.year, rawYear)) ?? exact[0];
+    // Only accept a same-title candidate whose year actually checks out — a
+    // title match alone isn't enough when a same-titled remake/reboot exists
+    // (e.g. a 2026 "Resident Evil" must not silently resolve to the 2002
+    // film's imdbId just because it's the only same-titled library entry).
+    const hit = exact.find((e) => withinYearTolerance(e.year, rawYear));
     if (hit) return { imdbId: hit.imdbId, confidence: "exact" };
   }
 
