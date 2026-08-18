@@ -19,6 +19,15 @@ import { NextResponse, type NextRequest } from "next/server";
  * exempt from user session handling, as the brief requires — /api/admin/* is
  * authenticated by X-Admin-Key alone and must never be redirected to a login
  * page.
+ *
+ * Also excludes the PWA assets (manifest.json, sw.js, the icon PNGs) —
+ * caught live while building the PWA baseline: a browser checks
+ * installability (fetches the manifest + icons) from ANY page, including a
+ * logged-out /login screen, and a service worker registration needs sw.js
+ * served as real JavaScript, not an HTML login redirect. Without this
+ * exclusion every one of those requests bounced to /login instead, which
+ * would have made the site permanently uninstallable and broken SW
+ * registration outright (wrong content-type, parse error).
  */
 
 const SESSION_COOKIE = "jfg_session";
@@ -47,7 +56,9 @@ export const config = {
      *   invite/*         — must be reachable while logged out
      *   login            — obviously
      *   _next/*, favicon — framework assets
+     *   manifest.json, sw.js, icon-*.png, apple-touch-icon.png, favicon-32.png
+     *                    — PWA assets, must be fetchable while logged out
      */
-    "/((?!api/|jf/|invite/|login|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api/|jf/|invite/|login|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|apple-touch-icon.png|favicon-32.png).*)",
   ],
 };
