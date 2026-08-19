@@ -394,6 +394,25 @@ export async function remoteSearchMovie(
  * behind the ProductionYear one until that got fixed first). Name+Overview
  * alone is enough to stop the regression this exists for.
  */
+/**
+ * Merges two or more items into one, the others becoming Jellyfin's own
+ * native "alternate versions" of the first — e.g. an American cut and an
+ * Italian cut of the same film, which the duplicate-title detector
+ * otherwise has no way to tell apart from a genuine accidental duplicate.
+ * The player gets a version picker for free; nothing about this needed
+ * reinventing in this app's own database, unlike grouping (which IS this
+ * app's own concept, for files Jellyfin has no native multi-file grouping
+ * for at all — a TV show made of separate movie-shaped files).
+ */
+export async function mergeVersions(itemIds: string[]): Promise<void> {
+  const params = new URLSearchParams({ Ids: itemIds.join(",") });
+  await jellyfinFetch<void>(`/Videos/MergeVersions?${params.toString()}`, {
+    method: "POST",
+    token: env.jellyfinApiKey,
+    expectJson: false,
+  });
+}
+
 export async function applyRemoteSearchMatch(
   itemId: string,
   candidate: RemoteSearchResult,

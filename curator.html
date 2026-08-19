@@ -481,6 +481,7 @@
     <button class="tab-btn" data-tab="health">Health</button>
     <button class="tab-btn" data-tab="notify">Notify</button>
     <button class="tab-btn" data-tab="invites">Invites</button>
+    <button class="tab-btn" data-tab="uploads">Uploads</button>
   </nav>
 
   <!-- ============================== Library tab ============================== -->
@@ -520,6 +521,33 @@
         <div id="dupSection"></div>
         <div id="thinSection" style="margin-top:18px"></div>
         <div id="subsSection" style="margin-top:18px"></div>
+      </div>
+    </div>
+
+    <!-- Browse library: every movie, searchable, needs-decision first -->
+    <div class="card" id="browseCard" style="display:none">
+      <div class="row" style="margin-bottom:10px">
+        <div>
+          <div class="card-title">Browse library</div>
+          <div class="note" style="margin-top:2px">
+            Every movie, not just the ones with a flagged problem. Search, or scroll — items needing a
+            decision sort to the top. Click Search/Manual on any row to fix its metadata mapping, or check
+            2+ rows and use "Group checked as one" to merge episodes the system didn't recognise as a show.
+          </div>
+        </div>
+        <div style="flex:0 0 auto"><button id="loadBrowse" class="ghost">Load library</button></div>
+      </div>
+      <div id="browseBody" style="display:none">
+        <div class="row" style="margin-bottom:10px">
+          <div><input type="text" id="browseSearch" placeholder="Search by title…"></div>
+          <div style="flex:0 0 auto">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap">
+              <input type="checkbox" id="browseNeedsOnly" style="width:auto"> Needs decision only
+            </label>
+          </div>
+          <div style="flex:0 0 auto" class="muted" id="browseCount"></div>
+        </div>
+        <div id="browseList" class="rv-group" style="max-height:640px;overflow-y:auto"></div>
       </div>
     </div>
 
@@ -905,6 +933,23 @@
 
   </div>
 
+  <!-- ============================== Uploads tab ============================== -->
+  <div class="tab-panel" id="tab-uploads" data-tab="uploads">
+    <div class="card" id="uploadsCard" style="display:none">
+      <div class="row" style="margin-bottom:12px">
+        <div style="flex:0 0 auto"><strong>Langlois-mode uploads</strong></div>
+        <div style="flex:1"></div>
+        <div style="flex:0 0 auto"><button id="refreshUploads" class="ghost">Refresh</button></div>
+      </div>
+      <p class="note" style="margin-top:0">
+        Every upload sits here until it clears both a Windows Defender scan and your own review.
+        Nothing reaches the real library without both — Approve only becomes available once the
+        scan comes back clean.
+      </p>
+      <div id="uploadsTableWrap" style="overflow-x:auto"></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -1099,6 +1144,86 @@
 
   $("refreshUsers").addEventListener("click", loadUsers);
 
+  /* ================================================================
+   * Uploads — Langlois-mode quarantine review
+   * ================================================================ */
+  function fmtBytes(n) {
+    if (!n && n !== 0) return "—";
+    var units = ["B", "KB", "MB", "GB", "TB"];
+    var i = 0;
+    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+    return n.toFixed(i === 0 ? 0 : 1) + " " + units[i];
+  }
+
+  var UPLOAD_STATUS_LABEL = {
+    uploaded: "Uploaded, awaiting scan",
+    scanning: "Scanning",
+    clean: "Clean — ready for review",
+    infected: "Infected",
+    approved: "Approved",
+    rejected: "Rejected",
+  };
+
+  function renderUploads() {
+    if (!state.uploads || !state.uploads.length) {
+      $("uploadsTableWrap").innerHTML = '<div class="empty">No uploads yet.</div>';
+      return;
+    }
+    var html = '<table><thead><tr>' +
+      '<th>File</th><th>From</th><th>Size</th><th>Status</th><th>Uploaded</th><th></th></tr></thead><tbody>';
+    state.uploads.forEach(function (u) {
+      var statusLabel = UPLOAD_STATUS_LABEL[u.status] || u.status;
+      var statusClass = u.status === "infected" ? "s-revoked" : (u.status === "clean" ? "s-active" : "");
+      var actions = "";
+      if (u.status === "clean") {
+        actions =
+          '<button data-approve="' + esc(u.id) + '">Approve</button> ' +
+          '<button class="danger" data-reject="' + esc(u.id) + '">Reject</button>';
+      } else if (u.status === "infected" || u.status === "uploaded" || u.status === "scanning") {
+        actions = '<button class="danger" data-reject="' + esc(u.id) + '">Reject</button>';
+      }
+      html += '<tr>' +
+        '<td>' + esc(u.filename) + '</td>' +
+        '<td>' + esc(u.username) + '</td>' +
+        '<td>' + fmtBytes(u.size_bytes) + '</td>' +
+        '<td><span class="pill ' + statusClass + '">' + esc(statusLabel) + '</span>' +
+          (u.status === "infected" && u.scan_result ? '<div class="muted">' + esc(u.scan_result) + '</div>' : '') +
+        '</td>' +
+        '<td>' + fmtDate(new Date(u.created_at).toISOString()) + '</td>' +
+        '<td style="text-align:right">' + actions + '</td>' +
+      '</tr>';
+    });
+    $("uploadsTableWrap").innerHTML = html + "</tbody></table>";
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-approve]"), function (btn) {
+      btn.addEventListener("click", function () {
+        var id = btn.getAttribute("data-approve");
+        if (!confirm("Approve this upload? It will move into the watch folder and appear in the library once processed.")) return;
+        api("/api/admin/uploads/" + encodeURIComponent(id) + "/approve", { method: "POST", body: {} })
+          .then(function () { show("ok", "Approved — the worker will pick it up shortly."); return loadUploads(); })
+          .catch(function (e) { show("err", e.message); });
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-reject]"), function (btn) {
+      btn.addEventListener("click", function () {
+        var id = btn.getAttribute("data-reject");
+        if (!confirm("Reject and delete this upload? This can't be undone.")) return;
+        api("/api/admin/uploads/" + encodeURIComponent(id) + "/reject", { method: "POST", body: {} })
+          .then(function () { show("ok", "Rejected."); return loadUploads(); })
+          .catch(function (e) { show("err", e.message); });
+      });
+    });
+  }
+
+  function loadUploads() {
+    return api("/api/admin/uploads").then(function (data) {
+      state.uploads = (data && data.uploads) || [];
+      renderUploads();
+    }).catch(function (e) { show("err", e.message); });
+  }
+
+  $("refreshUploads").addEventListener("click", loadUploads);
+
   $("connect").addEventListener("click", function () {
     state.base = $("base").value.trim().replace(/\/+$/, "");
     state.key = $("key").value.trim();
@@ -1109,12 +1234,14 @@
       $("tabNav").style.display = "";
       $("libraryCard").style.display = "";
       $("reviewCard").style.display = "";
+      $("browseCard").style.display = "";
       $("curationCard").style.display = "";
       $("candidatesCard").style.display = "";
       $("queueCard").style.display = "";
       $("createCard").style.display = "";
       $("listCard").style.display = "";
       $("usersCard").style.display = "";
+      $("uploadsCard").style.display = "";
       showTab(sessionStorage.getItem("jfg_tab") || "library");
       loadCuration();
       loadQueue();
@@ -1128,6 +1255,7 @@
       show("ok", "Connected.");
       render();
       loadUsers();
+      loadUploads();
     }).catch(function (e) {
       // A network-layer failure here is nearly always CORS or the gate being down,
       // which is worth saying plainly rather than showing "Failed to fetch".
@@ -1552,6 +1680,7 @@
    * Library review — duplicates & no-metadata items
    * ================================================================ */
   var review = { duplicates: [], thinMetadata: [], missingSubtitles: [], itemsById: {} };
+  var browse = { items: [], loaded: false };
 
   function shortPath(p) {
     if (!p) return "";
@@ -1587,6 +1716,11 @@
       review.duplicates.forEach(function (g) { g.items.forEach(function (it) { review.itemsById[it.id] = it; }); });
       review.thinMetadata.forEach(function (g) { g.items.forEach(function (it) { review.itemsById[it.id] = it; }); });
       review.missingSubtitles.forEach(function (it) { review.itemsById[it.id] = it; });
+      // The Browse Library panel (below) shares this same itemsById map so
+      // its rows can reuse the Search/Manual/Whitelist/Exclude/Group panel
+      // functions unmodified — re-merge its items back in so reloading THIS
+      // panel doesn't wipe out an already-loaded Browse panel's rows.
+      if (browse.items.length) browse.items.forEach(function (it) { review.itemsById[it.id] = it; });
       $("reviewBody").style.display = "";
       $("reviewSummary").textContent = data.totalMovies + " movies scanned — " +
         review.duplicates.length + " duplicate-title group" + (review.duplicates.length === 1 ? "" : "s") +
@@ -1600,6 +1734,95 @@
       .then(function () { btn.disabled = false; btn.textContent = "Load review"; });
   });
 
+  $("loadBrowse").addEventListener("click", function () {
+    clearMsg();
+    var btn = $("loadBrowse");
+    btn.disabled = true;
+    btn.textContent = "Loading…";
+    api("/api/admin/library/browse").then(function (data) {
+      browse.items = data.items || [];
+      browse.loaded = true;
+      browse.items.forEach(function (it) { review.itemsById[it.id] = it; });
+      $("browseBody").style.display = "";
+      renderBrowse();
+    }).catch(function (e) { show("err", e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = "Load library"; });
+  });
+
+  function browseBadges(it) {
+    var b = "";
+    if (it.isDuplicate) b += '<span class="pill s-revoked">duplicate</span> ';
+    if (it.isThinMetadata) b += '<span class="pill s-revoked">no metadata</span> ';
+    if (it.isMissingSubtitles) b += '<span class="pill">no subtitles</span> ';
+    if (it.isWhitelisted) b += '<span class="pill s-active">shown anyway</span> ';
+    if (it.isExcluded) b += '<span class="pill s-revoked">excluded</span> ';
+    if (it.isGrouped) b += '<span class="pill s-active">grouped: ' + esc(it.groupName || "") + '</span> ';
+    return b;
+  }
+
+  function renderBrowse() {
+    var q = ($("browseSearch").value || "").trim().toLowerCase();
+    var needsOnly = $("browseNeedsOnly").checked;
+
+    var filtered = browse.items.filter(function (it) {
+      if (needsOnly && !it.needsDecision) return false;
+      if (q && it.name.toLowerCase().indexOf(q) === -1) return false;
+      return true;
+    });
+
+    // Needs-decision first (per item 5's brief: "browsable all movies, on
+    // top the ones that need decision"), then alphabetical within each
+    // group — a stable, predictable order rather than popularity/recency,
+    // since this list exists to be scanned and searched, not browsed for
+    // discovery.
+    filtered.sort(function (a, b) {
+      if (a.needsDecision !== b.needsDecision) return a.needsDecision ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    $("browseCount").textContent = filtered.length + " of " + browse.items.length + " movies";
+
+    if (!filtered.length) {
+      $("browseList").innerHTML = '<div class="empty">Nothing matches.</div>';
+      return;
+    }
+
+    var html = '<div class="row" style="margin-bottom:8px">' +
+      '<div style="flex:0 0 auto"><button class="ghost" data-action="browse-group">Group checked as one</button></div>' +
+      '</div>';
+    filtered.forEach(function (it) {
+      html += '<div class="rv-item" data-item-id="' + it.id + '"><input type="checkbox" data-item-id="' + it.id + '">' +
+        '<div class="rv-name">' + esc(it.name) + (it.year ? " (" + it.year + ")" : "") + ' ' + browseBadges(it) +
+        '<span class="rv-path">' + esc(shortPath(it.path)) + '</span></div>' +
+        '<div class="rv-item-actions">' +
+        folderLinkHtml(it) +
+        (it.isThinMetadata && !it.isWhitelisted ? '<button class="ghost" data-action="whitelist" data-item-id="' + it.id + '">Show anyway</button>' : "") +
+        '<button class="ghost" data-action="search" data-item-id="' + it.id + '">Search</button>' +
+        '<button class="ghost" data-action="manual" data-item-id="' + it.id + '">Manual</button>' +
+        (it.isExcluded
+          ? '<button class="ghost" data-action="unexclude" data-item-id="' + it.id + '">Un-exclude</button>'
+          : '<button class="danger" data-action="exclude" data-item-id="' + it.id + '">Exclude</button>') +
+        '</div></div>' +
+        '<div class="rv-panel-slot" data-panel-for="' + it.id + '"></div>';
+    });
+    $("browseList").innerHTML = html;
+  }
+
+  $("browseSearch").addEventListener("input", renderBrowse);
+  $("browseNeedsOnly").addEventListener("change", renderBrowse);
+
+  function unexcludeBrowseItem(itemId) {
+    var it = review.itemsById[itemId];
+    if (!it || !it.path) return;
+    api("/api/admin/library/unexclude", { method: "POST", body: { path: it.path } })
+      .then(function () {
+        show("ok", "No longer excluded.");
+        it.isExcluded = false;
+        renderBrowse();
+      })
+      .catch(function (e) { show("err", e.message); });
+  }
+
   function renderDuplicates() {
     var el = $("dupSection");
     if (!review.duplicates.length) { el.innerHTML = '<div class="muted">No duplicate titles found.</div>'; return; }
@@ -1609,7 +1832,8 @@
         '<div class="rv-group-head"><strong>' + esc(g.items[0].name) + '</strong>' +
         '<span class="rv-count">' + g.items.length + ' copies</span><span class="spacer"></span>' +
         '<button class="ghost" data-action="dup-keep">Keep checked, discard rest</button>' +
-        '<button class="ghost" data-action="dup-group">Group checked as one</button></div>';
+        '<button class="ghost" data-action="dup-group">Group checked as one</button>' +
+        '<button class="ghost" data-action="dup-versions" title="Different cuts of the same film — an American vs. Italian cut, not an accidental duplicate. Merges as Jellyfin\'s own alternate-version picker instead of discarding either.">Different cuts, not duplicates</button></div>';
       g.items.forEach(function (it) {
         html += '<div class="rv-item" data-item-id="' + it.id + '"><input type="checkbox" data-item-id="' + it.id + '">' +
           '<div class="rv-name">' + esc(it.name) + (it.year ? " (" + it.year + ")" : "") +
@@ -1888,6 +2112,27 @@
       });
   }
 
+  function mergeVersionsChecked(groupEl) {
+    var ids = checkedIdsIn(groupEl);
+    if (ids.length < 2) { show("err", "Check at least 2 items to merge as versions."); return; }
+    if (!confirm(
+      "Merge these " + ids.length + " files as different cuts of the SAME film?\n\n" +
+      "They'll appear as one entry with a version picker when playing — this is different from " +
+      "\"Group checked as one\", which is for separate episodes of a show.")) return;
+    var actionBtn = groupEl.querySelector('[data-action="dup-versions"]');
+    if (actionBtn) { actionBtn.disabled = true; actionBtn.textContent = "Merging…"; }
+    api("/api/admin/library/merge-versions", { method: "POST", body: { itemIds: ids } })
+      .then(function () {
+        show("ok", "Merged as alternate versions of one film.");
+        ids.forEach(function (id) { markRowDone(id, "Merged as versions"); });
+        loadCuration();
+      })
+      .catch(function (e) {
+        show("err", e.message);
+        if (actionBtn) { actionBtn.disabled = false; actionBtn.textContent = "Different cuts, not duplicates"; }
+      });
+  }
+
   // Delegated on document.body, not just #reviewBody: the same Search/
   // Manual/Exclude actions are reused inside the group-management panel
   // under "Current decisions", which lives in a different container. Every
@@ -1909,7 +2154,9 @@
     else if (action === "save-manual") saveManual(itemId);
     else if (action === "apply-candidate") applyCandidate(itemId, parseInt(btn.getAttribute("data-candidate-index"), 10));
     else if (action === "dup-keep") keepCheckedDiscardRest(groupEl);
-    else if (action === "dup-group" || action === "thin-group") groupChecked(groupEl);
+    else if (action === "dup-group" || action === "thin-group" || action === "browse-group") groupChecked(groupEl);
+    else if (action === "dup-versions") mergeVersionsChecked(groupEl);
+    else if (action === "unexclude") unexcludeBrowseItem(itemId);
     else if (action === "toggle-folder") {
       var body = groupEl.querySelector(".rv-folder-body");
       body.style.display = body.style.display === "none" ? "" : "none";

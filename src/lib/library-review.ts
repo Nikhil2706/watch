@@ -153,6 +153,76 @@ export async function buildLibraryReview(): Promise<{
   return { duplicates, thinMetadata, missingSubtitles, totalMovies: all.length };
 }
 
+export interface BrowseItem extends ReviewItem {
+  jellyfinId: string;
+  imdbId: string | null;
+  tmdbId: string | null;
+  overview: string;
+  isDuplicate: boolean;
+  isThinMetadata: boolean;
+  isMissingSubtitles: boolean;
+  isWhitelisted: boolean;
+  isExcluded: boolean;
+  isGrouped: boolean;
+  groupName: string | null;
+  /** Pins a row to the top of the redesigned browse UI's default sort — anything the curator hasn't resolved yet. */
+  needsDecision: boolean;
+}
+
+/**
+ * Every movie in the library, flat, for the redesigned browse UI (item 5 of
+ * the 2026-08-19 batch: "browsable all movies, on top the ones that need
+ * decision but ... search/filter/scroll ... click on a movie"). The three
+ * existing category buckets above (duplicates/thinMetadata/missingSubtitles)
+ * stay as they are — this is a parallel, flat view of the SAME underlying
+ * data, computed once here rather than making the UI reconcile three
+ * separately-shaped lists against one search box.
+ */
+export async function buildLibraryBrowse(): Promise<BrowseItem[]> {
+  const all = await listAllMoviesAdmin();
+
+  const excluded = getExcludedPathSet();
+  const grouped = getGroupedPathMap();
+  const whitelisted = getWhitelistedPathSet();
+
+  const byTitle = new Map<string, number>();
+  for (const m of all) {
+    const key = normaliseTitle(m.Name);
+    if (!key) continue;
+    byTitle.set(key, (byTitle.get(key) ?? 0) + 1);
+  }
+
+  return all.map((m) => {
+    const path = m.Path;
+    const review = toReviewItem(m);
+    const isExcluded = !!path && excluded.has(path);
+    const groupInfo = path ? grouped.get(path) : undefined;
+    const isWhitelisted = !!path && whitelisted.has(path);
+    const isThinMetadata = hasNoMetadata(m);
+    const isDuplicate = (byTitle.get(normaliseTitle(m.Name)) ?? 0) > 1;
+    // Same "visible" definition as missingSubtitles above — a file still
+    // stuck in the thin-metadata pile isn't a subtitle problem yet either.
+    const isVisible = !isExcluded && (!isThinMetadata || isWhitelisted);
+    const isMissingSubtitles = isVisible && hasNoSubtitles(m);
+
+    return {
+      ...review,
+      jellyfinId: m.Id,
+      imdbId: m.ProviderIds?.Imdb ?? null,
+      tmdbId: m.ProviderIds?.Tmdb ?? null,
+      overview: m.Overview ?? "",
+      isDuplicate,
+      isThinMetadata,
+      isMissingSubtitles,
+      isWhitelisted,
+      isExcluded,
+      isGrouped: !!groupInfo,
+      groupName: groupInfo?.groupName ?? null,
+      needsDecision: !isExcluded && !groupInfo && ((isThinMetadata && !isWhitelisted) || isDuplicate),
+    };
+  });
+}
+
 export interface GroupMemberItem extends ReviewItem {
   /** "Episode 7", "Episode 7: Title", or null when the filename carries no episode marker. */
   label: string | null;
