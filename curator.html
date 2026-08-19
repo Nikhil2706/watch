@@ -889,6 +889,20 @@
       <div id="tableWrap" style="overflow-x:auto"></div>
     </div>
 
+    <!-- Users -->
+    <div class="card" id="usersCard" style="display:none">
+      <div class="row" style="margin-bottom:12px">
+        <div style="flex:0 0 auto"><strong>Users</strong></div>
+        <div style="flex:1"></div>
+        <div style="flex:0 0 auto"><button id="refreshUsers" class="ghost">Refresh</button></div>
+      </div>
+      <p class="note" style="margin-top:0">
+        Langlois mode grants raw film file + subtitle downloads instead of just streaming.
+        Set it here for an existing account, or at invite creation above for new ones.
+      </p>
+      <div id="usersTableWrap" style="overflow-x:auto"></div>
+    </div>
+
   </div>
 
 </div>
@@ -1029,6 +1043,62 @@
       .catch(function (e) { show("err", e.message); });
   }
 
+  /* ================================================================
+   * Users — Langlois mode toggle
+   * ================================================================ */
+  function renderUsers() {
+    if (!state.users || !state.users.length) {
+      $("usersTableWrap").innerHTML = '<div class="empty">No users yet.</div>';
+      return;
+    }
+    var html = '<table><thead><tr><th>Username</th><th>Last seen</th><th>Langlois mode</th></tr></thead><tbody>';
+    state.users.forEach(function (u) {
+      html += '<tr>' +
+        '<td>' + esc(u.username) +
+          (u.is_admin ? ' <span class="pill" title="Jellyfin administrator — managed in Jellyfin\'s own dashboard, not here">Admin</span>' : '') +
+        '</td>' +
+        '<td>' + fmtDate(new Date(u.last_seen_at).toISOString()) + '</td>' +
+        '<td>' +
+          (u.is_admin
+            ? '<span class="muted" title="Applying Langlois mode would also touch admin rights, so this is disabled for admin accounts">&mdash;</span>'
+            : '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">' +
+                '<input type="checkbox" style="width:auto" data-langlois="' + esc(u.id) + '"' +
+                (u.langlois_mode ? ' checked' : '') + '>' +
+                (u.langlois_mode ? 'On' : 'Off') +
+              '</label>') +
+        '</td>' +
+      '</tr>';
+    });
+    $("usersTableWrap").innerHTML = html + "</tbody></table>";
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-langlois]"), function (cb) {
+      cb.addEventListener("change", function () {
+        var id = cb.getAttribute("data-langlois");
+        var on = cb.checked;
+        cb.disabled = true;
+        api("/api/admin/users/" + encodeURIComponent(id), { method: "PATCH", body: { langlois_mode: on } })
+          .then(function () {
+            show("ok", "Langlois mode " + (on ? "enabled" : "disabled") + ".");
+            return loadUsers();
+          })
+          .catch(function (e) {
+            cb.checked = !on;
+            cb.disabled = false;
+            show("err", e.message);
+          });
+      });
+    });
+  }
+
+  function loadUsers() {
+    return api("/api/admin/users").then(function (data) {
+      state.users = (data && data.users) || [];
+      renderUsers();
+    }).catch(function (e) { show("err", e.message); });
+  }
+
+  $("refreshUsers").addEventListener("click", loadUsers);
+
   $("connect").addEventListener("click", function () {
     state.base = $("base").value.trim().replace(/\/+$/, "");
     state.key = $("key").value.trim();
@@ -1044,6 +1114,7 @@
       $("queueCard").style.display = "";
       $("createCard").style.display = "";
       $("listCard").style.display = "";
+      $("usersCard").style.display = "";
       showTab(sessionStorage.getItem("jfg_tab") || "library");
       loadCuration();
       loadQueue();
@@ -1056,6 +1127,7 @@
       }
       show("ok", "Connected.");
       render();
+      loadUsers();
     }).catch(function (e) {
       // A network-layer failure here is nearly always CORS or the gate being down,
       // which is worth saying plainly rather than showing "Failed to fetch".
