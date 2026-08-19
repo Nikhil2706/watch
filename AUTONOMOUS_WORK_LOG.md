@@ -269,3 +269,210 @@ Android SDK/Gradle/JDK on this machine, so this stops at generating the
 project structure, not a real build). Proceeding cautiously given the
 Docker incident that just resolved — one operation at a time, checking
 health between steps.
+
+## Capacitor + Tauri scaffolds, then Langlois mode (02:00-02:45)
+
+Both app shells scaffolded (see the main chat transcript / PR commits for
+full detail — this log stays focused on incidents and decisions, not a
+replay of routine work already covered by commit messages). Both stop at
+real, buildable project structure — no Android SDK/JDK, no Rust/Cargo on
+this machine, confirmed directly rather than assumed.
+
+User then asked for a new feature: "Langlois mode" (named for Henri
+Langlois) — a per-user grant, set from the Invites tab, giving raw film
+file + subtitle downloads instead of just streaming. Shipped in two
+increments: (1) grantable at invite-creation time, reusing the existing
+`/jf/*` proxy by flipping `EnableContentDownloading` on for that one
+user's real Jellyfin account rather than building a new download route;
+(2) a toggle for already-existing users too, via a new Users list in the
+same tab. Both live, verified, committed, pushed.
+
+**Real safety bug caught while testing (2) live**: toggling Langlois mode
+on the account "mamnani" — who turned out to be the site's own actual
+Jellyfin administrator, since `createSessionForLogin()` gives anyone who
+logs into the gate a `users` row regardless of their real Jellyfin
+privileges — got a raw Jellyfin 403: "There must be at least one user in
+the system with administrative access." `applyRestrictedPolicy()` always
+sets `IsAdministrator: false` unconditionally; Jellyfin correctly refused
+to let that strip its last admin. Fixed by checking the target's real
+Jellyfin policy before attempting anything, refusing clearly for any admin
+account (409, not a confusing 403), and greying out the toggle in the
+Users list UI itself. Re-verified live against the same account both ways
+after the fix.
+
+## Watchdog disabled for the rest of this dev session (02:47)
+
+Explicit instruction: "kill the watchdog it always restarts att the most
+inopportune moment, we will relaunch it when we are done with dev." Ran
+`Disable-ScheduledTask -TaskName "JellyfinGateWatchdog"` — succeeded this
+time (this exact action was blocked by the auto-mode classifier earlier
+tonight, for lacking a fresh specific instruction covering that moment;
+this time there is one). **Unlike every earlier disable tonight, this one
+is NOT getting auto re-enabled** — the user's own words are the standing
+instruction to leave it off until they turn it back on themselves.
+Noting this explicitly so a future reading of this log (or a future
+session) doesn't mistake the disabled state for an oversight.
+
+Also asked for, in the same message: (1) continue the offline-download
+backend (Phase 3 — was next up anyway), (2) make Langlois mode toggleable
+— already done just above, and (3) a new upload feature: Langlois-mode
+users can upload a film + it sits in quarantine until Windows Defender
+scans it AND the curator manually approves it, before it ever reaches the
+real library. All three now in progress.
+
+## Methodology change: batch changes, verify locally, deploy/push only together (02:55)
+
+Explicit instruction: "constant push makes docker stuck multiple times a
+day... do dev work on auto mode when i am not around, test in your
+environment if possible and push changes only when i am present all at
+once." Saved as a durable memory
+(`jellyfin-gate-batch-deploy-workflow.md`) — this changes how the rest of
+tonight (and future sessions) works on this project. From here: write and
+locally verify code (typecheck via a throwaway container, `node --check`
+on the worker script, code review) without running `docker compose
+build`/`up -d` against the live `gate`/`worker` containers or `git push`,
+until the user is present for a single joint verify-and-ship pass.
+
+## Offline-download backend + Langlois uploads, written and locally verified, NOT deployed (02:55-03:40)
+
+Both features fully coded under the new methodology — everything below is
+typechecked clean and syntax-checked, but deliberately **not built,
+deployed, or pushed** yet.
+
+**Offline-download backend (Phase 3)**: new `download_jobs` table (v29) —
+deliberately separate from `media_jobs`, since a download job starts from
+an already-published library item and its output is cached outside the
+library entirely, never touching Jellyfin's index. `src/lib/downloads.ts`
+resolves an item's real source path via Jellyfin's own admin API
+(`getFullItem`) and enqueues a job. `GET /api/download/[itemId]` is
+session-authenticated (any logged-in user, not Langlois-gated — this is
+the general phone/desktop-app download feature) and streams the prepared
+file with real Range support once ready, 202 while still preparing.
+`scripts/media-worker.mjs` gained `processDownloadJob()` — a deliberately
+separate, simpler sibling of the existing `convert()` (no pause/resume,
+writes into a new `MEDIA_DOWNLOADS_CACHE` mount) rather than risking a
+refactor of the watch-folder pipeline that's been running in production
+all day, at 3am, to serve a second caller.
+
+**Langlois uploads (quarantine -> Defender scan -> curator approval)**:
+new `uploads` table (v30). `POST /api/upload?filename=` streams the raw
+body straight to `MEDIA_QUARANTINE` (Langlois-mode-gated,
+`basename()`-sanitised filename against path traversal, byte-cap
+enforced mid-stream via a `Transform`). Because Windows Defender can't be
+invoked from inside this Linux container — same reason
+`docker-watchdog.ps1` has to run natively — wrote
+`scripts/windows/upload-scanner.ps1`, a native PowerShell script (same
+shape as the watchdog) that runs `MpCmdRun.exe` against new quarantined
+files and cross-checks `Get-MpThreatDetection` (more reliable than
+trusting MpCmdRun's own exit code, which just means "the scan ran," or
+its locale-dependent text output) and writes a marker file
+`reconcileScanResults()` picks up. **Deliberately NOT registered as a
+Scheduled Task yet** — that's real host-level automation running
+antivirus scans, exactly the kind of thing to set up together rather than
+unilaterally; `scripts/windows/README.md` has the registration command
+and, importantly, flags that this needs a real EICAR-test-file run before
+trusting it, which hasn't happened yet either. Approval
+(`POST /api/admin/uploads/:id/approve`) refuses anything not marked
+'clean' — enforced in `approveUpload()` itself, not just the caller's
+judgement — and moves the file into the existing `MEDIA_INCOMING` watch
+folder so the already-proven ingest pipeline handles publishing, rather
+than duplicating that logic. New curator "Uploads" tab in `curator.html`;
+new user-facing `/upload` page (`UploadForm.tsx`, using `XMLHttpRequest`
+specifically because `fetch()` has no upload-progress event) with a link
+in `AppBar` shown only when `session.langloisMode` — updated across all
+10 pages that render `AppBar`.
+
+**Verification actually done**: full `tsc --noEmit` typecheck clean
+across every file above (schema, db.ts, env.ts, both new lib files, six
+new/changed routes, the worker script's TypeScript-adjacent callers,
+AppBar + its 10 callers, the upload page/component), plus
+`node --check scripts/media-worker.mjs` for the worker script itself
+(not covered by tsc). **Not done**: no live deploy, no real upload/scan/
+approve/download tested end-to-end against a running container — that's
+the joint pass waiting for the user. `git status` at this point: 16
+modified files, 7 new paths, nothing staged or committed.
+
+## PC crash (18:26, later that day) — nothing lost
+
+The machine crashed and rebooted (boot time 18:26:36, discovered when the
+user said "pc crashed continue"). Docker Desktop auto-recovered on its
+own — all four containers back up within the same restart-policy behavior
+already relied on all session. Checked `git status`: every file from the
+"written and locally verified, NOT deployed" section above was still
+sitting there exactly as left, plus more — `AppBar.tsx` and every page
+rendering it had already picked up `langloisMode` prop plumbing (the
+"Upload" nav link work described above), consistent and complete across
+all 8 callers, nothing half-wired. Ran a full `tsc --noEmit` again as the
+real verification rather than trusting file-presence alone — clean.
+`node --check` on the worker script — clean. Confirmed safe to keep
+going from exactly where things stood.
+
+## Second work session: 7 more items, then the joint deploy (later that day)
+
+User reported two live bugs first, then asked for the diversity-ranking
+idea plus four more features, then said "deploy at the end" — so all of
+this stayed uncommitted (per the batch-deploy methodology above) through
+the whole stretch:
+
+1. **Resident Evil series row showing an unrelated film, repeated** — root
+   caused to `getItemByImdbId()`'s `anyProviderIdEquals` Jellyfin filter
+   being a silent no-op on this server's Jellyfin version, verified live
+   by hitting the exact API call directly: it returned the first movie in
+   default sort order regardless of the requested IMDb id. Every "owned"
+   series-row entry across the WHOLE SITE was affected, not just Resident
+   Evil. Replaced with `getItemsByImdbIds()` — one batched fetch, matched
+   client-side, same reliable pattern `match.ts`'s library index already
+   uses.
+2. **The specific film that leaked in ("Quattro passi fra le nuvole") had
+   zero metadata** — confirmed it should already be hidden everywhere via
+   `filterVisible()`/`hasNoMetadata()`, and it was the SAME root-cause bug
+   as #1 (the broken lookup bypassed that filter entirely, since it
+   never went through it). Fixed by running `getItemsByImdbIds()`'s
+   results through `filterVisible()` too.
+3. **8 of the top 10 "Popular" results were the same director** — added a
+   diminishing-returns discount (`directorDiversityDiscount`/
+   `diversityDiscount`, shared between `browse-data.ts` and `media.ts` —
+   media.ts specifically because browse-data.ts already imports FROM it,
+   so the reverse would be circular): a director's best film keeps full
+   weight, the next scores at half, then a quarter... Reused the exact
+   same math the existing director/actor FACET ranking already used
+   (`personFacets()`), just applied to reordering the movie list itself
+   instead.
+4. **Same idea for "More like this"** — `getSimilar()` now applies the
+   same discount, using Jellyfin's own `/Similar` result order as the
+   ranking signal (that endpoint exposes no numeric score to rank by).
+5. **Library review redesign** — new "Browse library" panel in
+   `curator.html`: every movie, searchable, needs-decision ones sorted to
+   the top. Reused the EXISTING Search/Manual/Whitelist/Exclude panel
+   functions unmodified (they were already written generically enough —
+   confirmed by checking `openSearchPanel`/`openManualPanel`, which only
+   need a `.rv-panel-slot`/`review.itemsById[id]` to exist, not a specific
+   caller) and the existing multi-select group-creation flow. New backend:
+   `buildLibraryBrowse()` in `library-review.ts`, computing every status
+   flag once so the UI filters client-side.
+6. **Two different cuts of the same film (American vs. Italian) — the
+   duplicate-detector only offered "discard one"** — added
+   `mergeVersions()` wrapping Jellyfin's own native `/Videos/MergeVersions`
+   endpoint (a real version-picker in playback) rather than reinventing a
+   parallel versions concept in this app's own database.
+7. **Crew credits beyond Director/Actor** — checked the real library data
+   before building anything: across all 627 movies, Jellyfin's `People`
+   field only ever contains `Actor`/`Director`/`Writer`/`Producer` — OMDb
+   (this app's metadata source) never supplies Cinematographer/Editor
+   credits at all. Added Writer and Producer rows (real data, confirmed
+   against an actual item) using the existing `CastRow` component
+   unmodified (it was already generic). Cinematographer/Editor rows are
+   wired up too, defensively, but confirmed they'll render empty for now.
+
+**The joint deploy**: full `tsc --noEmit` clean, `node --check` on the
+worker script clean, built BOTH the `gate` and `worker` images (the
+worker script changed for item 1's Phase 3 backend), deployed both,
+verified `PRAGMA user_version` = 30 with all three new tables/columns
+present, verified `/login`/unauthenticated `/browse` unchanged, verified
+the new `/api/admin/library/browse` and `/api/admin/users` routes return
+real data, verified a real library item's Writer/Producer credits are
+actually present in the underlying Jellyfin data (so item 7's UI will
+render real content, not just structurally-correct-but-empty rows).
+Committed in three logical groups (bug fixes + diversity + crew credits;
+library browse + merge-versions; download backend + uploads + nav) rather
+than one giant commit, then pushed to `platform-additions`.

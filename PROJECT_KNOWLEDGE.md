@@ -511,6 +511,58 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
+### 2026-08-19 (later still) — Site-wide series-row bug fixed, popularity diversity, redesigned library review, alternate versions, full crew credits, offline downloads, Langlois uploads
+A big batch, all built, verified, and deployed together in one joint pass
+(per a new working rule — see "Batch changes, deploy together" below).
+
+- **Real bug, site-wide**: a film's "In this series" row could show a
+  completely unrelated film, repeated, in place of the real series
+  entries — traced to `getItemByImdbId()`'s Jellyfin query silently
+  ignoring its own filter and just returning whatever movie came first in
+  default order. Fixed with one batched, client-side-matched lookup
+  instead. Also closed a second bug this exposed: the broken lookup had
+  been bypassing the normal "hide anything with no fetched metadata"
+  rule, so a film hidden everywhere else on the site could still leak
+  into a series row.
+- **"Popular" no longer means "whichever director has the most films"**:
+  a director's best film counts in full, their next-best at half weight,
+  then a quarter, and so on — the same math already used to rank
+  directors themselves, now applied to reordering the movie list. Applied
+  to both the Popular sort and "More like this."
+- **Library review, redesigned**: the Curator's Dashboard's Library tab
+  now has a full "Browse library" panel — every movie, searchable, with
+  anything needing a decision sorted to the top, instead of only ever
+  showing pre-flagged problems.
+- **Different cuts of the same film** (an American print vs. an Italian
+  print, say) can now be marked as such instead of the duplicate-checker
+  treating them as an accidental copy to discard — they show up with a
+  real version picker when playing, using Jellyfin's own built-in support
+  for this rather than a new custom mechanism.
+- **Writer and Producer now show on a film's page**, alongside the
+  existing Director and Cast. (Cinematographer and Editor are wired up
+  too, but checked against the real library first — the metadata source
+  in use, OMDb, doesn't supply those two credit types at all right now,
+  so those rows will stay empty until/unless that changes.)
+- **Offline downloads (the phone/desktop apps' Phase 3) and film
+  uploads** — the biggest pieces. Any logged-in viewer can now trigger a
+  device-ready download of a film (prepared once, cached, reused for
+  everyone after); Langlois-mode users can also upload their own film
+  file, which sits in quarantine — invisible to everyone else — until a
+  Windows Defender scan and a curator's own manual check both clear it,
+  same idea as a real archive accepting a donated print. The antivirus
+  scan itself runs as a small script outside Docker (Windows Defender
+  can't be reached from inside a container), written but not yet
+  switched on — needs a one-time setup step together, documented in
+  `scripts/windows/README.md`.
+
+**Batch changes, deploy together** (new working rule, replacing the
+old "ship one feature, deploy, repeat" habit): redeploying the live site
+after every small change was landing on real Docker instability more
+than once a day. From now on, a work session collects up several changes,
+checks them as thoroughly as possible without touching the live
+containers, and only rebuilds/redeploys/pushes once, together, when
+actually being watched.
+
 ### 2026-08-19 (later) — "Langlois mode": per-user raw film + subtitle downloads
 Named for Henri Langlois, the film archivist who believed prints belonged
 in people's hands, not just on a screen. A curator can now grant a
