@@ -8,7 +8,16 @@ import { NotificationBell } from "./NotificationBell";
 import { SearchBox } from "./SearchBox";
 
 /** Persistent top bar. Search is a plain GET form, so it needs no JavaScript. */
-export function AppBar({ username, query }: { username: string; query?: string }) {
+export function AppBar({
+  username,
+  query,
+  langloisMode,
+}: {
+  username: string;
+  query?: string;
+  /** Shows the Upload link — off by default so every existing caller keeps working unchanged. */
+  langloisMode?: boolean;
+}) {
   return (
     <>
       <Ambience />
@@ -21,6 +30,7 @@ export function AppBar({ username, query }: { username: string; query?: string }
           <Link href="/browse">Browse</Link>
           <Link href="/watchlist">My list</Link>
           <Link href="/curator">Picks</Link>
+          {langloisMode ? <Link href="/upload">Upload</Link> : null}
         </nav>
         <div className="spacer" />
         <SearchBox initialQuery={query ?? ""} />

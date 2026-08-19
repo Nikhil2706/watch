@@ -19,7 +19,7 @@
  * schema state (PRAGMA table_info) before acting and is therefore safe to run
  * on every migration regardless of how many times it fires.
  */
-export const SCHEMA_VERSION = 28;
+export const SCHEMA_VERSION = 30;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -109,6 +109,58 @@ CREATE TABLE IF NOT EXISTS media_jobs (
   created_at     INTEGER NOT NULL,
   started_at     INTEGER,
   finished_at    INTEGER
+) STRICT;
+
+-- One prepared, device-friendly copy of a library title, for offline
+-- downloads on the phone/desktop apps (Phase 3 of the Phone App Roadmap).
+-- Deliberately a separate table from media_jobs above rather than reusing
+-- it: media_jobs is shaped around the watch-folder ingest pipeline (a
+-- dropped file that ends up published INTO the library, source_path
+-- unique per drop). A download job starts from a library item that's
+-- already published, and its output is cached outside the library
+-- entirely (MEDIA_DOWNLOADS_CACHE) — never indexed by Jellyfin, never
+-- moved anywhere, just served back on request. jellyfin_item_id is
+-- UNIQUE so the first person to download a title pays the (possible)
+-- transcode cost once, and every later download of the same title reuses
+-- the cached result.
+CREATE TABLE IF NOT EXISTS download_jobs (
+  id               TEXT PRIMARY KEY,
+  jellyfin_item_id TEXT NOT NULL UNIQUE,
+  title            TEXT NOT NULL,
+  source_path      TEXT NOT NULL,
+  output_path      TEXT,
+  -- pending | running | done | failed
+  status           TEXT NOT NULL,
+  progress         INTEGER NOT NULL DEFAULT 0,
+  error            TEXT,
+  bytes_out        INTEGER,
+  created_at       INTEGER NOT NULL,
+  started_at       INTEGER,
+  finished_at      INTEGER
+) STRICT;
+
+-- A film uploaded by a Langlois-mode user, sitting in quarantine
+-- (MEDIA_QUARANTINE) until it clears two independent checks: an antivirus
+-- scan (Windows Defender, run by a native host-side script — this
+-- container can't invoke Defender itself, same reason docker-watchdog.ps1
+-- runs outside Docker rather than in it) and the curator's own manual
+-- review. Nothing here ever reaches MEDIA_INCOMING (and therefore the real
+-- library) without both. status moves forward through:
+--   uploaded -> scanning -> clean|infected -> approved|rejected
+-- An 'infected' upload can never reach 'approved' — enforced in the
+-- approve route, not just by convention.
+CREATE TABLE IF NOT EXISTS uploads (
+  id              TEXT PRIMARY KEY,
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  filename        TEXT NOT NULL,
+  quarantine_path TEXT NOT NULL,
+  size_bytes      INTEGER NOT NULL,
+  status          TEXT NOT NULL,
+  scan_result     TEXT,
+  scanned_at      INTEGER,
+  reviewed_by     TEXT,
+  reviewed_at     INTEGER,
+  created_at      INTEGER NOT NULL
 ) STRICT;
 
 -- The admin's recommended subtitle track for a title.

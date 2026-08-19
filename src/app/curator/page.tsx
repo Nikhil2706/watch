@@ -39,7 +39,7 @@ export default async function CuratorPage() {
 
   return (
     <>
-      <AppBar username={session.username} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} />
 
       <div className="page-head">
         <h1>Curator&rsquo;s Picks</h1>

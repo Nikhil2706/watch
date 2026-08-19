@@ -45,7 +45,7 @@ export default async function WatchlistPage() {
 
   return (
     <>
-      <AppBar username={session.username} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} />
 
       <div style={{ padding: "18px 20px 0" }}>
         <h1 style={{ margin: 0, fontSize: "1.25rem" }}>My list</h1>

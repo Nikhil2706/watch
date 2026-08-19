@@ -100,6 +100,20 @@ services:
       # dashboard can open in Explorer. Container paths mean nothing on the
       # host side of that link.
       - HOST_MEDIA_PATH=${MEDIA_PATH:-./media}
+      # Read side of the offline-download cache the worker writes into (see
+      # the worker service below) — the gate's own download route serves
+      # straight from here once a prepare job is done.
+      - MEDIA_DOWNLOADS_CACHE=/downloads-cache
+      # Where an uploaded-but-unreviewed film from a Langlois-mode user
+      # lands. Read-write here (unlike jellyfin's mount) because the upload
+      # route writes directly into it, and the approve/reject admin routes
+      # move or delete from it.
+      - MEDIA_QUARANTINE=/quarantine
+      # Same watch-folder drop zone the worker service points MEDIA_INCOMING
+      # at below. Only touched by the upload-approval route, which moves an
+      # approved file here so the worker's existing pipeline picks it up —
+      # this is the ONE thing the gate ever writes into MEDIA_INCOMING for.
+      - MEDIA_INCOMING=/incoming
     volumes:
       - gate-data:/app/data
       # Read-write, unlike the jellyfin service's read-only mount: the library
@@ -114,6 +128,16 @@ services:
       # scan — silently undoing the exclusion. This must be outside whatever
       # directory MEDIA_PATH points at.
       - ${MEDIA_EXCLUDED_PATH:-./media-excluded}:/excluded
+      # Shared with the worker (below), which is the process that actually
+      # writes into it. Read-write here too: a cached file can outlive its
+      # job row (manual cleanup) and the gate needs to notice that and
+      # re-queue, same failure-open reasoning as the download route itself.
+      - ${MEDIA_DOWNLOADS_CACHE_PATH:-./media-downloads-cache}:/downloads-cache
+      - ${MEDIA_QUARANTINE_PATH:-./media-quarantine}:/quarantine
+      # Shared with the worker's own mount of the same host path below —
+      # the ONE thing the gate writes here is an approved upload; the
+      # worker is what actually watches/processes this folder otherwise.
+      - ${MEDIA_INCOMING:-./media/incoming}:/incoming
 
   # Watch-folder ingest. Converts anything a browser cannot direct-play and
   # publishes it into the library Jellyfin actually reads.
@@ -169,6 +193,10 @@ services:
       # than `slow` for a modest size increase — the right trade when the
       # alternative is a queue that takes all day.
       - TRANSCODE_PRESET=${TRANSCODE_PRESET:-veryfast}
+      # Where processDownloadJob() writes prepared offline-download files —
+      # this is the process that actually produces them; the gate only reads
+      # what lands here (see the gate service's own mount above).
+      - MEDIA_DOWNLOADS_CACHE=/downloads-cache
     volumes:
       # Same database file as the gate. Safe because it is in WAL mode — the
       # worker's progress writes do not block the gateway's page renders.
@@ -177,6 +205,7 @@ services:
       # Writable here, unlike the read-only mount on the jellyfin service: this
       # is the process that publishes new files into the library.
       - ${MEDIA_PATH:-./media}:/media
+      - ${MEDIA_DOWNLOADS_CACHE_PATH:-./media-downloads-cache}:/downloads-cache
     # GPU access is in docker-compose.linux.yml. Without it the worker encodes
     # in software — correct, just slower.
 

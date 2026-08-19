@@ -101,7 +101,7 @@ export default async function BrowsePage({
 
   return (
     <>
-      <AppBar username={session.username} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} />
 
       <div className="browse-shell">
         <aside className="browse-sidebar">

@@ -32,7 +32,7 @@ export default async function SearchPage({
 
   return (
     <>
-      <AppBar username={session.username} query={query} />
+      <AppBar username={session.username} query={query} langloisMode={session.langloisMode} />
 
       <div style={{ padding: "18px 20px 6px" }}>
         <h1 style={{ margin: 0, fontSize: "1.25rem" }}>

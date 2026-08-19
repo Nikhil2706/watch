@@ -43,7 +43,7 @@ export default async function PersonPage({
 
   return (
     <>
-      <AppBar username={session.username} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} />
 
       <section className="person-head">
         <div className="person-photo">

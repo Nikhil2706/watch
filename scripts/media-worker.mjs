@@ -132,6 +132,14 @@ const LIBRARY_SCAN_INTERVAL_MS =
 const ARCHIVE = abs(process.env.MEDIA_ARCHIVE, join(INCOMING, ".processed"));
 
 /**
+ * Where prepared offline-download files land — outside the library for the
+ * same reason ARCHIVE is: Jellyfin must never index this, it's a cache the
+ * download route (src/app/api/download/[itemId]/route.ts) serves from
+ * directly, keyed one file per title (see download_jobs in schema.ts).
+ */
+const DOWNLOADS_CACHE = abs(process.env.MEDIA_DOWNLOADS_CACHE, "./media/downloads-cache");
+
+/**
  * Never start a conversion while somebody is watching.
  *
  * Encoding and transcoding compete for the same cores, and a conversion running
@@ -453,6 +461,25 @@ const finishJob = db.prepare(
 );
 
 /**
+ * download_jobs — Phase 3 offline-download prep. Deliberately a separate,
+ * simpler set of statements rather than reusing media_jobs' claim/finish
+ * pair: no pause/resume control here (a first download prep is a one-off,
+ * not something worth interrupting), and the row never leaves this table
+ * to become a media_jobs row or vice versa.
+ */
+const claimDownload = db.prepare(
+  "UPDATE download_jobs SET status = 'running', started_at = ? WHERE id = ? AND status = 'pending'",
+);
+const setDownloadProgress = db.prepare("UPDATE download_jobs SET progress = ? WHERE id = ?");
+const finishDownload = db.prepare(
+  `UPDATE download_jobs SET status = ?, output_path = ?, bytes_out = ?, error = ?,
+          progress = ?, finished_at = ? WHERE id = ?`,
+);
+const nextPendingDownload = db.prepare(
+  "SELECT * FROM download_jobs WHERE status = 'pending' ORDER BY created_at LIMIT 1",
+);
+
+/**
  * Writes straight into the gate app's event_log table (see src/lib/events.ts
  * for the reader side) — this process has its own DatabaseSync handle on the
  * same WAL-mode file, so no IPC is needed to keep worker failures in the same
@@ -499,6 +526,12 @@ const requeued = db
   .run();
 if (Number(requeued.changes) > 0) {
   log(`re-queued ${requeued.changes} job(s) interrupted by a previous shutdown`);
+}
+const requeuedDownloads = db
+  .prepare("UPDATE download_jobs SET status = 'pending', progress = 0, started_at = NULL WHERE status = 'running'")
+  .run();
+if (Number(requeuedDownloads.changes) > 0) {
+  log(`re-queued ${requeuedDownloads.changes} download job(s) interrupted by a previous shutdown`);
 }
 
 /* ------------------------------------------------------------------ *
@@ -976,6 +1009,159 @@ async function processOne() {
 }
 
 /* ------------------------------------------------------------------ *
+ * Download prep (Phase 3 offline downloads — download_jobs)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Simplified sibling of convert() above: same core ffmpeg invocation and
+ * progress parsing, but no pause/resume (a download prep is a one-off, not
+ * worth interrupting) and writing into DOWNLOADS_CACHE instead of LIBRARY.
+ * Kept as its own function rather than generalising convert() itself —
+ * convert() is exercised by the watch-folder pipeline running in
+ * production every day; a late-night refactor of it to serve a second,
+ * newer caller is exactly the kind of change that's safer to keep separate
+ * until there's been time to prove this path out.
+ */
+async function convertForDownload(job, info) {
+  const useHw = await detectHardware();
+  const safe = job.title.replace(/[/\\:*?"<>|]/g, "").trim() || "Untitled";
+  const output = join(DOWNLOADS_CACHE, `${safe}.mp4`);
+  const temp = join(DOWNLOADS_CACHE, `.${safe}.inprogress.mp4`);
+
+  const scale = useHw
+    ? `scale=w=min(${MAX_WIDTH}\\,iw):h=-2,format=nv12,hwupload`
+    : `scale=w=min(${MAX_WIDTH}\\,iw):h=-2,format=yuv420p`;
+  const videoArgs = useHw
+    ? ["-c:v", "h264_vaapi", "-qp", "22"]
+    : ["-c:v", "libx264", "-preset", TRANSCODE_PRESET, "-crf", "21", "-profile:v", "high", "-level", "4.1"];
+
+  const args = [
+    "-hide_banner", "-nostdin", "-y",
+    ...(useHw ? ["-vaapi_device", "/dev/dri/renderD128"] : []),
+    "-i", job.source_path,
+    "-vf", scale,
+    ...videoArgs,
+    "-maxrate", "6M", "-bufsize", "12M",
+    "-c:a", "aac", "-ac", "2", "-b:a", "192k",
+    "-movflags", "+faststart",
+    "-f", "mp4",
+    "-sn",
+    "-progress", "pipe:1", "-nostats",
+    temp,
+  ];
+
+  log(`preparing download "${job.title}" (${useHw ? "VAAPI" : "software"})`);
+
+  return new Promise((resolveConvert) => {
+    const child = spawn(FFMPEG, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    let buffer = "";
+
+    child.stdout.on("data", (chunk) => {
+      buffer += chunk.toString();
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      let micros = null;
+      for (const line of lines) {
+        const [key, value] = line.split("=");
+        if (key === "out_time_us" || key === "out_time_ms") {
+          const n = Number(value);
+          micros = Number.isFinite(n) ? n : null;
+        }
+      }
+      if (micros !== null && info.duration > 0) {
+        const seconds = micros / 1_000_000;
+        const percent = Math.max(0, Math.min(99, Math.round((seconds / info.duration) * 100)));
+        if (Number.isFinite(percent)) setDownloadProgress.run(percent, job.id);
+      }
+    });
+
+    child.stderr.on("data", (d) => {
+      stderr += d;
+      if (stderr.length > 8000) stderr = stderr.slice(-8000);
+    });
+
+    child.on("error", (err) => resolveConvert({ ok: false, error: String(err), temp }));
+
+    child.on("close", (code) => {
+      if (code === 0 && existsSync(temp)) {
+        resolveConvert({ ok: true, temp, output });
+      } else {
+        resolveConvert({
+          ok: false,
+          error: (stderr.trim().split("\n").slice(-3).join(" ") || `ffmpeg exited ${code}`).slice(0, 500),
+          temp,
+        });
+      }
+    });
+  });
+}
+
+async function processDownloadJob() {
+  const job = nextPendingDownload.get();
+  if (!job) return false;
+
+  const claimed = claimDownload.run(Date.now(), job.id);
+  if (Number(claimed.changes) !== 1) return false;
+
+  if (!existsSync(job.source_path)) {
+    finishDownload.run("failed", null, null, "Source file disappeared", 0, Date.now(), job.id);
+    log(`download source missing: ${job.source_path}`);
+    return true;
+  }
+
+  const info = await probe(job.source_path);
+  if (!info) {
+    finishDownload.run("failed", null, null, "Not a readable video file", 0, Date.now(), job.id);
+    log(`download source unreadable: ${job.source_path}`);
+    return true;
+  }
+
+  mkdirSync(DOWNLOADS_CACHE, { recursive: true });
+
+  // Already browser/device-friendly: copy straight into the cache rather
+  // than re-encoding. copyFileSync, not a stream pipeline — this is a
+  // simple whole-file copy with nothing to track progress on, unlike the
+  // conversion path below.
+  if (alreadyPlayable(job.source_path, info)) {
+    const safe = job.title.replace(/[/\\:*?"<>|]/g, "").trim() || "Untitled";
+    const output = join(DOWNLOADS_CACHE, `${safe}.mp4`);
+    try {
+      copyFileSync(job.source_path, output);
+      const size = statSync(output).size;
+      finishDownload.run("done", output, size, null, 100, Date.now(), job.id);
+      log(`download ready (no re-encode needed) "${job.title}"`);
+    } catch (error) {
+      finishDownload.run("failed", null, null, `Copy failed: ${error.message}`, 0, Date.now(), job.id);
+      log(`download copy failed for "${job.title}": ${error.message}`);
+    }
+    return true;
+  }
+
+  const result = await convertForDownload(job, info);
+  if (!result.ok) {
+    try {
+      if (existsSync(result.temp)) unlinkSync(result.temp);
+    } catch { /* best effort */ }
+    finishDownload.run("failed", null, null, result.error, 0, Date.now(), job.id);
+    log(`download prep FAILED "${job.title}": ${result.error}`);
+    return true;
+  }
+
+  try {
+    move(result.temp, result.output);
+    const size = statSync(result.output).size;
+    finishDownload.run("done", result.output, size, null, 100, Date.now(), job.id);
+    log(`download ready "${job.title}": ${(size / 1e9).toFixed(2)}GB`);
+  } catch (error) {
+    finishDownload.run("failed", null, null, `Publish failed: ${error.message}`, 0, Date.now(), job.id);
+    log(`download publish failed for "${job.title}": ${error.message}`);
+  }
+
+  return true;
+}
+
+/* ------------------------------------------------------------------ *
  * Main loop
  * ------------------------------------------------------------------ */
 
@@ -1013,6 +1199,10 @@ if (WORKER_MODE === "watch") {
     while (worked && !stopping) {
       worked = await processOne();
     }
+    let workedDownload = await processDownloadJob();
+    while (workedDownload && !stopping) {
+      workedDownload = await processDownloadJob();
+    }
 
     if (stopping) break;
     await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
@@ -1022,10 +1212,11 @@ if (WORKER_MODE === "watch") {
   log("stopped");
 } else {
   // Queue-only: touch nothing that wasn't explicitly queued (by the gate's
-  // Transform button), then exit. No folder watching, no library-wide
-  // auto-discovery — this is what "the worker never runs on its own" means
-  // in practice, short of never starting the container at all.
-  let queued = nextPending.get() !== undefined;
+  // Transform button, or a viewer's first download request), then exit. No
+  // folder watching, no library-wide auto-discovery — this is what "the
+  // worker never runs on its own" means in practice, short of never
+  // starting the container at all.
+  let queued = nextPending.get() !== undefined || nextPendingDownload.get() !== undefined;
   if (!queued) {
     log("nothing queued — exiting");
   }
@@ -1038,6 +1229,16 @@ if (WORKER_MODE === "watch") {
       continue;
     }
     worked = await processOne();
+  }
+
+  let workedDownload = await processDownloadJob();
+  while (workedDownload && !stopping) {
+    if (await someoneIsWatching()) {
+      log("someone is watching — deferring download prep");
+      await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
+      continue;
+    }
+    workedDownload = await processDownloadJob();
   }
 
   db.close();

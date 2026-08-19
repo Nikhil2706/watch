@@ -128,6 +128,36 @@ export const env = {
    */
   hostMediaPath: optional("HOST_MEDIA_PATH", ""),
 
+  /**
+   * The watch-folder drop zone — same path the worker's own MEDIA_INCOMING
+   * points at (see scripts/media-worker.mjs). Only the upload-approval flow
+   * touches this from the gate side: approving a Langlois-mode upload moves
+   * the file here so the worker's existing pipeline (already running,
+   * already safe) picks it up exactly as if a curator had dropped it in by
+   * hand — no separate publish logic duplicated on the gate side.
+   */
+  mediaIncomingPath: optional("MEDIA_INCOMING", "/incoming"),
+
+  /**
+   * Where prepared offline-download files are cached — a SEPARATE mount from
+   * mediaLibraryPath/mediaExcludedPath, same reasoning as mediaExcludedPath:
+   * it must sit outside whatever Jellyfin's library root is, or a rescan
+   * would index a cached download as a second copy of the same film. One
+   * prepared file per title, reused for every future download of that title
+   * rather than re-transcoding per request (see download_jobs in schema.ts).
+   */
+  mediaDownloadsCachePath: optional("MEDIA_DOWNLOADS_CACHE", "/downloads-cache"),
+
+  /**
+   * Where uploaded-but-unreviewed films from Langlois-mode users land —
+   * never auto-published. A curator approves them by hand (moving the file
+   * into MEDIA_INCOMING for the normal watch-folder pipeline to pick up) or
+   * rejects them (deleted). Kept outside the library and outside
+   * MEDIA_INCOMING for the same reason as every other path here: nothing
+   * should reach Jellyfin's index without going through that approval step.
+   */
+  mediaQuarantinePath: optional("MEDIA_QUARANTINE", "/quarantine"),
+
   isProduction: process.env.NODE_ENV === "production",
 } as const;
 

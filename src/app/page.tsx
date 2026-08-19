@@ -68,7 +68,7 @@ export default async function HomePage() {
   if (!featured) {
     return (
       <>
-        <AppBar username={session.username} />
+        <AppBar username={session.username} langloisMode={session.langloisMode} />
         <ProcessingRow jobs={processing} />
         <div className="empty">
           <p>Nothing in the library yet.</p>
@@ -88,7 +88,7 @@ export default async function HomePage() {
 
   return (
     <>
-      <AppBar username={session.username} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} />
       <Hero item={featured} imdb={featuredRatings?.imdb} />
       <Row title="Continue watching" items={resume} lists={lists} />
       <Row

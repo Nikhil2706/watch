@@ -252,6 +252,45 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "users") && !columnExists(db, "users", "langlois_mode")) {
     db.exec("ALTER TABLE users ADD COLUMN langlois_mode INTEGER NOT NULL DEFAULT 0");
   }
+
+  // v29: download_jobs — new table for the offline-download backend (Phase
+  // 3 of the Phone App Roadmap). Same reasoning as v26's film_series
+  // tables: CREATE TABLE IF NOT EXISTS is safe to just re-run directly.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS download_jobs (
+      id               TEXT PRIMARY KEY,
+      jellyfin_item_id TEXT NOT NULL UNIQUE,
+      title            TEXT NOT NULL,
+      source_path      TEXT NOT NULL,
+      output_path      TEXT,
+      status           TEXT NOT NULL,
+      progress         INTEGER NOT NULL DEFAULT 0,
+      error            TEXT,
+      bytes_out        INTEGER,
+      created_at       INTEGER NOT NULL,
+      started_at       INTEGER,
+      finished_at      INTEGER
+    ) STRICT;
+  `);
+
+  // v30: uploads — new table for the Langlois-mode upload/quarantine/scan/
+  // approve pipeline. Same reasoning as v26/v29: CREATE TABLE IF NOT
+  // EXISTS is safe to just re-run directly.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS uploads (
+      id              TEXT PRIMARY KEY,
+      user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      filename        TEXT NOT NULL,
+      quarantine_path TEXT NOT NULL,
+      size_bytes      INTEGER NOT NULL,
+      status          TEXT NOT NULL,
+      scan_result     TEXT,
+      scanned_at      INTEGER,
+      reviewed_by     TEXT,
+      reviewed_at     INTEGER,
+      created_at      INTEGER NOT NULL
+    ) STRICT;
+  `);
 }
 
 /**
