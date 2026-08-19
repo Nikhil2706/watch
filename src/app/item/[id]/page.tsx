@@ -24,7 +24,7 @@ import {
   formatRuntime,
   getEpisodeContext,
   getItem,
-  getItemByImdbId,
+  getItemsByImdbIds,
   getSimilar,
   qualityLabel,
   resumeSeconds,
@@ -82,17 +82,13 @@ export default async function ItemPage({
   // "In this series" — every film Wikipedia's own film-series lists carry
   // for this franchise (see film-series.ts), not just the ones owned. The
   // context lookup is a synchronous local read; resolving which entries are
-  // actually owned needs one Jellyfin call per matched imdb id, done here in
-  // parallel rather than inside SeriesRow so the component stays a plain
-  // synchronous render.
+  // actually owned is one batched Jellyfin call for every matched imdb id at
+  // once (see getItemsByImdbIds — NOT one call per id, which is what broke
+  // this: Jellyfin's per-id provider filter turned out to be a silent no-op).
   const seriesContext = imdbId ? getSeriesContextForFilm(imdbId) : null;
-  const seriesItemPairs = await Promise.all(
-    (seriesContext?.entries ?? [])
-      .filter((e) => e.imdb_id)
-      .map(async (e) => [e.imdb_id as string, await getItemByImdbId(session, e.imdb_id as string).catch(() => null)] as const),
-  );
-  const seriesItems = new Map(
-    seriesItemPairs.filter((pair): pair is [string, NonNullable<(typeof pair)[1]>] => pair[1] !== null),
+  const seriesItems = await getItemsByImdbIds(
+    session,
+    (seriesContext?.entries ?? []).map((e) => e.imdb_id).filter((id): id is string => id !== null),
   );
 
   const picks = curationsForItem(id);
@@ -110,10 +106,21 @@ export default async function ItemPage({
   const audio = source?.MediaStreams?.filter((s) => s.Type === "Audio") ?? [];
   const directors = (item.People ?? []).filter((p) => p.Type === "Director");
   const cast = (item.People ?? []).filter((p) => p.Type === "Actor").slice(0, 20);
+  const writers = (item.People ?? []).filter((p) => p.Type === "Writer");
+  const producers = (item.People ?? []).filter((p) => p.Type === "Producer");
+  // Confirmed against the real library (627 movies): OMDb, the metadata
+  // source this app's backfill uses, never supplies these two credit
+  // types at all — every item.People entry is Actor/Director/Writer/
+  // Producer only. Filtered for anyway rather than left out: if the
+  // metadata source ever changes, or a specific title's data happens to
+  // carry them, these rows appear automatically with no further code
+  // change — CastRow already renders nothing for an empty list.
+  const cinematographers = (item.People ?? []).filter((p) => p.Type === "DirectorOfPhotography");
+  const editors = (item.People ?? []).filter((p) => p.Type === "Editor");
 
   return (
     <div className="detail">
-      <AppBar username={session.username} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} />
 
       <section className="hero">
         {backdrop ? (
@@ -228,6 +235,12 @@ export default async function ItemPage({
       {directors.length > 0 ? (
         <CastRow people={directors} heading="Directed by" limit={4} />
       ) : null}
+      {writers.length > 0 ? <CastRow people={writers} heading="Written by" limit={6} /> : null}
+      {cinematographers.length > 0 ? (
+        <CastRow people={cinematographers} heading="Cinematography" limit={4} />
+      ) : null}
+      {editors.length > 0 ? <CastRow people={editors} heading="Edited by" limit={4} /> : null}
+      {producers.length > 0 ? <CastRow people={producers} heading="Produced by" limit={8} /> : null}
 
       {episodeContext && episodeContext.future.length > 0 ? (
         <div style={{ marginTop: 28 }}>

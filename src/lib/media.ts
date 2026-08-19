@@ -451,23 +451,58 @@ export async function getGenres(session: ResolvedSession): Promise<string[]> {
  * heavy admin-only listAllMoviesAdmin() pull — this runs on every viewer's
  * item-page render, not a background scrape.
  */
-export async function getItemByImdbId(
+/**
+ * Resolves every IMDb id in one batch to whichever library item owns it.
+ *
+ * NOT built on Jellyfin's `anyProviderIdEquals` filter — verified live that
+ * it's silently a no-op on this server's Jellyfin version: `anyProviderIdEquals=
+ * Imdb.tt0120804` returned the first movie in default sort order regardless
+ * of its actual IMDb id, rather than filtering at all or erroring. That
+ * previously made every "owned" entry on every film-series page resolve to
+ * the same wrong film (whichever the unfiltered call happened to return
+ * first) — caught live when a user reported "Resident Evil"'s series row
+ * showing an unrelated Italian film with no metadata, repeated, in place of
+ * the real Resident Evil titles.
+ *
+ * Fetches the caller's own visible movie list ONCE (same reasoning as
+ * listAllMoviesAdmin/getLibraryIndex elsewhere in this codebase — a
+ * personal-scale library, not something worth paginating) and matches
+ * client-side, which is what those other reliable call sites already do
+ * rather than trusting Jellyfin's provider-id query filter.
+ *
+ * Also runs the match set through filterVisible() — the same no-metadata/
+ * excluded-path rule every other list in this file already applies. Without
+ * it, a file the review dashboard has flagged as thin-metadata (not yet
+ * curator-reviewed) could still surface as an "owned" tile in a film-series
+ * row, even though it's hidden from Browse/Home/Search. A film not good
+ * enough to show anywhere else on the site isn't good enough to show here
+ * either — it should read as "not in your library" until a curator clears
+ * it, same as everywhere else.
+ */
+export async function getItemsByImdbIds(
   session: ResolvedSession,
-  imdbId: string,
-): Promise<MediaItem | null> {
+  imdbIds: string[],
+): Promise<Map<string, MediaItem>> {
+  const wanted = new Set(imdbIds);
+  if (wanted.size === 0) return new Map();
+
   const [token, device] = creds(session);
   try {
     const result = await userFetch<{ Items: MediaItem[] }>(token, device, "/Items", {
       userId: session.jellyfinUserId,
       includeItemTypes: "Movie",
       recursive: true,
-      anyProviderIdEquals: `Imdb.${imdbId}`,
       fields: "ProviderIds,ProductionYear,ImageTags",
-      limit: 1,
     });
-    return result.Items[0] ?? null;
+    const visible = filterVisible(result.Items);
+    const map = new Map<string, MediaItem>();
+    for (const item of visible) {
+      const imdb = item.ProviderIds?.Imdb;
+      if (imdb && wanted.has(imdb)) map.set(imdb, item);
+    }
+    return map;
   } catch {
-    return null;
+    return new Map();
   }
 }
 
@@ -486,6 +521,62 @@ export async function getItem(
   }
 }
 
+/**
+ * Diminishing-returns discount so one director doesn't crowd out everyone
+ * else at the top of a ranked list — the same idea browse-data.ts's own
+ * director/actor facet ranking already uses (see personFacets() and
+ * directorDiversityDiscount() there), generalised here so both that module
+ * and getSimilar() below can share one implementation rather than two
+ * slightly-different copies. Lives in media.ts specifically because
+ * browse-data.ts already imports FROM this module — the reverse import
+ * would be circular.
+ *
+ * Ranks each director's own credited items among themselves by `getScore`;
+ * the best keeps full weight (1x), the next 0.5x, then 0.25x... An item
+ * credited to multiple directors gets the SMALLEST (most restrictive)
+ * multiplier across them, not an average — a nominal co-director credit
+ * shouldn't launder a heavily-represented director's item back to full
+ * weight.
+ */
+const DIVERSITY_RANK_DECAY = 0.5;
+
+export function diversityDiscount<T>(
+  items: T[],
+  getDirectors: (item: T) => string[],
+  getScore: (item: T) => number,
+  getId: (item: T) => string,
+): Map<string, number> {
+  const byDirector = new Map<string, T[]>();
+  for (const item of items) {
+    for (const name of getDirectors(item)) {
+      if (!byDirector.has(name)) byDirector.set(name, []);
+      byDirector.get(name)!.push(item);
+    }
+  }
+
+  const discount = new Map<string, number>();
+  for (const group of byDirector.values()) {
+    const ranked = [...group].sort((a, b) => getScore(b) - getScore(a));
+    ranked.forEach((item, i) => {
+      const weight = DIVERSITY_RANK_DECAY ** i;
+      const id = getId(item);
+      const existing = discount.get(id);
+      if (existing === undefined || weight < existing) discount.set(id, weight);
+    });
+  }
+  return discount;
+}
+
+/**
+ * Jellyfin's own /Similar endpoint has no exposed numeric score, only an
+ * implicit rank (most-similar first) — used here as the diversity
+ * discount's popularity proxy, same reasoning as everywhere else that
+ * treats "how Jellyfin already ordered it" as a signal worth preserving.
+ */
+function directorsOf(item: MediaItem): string[] {
+  return (item.People ?? []).filter((p) => p.Type === "Director").map((p) => p.Name);
+}
+
 export async function getSimilar(
   session: ResolvedSession,
   itemId: string,
@@ -498,7 +589,13 @@ export async function getSimilar(
       `/Items/${encodeURIComponent(itemId)}/Similar`,
       { userId: session.jellyfinUserId, limit: 12, fields: LIST_FIELDS },
     );
-    return filterVisible(data?.Items ?? []);
+    const items = filterVisible(data?.Items ?? []);
+    const rankScore = new Map(items.map((item, i) => [item.Id, items.length - i]));
+    const discount = diversityDiscount(items, directorsOf, (item) => rankScore.get(item.Id) ?? 0, (item) => item.Id);
+    return [...items].sort(
+      (a, b) =>
+        (rankScore.get(b.Id) ?? 0) * (discount.get(b.Id) ?? 1) - (rankScore.get(a.Id) ?? 0) * (discount.get(a.Id) ?? 1),
+    );
   } catch {
     return [];
   }

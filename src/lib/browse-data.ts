@@ -7,6 +7,7 @@ import {
   getGroupSeriesMeta,
 } from "./library-curation";
 import {
+  diversityDiscount,
   getAllMovies,
   getPeopleForAllMovies,
   posterUrl,
@@ -418,10 +419,30 @@ export function filterMovies(movies: BrowseMovie[], dim: BrowseDim, value: strin
   return movies;
 }
 
+/**
+ * Diminishing-returns discount for "popularity" sort, so one heavily
+ * represented director doesn't crowd the whole top of the list — a thin
+ * BrowseMovie-shaped wrapper around media.ts's diversityDiscount(), the
+ * same generic helper getSimilar() there uses for "More like this". Caught
+ * live: 8 of the top 10 "Popular" results were the same director.
+ */
+function directorDiversityDiscount(movies: BrowseMovie[], libraryMeanRating: number): Map<string, number> {
+  return diversityDiscount(
+    movies,
+    (m) => m.directors,
+    (m) => popularityScore(m, libraryMeanRating),
+    (m) => m.item.Id,
+  );
+}
+
 export function sortMovies(movies: BrowseMovie[], sort: BrowseSort, libraryMeanRating: number): BrowseMovie[] {
   const copy = [...movies];
   if (sort === "newest") copy.sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
   else if (sort === "oldest") copy.sort((a, b) => (a.year ?? 0) - (b.year ?? 0));
-  else copy.sort((a, b) => popularityScore(b, libraryMeanRating) - popularityScore(a, libraryMeanRating));
+  else {
+    const discount = directorDiversityDiscount(movies, libraryMeanRating);
+    const adjusted = (m: BrowseMovie) => popularityScore(m, libraryMeanRating) * (discount.get(m.item.Id) ?? 1);
+    copy.sort((a, b) => adjusted(b) - adjusted(a));
+  }
   return copy;
 }
