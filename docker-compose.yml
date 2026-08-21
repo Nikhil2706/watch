@@ -57,10 +57,17 @@ services:
       context: .
       dockerfile: Dockerfile
       # Explicit, and not optional. Docker builds the LAST stage when no target
-      # is given, and the last stage in the Dockerfile is `worker` — omitting
-      # this silently produces a gateway image containing ffmpeg and no
-      # server.js, which starts and then does nothing useful.
+      # is given, and the last stage in the Dockerfile is now `party` (it was
+      # `worker` before that stage existed) — omitting this silently produces
+      # a gateway image containing neither ffmpeg nor server.js, which starts
+      # and does nothing useful. Every stage in this file sets target
+      # explicitly for exactly this reason; don't add one that doesn't.
       target: runtime
+      args:
+        # Baked into the client bundle at build time — see the Dockerfile's
+        # own comment on this ARG. Only needs setting if the party server
+        # is ever routed somewhere other than same-origin "/ws/party".
+        NEXT_PUBLIC_PARTY_WS_PATH: ${NEXT_PUBLIC_PARTY_WS_PATH:-/ws/party}
     container_name: jellyfin-gate
     restart: unless-stopped
     # Deliberately the lowest cpus ceiling of the three real services but the
@@ -208,6 +215,37 @@ services:
       - ${MEDIA_DOWNLOADS_CACHE_PATH:-./media-downloads-cache}:/downloads-cache
     # GPU access is in docker-compose.linux.yml. Without it the worker encodes
     # in software — correct, just slower.
+
+  # Watch-party realtime service — chat + playback sync over WebSocket. See
+  # DESIGN-watch-party.md and scripts/party-server.mts's own header comment.
+  #
+  # NOT started by a plain `docker compose up -d` yet: it has no `ports:`
+  # entry and nothing routes to it at the edge, so bringing it up alone does
+  # nothing reachable — that routing (a cloudflared ingress rule, or the
+  # native-Windows-tunnel equivalent this project actually runs in
+  # production; see the jellyfin-gate-tunnel-architecture-drift note) still
+  # needs to be wired up and smoke-tested before this is real. Until then,
+  # start it explicitly and by itself for local testing:
+  #
+  #   docker compose up -d --build party
+  party:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: party
+    container_name: jellyfin-gate-party
+    restart: unless-stopped
+    cpus: "0.5"
+    mem_limit: 256m
+    networks:
+      - edge
+    environment:
+      - DATABASE_PATH=/app/data/jellyfin-gate.db
+      - PARTY_PORT=${PARTY_PORT:-4001}
+    volumes:
+      # Same database file as the gate and the worker — safe under WAL, same
+      # reasoning as the worker service's own comment on this line.
+      - gate-data:/app/data
 
   # Cloudflare tunnel. Outbound-only, so there is no port to forward and no
   # inbound firewall rule to get wrong.

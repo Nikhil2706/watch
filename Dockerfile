@@ -25,6 +25,14 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # build only — no placeholder secret is ever written into an image layer, and
 # the runtime checks are untouched.
 ENV SKIP_ENV_VALIDATION=1
+# NEXT_PUBLIC_* vars are inlined into the client bundle at build time, not
+# read at runtime — a container restart with a different value in .env does
+# nothing without a rebuild. Defaults to the same-origin path
+# usePartySocket.ts already falls back to when this isn't set at all, so
+# only actually matters if a deployment ever needs the party server routed
+# somewhere other than "/ws/party" on this same public host.
+ARG NEXT_PUBLIC_PARTY_WS_PATH=/ws/party
+ENV NEXT_PUBLIC_PARTY_WS_PATH=$NEXT_PUBLIC_PARTY_WS_PATH
 RUN npm run build
 
 
@@ -96,3 +104,31 @@ RUN mkdir -p /app/data && chown -R node:node /app
 USER node
 
 CMD ["node", "/app/scripts/media-worker.mjs"]
+
+
+# ---------------------------------------------------------------------------
+# Watch-party realtime service (chat + playback sync over WebSocket).
+#
+# Its own target, not folded into the gateway image: it needs `ws` from
+# node_modules (unlike the dependency-free worker script above) but none of
+# Next's build output, so it reuses the `deps` stage's already-installed
+# node_modules rather than pulling in .next/standalone at all. See
+# DESIGN-watch-party.md for why this runs as a separate process instead of a
+# custom Next.js server.
+#
+# Build with:  docker compose build party
+# ---------------------------------------------------------------------------
+FROM node:22-alpine AS party
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NODE_OPTIONS=--disable-warning=ExperimentalWarning
+
+COPY --from=deps --chown=node:node /app/node_modules ./node_modules
+COPY --chown=node:node scripts/party-server.mts ./scripts/party-server.mts
+
+RUN mkdir -p /app/data && chown -R node:node /app
+USER node
+EXPOSE 4001
+
+CMD ["node", "--experimental-strip-types", "/app/scripts/party-server.mts"]

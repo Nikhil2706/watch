@@ -282,3 +282,41 @@ export function getSeriesContextForFilm(imdbId: string): SeriesContext | null {
 
   return { seriesId: membership.series_id, seriesName: membership.series_name, entries };
 }
+
+export interface SeriesListEntry {
+  id: string;
+  name: string;
+  entryCount: number;
+  matchedCount: number;
+}
+
+/** Every scraped film series, for the curator dashboard's own listing (curator.html has no such view otherwise — SeriesRow.tsx, the only other consumer of this table, only ever looks up ONE series at a time, for the film it's rendering). matchedCount counts entries with a resolved imdb_id, not entries actually OWNED in this library — the caller cross-references ownership itself via listAllMoviesAdmin(), same reasoning as reconcileSeriesSlots()'s own comment in rollout.ts. */
+export function listAllSeries(): SeriesListEntry[] {
+  return asRows<SeriesListEntry>(
+    getDb()
+      .prepare(
+        `SELECT fs.id AS id, fs.name AS name,
+                COUNT(fse.id) AS entryCount,
+                COUNT(fse.imdb_id) AS matchedCount
+           FROM film_series fs
+           LEFT JOIN film_series_entries fse ON fse.series_id = fs.id
+          GROUP BY fs.id
+          ORDER BY fs.name ASC`,
+      )
+      .all(),
+  );
+}
+
+/** One series by id, same shape as getSeriesContextForFilm — null if the id doesn't exist. */
+export function getSeriesById(seriesId: string): SeriesContext | null {
+  const row = asRow<{ id: string; name: string }>(getDb().prepare("SELECT id, name FROM film_series WHERE id = ?").get(seriesId));
+  if (!row) return null;
+
+  const entries = asRows<SeriesEntry>(
+    getDb()
+      .prepare("SELECT position, raw_title, raw_year, imdb_id FROM film_series_entries WHERE series_id = ? ORDER BY position")
+      .all(seriesId),
+  );
+
+  return { seriesId: row.id, seriesName: row.name, entries };
+}

@@ -20,6 +20,13 @@ import { NextResponse, type NextRequest } from "next/server";
  * authenticated by X-Admin-Key alone and must never be redirected to a login
  * page.
  *
+ * Also excludes /party/* — a guest link ("/party/{roomId}/g/{token}", see
+ * src/lib/party.ts) is specifically the no-signup path into a watch party's
+ * chat, so it cannot require jfg_session the way every other page does. The
+ * room page itself (/party/{roomId}) checks its OWN auth — session cookie OR
+ * a valid per-room guest cookie the link page just set — rather than relying
+ * on this middleware for it.
+ *
  * Also excludes the PWA assets (manifest.json, sw.js, the icon PNGs) —
  * caught live while building the PWA baseline: a browser checks
  * installability (fetches the manifest + icons) from ANY page, including a
@@ -54,11 +61,12 @@ export const config = {
      *   api/*            — handles its own auth (admin key or session)
      *   jf/*             — returns 401 JSON; an XHR must not get an HTML redirect
      *   invite/*         — must be reachable while logged out
+     *   party/*          — guest links must be reachable with no account at all
      *   login            — obviously
      *   _next/*, favicon — framework assets
      *   manifest.json, sw.js, icon-*.png, apple-touch-icon.png, favicon-32.png
      *                    — PWA assets, must be fetchable while logged out
      */
-    "/((?!api/|jf/|invite/|login|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|apple-touch-icon.png|favicon-32.png).*)",
+    "/((?!api/|jf/|invite/|party/|login|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|apple-touch-icon.png|favicon-32.png).*)",
   ],
 };

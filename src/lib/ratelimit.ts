@@ -84,6 +84,13 @@ export const COMMENT_LIMIT: RateLimitRule = {
   windowMs: 60 * 60 * 1000,
 };
 
+/** Starting a watch party is rare and deliberate — this is just a ceiling against a runaway client, not real anti-abuse. */
+export const PARTY_CREATE_LIMIT: RateLimitRule = {
+  name: "party_create",
+  limit: 10,
+  windowMs: 60 * 60 * 1000,
+};
+
 export interface RateLimitResult {
   readonly allowed: boolean;
   readonly remaining: number;

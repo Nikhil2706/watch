@@ -291,6 +291,19 @@ function runVersionedMigrations(db: DatabaseSync): void {
       created_at      INTEGER NOT NULL
     ) STRICT;
   `);
+
+  // v31: notifications gained episode_count, for the "new_episodes" kind
+  // (TV completion notifications — see runTvNotifyTick() in
+  // library-notify.ts). NULL on every existing row, correct: nothing before
+  // this migration was ever a "new_episodes" notification. known_library_
+  // groups is a plain new table, added to SCHEMA_SQL alongside this version
+  // bump the correct way (unlike v26/v29/v30's tables, which needed a
+  // retroactive fix here) — SCHEMA_SQL's own CREATE TABLE IF NOT EXISTS,
+  // which always runs right after this function returns, is sufficient for
+  // it, so it needs no entry of its own here.
+  if (tableExists(db, "notifications") && !columnExists(db, "notifications", "episode_count")) {
+    db.exec("ALTER TABLE notifications ADD COLUMN episode_count INTEGER");
+  }
 }
 
 /**

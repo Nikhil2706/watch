@@ -2,7 +2,14 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-type NotificationKind = "reply" | "new_item" | "curators_pick";
+type NotificationKind =
+  | "reply"
+  | "new_item"
+  | "curators_pick"
+  | "new_show"
+  | "new_episodes"
+  | "watch_party_live"
+  | "watch_party_scheduled";
 
 interface NotificationItem {
   id: string;
@@ -11,6 +18,7 @@ interface NotificationItem {
   filmTitle: string;
   filmHref: string;
   commentId: string | null;
+  episodeCount: number | null;
   createdAt: number;
   read: boolean;
 }
@@ -23,10 +31,34 @@ function notificationText(n: NotificationItem): ReactNode {
           <b>{n.filmTitle}</b> was just added to the library
         </>
       );
+    case "new_show":
+      return (
+        <>
+          New TV show added: <b>{n.filmTitle}</b>
+        </>
+      );
+    case "new_episodes":
+      return (
+        <>
+          {n.episodeCount ?? "New"} new episode{n.episodeCount === 1 ? "" : "s"} of <b>{n.filmTitle}</b>
+        </>
+      );
     case "curators_pick":
       return (
         <>
           Curator&apos;s Pick — Just For You: <b>{n.filmTitle}</b>
+        </>
+      );
+    case "watch_party_live":
+      return (
+        <>
+          Watch party live now: <b>{n.filmTitle}</b> — join in
+        </>
+      );
+    case "watch_party_scheduled":
+      return (
+        <>
+          Watch party scheduled: <b>{n.filmTitle}</b>
         </>
       );
     case "reply":

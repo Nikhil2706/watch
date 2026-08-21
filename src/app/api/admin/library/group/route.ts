@@ -1,5 +1,6 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { createGroup } from "@/lib/library-curation";
+import { reconcileGroupSlots } from "@/lib/rollout";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -32,6 +33,7 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const groupId = createGroup(name, paths as string[]);
+    reconcileGroupSlots(groupId); // no-op unless a rollout plan already exists for this id, which it never will right after creation — harmless either way
     return Response.json({ groupId }, { status: 201, headers: NO_STORE });
   } catch (error) {
     if (error instanceof ValidationError) {

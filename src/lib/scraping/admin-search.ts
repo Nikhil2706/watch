@@ -3,6 +3,7 @@ import "server-only";
 import { listAllMoviesAdmin } from "../jellyfin";
 import { getGroupedPathMap, getGroupSeriesId, getGroupSeriesPoster } from "../library-curation";
 import { normaliseTitle } from "../library-review";
+import { itemHref } from "../slugs";
 
 /** Same flat-tag poster template already used for person photos in browse-data.ts. */
 function flatPosterUrl(id: string, tag: string | null | undefined): string | null {
@@ -66,7 +67,7 @@ export async function searchLibraryForAdmin(query: string, limit = 8): Promise<A
       imdbId,
       name: movie.Name,
       year: movie.ProductionYear ?? null,
-      href: `/item/${movie.Id}`,
+      href: itemHref(movie.Id, movie.Name, movie.ProductionYear),
       posterUrl: flatPosterUrl(movie.Id, movie.ImageTags?.Primary),
     });
   }

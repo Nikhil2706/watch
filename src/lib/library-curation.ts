@@ -107,6 +107,36 @@ export function createGroup(name: string, paths: string[]): string {
   return groupId;
 }
 
+/**
+ * Adds more paths to an ALREADY-EXISTING group — for a show a curator
+ * scheduled a rollout for (rollout.ts) before every episode had arrived,
+ * where the original "Group checked as one" action only ever creates a
+ * brand-new group. group_name is read off the group's own first existing
+ * row rather than passed in, so a caller never has to already know it.
+ * Silently a no-op for a path that's already in ANY group (this table's
+ * own PRIMARY KEY (path, group_id) would otherwise throw on a re-add of a
+ * path already in THIS group, and adding the same file to two different
+ * groups is never correct regardless).
+ */
+export function addToGroup(groupId: string, paths: string[]): number {
+  const db = getDb();
+  const existing = getGroup(groupId);
+  if (!existing) return 0;
+
+  const alreadyGrouped = getGroupedPathMap();
+  const now = Date.now();
+  const stmt = db.prepare(
+    "INSERT INTO library_groups (path, group_id, group_name, created_at) VALUES (?, ?, ?, ?)",
+  );
+  let added = 0;
+  for (const path of paths) {
+    if (alreadyGrouped.has(path)) continue;
+    stmt.run(path, groupId, existing.groupName, now);
+    added++;
+  }
+  return added;
+}
+
 export function ungroup(groupId: string): boolean {
   const result = getDb().prepare("DELETE FROM library_groups WHERE group_id = ?").run(groupId);
   getDb().prepare("DELETE FROM library_group_overview WHERE group_id = ?").run(groupId);

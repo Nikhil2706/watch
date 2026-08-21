@@ -6,6 +6,7 @@ import { CuratorPicks } from "@/components/media/CuratorPicks";
 import { currentSession } from "@/lib/current-user";
 import { listCurations } from "@/lib/curations";
 import { getItem } from "@/lib/media";
+import { itemHref } from "@/lib/slugs";
 
 export const dynamic = "force-dynamic";
 
@@ -74,7 +75,7 @@ export default async function CuratorPage() {
                 ) : null}
                 <div className="curator-by">&mdash; {pick.curator}</div>
                 <div className="curator-links">
-                  <Link href={`/item/${pick.jellyfin_item_id}`}>
+                  <Link href={itemHref(pick.jellyfin_item_id!, titles.get(pick.jellyfin_item_id!))}>
                     {titles.get(pick.jellyfin_item_id!) ?? "View the film"} &rarr;
                   </Link>
                   {pick.url ? (

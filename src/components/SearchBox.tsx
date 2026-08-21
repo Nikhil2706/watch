@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { itemHref } from "@/lib/slugs";
+
 interface Hit {
   id: string;
   name: string;
@@ -97,7 +99,7 @@ export function SearchBox({ initialQuery = "" }: { initialQuery?: string }) {
             <div className="suggest-empty">Searching…</div>
           ) : null}
           {hits.map((hit) => (
-            <a key={hit.id} className="suggest-row" href={hit.href ?? `/item/${hit.id}`} role="option">
+            <a key={hit.id} className="suggest-row" href={hit.href ?? itemHref(hit.id, hit.name, hit.year)} role="option">
               {hit.poster ? (
                 <img src={hit.poster} alt="" loading="lazy" />
               ) : (

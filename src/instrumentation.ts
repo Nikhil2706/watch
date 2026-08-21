@@ -35,6 +35,9 @@ export async function register(): Promise<void> {
 
   void startAutoScrapeLoop();
   void startLibraryNotifyLoop();
+  void startTvNotifyLoop();
+  void startPartyScheduleLoop();
+  void startRolloutRevealLoop();
   void startKnownFilmsRefreshLoop();
 }
 
@@ -43,6 +46,12 @@ declare global {
   var __jellyfinGateAutoScrapeTimer: ReturnType<typeof setInterval> | undefined;
   // eslint-disable-next-line no-var
   var __jellyfinGateLibraryNotifyTimer: ReturnType<typeof setInterval> | undefined;
+  // eslint-disable-next-line no-var
+  var __jellyfinGateTvNotifyTimer: ReturnType<typeof setInterval> | undefined;
+  // eslint-disable-next-line no-var
+  var __jellyfinGatePartyScheduleTimer: ReturnType<typeof setInterval> | undefined;
+  // eslint-disable-next-line no-var
+  var __jellyfinGateRolloutRevealTimer: ReturnType<typeof setInterval> | undefined;
   // eslint-disable-next-line no-var
   var __jellyfinGateKnownFilmsTimer: ReturnType<typeof setInterval> | undefined;
 }
@@ -89,6 +98,70 @@ async function startLibraryNotifyLoop(): Promise<void> {
     console.log("[boot] library notify loop started");
   } catch (error) {
     console.error("[boot] library notify loop failed to start (new-item notifications will not fire):", error);
+  }
+}
+
+/**
+ * Same shape as startLibraryNotifyLoop, for runTvNotifyTick() — new TV
+ * shows and new episodes of already-known shows, instead of new movies.
+ * Same tick interval: groups change on a curator's own schedule, far slower
+ * than 10 minutes.
+ */
+async function startTvNotifyLoop(): Promise<void> {
+  if (globalThis.__jellyfinGateTvNotifyTimer) return;
+
+  try {
+    const { TICK_INTERVAL_MS, runTvNotifyTick } = await import("./lib/library-notify");
+    globalThis.__jellyfinGateTvNotifyTimer = setInterval(() => {
+      void runTvNotifyTick().catch((error) => console.error("[boot] TV notify tick failed:", error));
+    }, TICK_INTERVAL_MS);
+    console.log("[boot] TV notify loop started");
+  } catch (error) {
+    console.error("[boot] TV notify loop failed to start (new-show/new-episode notifications will not fire):", error);
+  }
+}
+
+/**
+ * Same shape again, for runPartyScheduleTick() — but on a 1-minute
+ * interval rather than TICK_INTERVAL_MS's 10: a scheduled party's "it's
+ * starting now" notification is time-sensitive in a way a new movie or TV
+ * episode arriving isn't, so a 10-minute lag here would actually be
+ * noticeable to whoever's waiting for it.
+ */
+async function startPartyScheduleLoop(): Promise<void> {
+  if (globalThis.__jellyfinGatePartyScheduleTimer) return;
+
+  try {
+    const { runPartyScheduleTick } = await import("./lib/library-notify");
+    globalThis.__jellyfinGatePartyScheduleTimer = setInterval(() => {
+      void runPartyScheduleTick().catch((error) => console.error("[boot] party schedule tick failed:", error));
+    }, 60 * 1000);
+    console.log("[boot] party schedule loop started");
+  } catch (error) {
+    console.error("[boot] party schedule loop failed to start (scheduled parties will not auto-start):", error);
+  }
+}
+
+/**
+ * Same shape as startTvNotifyLoop, for runRolloutRevealTick() (rollout.ts)
+ * — reveals a scheduled show's episodes as their slots come due. Same
+ * TICK_INTERVAL_MS as the TV/movie notify loops (imported from
+ * library-notify.ts, the one shared constant every "check every so often"
+ * loop in this file uses): a rollout is scheduled in days/weeks, so a
+ * 10-minute worst-case lag on a reveal is a non-issue.
+ */
+async function startRolloutRevealLoop(): Promise<void> {
+  if (globalThis.__jellyfinGateRolloutRevealTimer) return;
+
+  try {
+    const { TICK_INTERVAL_MS } = await import("./lib/library-notify");
+    const { runRolloutRevealTick } = await import("./lib/rollout");
+    globalThis.__jellyfinGateRolloutRevealTimer = setInterval(() => {
+      void runRolloutRevealTick().catch((error) => console.error("[boot] rollout reveal tick failed:", error));
+    }, TICK_INTERVAL_MS);
+    console.log("[boot] rollout reveal loop started");
+  } catch (error) {
+    console.error("[boot] rollout reveal loop failed to start (scheduled episodes will not auto-reveal):", error);
   }
 }
 

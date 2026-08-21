@@ -5,11 +5,34 @@ import { AppBar } from "@/components/AppBar";
 import { CommunitySection } from "@/components/media/CommunitySection";
 import { PosterCard } from "@/components/media/PosterCard";
 import { RatingsRow } from "@/components/media/RatingsRow";
+import { Row } from "@/components/media/Row";
+import { ScrollToEpisode } from "@/components/media/ScrollToEpisode";
 import { getRatingSummary } from "@/lib/community";
 import { currentSession } from "@/lib/current-user";
 import { getGroupSeriesId } from "@/lib/library-curation";
 import { getMemberships } from "@/lib/lists";
-import { getCollection } from "@/lib/media";
+import { getCollection, type CollectionItem } from "@/lib/media";
+import { pendingRolloutCount } from "@/lib/rollout";
+
+/**
+ * Whichever episode a viewer would say they "left off at" — the one
+ * they're mid-way through, or failing that, the first one they haven't
+ * finished yet. `items` must already be in watch order (getCollection's
+ * own sortKey ordering, season*1000+episode) since this just walks it
+ * once. Null when everything's been watched (or nothing has UserData at
+ * all yet) — ScrollToEpisode is a no-op in that case, same as landing on
+ * the page normally.
+ */
+function pickResumeTarget(items: CollectionItem[]): string | null {
+  const inProgress = items.find((it) => {
+    const position = it.item.UserData?.PlaybackPositionTicks;
+    return position !== undefined && position > 0 && it.item.UserData?.Played !== true;
+  });
+  if (inProgress) return inProgress.item.Id;
+
+  const nextUnwatched = items.find((it) => it.item.UserData?.Played !== true);
+  return nextUnwatched ? nextUnwatched.item.Id : null;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +64,11 @@ export default async function CollectionPage({
   );
 
   const partsLabel = `${collection.items.length} part${collection.items.length === 1 ? "" : "s"}`;
+  // A scheduled rollout (rollout.ts) — how many more slots this show still
+  // has coming, whether or not their files have even arrived yet. 0 for a
+  // show with no rollout plan at all, so this stays silent for every
+  // group that isn't using the feature.
+  const pendingCount = pendingRolloutCount("group", id);
   const creators = collection.director.length > 0 ? collection.director : collection.writer;
   const creatorsLabel = collection.director.length > 0 ? "Directed by" : "Created by";
 
@@ -51,6 +79,28 @@ export default async function CollectionPage({
   const seriesImdbId = getGroupSeriesId(id);
   const ratingSummary = seriesImdbId ? getRatingSummary(seriesImdbId) : null;
   const usRating = ratingSummary && ratingSummary.count > 0 ? { average: ratingSummary.average!, count: ratingSummary.count } : null;
+
+  // Grouped into one horizontally-scrolling row per season (the Row
+  // component already used for "More like this" etc.) instead of every
+  // part back to back in one grid — a 150+ episode show read as a wall of
+  // tiles otherwise. Falls back to the old flat grid when nothing here
+  // parsed a season number at all (a multi-part film like "Out 1", not an
+  // episodic show) — grouping everything into one unlabelled "Extras" row
+  // would be a worse presentation than the grid for that case, not a
+  // better one.
+  const seasons = new Map<number, CollectionItem[]>();
+  const extras: CollectionItem[] = [];
+  for (const it of collection.items) {
+    if (it.season === null) extras.push(it);
+    else {
+      const bucket = seasons.get(it.season);
+      if (bucket) bucket.push(it);
+      else seasons.set(it.season, [it]);
+    }
+  }
+  const seasonNumbers = [...seasons.keys()].sort((a, b) => a - b);
+  const hasSeasons = seasonNumbers.length > 0;
+  const resumeTargetId = hasSeasons ? pickResumeTarget(collection.items) : null;
 
   return (
     <>
@@ -69,6 +119,7 @@ export default async function CollectionPage({
             <h1>{collection.Name}</h1>
             <div className="meta">
               <span>{partsLabel}</span>
+              {pendingCount > 0 ? <span className="chip">+{pendingCount} more releasing soon</span> : null}
               {collection.ratings?.imdb ? (
                 <span className="meta-rating">
                   <span className="mark mark-imdb">IMDb</span>
@@ -83,7 +134,10 @@ export default async function CollectionPage({
         <div className="page-head">
           <h1>{collection.Name}</h1>
           {collection.Overview ? <p className="page-sub">{collection.Overview}</p> : null}
-          <p className="page-sub">{partsLabel}</p>
+          <p className="page-sub">
+            {partsLabel}
+            {pendingCount > 0 ? ` · +${pendingCount} more releasing soon` : ""}
+          </p>
         </div>
       )}
 
@@ -116,6 +170,30 @@ export default async function CollectionPage({
 
       {collection.items.length === 0 ? (
         <div className="empty">Nothing in this collection.</div>
+      ) : hasSeasons ? (
+        <>
+          <ScrollToEpisode episodeId={resumeTargetId} />
+          {seasonNumbers.map((n) => {
+            const seasonItems = seasons.get(n)!;
+            return (
+              <Row
+                key={n}
+                title={`Season ${n}`}
+                items={seasonItems.map((it) => it.item)}
+                lists={lists}
+                itemTitles={new Map(seasonItems.filter((it) => it.label).map((it) => [it.item.Id, it.label as string]))}
+              />
+            );
+          })}
+          {extras.length > 0 ? (
+            <Row
+              title="Extras"
+              items={extras.map((it) => it.item)}
+              lists={lists}
+              itemTitles={new Map(extras.filter((it) => it.label).map((it) => [it.item.Id, it.label as string]))}
+            />
+          ) : null}
+        </>
       ) : (
         <div className="grid">
           {collection.items.map(({ item, label }) => (

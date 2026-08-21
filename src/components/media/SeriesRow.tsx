@@ -8,15 +8,13 @@ import type { SeriesEntry } from "@/lib/scraping/film-series";
 import { PosterCard } from "./PosterCard";
 
 /**
- * "In this series" — every film Wikipedia's own film-series lists carry for
- * this franchise, in release order, not just the ones you own. An entry not
- * in the library still shows (title, year, a plain placeholder tile) so the
- * row reads as "here's the whole series," matching how streaming apps
- * usually present a franchise rather than silently hiding gaps.
+ * "In this series" — the films from Wikipedia's own film-series lists for
+ * this franchise that you actually own, in release order. Entries not in
+ * the library are dropped rather than shown as placeholders.
  *
- * Deliberately not built on the shared Row component: Row assumes every
- * item is a real MediaItem it can hand straight to PosterCard, and this row
- * has to render out-of-library entries too, which have no MediaItem at all.
+ * Deliberately not built on the shared Row component: Row's item prop type
+ * doesn't carry SeriesEntry's position/currentImdbId concerns, and keeping
+ * this row separate keeps that mapping local to one place.
  */
 export function SeriesRow({
   title,
@@ -33,37 +31,25 @@ export function SeriesRow({
   /** Highlights which tile is "this film" — the visitor is already on its page. */
   currentImdbId?: string;
 }) {
-  if (entries.length === 0) return null;
+  const owned = entries
+    .map((entry) => ({ entry, item: entry.imdb_id ? items.get(entry.imdb_id) : undefined }))
+    .filter((x): x is { entry: SeriesEntry; item: MediaItem } => x.item !== undefined);
+
+  if (owned.length === 0) return null;
 
   return (
     <section className="row" aria-label={title}>
       <h2>{title}</h2>
       <div className="row-scroll">
-        {entries.map((entry) => {
-          const owned = entry.imdb_id ? items.get(entry.imdb_id) : undefined;
+        {owned.map(({ entry, item }) => {
           const isCurrent = entry.imdb_id !== null && entry.imdb_id === currentImdbId;
-
-          if (owned) {
-            return (
-              <PosterCard
-                key={entry.position}
-                item={owned}
-                lists={lists?.get(owned.Id)}
-                badge={isCurrent ? "Watching now" : undefined}
-              />
-            );
-          }
-
           return (
-            <div key={entry.position} className="poster series-poster-placeholder">
-              <div className="poster-art">
-                <div className="fallback">{entry.raw_title}</div>
-              </div>
-              <div className="poster-title">{entry.raw_title}</div>
-              {entry.raw_year ? <div className="poster-sub">{entry.raw_year} · not in your library</div> : (
-                <div className="poster-sub">Not in your library</div>
-              )}
-            </div>
+            <PosterCard
+              key={entry.position}
+              item={item}
+              lists={lists?.get(item.Id)}
+              badge={isCurrent ? "Watching now" : undefined}
+            />
           );
         })}
       </div>

@@ -7,7 +7,7 @@ import { asRow, asRows, getDb, resolveDatabasePath } from "./db";
 import { env } from "./env";
 import { countEventsSince, getExternalApiUsageToday, type ExternalApiUsage } from "./events";
 import { checkJellyfinHealth, getActiveSessions, type JellyfinHealth, type JellyfinSessionSummary } from "./jellyfin";
-import { getLibraryNotifyStatus, type LibraryNotifyStatus } from "./library-notify";
+import { getLibraryNotifyStatus, getTvNotifyStatus, type LibraryNotifyStatus, type TvNotifyStatus } from "./library-notify";
 import { getOmdbBackfillStatus, type OmdbBackfillStatus } from "./omdb-backfill";
 import { getWikipediaBackfillStatus, type WikipediaBackfillStatus } from "./wikipedia-backfill";
 
@@ -69,6 +69,7 @@ export interface HealthSnapshot {
   omdbBackfill: OmdbBackfillStatus | null;
   wikipediaBackfill: WikipediaBackfillStatus | null;
   libraryNotify: LibraryNotifyStatus | null;
+  tvNotify: TvNotifyStatus | null;
 }
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -327,6 +328,7 @@ export async function getHealthSnapshot(): Promise<HealthSnapshot> {
   const omdbBackfill = getOmdbBackfillStatus();
   const wikipediaBackfill = getWikipediaBackfillStatus();
   const libraryNotify = getLibraryNotifyStatus();
+  const tvNotify = getTvNotifyStatus();
 
   const { scrapedDataBytes, cachedApiDataBytes } = checkStorageBreakdown();
   const otherDataBytes = Math.max(0, (database.sizeBytes ?? 0) - scrapedDataBytes - cachedApiDataBytes);
@@ -347,6 +349,7 @@ export async function getHealthSnapshot(): Promise<HealthSnapshot> {
     omdbBackfill,
     wikipediaBackfill,
     libraryNotify,
+    tvNotify,
   };
 
   return {

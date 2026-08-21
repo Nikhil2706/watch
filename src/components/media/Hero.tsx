@@ -6,6 +6,7 @@ import {
   resumeSeconds,
   type MediaItem,
 } from "@/lib/media";
+import { itemHref, watchHref } from "@/lib/slugs";
 
 /**
  * Featured title at the top of the home page.
@@ -60,11 +61,11 @@ export function Hero({ item, imdb }: { item: MediaItem; imdb?: string | null }) 
         <div className="btn-row">
           <Link
             className="btn"
-            href={`/watch/${item.Id}${resume > 0 ? `?t=${resume}` : ""}`}
+            href={watchHref(item.Id, item.Name, item.ProductionYear, resume)}
           >
             ▶ {resume > 0 ? "Resume" : "Play"}
           </Link>
-          <Link className="btn ghost" href={`/item/${item.Id}`}>
+          <Link className="btn ghost" href={itemHref(item.Id, item.Name, item.ProductionYear)}>
             More info
           </Link>
         </div>

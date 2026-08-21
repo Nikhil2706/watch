@@ -1,10 +1,12 @@
-# Upload scanner — setup (not done yet, do this together)
+# Upload scanner — setup (registered, not yet tested)
 
 `upload-scanner.ps1` runs the Windows Defender side of the Langlois-mode
-upload pipeline: quarantine → **this script** → curator approval. Written,
-not yet wired up to actually run — no Scheduled Task has been registered for
-it, on purpose (per the "verify things together" workflow). Steps to finish
-setup, whenever that's convenient:
+upload pipeline: quarantine → **this script** → curator approval. The
+`JellyfinGateUploadScanner` Scheduled Task was registered 2026-08-20 (every
+5 minutes, `-RunLevel Highest`) — it is running now. What's still
+outstanding is step 3 below: a real EICAR-file test to confirm the
+`Get-MpThreatDetection` matching logic actually catches a detection on this
+machine's Defender version, not just by inspection. Steps:
 
 1. **Confirm the quarantine path matches reality.** The script reads
    `$env:JELLYFIN_GATE_QUARANTINE_PATH`, falling back to
@@ -18,9 +20,16 @@ setup, whenever that's convenient:
    ```powershell
    $action = New-ScheduledTaskAction -Execute "powershell.exe" `
      -Argument "-NoProfile -ExecutionPolicy Bypass -File `"C:\Users\Dell\Downloads\jellyfin-gate\scripts\windows\upload-scanner.ps1`""
-   $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration ([TimeSpan]::MaxValue)
+   $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
    Register-ScheduledTask -TaskName "JellyfinGateUploadScanner" -Action $action -Trigger $trigger -RunLevel Highest
    ```
+   `[TimeSpan]::MaxValue` looks like the obvious way to say "repeat forever,"
+   but Task Scheduler's XML duration field can't represent it —
+   `Register-ScheduledTask` fails with "The task XML contains a value which
+   is incorrectly formatted or out of range" (`P99999999DT23H59M59S`
+   overflows the schema). A long-but-finite duration like 10 years works
+   and needs no maintenance on any human timescale. Confirmed registering
+   successfully 2026-08-20.
    Runs as the current user by default, not SYSTEM — unlike the Docker
    watchdog, this doesn't need SYSTEM's PATH, so this is simpler on
    purpose. If it's changed to run as SYSTEM later, re-check the same PATH

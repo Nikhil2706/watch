@@ -17,6 +17,7 @@ import {
 } from "./media";
 import { getCachedRatingsBulk, getRatings } from "./ratings";
 import type { ResolvedSession } from "./session";
+import { itemHref } from "./slugs";
 
 /**
  * Server-side assembly for the multi-dimensional Browse page (genre /
@@ -70,7 +71,7 @@ function toBrowseMovie(
   const cached = imdbId ? ratings.get(imdbId) : undefined;
   return {
     item,
-    href: `/item/${item.Id}`,
+    href: itemHref(item.Id, item.Name, item.ProductionYear),
     poster: undefined,
     year: item.ProductionYear ?? null,
     genres: item.Genres ?? [],

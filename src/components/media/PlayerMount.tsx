@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 
-import type { PlayerSubtitle } from "./Player";
+import type { PlayerPartySync, PlayerSubtitle } from "./Player";
 
 /**
  * Client-only mount for the player.
@@ -36,6 +36,7 @@ export interface PlayerMountProps {
   transcodeReasons: string[];
   subtitles: PlayerSubtitle[];
   defaultSubtitleIndex: number | null;
+  party?: PlayerPartySync;
 }
 
 export function PlayerMount(props: PlayerMountProps) {

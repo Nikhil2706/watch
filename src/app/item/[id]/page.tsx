@@ -29,7 +29,9 @@ import {
   qualityLabel,
   resumeSeconds,
 } from "@/lib/media";
+import { StartPartyButton } from "@/components/party/StartPartyButton";
 import { getSeriesContextForFilm } from "@/lib/scraping/film-series";
+import { extractJellyfinId, itemHref, watchHref } from "@/lib/slugs";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +43,8 @@ export default async function ItemPage({
   const session = await currentSession();
   if (!session) redirect("/login");
 
-  const { id } = await params;
+  const { id: rawId } = await params;
+  const id = extractJellyfinId(rawId);
   const item = await getItem(session, id);
   if (!item) notFound();
 
@@ -159,12 +162,12 @@ export default async function ItemPage({
             />
             <Link
               className="btn"
-              href={`/watch/${item.Id}${resume > 0 ? `?t=${resume}` : ""}`}
+              href={watchHref(item.Id, item.Name, item.ProductionYear, resume)}
             >
               ▶ {resume > 0 ? `Resume at ${Math.floor(resume / 60)}m` : "Play"}
             </Link>
             {resume > 0 ? (
-              <Link className="btn ghost" href={`/watch/${item.Id}`}>
+              <Link className="btn ghost" href={watchHref(item.Id, item.Name, item.ProductionYear)}>
                 Start over
               </Link>
             ) : null}
@@ -180,6 +183,7 @@ export default async function ItemPage({
                 ⬇ Download film
               </a>
             ) : null}
+            <StartPartyButton jellyfinId={item.Id} />
           </div>
         </div>
       </section>
@@ -276,7 +280,7 @@ export default async function ItemPage({
           <CommunitySection
             imdbId={imdbId}
             filmTitle={item.Name}
-            filmHref={`/item/${item.Id}`}
+            filmHref={itemHref(item.Id, item.Name, item.ProductionYear)}
             currentUserId={session.userId}
             currentUsername={session.username}
           />

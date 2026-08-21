@@ -4,9 +4,11 @@ import { AppBar } from "@/components/AppBar";
 import { Hero } from "@/components/media/Hero";
 import { ProcessingRow } from "@/components/media/ProcessingRow";
 import { Row } from "@/components/media/Row";
+import { PartyBanner } from "@/components/party/PartyBanner";
 import { currentSession } from "@/lib/current-user";
 import { getActiveJobs } from "@/lib/jobs";
 import { getMemberships } from "@/lib/lists";
+import { listLiveParties, listUpcomingParties } from "@/lib/party";
 import { getRatings } from "@/lib/ratings";
 import {
   collapseEpisodeGroups,
@@ -39,6 +41,9 @@ export default async function HomePage() {
   // folder but are still being converted, so Jellyfin does not know about them.
   const processing = getActiveJobs();
 
+  const liveParties = listLiveParties();
+  const upcomingParties = listUpcomingParties();
+
   // One request per genre row, in parallel. Capped at four rows so a large
   // library does not turn the home page into dozens of upstream calls.
   const genreRows = await Promise.all(
@@ -69,6 +74,7 @@ export default async function HomePage() {
     return (
       <>
         <AppBar username={session.username} langloisMode={session.langloisMode} />
+        <PartyBanner live={liveParties} upcoming={upcomingParties} />
         <ProcessingRow jobs={processing} />
         <div className="empty">
           <p>Nothing in the library yet.</p>
@@ -89,6 +95,7 @@ export default async function HomePage() {
   return (
     <>
       <AppBar username={session.username} langloisMode={session.langloisMode} />
+      <PartyBanner live={liveParties} upcoming={upcomingParties} />
       <Hero item={featured} imdb={featuredRatings?.imdb} />
       <Row title="Continue watching" items={resume} lists={lists} />
       <Row

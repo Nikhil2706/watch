@@ -186,6 +186,18 @@
   }
   .cur-group-manage .row { margin-bottom: 8px; }
   .cur-group-manage strong { font-size: 13px; }
+  .cur-rollout {
+    margin: 4px 0 12px; padding: 10px 12px; border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border);
+  }
+  .cur-rollout label { font-size: 11px; }
+  .cur-rollout-slots { max-height: 180px; overflow-y: auto; font-size: 12px; }
+  .cur-rollout-slot {
+    display: flex; align-items: center; gap: 8px; padding: 4px 0;
+    border-top: 1px solid var(--border);
+  }
+  .cur-rollout-slot-revealed { color: var(--muted); }
+  .cur-rollout-slot-due { color: #4ade80; }
 
   /* --- Worker tab ----------------------------------------------------- */
   .wk-item {
@@ -548,6 +560,25 @@
           <div style="flex:0 0 auto" class="muted" id="browseCount"></div>
         </div>
         <div id="browseList" class="rv-group" style="max-height:640px;overflow-y:auto"></div>
+      </div>
+    </div>
+
+    <!-- Film series: Wikipedia-sourced franchise membership (SeriesRow.tsx's
+         "In this series" row on the public site) — this is the one place
+         to see them all, and to set a scheduled rollout on one. -->
+    <div class="card" id="filmSeriesCard" style="display:none">
+      <div class="row" style="margin-bottom:10px">
+        <div>
+          <div class="card-title">Film series</div>
+          <div class="note" style="margin-top:2px">
+            Every scraped franchise. "Matched" is how many entries have a resolved IMDb id at all — not how
+            many you actually own; open a series to see which of those you have and set a release schedule.
+          </div>
+        </div>
+        <div style="flex:0 0 auto"><button id="loadFilmSeries" class="ghost">Load film series</button></div>
+      </div>
+      <div id="filmSeriesBody" style="display:none">
+        <div id="filmSeriesList"></div>
       </div>
     </div>
 
@@ -1235,6 +1266,7 @@
       $("libraryCard").style.display = "";
       $("reviewCard").style.display = "";
       $("browseCard").style.display = "";
+      $("filmSeriesCard").style.display = "";
       $("curationCard").style.display = "";
       $("candidatesCard").style.display = "";
       $("queueCard").style.display = "";
@@ -1484,6 +1516,17 @@
           '<div class="ha-name" style="text-transform:none;font-weight:400;color:var(--muted);font-size:12px">' +
             'New-item notifications: ' + ln.knownItemCount + ' movie(s) tracked' +
             (ln.lastTickAt ? ' · last check ' + fmtAgo(ln.lastTickAt) + ' (' + ln.lastTickNewItems + ' notified)' : ' · not run yet') +
+          '</div>' +
+        '</div>'
+      );
+    }
+    if (h.tvNotify) {
+      var tn = h.tvNotify;
+      apiRows.push(
+        '<div class="health-api-row" style="border-top-style:dashed">' +
+          '<div class="ha-name" style="text-transform:none;font-weight:400;color:var(--muted);font-size:12px">' +
+            'TV notifications: ' + tn.knownGroupCount + ' show(s) tracked' +
+            (tn.lastTickAt ? ' · last check ' + fmtAgo(tn.lastTickAt) + ' (' + tn.lastTickNewShows + ' new show(s), ' + tn.lastTickEpisodeNotifications + ' episode update(s))' : ' · not run yet') +
           '</div>' +
         '</div>'
       );
@@ -1749,6 +1792,65 @@
       .then(function () { btn.disabled = false; btn.textContent = "Load library"; });
   });
 
+  /* ================================================================
+   * Film series (rollout.ts's other subject type — see the "Film series"
+   * card's own note above for why this view exists at all).
+   * ================================================================ */
+  $("loadFilmSeries").addEventListener("click", function () {
+    clearMsg();
+    var btn = $("loadFilmSeries");
+    btn.disabled = true;
+    btn.textContent = "Loading…";
+    api("/api/admin/library/film-series").then(function (data) {
+      $("filmSeriesBody").style.display = "";
+      renderFilmSeriesList(data.series || []);
+    }).catch(function (e) { show("err", e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = "Load film series"; });
+  });
+
+  function renderFilmSeriesList(series) {
+    var el = $("filmSeriesList");
+    if (!series.length) { el.innerHTML = '<div class="cur-empty">No scraped film series yet.</div>'; return; }
+    el.innerHTML = series.map(function (s) {
+      return '<div class="cur-row">' +
+        '<div><strong>' + esc(s.name) + '</strong>' +
+        '<span class="cur-path">' + s.matchedCount + ' of ' + s.entryCount + ' entries matched to an IMDb id</span></div>' +
+        '<button class="ghost" data-action="toggle-film-series" data-series-id="' + esc(s.id) + '">Manage</button>' +
+        '</div>' +
+        '<div class="cur-group-panel-slot" data-panel-for-series="' + esc(s.id) + '"></div>';
+    }).join("");
+  }
+
+  function toggleFilmSeriesDetail(seriesId) {
+    var slot = document.querySelector('[data-panel-for-series="' + seriesId + '"]');
+    if (!slot) return;
+    if (slot.dataset.open === "1") { slot.innerHTML = ""; slot.dataset.open = "0"; return; }
+    slot.innerHTML = '<div class="muted">Loading…</div>';
+    slot.dataset.open = "1";
+    api("/api/admin/library/film-series/" + encodeURIComponent(seriesId))
+      .then(function (detail) {
+        renderFilmSeriesDetail(slot, detail);
+        loadRollout("series", seriesId);
+      })
+      .catch(function (e) { slot.innerHTML = '<div class="muted">' + esc(e.message) + '</div>'; });
+  }
+
+  function renderFilmSeriesDetail(slot, detail) {
+    var html = '<div class="cur-group-manage">' +
+      rolloutPanelHtml("series", detail.seriesId, "Total films expected") +
+      '<div class="row" style="margin-bottom:6px;align-items:center">' +
+      '<strong>Entries (' + detail.entries.length + ')</strong><span class="spacer"></span>' +
+      '</div>';
+    detail.entries.forEach(function (e) {
+      html += '<div class="rv-item">' +
+        '<div class="rv-name">#' + e.position + ' ' + esc(e.raw_title) + (e.raw_year ? ' (' + e.raw_year + ')' : '') +
+        '<span class="rv-path">' + (e.imdb_id ? e.imdb_id : "no IMDb match") + (e.owned ? " — owned" : " — not in your library") + '</span></div>' +
+        '</div>';
+    });
+    html += "</div>";
+    slot.innerHTML = html;
+  }
+
   function browseBadges(it) {
     var b = "";
     if (it.isDuplicate) b += '<span class="pill s-revoked">duplicate</span> ';
@@ -1791,6 +1893,7 @@
       '<div style="flex:0 0 auto"><label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">' +
       '<input type="checkbox" class="rv-select-all" style="width:auto"> Select all shown</label></div>' +
       '<div style="flex:0 0 auto"><button class="ghost" data-action="browse-group">Group checked as one</button></div>' +
+      '<div style="flex:0 0 auto"><button class="ghost" data-action="browse-group-add">Add checked to existing group</button></div>' +
       '</div>';
     filtered.forEach(function (it) {
       html += '<div class="rv-item" data-item-id="' + it.id + '"><input type="checkbox" data-item-id="' + it.id + '">' +
@@ -2141,6 +2244,38 @@
       });
   }
 
+  /**
+   * The counterpart to groupChecked() above for a show that already has a
+   * group — e.g. adding this week's newly-arrived episode to a show under
+   * an active rollout schedule (rollout.ts), which otherwise has no way to
+   * grow a group without recreating it from scratch and losing its series
+   * link, synopsis and rollout plan.
+   */
+  function addCheckedToExistingGroup(groupEl) {
+    var ids = checkedIdsIn(groupEl);
+    if (ids.length < 1) { show("err", "Check at least 1 item to add."); return; }
+    var paths = ids.map(function (id) { return review.itemsById[id] && review.itemsById[id].path; }).filter(Boolean);
+    if (paths.length < 1) { show("err", "Couldn't resolve file paths for those items."); return; }
+
+    api("/api/admin/library/curation").then(function (data) {
+      var groups = data.groups || [];
+      if (!groups.length) { show("err", "No existing groups to add to yet — use \"Group checked as one\" first."); return; }
+      var names = groups.map(function (g) { return g.groupName; }).join(", ");
+      var typed = prompt("Add to which group? (" + names + ")");
+      if (!typed) return;
+      var match = groups.find(function (g) { return g.groupName.toLowerCase() === typed.trim().toLowerCase(); });
+      if (!match) { show("err", "No group named \"" + typed + "\"."); return; }
+
+      api("/api/admin/library/group-add", { method: "POST", body: { groupId: match.groupId, paths: paths } })
+        .then(function (result) {
+          show("ok", "Added " + result.added + " file(s) to “" + match.groupName + "”.");
+          ids.forEach(function (id) { markRowDone(id, "Added to " + match.groupName); });
+          loadCuration();
+        })
+        .catch(function (e) { show("err", e.message); });
+    });
+  }
+
   function mergeVersionsChecked(groupEl) {
     var ids = checkedIdsIn(groupEl);
     if (ids.length < 2) { show("err", "Check at least 2 items to merge as versions."); return; }
@@ -2184,6 +2319,7 @@
     else if (action === "apply-candidate") applyCandidate(itemId, parseInt(btn.getAttribute("data-candidate-index"), 10));
     else if (action === "dup-keep") keepCheckedDiscardRest(groupEl);
     else if (action === "dup-group" || action === "thin-group" || action === "browse-group") groupChecked(groupEl);
+    else if (action === "browse-group-add") addCheckedToExistingGroup(groupEl);
     else if (action === "dup-versions") mergeVersionsChecked(groupEl);
     else if (action === "unexclude") unexcludeBrowseItem(itemId);
     else if (action === "toggle-folder") {
@@ -2201,7 +2337,20 @@
         .catch(function () {});
     }
     else if (action === "fetch-all-episodes") fetchAllEpisodes(btn.getAttribute("data-group-id"), btn);
+    else if (action === "save-rollout") saveRollout(btn.getAttribute("data-subject-type"), btn.getAttribute("data-subject-id"), btn);
+    else if (action === "toggle-film-series") toggleFilmSeriesDetail(btn.getAttribute("data-series-id"));
     else if (action === "transform") transformCandidate(itemId, btn);
+  });
+
+  // Delegated so it works for every rollout panel opened this session, not
+  // just the one present when the listener was attached.
+  document.addEventListener("change", function (e) {
+    if (e.target.matches("[data-rollout-mode]")) {
+      var panel = e.target.closest("[data-rollout-panel]");
+      var weeklyOnly = panel.querySelectorAll("[data-rollout-weekly-only]");
+      var show = e.target.value === "weekly";
+      weeklyOnly.forEach(function (el) { el.style.display = show ? "" : "none"; });
+    }
   });
 
   /* ================================================================
@@ -2276,8 +2425,134 @@
       .then(function (detail) {
         detail.items.forEach(function (it) { review.itemsById[it.id] = it; });
         renderGroupManage(slot, detail);
+        loadRollout("group", groupId);
       })
       .catch(function (e) { slot.innerHTML = '<div class="muted">' + esc(e.message) + '</div>'; });
+  }
+
+  /* ---------------------------------------------------------------
+   * Scheduled rollout (rollout.ts / DESIGN-scheduled-rollout.md) —
+   * a separate load from group-detail above since it's its own table,
+   * fetched right after the group panel itself renders.
+   * --------------------------------------------------------------- */
+  function toLocalDatetimeInputValue(ms) {
+    var d = new Date(ms);
+    var pad = function (n) { return String(n).padStart(2, "0"); };
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+
+  function rolloutPanelSelector(subjectType, subjectId) {
+    return '[data-rollout-panel][data-subject-type="' + subjectType + '"][data-subject-id="' + subjectId + '"]';
+  }
+
+  // Shared markup for both the TV group-manage panel and the film-series
+  // detail panel — identical mechanics either way (see rollout.ts), only
+  // the "total expected" field's label differs between the two callers.
+  function rolloutPanelHtml(subjectType, subjectId, totalLabel) {
+    return '<div class="cur-rollout" data-rollout-panel data-subject-type="' + subjectType + '" data-subject-id="' + esc(subjectId) + '">' +
+      '<div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:8px;margin-bottom:6px">' +
+      '<strong style="flex:1 1 100%">Scheduled rollout</strong>' +
+      '<div><label>Release</label><select data-rollout-mode>' +
+      '<option value="immediate">Everything now</option>' +
+      '<option value="daily">N per day</option>' +
+      '<option value="weekly">Weekly, one day/time</option>' +
+      '</select></div>' +
+      '<div><label>Per release</label><input type="number" min="1" value="1" data-rollout-per style="width:70px"></div>' +
+      '<div data-rollout-weekly-only style="display:none"><label>Weekday</label><select data-rollout-weekday>' +
+      '<option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option>' +
+      '<option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option>' +
+      '<option value="6">Saturday</option></select></div>' +
+      '<div data-rollout-weekly-only style="display:none"><label>Time</label><input type="time" value="09:00" data-rollout-time></div>' +
+      '<div><label>Starts</label><input type="datetime-local" data-rollout-start></div>' +
+      '<div><label>' + esc(totalLabel) + '</label><input type="number" min="1" data-rollout-total style="width:90px"></div>' +
+      '<div style="flex:0 0 auto"><button data-action="save-rollout" data-subject-type="' + subjectType + '" data-subject-id="' + esc(subjectId) + '">Save schedule</button></div>' +
+      '</div>' +
+      '<div class="cur-rollout-slots" data-rollout-slots><span class="muted">Loading…</span></div>' +
+      '</div>';
+  }
+
+  // subjectType is "group" (a TV show, library_groups.group_id) or
+  // "series" (a film series, film_series.id) — see rollout.ts. Both use
+  // the exact same panel markup/mechanics; only what a slot's "content"
+  // column shows (a file path vs. a film title) differs, handled in
+  // renderRolloutSlots below.
+  function loadRollout(subjectType, subjectId) {
+    var panel = document.querySelector(rolloutPanelSelector(subjectType, subjectId));
+    if (!panel) return;
+    api("/api/admin/library/rollout?subjectType=" + subjectType + "&subjectId=" + encodeURIComponent(subjectId))
+      .then(function (data) {
+        if (data.plan) {
+          panel.querySelector("[data-rollout-mode]").value = data.plan.mode;
+          panel.querySelector("[data-rollout-per]").value = data.plan.perRelease;
+          if (data.plan.weekday !== null) panel.querySelector("[data-rollout-weekday]").value = String(data.plan.weekday);
+          if (data.plan.timeOfDay) panel.querySelector("[data-rollout-time]").value = data.plan.timeOfDay;
+          panel.querySelector("[data-rollout-start]").value = toLocalDatetimeInputValue(data.plan.startAt);
+          panel.querySelector("[data-rollout-total]").value = data.slots.length;
+          panel.querySelectorAll("[data-rollout-weekly-only]").forEach(function (el) {
+            el.style.display = data.plan.mode === "weekly" ? "" : "none";
+          });
+        } else {
+          panel.querySelector("[data-rollout-start]").value = toLocalDatetimeInputValue(Date.now());
+        }
+        renderRolloutSlots(subjectType, subjectId, data.slots || []);
+      })
+      .catch(function () {
+        var slotsEl = panel.querySelector("[data-rollout-slots]");
+        if (slotsEl) slotsEl.innerHTML = '<span class="muted">Couldn\'t load the rollout schedule.</span>';
+      });
+  }
+
+  function renderRolloutSlots(subjectType, subjectId, slots) {
+    var el = document.querySelector(rolloutPanelSelector(subjectType, subjectId) + " [data-rollout-slots]");
+    if (!el) return;
+    var noneYetMsg = subjectType === "group"
+      ? "No schedule set — every confirmed episode is visible as soon as it's fetched."
+      : "No schedule set — every owned film in this series is visible as soon as it's added.";
+    if (slots.length === 0) {
+      el.innerHTML = '<span class="muted">' + noneYetMsg + '</span>';
+      return;
+    }
+    var pending = slots.filter(function (s) { return !s.revealedAt; }).length;
+    var html = '<div class="muted" style="margin-bottom:4px">' + (slots.length - pending) + ' of ' + slots.length + ' revealed, ' + pending + ' pending</div>';
+    html += slots.map(function (s) {
+      var status = s.revealedAt ? "revealed" : (s.releaseAt <= Date.now() ? "due" : "scheduled");
+      var when = s.revealedAt ? "revealed " + fmtAgo(s.revealedAt) : new Date(s.releaseAt).toLocaleString();
+      var content = subjectType === "group"
+        ? (s.path ? esc(shortName(s.path)) : '<em>no file yet</em>')
+        : (s.imdbId ? esc(s.imdbId) : '<em>no owned film yet</em>');
+      return '<div class="cur-rollout-slot cur-rollout-slot-' + status + '">' +
+        '#' + s.slotIndex + ' — ' + content +
+        '<span class="spacer"></span><span class="muted">' + when + '</span></div>';
+    }).join("");
+    el.innerHTML = html;
+  }
+
+  function saveRollout(subjectType, subjectId, btn) {
+    var panel = document.querySelector(rolloutPanelSelector(subjectType, subjectId));
+    var mode = panel.querySelector("[data-rollout-mode]").value;
+    var perRelease = parseInt(panel.querySelector("[data-rollout-per]").value, 10) || 1;
+    var weekday = parseInt(panel.querySelector("[data-rollout-weekday]").value, 10);
+    var timeOfDay = panel.querySelector("[data-rollout-time]").value;
+    var startVal = panel.querySelector("[data-rollout-start]").value;
+    var startAt = startVal ? new Date(startVal).getTime() : Date.now();
+    var expectedTotal = parseInt(panel.querySelector("[data-rollout-total]").value, 10);
+    if (!expectedTotal || expectedTotal < 1) { show("err", "Enter the total number expected."); return; }
+
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    api("/api/admin/library/rollout", {
+      method: "POST",
+      body: { subjectType: subjectType, subjectId: subjectId, mode: mode, perRelease: perRelease, weekday: weekday, timeOfDay: timeOfDay, startAt: startAt, expectedTotal: expectedTotal },
+    })
+      .then(function (data) {
+        show("ok", "Rollout schedule saved.");
+        renderRolloutSlots(subjectType, subjectId, data.slots || []);
+      })
+      .catch(function (e) { show("err", e.message); })
+      .finally(function () {
+        btn.disabled = false;
+        btn.textContent = "Save schedule";
+      });
   }
 
   function renderGroupManage(slot, detail) {
@@ -2296,6 +2571,7 @@
       '<input type="text" data-group-series value="' + esc(detail.seriesImdbId || "") + '" placeholder="https://www.imdb.com/title/tt.../"></div>' +
       '<div style="flex:0 0 auto"><button data-action="save-group-series" data-group-id="' + esc(detail.groupId) + '">Save series</button></div>' +
       '</div>' +
+      rolloutPanelHtml("group", detail.groupId, "Total episodes expected") +
       '<div class="row" style="margin-bottom:6px;align-items:center">' +
       '<strong>Episodes (' + detail.items.length + ')</strong><span class="spacer"></span>' +
       '<button class="ghost" data-action="fetch-all-episodes" data-group-id="' + esc(detail.groupId) + '">Fetch all from OMDb</button>' +

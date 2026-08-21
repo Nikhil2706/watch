@@ -5,6 +5,7 @@ import { PlayerMount } from "@/components/media/PlayerMount";
 import { currentSession } from "@/lib/current-user";
 import { logEvent } from "@/lib/events";
 import { getItem, getPlaybackPlan, posterUrl, resumeSeconds } from "@/lib/media";
+import { extractJellyfinId, itemHref } from "@/lib/slugs";
 import { defaultTrack, listSubtitles } from "@/lib/subtitles";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,8 @@ export default async function WatchPage({
   const session = await currentSession();
   if (!session) redirect("/login");
 
-  const { id } = await params;
+  const { id: rawId } = await params;
+  const id = extractJellyfinId(rawId);
   const { t } = await searchParams;
 
   const item = await getItem(session, id);
@@ -56,7 +58,7 @@ export default async function WatchPage({
   return (
     <div className="player-page">
       <div className="player-bar">
-        <Link className="btn ghost" href={`/item/${item.Id}`}>
+        <Link className="btn ghost" href={itemHref(item.Id, item.Name, item.ProductionYear)}>
           ‹ Back
         </Link>
         <span className="title">{item.Name}</span>

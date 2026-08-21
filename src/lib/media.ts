@@ -15,6 +15,7 @@ import {
   getWhitelistedPathSet,
 } from "./library-curation";
 import { getRatings, type Ratings } from "./ratings";
+import { getHiddenRolloutImdbSet, getHiddenRolloutPathSet } from "./rollout";
 import { stripCredentials } from "./strip-credentials";
 import type { ResolvedSession } from "./session";
 
@@ -107,18 +108,31 @@ function hasNoMetadata(item: MediaItem): boolean {
 }
 
 /**
- * Drops anything the review dashboard excluded, PLUS anything with no fetched
- * metadata at all that hasn't been explicitly whitelisted — a title with no
+ * Drops anything the review dashboard excluded, anything with no fetched
+ * metadata at all that hasn't been explicitly whitelisted (a title with no
  * overview, no TMDB/IMDb id and no poster is an open question for the review
- * dashboard, not something to hand a viewer. Two local SQLite reads, not a
- * Jellyfin call — cheap enough to run on every list this module returns.
+ * dashboard, not something to hand a viewer), PLUS anything a curator has
+ * scheduled for later release and hasn't reached yet (see rollout.ts and
+ * DESIGN-scheduled-rollout.md). Three local SQLite reads, not a Jellyfin
+ * call — cheap enough to run on every list this module returns.
+ *
+ * Deliberately NOT applied to getItem() below (a single item fetched by
+ * id): a direct link someone already has still works even for an excluded
+ * or not-yet-released title — this only ever gates DISCOVERY, matching the
+ * user's own explicit call on rollout ("let them watch what's posted") and
+ * the precedent that was already true for excluded/thin-metadata items
+ * before rollout existed.
  */
 function filterVisible(items: MediaItem[]): MediaItem[] {
   const excluded = getExcludedPathSet();
   const whitelisted = getWhitelistedPathSet();
+  const rolloutHiddenPaths = getHiddenRolloutPathSet();
+  const rolloutHiddenImdb = getHiddenRolloutImdbSet();
   return items.filter((item) => {
     if (item.Path && excluded.has(item.Path)) return false;
     if (hasNoMetadata(item) && !(item.Path && whitelisted.has(item.Path))) return false;
+    if (item.Path && rolloutHiddenPaths.has(item.Path)) return false;
+    if (item.ProviderIds?.Imdb && rolloutHiddenImdb.has(item.ProviderIds.Imdb)) return false;
     return true;
   });
 }
@@ -308,6 +322,8 @@ export interface CollectionItem {
    * part number. Nothing here touches item.Name or Jellyfin's stored match.
    */
   label: string | null;
+  /** Parsed from the filename, same as `label`'s own source — null for a part with no season/episode marker at all (an extra, a special), which the collection page groups into its own "Extras" row rather than guessing a season for it. */
+  season: number | null;
 }
 
 export interface CollectionDetail {
@@ -369,12 +385,13 @@ export async function getCollection(
       return {
         item,
         label: resolveEpisodeLabel(item, parsed, confirmedPaths),
+        season: parsed.season,
         sortKey: parsed.sortKey,
         path: item.Path ?? "",
       };
     })
     .sort((a, b) => a.sortKey - b.sortKey || a.path.localeCompare(b.path))
-    .map(({ item, label }) => ({ item, label }));
+    .map(({ item, label, season }) => ({ item, label, season }));
 
   const meta = getGroupSeriesMeta(groupId);
   const seriesImdbId = getGroupSeriesId(groupId);

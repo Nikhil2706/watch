@@ -20,14 +20,18 @@
     "hls.js": "^1.6.17",
     "next": "16.3.0",
     "pdf-parse": "^2.4.5",
+    "qrcode": "^1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.9.0"
   }
 }

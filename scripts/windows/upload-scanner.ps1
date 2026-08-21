@@ -1,6 +1,16 @@
+# Plain hyphens only, deliberately - no em dashes anywhere in this file.
+# Windows PowerShell 5.1 (not pwsh 7+) mis-tokenizes a double-quoted string
+# that mixes a multi-byte UTF-8 character with a $(...) subexpression: it
+# loses brace-nesting sync from that string onward and throws "Missing
+# closing '}'" errors pointing at completely unrelated later lines. This
+# is exactly what silently broke this script for its first five minutes of
+# actually running as a Scheduled Task (2026-08-21) - proven by feeding
+# both versions to [System.Management.Automation.Language.Parser]::ParseFile
+# directly. Keep it ASCII-only.
+#
 # Windows Defender scan pass for Langlois-mode uploads.
 # Meant to run every few minutes via a Windows Scheduled Task, same pattern
-# as docker-watchdog.ps1 (C:\Users\Dell\docker-watchdog\) — deliberately
+# as docker-watchdog.ps1 (C:\Users\Dell\docker-watchdog\) - deliberately
 # lives outside the jellyfin-gate repo checkout for the same reason that
 # script does: connected to a public GitHub PR, no business being committed
 # there. This one has to live OUTSIDE Docker entirely for a different
@@ -13,7 +23,7 @@
 #      already have a "<file>.scan-result.json" marker next to it.
 #   2. Run MpCmdRun.exe -Scan -ScanType 3 -File <path> against it.
 #   3. Check Get-MpThreatDetection for anything matching that path, rather
-#      than trusting MpCmdRun's own exit code/text output — that command's
+#      than trusting MpCmdRun's own exit code/text output - that command's
 #      exit code means "the scan ran," not "nothing was found," and its
 #      console output is locale-dependent. The detection log is the
 #      authoritative, English-cmdlet-stable source for "was this file
@@ -33,7 +43,7 @@ $ErrorActionPreference = "Stop"
 $logPath = "C:\Users\Dell\docker-watchdog\upload-scanner.log"
 
 # Must match docker-compose.yml's MEDIA_QUARANTINE_PATH default (or
-# whatever it's actually set to in .env) — this is the real Windows path
+# whatever it's actually set to in .env) - this is the real Windows path
 # behind the gate/worker containers' /quarantine mount.
 $quarantinePath = $env:JELLYFIN_GATE_QUARANTINE_PATH
 if (-not $quarantinePath) {
@@ -43,7 +53,7 @@ if (-not $quarantinePath) {
 $mpCmdRun = "${env:ProgramFiles}\Windows Defender\MpCmdRun.exe"
 if (-not (Test-Path $mpCmdRun)) {
     # Newer Windows versions moved this under ProgramData with a version
-    # subfolder that changes per update — resolve it dynamically rather
+    # subfolder that changes per update - resolve it dynamically rather
     # than hardcoding a path that will go stale.
     $found = Get-ChildItem "$env:ProgramData\Microsoft\Windows Defender\Platform" -Filter "MpCmdRun.exe" -Recurse -ErrorAction SilentlyContinue |
         Sort-Object FullName -Descending | Select-Object -First 1
@@ -58,7 +68,7 @@ function Write-Log($msg) {
 Write-Log "check starting"
 
 if (-not (Test-Path $mpCmdRun)) {
-    Write-Log "MpCmdRun.exe not found — is Windows Defender installed/enabled? Checked: $mpCmdRun"
+    Write-Log "MpCmdRun.exe not found - is Windows Defender installed/enabled? Checked: $mpCmdRun"
     exit 1
 }
 
@@ -86,7 +96,7 @@ foreach ($file in $candidates) {
         continue
     }
 
-    # Give Defender a moment to write the detection event before checking —
+    # Give Defender a moment to write the detection event before checking -
     # observed to occasionally lag a second or two behind MpCmdRun exiting.
     Start-Sleep -Seconds 2
 
@@ -103,14 +113,14 @@ foreach ($file in $candidates) {
     }
 
     $markerPath = "$($file.FullName).scan-result.json"
-    # Written to a temp file then renamed — an atomic rename means the gate
+    # Written to a temp file then renamed - an atomic rename means the gate
     # app's reader (readScanMarker in src/lib/uploads.ts) never sees a
     # half-written marker, no matter when it happens to poll.
     $tempMarker = "$markerPath.tmp"
 
     if ($threat) {
         $detail = $threat.ThreatName
-        Write-Log "INFECTED: $($file.Name) — $detail"
+        Write-Log "INFECTED: $($file.Name) - $detail"
         @{ status = "infected"; detail = $detail } | ConvertTo-Json -Compress | Set-Content -Path $tempMarker -Encoding utf8
     } else {
         Write-Log "clean: $($file.Name)"
@@ -119,4 +129,4 @@ foreach ($file in $candidates) {
     Move-Item -Path $tempMarker -Destination $markerPath -Force
 }
 
-Write-Log "check complete — $($candidates.Count) file(s) scanned"
+Write-Log "check complete - $($candidates.Count) file(s) scanned"

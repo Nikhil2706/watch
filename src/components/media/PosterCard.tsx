@@ -7,6 +7,7 @@ import {
   progressPercent,
   type MediaItem,
 } from "@/lib/media";
+import { itemHref } from "@/lib/slugs";
 
 import { ListButtons } from "./ListButtons";
 
@@ -49,7 +50,7 @@ export function PosterCard({
 
   return (
     <div className="poster">
-      <Link href={href ?? `/item/${item.Id}`} className="poster-link">
+      <Link href={href ?? itemHref(item.Id, item.Name, item.ProductionYear)} className="poster-link">
         <div className="poster-art">
           {src ? (
             <img src={src} alt="" loading="lazy" decoding="async" />

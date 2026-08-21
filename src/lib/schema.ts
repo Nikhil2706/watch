@@ -19,7 +19,7 @@
  * schema state (PRAGMA table_info) before acting and is therefore safe to run
  * on every migration regardless of how many times it fires.
  */
-export const SCHEMA_VERSION = 30;
+export const SCHEMA_VERSION = 33;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -738,6 +738,9 @@ CREATE TABLE IF NOT EXISTS notifications (
   film_title    TEXT NOT NULL,
   -- e.g. "/item/{id}" for a movie or "/collection/{groupId}" for a show.
   film_href     TEXT NOT NULL,
+  -- "new_episodes" only — how many episodes just became visible. NULL for
+  -- every other kind.
+  episode_count INTEGER,
   created_at    INTEGER NOT NULL,
   read_at       INTEGER
 ) STRICT;
@@ -756,4 +759,158 @@ CREATE TABLE IF NOT EXISTS known_library_items (
   name         TEXT NOT NULL,
   first_seen_at INTEGER NOT NULL
 ) STRICT;
+
+-- Same "diff against last tick" snapshot as known_library_items, for TV
+-- groups instead of movies — see runTvNotifyTick() in library-notify.ts. A
+-- "TV show" here is any library_groups entry with a linked
+-- library_group_series row (an admin-confirmed real series, not an
+-- arbitrary multi-file grouping like a clip compilation), and
+-- episode_count is how many of its member paths currently have confirmed
+-- metadata (library_confirmed_metadata) — i.e. how many episodes are
+-- actually visible to viewers right now, not how many files exist. The
+-- first-ever tick seeds every already-existing group at its current count
+-- without notifying anyone, same reasoning as known_library_items: turning
+-- this on must not announce "153 new episodes" for a show grouped minutes
+-- before the feature shipped.
+CREATE TABLE IF NOT EXISTS known_library_groups (
+  group_id      TEXT PRIMARY KEY,
+  imdb_id       TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  episode_count INTEGER NOT NULL,
+  first_seen_at INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+) STRICT;
+
+-- ------------------------------------------------------------------
+-- Watch parties. Owned jointly by the gate app (creating rooms, guest
+-- links, notifications) and the separate "party" realtime process
+-- (chat/sync over WebSocket) — both open this same database file directly,
+-- same as scripts/media-worker.mjs already does, safe under WAL for the
+-- same reason that comment gives. Nothing here is written by anything
+-- else, so there's no cross-process write contention with the tables
+-- above.
+-- ------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS party_rooms (
+  id              TEXT PRIMARY KEY,
+  jellyfin_id     TEXT NOT NULL,
+  film_title      TEXT NOT NULL,
+  film_href       TEXT NOT NULL,
+  creator_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- NULL = instant party, already live from created_at.
+  scheduled_at    INTEGER,
+  -- Set once, either immediately (instant) or when the scheduled tick
+  -- fires (see runPartyScheduleTick() in library-notify.ts).
+  started_at      INTEGER,
+  ended_at        INTEGER,
+  created_at      INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_party_rooms_live ON party_rooms(started_at, ended_at);
+
+-- A per-person link/QR the creator mints for someone who doesn't have (or
+-- doesn't want to make) an account here — "let them talk without signing
+-- up," but still as a stable, nameable identity across the whole
+-- conversation rather than an anonymous firehose. label defaults to
+-- "Guest N" if the creator doesn't type a real name; either way it's what
+-- shows next to that person's messages. The token itself (in the URL path,
+-- see /party/[roomId]/g/[token]) IS the credential — knowing it is what
+-- lets that specific link's holder post as that identity, same trust model
+-- as this app's own invite links.
+CREATE TABLE IF NOT EXISTS party_guest_links (
+  token      TEXT PRIMARY KEY,
+  room_id    TEXT NOT NULL REFERENCES party_rooms(id) ON DELETE CASCADE,
+  label      TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_party_guest_links_room ON party_guest_links(room_id);
+
+-- Exactly one of user_id/guest_token is set on every row below — a real
+-- account or a guest link, never both and never neither. display_name is
+-- a snapshot (the username or guest label AT SEND TIME) rather than a join
+-- through to users/party_guest_links, so a later username change or a
+-- guest link with a since-edited label doesn't rewrite history someone
+-- already read.
+CREATE TABLE IF NOT EXISTS party_messages (
+  id           TEXT PRIMARY KEY,
+  room_id      TEXT NOT NULL REFERENCES party_rooms(id) ON DELETE CASCADE,
+  user_id      TEXT REFERENCES users(id) ON DELETE CASCADE,
+  guest_token  TEXT REFERENCES party_guest_links(token) ON DELETE CASCADE,
+  display_name TEXT NOT NULL,
+  body         TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  CHECK ((user_id IS NULL) != (guest_token IS NULL))
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_party_messages_room ON party_messages(room_id, created_at);
+
+-- Who besides the room's creator currently has playback control (pause,
+-- seek) — granted via the participant list's three-dot menu. The creator
+-- always has control implicitly and never needs a row here.
+CREATE TABLE IF NOT EXISTS party_controllers (
+  room_id     TEXT NOT NULL,
+  user_id     TEXT REFERENCES users(id) ON DELETE CASCADE,
+  guest_token TEXT REFERENCES party_guest_links(token) ON DELETE CASCADE,
+  granted_at  INTEGER NOT NULL,
+  CHECK ((user_id IS NULL) != (guest_token IS NULL))
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_party_controllers_room ON party_controllers(room_id);
+
+-- ------------------------------------------------------------------
+-- Scheduled rollout: a curator sets a release cadence for a TV show
+-- (library_groups) or a film series (film_series), instead of every
+-- confirmed episode/owned film being visible the instant it's ready. See
+-- DESIGN-scheduled-rollout.md. One shape covers both subjects —
+-- subject_type/subject_id say which library_groups.group_id or
+-- film_series.id a plan belongs to, and each slot points at whichever of
+-- path (a TV episode's file) or imdb_id (a film series entry's film) its
+-- own subject_type actually uses; the other stays NULL. Kept as one pair
+-- of tables rather than two near-identical ones: the plan/slot/reveal
+-- mechanics (cadence math, "declare a total, add the rest later",
+-- revealed_at gating) are identical for both, only what a slot ultimately
+-- *points at* differs.
+-- ------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS library_rollout_plans (
+  id             TEXT PRIMARY KEY,
+  subject_type   TEXT NOT NULL, -- "group" (TV, library_groups.group_id) | "series" (film, film_series.id)
+  subject_id     TEXT NOT NULL,
+  mode           TEXT NOT NULL, -- "immediate" | "daily" | "weekly"
+  per_release    INTEGER NOT NULL DEFAULT 1,
+  weekday        INTEGER, -- 0=Sunday..6=Saturday, "weekly" only
+  time_of_day    TEXT, -- "HH:MM", 24h, server-local
+  start_at       INTEGER NOT NULL,
+  expected_total INTEGER,
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL,
+  UNIQUE(subject_type, subject_id)
+) STRICT;
+
+-- A release-order position with a computed release_at timestamp, which can
+-- exist before the thing behind it is even owned (path/imdb_id is NULL
+-- until a curator groups the matching episode file, or until a declared
+-- film series slot gets matched to an owned film) — this is what lets a
+-- curator declare "22 episodes" or "7 films" up front and keep adding to
+-- the library before each one's actual scheduled slot, per the original
+-- ask. Regenerating a plan recomputes release_at for every slot with
+-- revealed_at IS NULL; an already-revealed slot is left alone so nothing
+-- already shown gets pulled back.
+CREATE TABLE IF NOT EXISTS library_rollout_slots (
+  id          TEXT PRIMARY KEY,
+  plan_id     TEXT NOT NULL REFERENCES library_rollout_plans(id) ON DELETE CASCADE,
+  slot_index  INTEGER NOT NULL,
+  release_at  INTEGER NOT NULL,
+  path        TEXT, -- subject_type "group" only
+  imdb_id     TEXT, -- subject_type "series" only
+  revealed_at INTEGER,
+  UNIQUE(plan_id, slot_index)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_rollout_plans_subject ON library_rollout_plans(subject_type, subject_id);
+CREATE INDEX IF NOT EXISTS idx_rollout_slots_plan ON library_rollout_slots(plan_id);
+CREATE INDEX IF NOT EXISTS idx_rollout_slots_path ON library_rollout_slots(path);
+CREATE INDEX IF NOT EXISTS idx_rollout_slots_imdb ON library_rollout_slots(imdb_id);
+CREATE INDEX IF NOT EXISTS idx_rollout_slots_due ON library_rollout_slots(release_at) WHERE revealed_at IS NULL;
 `;
