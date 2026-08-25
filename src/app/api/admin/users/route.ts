@@ -11,8 +11,9 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
  * GET /api/admin/users
  *
  * Started as just enough to populate a target picker (Curator's Pick) — id +
- * username, most recently active first. Now also carries langlois_mode so
- * the Invites tab's Users list can show and toggle it per account, and
+ * username, most recently active first. Now also carries langlois_mode and
+ * parental_control so the Invites tab's Users list can show and toggle each
+ * per account, and
  * is_admin so that list can grey out the toggle for a real Jellyfin
  * administrator rather than let a curator click it and hit a confusing
  * error — createSessionForLogin() upserts a row here for anyone who logs
@@ -31,10 +32,13 @@ export async function GET(request: Request): Promise<Response> {
     username: string;
     last_seen_at: number;
     langlois_mode: number;
+    parental_control: number;
     jellyfin_user_id: string;
   }>(
     getDb()
-      .prepare("SELECT id, username, last_seen_at, langlois_mode, jellyfin_user_id FROM users ORDER BY last_seen_at DESC")
+      .prepare(
+        "SELECT id, username, last_seen_at, langlois_mode, parental_control, jellyfin_user_id FROM users ORDER BY last_seen_at DESC",
+      )
       .all(),
   );
 
@@ -55,6 +59,7 @@ export async function GET(request: Request): Promise<Response> {
         username: u.username,
         last_seen_at: u.last_seen_at,
         langlois_mode: u.langlois_mode === 1,
+        parental_control: u.parental_control === 1,
         is_admin: isAdmin,
       };
     }),

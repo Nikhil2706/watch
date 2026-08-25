@@ -153,6 +153,76 @@ export async function authenticateByName(
   });
 }
 
+export interface QuickConnectState {
+  Authenticated: boolean;
+  Secret: string;
+  Code: string;
+}
+
+/**
+ * Starts a Quick Connect handshake. This is Jellyfin's own device-pairing
+ * primitive — a short numeric code plus a secret, both invalidated by
+ * Jellyfin itself once authenticated or once they expire (a few minutes).
+ * No password is involved on either end; see src/lib/device-pairing.ts for
+ * how this app wires it up for TV login.
+ */
+export async function initiateQuickConnect(deviceId: string): Promise<QuickConnectState> {
+  return jellyfinFetch<QuickConnectState>("/QuickConnect/Initiate", {
+    method: "POST",
+    deviceId,
+  });
+}
+
+/**
+ * Polls whether a Quick Connect secret has been authenticated yet. No token
+ * — the secret itself is the credential for this one check.
+ *
+ * A short timeout on purpose: the TV polls this every couple of seconds for
+ * up to five minutes (see device-pairing.ts), so a slow Jellyfin should fail
+ * this one check fast and let the next tick retry, rather than tie up a
+ * connection for the default 15s — which, left unbounded, is exactly what
+ * let a run of slow responses pile up into a growing stack of concurrent
+ * requests during testing.
+ */
+export async function getQuickConnectState(secret: string): Promise<QuickConnectState> {
+  return jellyfinFetch<QuickConnectState>(
+    `/QuickConnect/Connect?Secret=${encodeURIComponent(secret)}`,
+    { timeoutMs: 4000 },
+  );
+}
+
+/**
+ * Approves a pending code on behalf of the calling *user* — this is the
+ * phone/laptop side of the handshake, authenticated with that person's own
+ * existing session token. Jellyfin marks the code single-use once this
+ * succeeds.
+ */
+export async function authorizeQuickConnect(
+  userToken: string,
+  userDeviceId: string,
+  code: string,
+): Promise<boolean> {
+  // Jellyfin answers with a plain JSON boolean — false for an expired or
+  // already-used code, distinct from the request itself failing.
+  const result = await jellyfinFetch<boolean>(
+    `/QuickConnect/Authorize?Code=${encodeURIComponent(code)}`,
+    { method: "POST", token: userToken, deviceId: userDeviceId },
+  );
+  return result === true;
+}
+
+/** Exchanges an authenticated Quick Connect secret for a full access token — the TV side's last step, once polling sees Authenticated: true. */
+export async function authenticateWithQuickConnect(
+  secret: string,
+  deviceId: string,
+): Promise<AuthenticationResult> {
+  return jellyfinFetch<AuthenticationResult>("/Users/AuthenticateWithQuickConnect", {
+    method: "POST",
+    body: { Secret: secret },
+    deviceId,
+  });
+}
+
 /**
  * Read-only request made with a *user's* token, for rendering the catalogue in
  * server components.
@@ -330,6 +400,29 @@ export async function applyRestrictedPolicy(
  */
 export async function refreshLibrary(): Promise<void> {
   await jellyfinFetch<void>("/Library/Refresh", {
+    method: "POST",
+    token: env.jellyfinApiKey,
+    expectJson: false,
+  });
+}
+
+/**
+ * Refreshes one item rather than the whole library — used after writing a
+ * new external subtitle file next to a video, so it shows up in the player
+ * without waiting for the next scheduled scan. MetadataRefreshMode=Default
+ * (not FullRefresh) is deliberate: it's enough to make Jellyfin re-read the
+ * folder for new external files, without re-fetching metadata/images from
+ * providers for a title that already has them.
+ */
+export async function refreshItem(itemId: string): Promise<void> {
+  const params = new URLSearchParams({
+    Recursive: "false",
+    MetadataRefreshMode: "Default",
+    ImageRefreshMode: "None",
+    ReplaceAllMetadata: "false",
+    ReplaceAllImages: "false",
+  });
+  await jellyfinFetch<void>(`/Items/${encodeURIComponent(itemId)}/Refresh?${params.toString()}`, {
     method: "POST",
     token: env.jellyfinApiKey,
     expectJson: false,

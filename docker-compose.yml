@@ -101,6 +101,16 @@ services:
       # Optional. Without it the ratings row falls back to Jellyfin's own
       # TMDB score; with it, IMDb / Rotten Tomatoes / Metacritic appear.
       - OMDB_API_KEY=${OMDB_API_KEY:-}
+      # Optional. Powers "fetch a missing subtitle from OpenSubtitles" (both
+      # the consumer-facing item-page button and Library Review's action).
+      - OPENSUBTITLES_API_KEY=${OPENSUBTITLES_API_KEY:-}
+      # Optional. Powers Library Review's "Change poster" action and half of
+      # parental control's content-warning backfill (content-warnings.ts).
+      - TMDB_READ_ACCESS_TOKEN=${TMDB_READ_ACCESS_TOKEN:-}
+      # Optional. The other half of parental control's content-warning
+      # backfill — see the attribution note in curator.html's Users tab
+      # before setting this on a deployment other people can see.
+      - DDD_API_KEY=${DDD_API_KEY:-}
       - MEDIA_LIBRARY=/media
       - MEDIA_EXCLUDED=/excluded
       # The real Windows path behind /media, for building file:// links the

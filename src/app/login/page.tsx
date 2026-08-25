@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 
 import { AuthShell } from "@/components/auth/AuthShell";
-import { LoginForm } from "@/components/LoginForm";
+import { LoginScreen } from "@/components/tv/LoginScreen";
 import { currentSession } from "@/lib/current-user";
+import { resolveTvModeFromRequest } from "@/lib/tv/detect";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ export default async function LoginPage({
   const session = await currentSession();
   if (session) redirect("/");
 
+  const tvMode = await resolveTvModeFromRequest();
   const params = await searchParams;
 
   // Open-redirect guard. Only a same-origin absolute path is accepted; a value
@@ -36,7 +38,7 @@ export default async function LoginPage({
           : "Welcome back."}
       </p>
 
-      <LoginForm next={next} />
+      <LoginScreen tvModeGuess={tvMode} next={next} />
 
       {/*
        * The page's second job. Most people who land here uninvited used to hit

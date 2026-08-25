@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { AppBar } from "@/components/AppBar";
 import { PosterCard } from "@/components/media/PosterCard";
+import { TvSearchField } from "@/components/tv/TvSearchField";
 import { currentSession } from "@/lib/current-user";
 import { getMemberships } from "@/lib/lists";
 import { smartSearch } from "@/lib/media";
@@ -33,6 +34,8 @@ export default async function SearchPage({
   return (
     <>
       <AppBar username={session.username} query={query} langloisMode={session.langloisMode} />
+
+      <TvSearchField initialQuery={query} />
 
       <div style={{ padding: "18px 20px 6px" }}>
         <h1 style={{ margin: 0, fontSize: "1.25rem" }}>

@@ -158,6 +158,31 @@ export const env = {
    */
   mediaQuarantinePath: optional("MEDIA_QUARANTINE", "/quarantine"),
 
+  /**
+   * Optional. Without it, the "fetch subtitles" feature simply doesn't offer
+   * itself anywhere — nothing else depends on it.
+   */
+  opensubtitlesApiKey: optional("OPENSUBTITLES_API_KEY", ""),
+
+  /**
+   * Optional. Powers Library Review's "Change poster" action only — a
+   * curator picking a different TMDB poster than whatever Jellyfin's own
+   * scan settled on. The v4 read access token (a long JWT), not the
+   * shorter v3 API key — TMDB accepts either for read endpoints, this app
+   * just standardises on the one meant for exactly this use.
+   */
+  tmdbReadAccessToken: optional("TMDB_READ_ACCESS_TOKEN", ""),
+
+  /**
+   * Optional. A second, independent signal for parental-control filtering
+   * (content-warnings.ts) — Does the Dog Die's crowdsourced content-warning
+   * database, checked alongside TMDB's certifications/keywords. Free-tier
+   * key from https://www.doesthedogdie.com/api/v3 — non-commercial use
+   * only, and their Terms require visible "Powered by DoesTheDogDie.com"
+   * attribution wherever this data is used (see curator.html's Users tab).
+   */
+  dddApiKey: optional("DDD_API_KEY", ""),
+
   isProduction: process.env.NODE_ENV === "production",
 } as const;
 

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { runContentWarningBackfillTick } from "./content-warnings";
 import { runOmdbBackfillTick } from "./omdb-backfill";
 import { runWikipediaBackfillTick } from "./wikipedia-backfill";
 
@@ -38,6 +39,7 @@ export function autoScrapeAlreadyRanRecently(now: number = Date.now()): boolean 
 export interface ScrapePassResult {
   omdbProcessed: number;
   wikipediaProcessed: number;
+  contentWarningsProcessed: number;
   passes: number;
   durationMs: number;
 }
@@ -61,6 +63,7 @@ export async function runFullScrapePass(): Promise<ScrapePassResult> {
   const startedAt = Date.now();
   let omdbTotal = 0;
   let wikipediaTotal = 0;
+  let contentWarningsTotal = 0;
   let omdbExhausted = false;
   let pass = 0;
 
@@ -80,6 +83,13 @@ export async function runFullScrapePass(): Promise<ScrapePassResult> {
       wikipediaTotal += wiki.processed;
       if (wiki.processed > 0) anyWork = true;
 
+      // No exhaustion flag like OMDb's — TMDB has no meaningful daily cap at
+      // this scale, so a tick reporting 0 processed genuinely means "caught
+      // up," not "budget spent," and is safe to just keep calling.
+      const warnings = await runContentWarningBackfillTick();
+      contentWarningsTotal += warnings.processed;
+      if (warnings.processed > 0) anyWork = true;
+
       if (!anyWork) break;
       if (Date.now() - startedAt >= MAX_PASS_DURATION_MS) break;
 
@@ -89,7 +99,13 @@ export async function runFullScrapePass(): Promise<ScrapePassResult> {
     globalThis.__jellyfinGateScrapeRunInProgress = false;
   }
 
-  return { omdbProcessed: omdbTotal, wikipediaProcessed: wikipediaTotal, passes: pass, durationMs: Date.now() - startedAt };
+  return {
+    omdbProcessed: omdbTotal,
+    wikipediaProcessed: wikipediaTotal,
+    contentWarningsProcessed: contentWarningsTotal,
+    passes: pass,
+    durationMs: Date.now() - startedAt,
+  };
 }
 
 export function isScrapeRunInProgress(): boolean {

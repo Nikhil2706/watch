@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { TV_MODE_COOKIE } from "@/lib/tv/constants";
+
 /**
  * Cheap gate in front of the page routes.
  *
@@ -35,14 +37,51 @@ import { NextResponse, type NextRequest } from "next/server";
  * exclusion every one of those requests bounced to /login instead, which
  * would have made the site permanently uninstallable and broken SW
  * registration outright (wrong content-type, parse error).
+ *
+ * /login is NOT excluded from the matcher (it used to be, when this file did
+ * nothing else) — it still needs to stay reachable while logged out, which
+ * the middleware function itself now handles as its very first branch,
+ * before the session-cookie check, rather than via the matcher. It has to
+ * run for /login too so the `?tv=` override below reaches the one page a TV
+ * actually loads while signed out.
  */
 
 const SESSION_COOKIE = "jfg_session";
 
+/**
+ * `?tv=1` / `?tv=0` forces TV mode on or off, persisted as a cookie so it
+ * survives every subsequent navigation without the query param — this is
+ * the documented way to test TV mode from an ordinary desktop browser (see
+ * scripts/windows/README.md / HANDOFF.md). Applied to whichever response
+ * this function was already going to return, redirect or pass-through
+ * alike, so it works whether or not the visitor is logged in yet.
+ */
+function applyTvModeOverride(request: NextRequest, response: NextResponse): NextResponse {
+  const override = request.nextUrl.searchParams.get("tv");
+  if (override === "1" || override === "0") {
+    response.cookies.set(TV_MODE_COOKIE, override, {
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365,
+      sameSite: "lax",
+    });
+  }
+  return response;
+}
+
 export function middleware(request: NextRequest): NextResponse {
+  // /login must stay reachable while logged out (see the matcher comment
+  // below) but is also where a TV's very first request lands, unauthenticated
+  // — so the ?tv= override has to be handled here explicitly rather than via
+  // the session-cookie branch below, which /login never reaches.
+  if (request.nextUrl.pathname === "/login") {
+    return applyTvModeOverride(request, NextResponse.next());
+  }
+
   const sessionCookie = request.cookies.get(SESSION_COOKIE);
 
-  if (sessionCookie?.value) return NextResponse.next();
+  if (sessionCookie?.value) {
+    return applyTvModeOverride(request, NextResponse.next());
+  }
 
   const loginUrl = new URL("/login", request.url);
   const target = request.nextUrl.pathname + request.nextUrl.search;
@@ -51,7 +90,7 @@ export function middleware(request: NextRequest): NextResponse {
     // open redirect that could bounce a user to an attacker's login page.
     loginUrl.searchParams.set("next", target);
   }
-  return NextResponse.redirect(loginUrl);
+  return applyTvModeOverride(request, NextResponse.redirect(loginUrl));
 }
 
 export const config = {
@@ -62,11 +101,13 @@ export const config = {
      *   jf/*             — returns 401 JSON; an XHR must not get an HTML redirect
      *   invite/*         — must be reachable while logged out
      *   party/*          — guest links must be reachable with no account at all
-     *   login            — obviously
      *   _next/*, favicon — framework assets
      *   manifest.json, sw.js, icon-*.png, apple-touch-icon.png, favicon-32.png
      *                    — PWA assets, must be fetchable while logged out
+     *
+     * login is deliberately NOT in this exclusion list (see the comment
+     * above) — the function's own first branch handles it.
      */
-    "/((?!api/|jf/|invite/|party/|login|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|apple-touch-icon.png|favicon-32.png).*)",
+    "/((?!api/|jf/|invite/|party/|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|apple-touch-icon.png|favicon-32.png).*)",
   ],
 };

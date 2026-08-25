@@ -959,6 +959,16 @@
         Langlois mode grants raw film file + subtitle downloads instead of just streaming.
         Set it here for an existing account, or at invite creation above for new ones.
       </p>
+      <p class="note">
+        Parental control hides R / NC-17 / TV-MA (and equivalent) titles for that account, plus
+        anything TMDB's certifications or
+        <a href="https://www.doesthedogdie.com" target="_blank" rel="noopener">Does the Dog Die?</a>'s
+        community content-warning data flags for sexual content or graphic violence — checked
+        across every country TMDB has a rating for, not just the US. It's a best-effort filter,
+        not a guarantee: an obscure title with no rating or warning data anywhere will still slip
+        through. Data on sexual content/violence topics
+        <a href="https://www.doesthedogdie.com" target="_blank" rel="noopener">Powered by DoesTheDogDie.com</a>.
+      </p>
       <div id="usersTableWrap" style="overflow-x:auto"></div>
     </div>
 
@@ -1127,7 +1137,7 @@
       $("usersTableWrap").innerHTML = '<div class="empty">No users yet.</div>';
       return;
     }
-    var html = '<table><thead><tr><th>Username</th><th>Last seen</th><th>Langlois mode</th></tr></thead><tbody>';
+    var html = '<table><thead><tr><th>Username</th><th>Last seen</th><th>Langlois mode</th><th>Parental control</th></tr></thead><tbody>';
     state.users.forEach(function (u) {
       html += '<tr>' +
         '<td>' + esc(u.username) +
@@ -1143,6 +1153,13 @@
                 (u.langlois_mode ? 'On' : 'Off') +
               '</label>') +
         '</td>' +
+        '<td>' +
+          '<label style="display:flex;align-items:center;gap:8px;cursor:pointer" title="Hides R / NC-17 / TV-MA (and equivalent) titles everywhere for this account, and blocks direct links to them">' +
+            '<input type="checkbox" style="width:auto" data-parental="' + esc(u.id) + '"' +
+            (u.parental_control ? ' checked' : '') + '>' +
+            (u.parental_control ? 'On' : 'Off') +
+          '</label>' +
+        '</td>' +
       '</tr>';
     });
     $("usersTableWrap").innerHTML = html + "</tbody></table>";
@@ -1155,6 +1172,24 @@
         api("/api/admin/users/" + encodeURIComponent(id), { method: "PATCH", body: { langlois_mode: on } })
           .then(function () {
             show("ok", "Langlois mode " + (on ? "enabled" : "disabled") + ".");
+            return loadUsers();
+          })
+          .catch(function (e) {
+            cb.checked = !on;
+            cb.disabled = false;
+            show("err", e.message);
+          });
+      });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-parental]"), function (cb) {
+      cb.addEventListener("change", function () {
+        var id = cb.getAttribute("data-parental");
+        var on = cb.checked;
+        cb.disabled = true;
+        api("/api/admin/users/" + encodeURIComponent(id), { method: "PATCH", body: { parental_control: on } })
+          .then(function () {
+            show("ok", "Parental control " + (on ? "enabled" : "disabled") + ".");
             return loadUsers();
           })
           .catch(function (e) {
@@ -1904,6 +1939,8 @@
         (it.isThinMetadata && !it.isWhitelisted ? '<button class="ghost" data-action="whitelist" data-item-id="' + it.id + '">Show anyway</button>' : "") +
         '<button class="ghost" data-action="search" data-item-id="' + it.id + '">Search</button>' +
         '<button class="ghost" data-action="manual" data-item-id="' + it.id + '">Manual</button>' +
+        '<button class="ghost" data-action="poster" data-item-id="' + it.id + '">Change poster</button>' +
+        (it.isMissingSubtitles ? '<button class="ghost" data-action="fetch-subtitles" data-item-id="' + it.id + '">Fetch subtitles</button>' : "") +
         (it.isExcluded
           ? '<button class="ghost" data-action="unexclude" data-item-id="' + it.id + '">Un-exclude</button>'
           : '<button class="danger" data-action="exclude" data-item-id="' + it.id + '">Exclude</button>') +
@@ -2021,9 +2058,11 @@
       'On the site now, but nothing to caption with yet. Open the folder and drop a matching .srt in.' +
       '</div><div class="rv-group">';
     items.forEach(function (it) {
-      html += '<div class="rv-item"><div class="rv-name">' + esc(it.name) + (it.year ? " (" + it.year + ")" : "") +
+      html += '<div class="rv-item" data-item-id="' + esc(it.id) + '"><div class="rv-name">' + esc(it.name) + (it.year ? " (" + it.year + ")" : "") +
         '<span class="rv-path">' + esc(shortPath(it.path)) + '</span></div>' +
-        '<div class="rv-item-actions">' + folderLinkHtml(it) + '</div></div>';
+        '<div class="rv-item-actions">' +
+        '<button class="ghost" data-action="fetch-subtitles" data-item-id="' + esc(it.id) + '">Fetch from OpenSubtitles</button>' +
+        folderLinkHtml(it) + '</div></div>';
     });
     html += "</div>";
     el.innerHTML = html;
@@ -2184,6 +2223,67 @@
       .catch(function (e) { show("err", e.message); if (btn) { btn.disabled = false; btn.textContent = "Show anyway"; } });
   }
 
+  function openPosterPanel(itemId) {
+    var slot = document.querySelector('.rv-panel-slot[data-panel-for="' + itemId + '"]');
+    if (!slot) return;
+    slot.innerHTML = '<div class="rv-inline-panel"><div class="muted" style="padding:10px 0">Loading posters from TMDB…</div></div>';
+    api("/api/admin/library/poster-options?itemId=" + encodeURIComponent(itemId))
+      .then(function (data) {
+        var posters = data.posters || [];
+        if (!posters.length) {
+          slot.innerHTML = '<div class="rv-inline-panel"><div class="muted" style="padding:10px 0">No TMDB posters found for this title.</div>' +
+            '<button class="ghost" data-action="close-panel" data-item-id="' + itemId + '">Close</button></div>';
+          return;
+        }
+        var html = '<div class="rv-inline-panel"><div class="ac-poster-grid">' +
+          posters.slice(0, 24).map(function (p) {
+            return '<div class="ac-poster-tile" data-action="apply-poster" data-item-id="' + itemId +
+              '" data-image-url="' + esc(p.fullUrl) + '">' +
+              '<img src="' + esc(p.thumbUrl) + '" alt="" loading="lazy">' +
+              '<div class="ac-tile-sub">' + (p.language ? p.language : "no lang") + ' · ★ ' + p.voteAverage.toFixed(1) + '</div>' +
+              '</div>';
+          }).join("") +
+          '</div><button class="ghost" data-action="close-panel" data-item-id="' + itemId + '" style="margin-top:10px">Close</button></div>';
+        slot.innerHTML = html;
+      })
+      .catch(function (e) {
+        slot.innerHTML = '<div class="rv-inline-panel"><div class="err">' + esc(e.message) + '</div>' +
+          '<button class="ghost" data-action="close-panel" data-item-id="' + itemId + '">Close</button></div>';
+      });
+  }
+
+  function applyPoster(itemId, imageUrl, tile) {
+    if (tile) tile.style.opacity = "0.5";
+    api("/api/admin/library/set-poster", { method: "POST", body: { itemId: itemId, imageUrl: imageUrl } })
+      .then(function () {
+        show("ok", "Poster updated.");
+        markRowDone(itemId, "Poster changed");
+        closePanel(itemId);
+      })
+      .catch(function (e) {
+        show("err", e.message);
+        if (tile) tile.style.opacity = "1";
+      });
+  }
+
+  function fetchSubtitles(itemId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = "Searching…"; }
+    api("/api/admin/library/fetch-subtitles", { method: "POST", body: { itemId: itemId } })
+      .then(function (result) {
+        if (result.status === "found") {
+          show("ok", result.message || "Subtitle added.");
+          markRowDone(itemId, "Subtitles added");
+        } else {
+          show("err", result.message || "No match found.");
+          if (btn) { btn.disabled = false; btn.textContent = "Fetch from OpenSubtitles"; }
+        }
+      })
+      .catch(function (e) {
+        show("err", e.message);
+        if (btn) { btn.disabled = false; btn.textContent = "Fetch from OpenSubtitles"; }
+      });
+  }
+
   function checkedIdsIn(groupEl) {
     return Array.prototype.slice.call(groupEl.querySelectorAll('input[type="checkbox"]:checked'))
       .map(function (cb) { return cb.getAttribute("data-item-id"); });
@@ -2322,6 +2422,9 @@
     else if (action === "browse-group-add") addCheckedToExistingGroup(groupEl);
     else if (action === "dup-versions") mergeVersionsChecked(groupEl);
     else if (action === "unexclude") unexcludeBrowseItem(itemId);
+    else if (action === "fetch-subtitles") fetchSubtitles(itemId, btn);
+    else if (action === "poster") openPosterPanel(itemId);
+    else if (action === "apply-poster") applyPoster(itemId, btn.getAttribute("data-image-url"), btn);
     else if (action === "toggle-folder") {
       var body = groupEl.querySelector(".rv-folder-body");
       body.style.display = body.style.display === "none" ? "" : "none";

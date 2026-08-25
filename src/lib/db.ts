@@ -304,6 +304,18 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "notifications") && !columnExists(db, "notifications", "episode_count")) {
     db.exec("ALTER TABLE notifications ADD COLUMN episode_count INTEGER");
   }
+
+  // v35: parental_control added to users — same shape as v28's langlois_mode
+  // (a straightforward ALTER TABLE ADD COLUMN on an existing table). Unlike
+  // Langlois mode, this never touches the account's real Jellyfin policy —
+  // it's a gate-side content filter only, applied in media.ts's
+  // filterVisible() and enforced again at single-item fetch in getItem(), so
+  // that toggling it can never fail partway through the way a Jellyfin API
+  // call could. Defaults to 0 on every existing row: nobody was filtered
+  // before this shipped.
+  if (tableExists(db, "users") && !columnExists(db, "users", "parental_control")) {
+    db.exec("ALTER TABLE users ADD COLUMN parental_control INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 /**

@@ -1,0 +1,344 @@
+/* ------------------------------------------------------------------ *
+ * TV mode — 10-foot presentation layer.
+ *
+ * Scoped entirely under `html[data-tv="true"]`, set server-side in
+ * layout.tsx and refined client-side by TvProvider.tsx. Everything here is
+ * an override on top of the existing desktop/mobile rules in globals.css —
+ * no component was rebuilt for TV, so this is deliberately just bigger
+ * type, bigger artwork, bigger targets and a much louder focus ring on the
+ * same markup.
+ * ------------------------------------------------------------------ */
+
+html[data-tv="true"] {
+  font-size: 20px;
+}
+
+/* No `cursor: none` here on purpose — that was tried and reverted. A real
+   TV with no pointing device never shows a cursor in the first place, so
+   the rule solved a problem that doesn't exist there; what it actually did
+   was hide the cursor during exactly the case the brief requires (forcing
+   TV mode on a normal desktop browser with a real mouse via ?tv=1), making
+   the page look unresponsive with no visible feedback for where the
+   pointer even was. */
+
+/* The one focus ring that matters here — this replaces the subtle desktop
+   ring (globals.css, `a:focus-visible, button:focus-visible`) with
+   something readable from a couch: a bright halo plus a small lift, on
+   every focusable element in the app, not just cards. */
+html[data-tv="true"] a:focus-visible,
+html[data-tv="true"] button:focus-visible,
+html[data-tv="true"] input:focus-visible,
+html[data-tv="true"] [tabindex]:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 8px;
+  box-shadow: 0 0 0 8px rgba(91, 141, 239, 0.28);
+  transition: outline-offset 0.12s ease, box-shadow 0.12s ease;
+}
+
+/* Plain :focus too — a TV browser does not always resolve :focus-visible
+   the way desktop Chrome does, and this is a pointer-free environment by
+   definition, so any focus IS keyboard-equivalent focus. */
+html[data-tv="true"] a:focus,
+html[data-tv="true"] button:focus {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
+  box-shadow: 0 0 0 8px rgba(91, 141, 239, 0.28);
+}
+
+/* --- App bar -------------------------------------------------------- */
+
+html[data-tv="true"] .appbar {
+  padding: 20px 48px;
+  gap: 28px;
+}
+
+html[data-tv="true"] .appbar nav {
+  gap: 24px;
+}
+
+html[data-tv="true"] .appbar nav a {
+  font-size: 1.05rem;
+  padding: 8px 4px;
+}
+
+html[data-tv="true"] .appbar .who {
+  display: none;
+}
+
+.tv-search-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+/* --- Hero ------------------------------------------------------------ */
+
+html[data-tv="true"] .hero {
+  min-height: 64vh;
+}
+
+html[data-tv="true"] .hero-content {
+  max-width: 900px;
+  padding: 0 48px;
+}
+
+html[data-tv="true"] .hero-content h1 {
+  font-size: 3.4rem;
+}
+
+html[data-tv="true"] .hero-content p {
+  font-size: 1.15rem;
+  max-width: 760px;
+  /* Readable from a couch means short — three lines of body copy at this
+     size is already a lot to take in from six feet away. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+html[data-tv="true"] .btn {
+  padding: 16px 32px;
+  font-size: 1.05rem;
+  border-radius: 10px;
+}
+
+/* --- Rows & cards ------------------------------------------------------ */
+
+html[data-tv="true"] .row {
+  margin: 0 0 46px;
+}
+
+html[data-tv="true"] .row h2 {
+  font-size: 1.4rem;
+  padding: 0 48px;
+  margin: 0 0 18px;
+}
+
+html[data-tv="true"] .row-scroll {
+  gap: 22px;
+  padding: 6px 48px 14px;
+  /* The focus engine drives scrolling explicitly (scrollFocusedIntoView);
+     smooth CSS scrolling on top of that reads as one continuous motion
+     instead of two competing ones. */
+  scroll-behavior: smooth;
+}
+
+html[data-tv="true"] .poster,
+html[data-tv="true"] .grid .poster {
+  width: 260px;
+}
+
+html[data-tv="true"] .grid {
+  gap: 28px 22px;
+  padding: 0 48px 40px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+html[data-tv="true"] .poster-title {
+  font-size: 1rem;
+  margin-top: 10px;
+}
+
+html[data-tv="true"] .poster-sub,
+html[data-tv="true"] .poster-badge {
+  font-size: 0.88rem;
+}
+
+/* The card itself lifts and glows on focus — not just the outline — so it
+   reads clearly even in peripheral vision. transform lives on the art, not
+   the flex item, so the layout around it never reflows. */
+html[data-tv="true"] .poster:focus-within .poster-art {
+  transform: scale(1.08);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent), 0 18px 40px rgba(0, 0, 0, 0.55);
+  z-index: 1;
+}
+
+html[data-tv="true"] .poster-art {
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+html[data-tv="true"] .poster:focus-within .poster-art img {
+  transform: none;
+}
+
+/* Favourite/rewatch toggles are hover-only chrome on desktop; on TV they
+   are only ever reachable via a second focus stop, which does not exist
+   here (the whole card is one focusable link) — so they simply always
+   show, sized for a remote rather than a cursor. */
+html[data-tv="true"] .list-overlay {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+/* --- Detail / item page ------------------------------------------------ */
+
+html[data-tv="true"] .detail .hero-content h1 {
+  font-size: 3rem;
+}
+
+html[data-tv="true"] .detail .hero-content p {
+  font-size: 1.1rem;
+  max-width: 820px;
+}
+
+html[data-tv="true"] .chip {
+  font-size: 0.88rem;
+  padding: 6px 14px;
+}
+
+/* --- Player ------------------------------------------------------------ */
+
+html[data-tv="true"] .plyr__controls {
+  padding: 24px 32px;
+  gap: 12px;
+}
+
+html[data-tv="true"] .plyr__control {
+  width: 52px;
+  height: 52px;
+}
+
+html[data-tv="true"] .plyr__control svg {
+  width: 26px;
+  height: 26px;
+}
+
+html[data-tv="true"] .plyr__control:focus-visible,
+html[data-tv="true"] .plyr__control:focus {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 8px rgba(91, 141, 239, 0.28);
+}
+
+html[data-tv="true"] .plyr__time {
+  font-size: 1rem;
+}
+
+/* --- Browse & cast ------------------------------------------------------ */
+
+html[data-tv="true"] .dim-tab,
+html[data-tv="true"] .sort-btn {
+  font-size: 1rem;
+  padding: 10px 16px;
+}
+
+html[data-tv="true"] .value-row {
+  padding: 12px 14px;
+  font-size: 1.02rem;
+}
+
+html[data-tv="true"] .cast-card {
+  width: 150px;
+}
+
+html[data-tv="true"] .cast-card:focus .cast-photo {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent);
+}
+
+/* --- TV login / pairing ------------------------------------------------ */
+
+.tv-pair {
+  display: grid;
+  gap: 22px;
+  justify-items: center;
+  text-align: center;
+}
+
+.tv-pair-code {
+  font-size: 3.2rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  padding: 18px 36px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.tv-pair-url {
+  font-size: 1.3rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tv-pair-qr {
+  background: #fff;
+  padding: 14px;
+  border-radius: 12px;
+  line-height: 0;
+}
+
+.tv-pair-qr svg {
+  display: block;
+  width: 200px;
+  height: 200px;
+}
+
+.tv-pair-status {
+  color: var(--muted);
+  font-size: 1rem;
+  min-height: 1.5em;
+}
+
+.tv-pair-toggle {
+  margin-top: 8px;
+  background: transparent;
+  color: var(--muted);
+  text-decoration: underline;
+  font-size: 0.95rem;
+  padding: 10px;
+}
+
+/* On-screen keyboard, used when TV mode falls back to username/password. */
+.tv-keyboard {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.tv-keyboard-row {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.tv-keyboard-key {
+  min-width: 48px;
+  height: 48px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.tv-keyboard-key.wide {
+  min-width: 96px;
+  font-size: 0.85rem;
+}
+
+.tv-keyboard-key.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-tv="true"] .poster-art,
+  html[data-tv="true"] a:focus-visible,
+  html[data-tv="true"] button:focus-visible {
+    transition: none;
+  }
+}

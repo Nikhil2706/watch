@@ -14,6 +14,7 @@ import {
   getGroupSeriesPoster,
   getWhitelistedPathSet,
 } from "./library-curation";
+import { isRestrictedContent } from "./parental-control";
 import { getRatings, type Ratings } from "./ratings";
 import { getHiddenRolloutImdbSet, getHiddenRolloutPathSet } from "./rollout";
 import { stripCredentials } from "./strip-credentials";
@@ -123,7 +124,7 @@ function hasNoMetadata(item: MediaItem): boolean {
  * the precedent that was already true for excluded/thin-metadata items
  * before rollout existed.
  */
-function filterVisible(items: MediaItem[]): MediaItem[] {
+function filterVisible(items: MediaItem[], session: ResolvedSession): MediaItem[] {
   const excluded = getExcludedPathSet();
   const whitelisted = getWhitelistedPathSet();
   const rolloutHiddenPaths = getHiddenRolloutPathSet();
@@ -133,6 +134,8 @@ function filterVisible(items: MediaItem[]): MediaItem[] {
     if (hasNoMetadata(item) && !(item.Path && whitelisted.has(item.Path))) return false;
     if (item.Path && rolloutHiddenPaths.has(item.Path)) return false;
     if (item.ProviderIds?.Imdb && rolloutHiddenImdb.has(item.ProviderIds.Imdb)) return false;
+    // "Stop showing R-rated or equivalent movies" — see parental-control.ts.
+    if (session.parentalControl && isRestrictedContent(item)) return false;
     return true;
   });
 }
@@ -151,7 +154,7 @@ export async function getResume(session: ResolvedSession): Promise<MediaItem[]> 
     fields: LIST_FIELDS,
     enableImageTypes: "Primary,Backdrop,Thumb",
   });
-  return filterVisible(data?.Items ?? []);
+  return filterVisible(data?.Items ?? [], session);
 }
 
 export async function getLatest(session: ResolvedSession): Promise<MediaItem[]> {
@@ -164,7 +167,7 @@ export async function getLatest(session: ResolvedSession): Promise<MediaItem[]> 
     fields: LIST_FIELDS,
     enableImageTypes: "Primary,Backdrop",
   });
-  return filterVisible(Array.isArray(data) ? data : []);
+  return filterVisible(Array.isArray(data) ? data : [], session);
 }
 
 /**
@@ -226,7 +229,7 @@ export async function getAllMovies(
     fields: LIST_FIELDS,
     enableImageTypes: "Primary,Backdrop",
   });
-  const result = filterVisible(data?.Items ?? []);
+  const result = filterVisible(data?.Items ?? [], session);
   cache.set(cacheKey, { data: result, expiresAt: Date.now() + ALL_MOVIES_CACHE_TTL_MS });
   return result;
 }
@@ -509,9 +512,13 @@ export async function getItemsByImdbIds(
       userId: session.jellyfinUserId,
       includeItemTypes: "Movie",
       recursive: true,
-      fields: "ProviderIds,ProductionYear,ImageTags",
+      // OfficialRating included even though nothing here displays it — it's
+      // what lets filterVisible() enforce parental-control filtering on this
+      // path too (the film-series "In this series" row, notably), not just
+      // on the main listing calls below.
+      fields: "ProviderIds,ProductionYear,ImageTags,OfficialRating",
     });
-    const visible = filterVisible(result.Items);
+    const visible = filterVisible(result.Items, session);
     const map = new Map<string, MediaItem>();
     for (const item of visible) {
       const imdb = item.ProviderIds?.Imdb;
@@ -529,10 +536,18 @@ export async function getItem(
 ): Promise<MediaItem | null> {
   const [token, device] = creds(session);
   try {
-    return await userFetch<MediaItem>(token, device, `/Items/${encodeURIComponent(itemId)}`, {
+    const item = await userFetch<MediaItem>(token, device, `/Items/${encodeURIComponent(itemId)}`, {
       userId: session.jellyfinUserId,
       fields: DETAIL_FIELDS,
     });
+    // Direct-navigation guard for parental control: filterVisible() above
+    // keeps a restricted title out of every row/search/similar list, but a
+    // link or a typed URL reaches an item by id directly, bypassing all of
+    // that. Treating it as "not found" here is what every caller (the item
+    // page, the watch page) already does for a genuinely missing item, so
+    // this needs no special handling anywhere else.
+    if (session.parentalControl && isRestrictedContent(item)) return null;
+    return item;
   } catch {
     return null;
   }
@@ -606,7 +621,7 @@ export async function getSimilar(
       `/Items/${encodeURIComponent(itemId)}/Similar`,
       { userId: session.jellyfinUserId, limit: 12, fields: LIST_FIELDS },
     );
-    const items = filterVisible(data?.Items ?? []);
+    const items = filterVisible(data?.Items ?? [], session);
     const rankScore = new Map(items.map((item, i) => [item.Id, items.length - i]));
     const discount = diversityDiscount(items, directorsOf, (item) => rankScore.get(item.Id) ?? 0, (item) => item.Id);
     return [...items].sort(
@@ -633,7 +648,7 @@ export async function search(
     fields: LIST_FIELDS,
     enableImageTypes: "Primary,Backdrop",
   });
-  return filterVisible(data?.Items ?? []);
+  return filterVisible(data?.Items ?? [], session);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1170,7 +1185,7 @@ export async function getItemsByPerson(
       fields: LIST_FIELDS,
       enableImageTypes: "Primary,Backdrop",
     });
-    return filterVisible(data?.Items ?? []);
+    return filterVisible(data?.Items ?? [], session);
   } catch {
     return [];
   }

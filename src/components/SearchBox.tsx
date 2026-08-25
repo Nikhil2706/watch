@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
+import { useTvMode } from "@/components/tv/TvProvider";
 import { itemHref } from "@/lib/slugs";
 
 interface Hit {
@@ -26,6 +28,7 @@ interface Hit {
  * page and the whole thing degrades to a plain GET without JavaScript.
  */
 export function SearchBox({ initialQuery = "" }: { initialQuery?: string }) {
+  const tvMode = useTvMode();
   const [query, setQuery] = useState(initialQuery);
   const [hits, setHits] = useState<Hit[]>([]);
   const [open, setOpen] = useState(false);
@@ -75,6 +78,19 @@ export function SearchBox({ initialQuery = "" }: { initialQuery?: string }) {
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
+  // Typing into a small header field with a D-pad is exactly the "tiny HTML
+  // input" experience the brief calls out — the dedicated /search page
+  // already has a large, remote-friendly field and its own on-screen
+  // keyboard fallback (see search/page.tsx), so TV mode just links there
+  // instead of trying to shrink the type-ahead UI down to fit a remote.
+  if (tvMode) {
+    return (
+      <Link href="/search" className="tv-search-link" aria-label="Search">
+        🔍 Search
+      </Link>
+    );
+  }
+
   return (
     <div className="searchbox" ref={boxRef}>
       <form action="/search" method="get" role="search">
@@ -84,7 +100,15 @@ export function SearchBox({ initialQuery = "" }: { initialQuery?: string }) {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onFocus={() => hits.length > 0 && setOpen(true)}
-          onKeyDown={(event) => event.key === "Escape" && setOpen(false)}
+          onKeyDown={(event) => {
+            // Consumed here so it closes the dropdown instead of also
+            // reaching TvProvider's global Escape/Back handler, which would
+            // otherwise navigate away instead of just dismissing this.
+            if (event.key === "Escape") {
+              event.stopPropagation();
+              setOpen(false);
+            }
+          }}
           placeholder="Search titles, cast, genre…"
           aria-label="Search"
           autoComplete="off"

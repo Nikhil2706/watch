@@ -19,7 +19,7 @@
  * schema state (PRAGMA table_info) before acting and is therefore safe to run
  * on every migration regardless of how many times it fires.
  */
-export const SCHEMA_VERSION = 33;
+export const SCHEMA_VERSION = 36;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -61,7 +61,11 @@ CREATE TABLE IF NOT EXISTS users (
   -- Copied from invites.langlois_mode at redemption time — see that
   -- column's comment. The authoritative per-user flag; invites.langlois_mode
   -- is only ever read once, at the moment this row is created.
-  langlois_mode        INTEGER NOT NULL DEFAULT 0
+  langlois_mode        INTEGER NOT NULL DEFAULT 0,
+  -- Curator-toggled from the Users panel (see /api/admin/users/:id). Purely a
+  -- gate-side content filter — unlike langlois_mode, nothing here touches the
+  -- account's real Jellyfin policy. See parental-control.ts.
+  parental_control     INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -180,6 +184,36 @@ CREATE TABLE IF NOT EXISTS subtitle_prefs (
   label            TEXT,
   language         TEXT,
   set_by           TEXT NOT NULL,
+  created_at       INTEGER NOT NULL
+) STRICT;
+
+-- TMDB's certifications (checked across every country TMDB has one for, not
+-- just the US) and content-descriptor keywords for a film, cached so
+-- parental-control filtering (media.ts's filterVisible/getItem) is a plain
+-- local read on every page view rather than a live TMDB call — see
+-- content-warnings.ts for the backfill loop that keeps this populated and
+-- parental-control.ts for how "restricted" gets decided from it.
+CREATE TABLE IF NOT EXISTS content_warnings (
+  imdb_id     TEXT PRIMARY KEY,
+  restricted  INTEGER NOT NULL,
+  -- JSON array of whatever certification/keyword actually tripped it — kept
+  -- for a curator to sanity-check a surprising result, not shown to viewers.
+  signals     TEXT NOT NULL,
+  checked_at  INTEGER NOT NULL
+) STRICT;
+
+-- One row per movie ever asked about, so a title with no match on
+-- OpenSubtitles isn't re-searched (and, worse, re-attempted for download
+-- against the shared daily quota) every time another viewer hits play.
+-- status is 'found', 'not_found' or 'error'; requested_by is a user id, or
+-- 'curator' for a Library Review-triggered fetch.
+CREATE TABLE IF NOT EXISTS subtitle_fetch_attempts (
+  jellyfin_item_id TEXT PRIMARY KEY,
+  status           TEXT NOT NULL,
+  language         TEXT,
+  file_name        TEXT,
+  message          TEXT,
+  requested_by     TEXT,
   created_at       INTEGER NOT NULL
 ) STRICT;
 

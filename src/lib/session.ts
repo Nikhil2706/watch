@@ -43,12 +43,14 @@ export interface ResolvedSession {
   jellyfinDeviceId: string;
   expiresAt: number;
   langloisMode: boolean;
+  parentalControl: boolean;
 }
 
 interface JoinedRow extends SessionRow {
   username: string;
   jellyfin_user_id: string;
   langlois_mode: number;
+  parental_control: number;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -190,7 +192,7 @@ export function getSession(sessionId: string | null): ResolvedSession | null {
   const row = asRow<JoinedRow>(
     getDb()
       .prepare(
-        `SELECT s.*, u.username, u.jellyfin_user_id, u.langlois_mode
+        `SELECT s.*, u.username, u.jellyfin_user_id, u.langlois_mode, u.parental_control
            FROM sessions s
            JOIN users u ON u.id = s.user_id
           WHERE s.id = ?`,
@@ -214,6 +216,7 @@ export function getSession(sessionId: string | null): ResolvedSession | null {
     jellyfinDeviceId: row.jellyfin_device_id,
     expiresAt: row.expires_at,
     langloisMode: row.langlois_mode === 1,
+    parentalControl: row.parental_control === 1,
   };
 }
 

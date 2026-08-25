@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { AppBar } from "@/components/AppBar";
 import { AccoladesSection } from "@/components/media/AccoladesSection";
 import { CastRow } from "@/components/media/CastRow";
+import { FetchSubtitlesButton } from "@/components/media/FetchSubtitlesButton";
 import { CommunitySection } from "@/components/media/CommunitySection";
 import { CuratorPicks } from "@/components/media/CuratorPicks";
 import { ListButtons } from "@/components/media/ListButtons";
@@ -162,6 +163,7 @@ export default async function ItemPage({
             />
             <Link
               className="btn"
+              data-tv-autofocus="true"
               href={watchHref(item.Id, item.Name, item.ProductionYear, resume)}
             >
               ▶ {resume > 0 ? `Resume at ${Math.floor(resume / 60)}m` : "Play"}
@@ -230,7 +232,9 @@ export default async function ItemPage({
               ),
             )}
           </div>
-        ) : null}
+        ) : (
+          <FetchSubtitlesButton itemId={item.Id} />
+        )}
 
         <AccoladesSection blurb={blurb} trivia={trivia} />
       </div>

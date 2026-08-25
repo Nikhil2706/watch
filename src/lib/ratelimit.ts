@@ -91,6 +91,58 @@ export const PARTY_CREATE_LIMIT: RateLimitRule = {
   windowMs: 60 * 60 * 1000,
 };
 
+/** Starting a TV pairing handshake — same shape as LOGIN_LIMIT, since both ultimately hit Jellyfin's own auth. */
+export const DEVICE_START_LIMIT: RateLimitRule = {
+  name: "device_start",
+  limit: 10,
+  windowMs: 15 * 60 * 1000,
+};
+
+/**
+ * A TV polls every ~2s while its pairing screen is up, for up to the 5-minute
+ * lifetime of a code — a legitimate session is ~150 requests. Generous on
+ * purpose; this is a ceiling against a runaway/looping client, not the thing
+ * that makes pairing secure (Jellyfin's own Code/Secret expiry is).
+ */
+export const DEVICE_POLL_LIMIT: RateLimitRule = {
+  name: "device_poll",
+  limit: 200,
+  windowMs: 10 * 60 * 1000,
+};
+
+/** Approving a code from an already-authenticated phone/laptop — a handful of taps at most. */
+export const DEVICE_APPROVE_LIMIT: RateLimitRule = {
+  name: "device_approve",
+  limit: 20,
+  windowMs: 15 * 60 * 1000,
+};
+
+/**
+ * A consumer asking to fetch subtitles for the title they're watching. Not
+ * about protecting this route itself — it's a soft guard on the shared
+ * OpenSubtitles daily download quota (100/day across the whole app), on top
+ * of subtitle-fetch.ts's own "don't retry an already-attempted title"
+ * short-circuit. Keyed by session id at the call site, not IP.
+ */
+export const SUBTITLE_FETCH_LIMIT: RateLimitRule = {
+  name: "subtitle_fetch",
+  limit: 10,
+  windowMs: 60 * 60 * 1000,
+};
+
+/**
+ * The "how many subtitles exist" availability check — cheap and not
+ * download-quota-limited on OpenSubtitles' side, but their /features
+ * endpoint itself caps at 40 requests/10s across this app's ENTIRE Api-Key
+ * (every viewer combined, not per-user), so this stays a real ceiling
+ * rather than a formality.
+ */
+export const SUBTITLE_CHECK_LIMIT: RateLimitRule = {
+  name: "subtitle_check",
+  limit: 30,
+  windowMs: 60 * 1000,
+};
+
 export interface RateLimitResult {
   readonly allowed: boolean;
   readonly remaining: number;

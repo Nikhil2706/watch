@@ -14,6 +14,8 @@ import {
 } from "@vidstack/react/player/layouts/plyr";
 import { useEffect, useRef, useState } from "react";
 
+import { useTvBack } from "@/components/tv/TvProvider";
+
 // The Plyr layout rather than Vidstack's default: a single slim control bar
 // instead of a large translucent panel, which suits a phone and does not fight
 // the artwork.
@@ -228,6 +230,30 @@ export function Player({
       if (seekFlashTimer.current) clearTimeout(seekFlashTimer.current);
     };
   }, []);
+
+  // Tells TvProvider's global keydown handler to stand down on arrow keys
+  // while this is mounted — Vidstack's own document-level shortcuts
+  // (keyTarget="document" below) already own seeking and playback there,
+  // and the two would otherwise fight over the same keys. Escape/Back is
+  // NOT suppressed; see the useTvBack registration below.
+  useEffect(() => {
+    document.body.dataset.tvPlayerOpen = "true";
+    return () => {
+      delete document.body.dataset.tvPlayerOpen;
+    };
+  }, []);
+
+  // Back/Escape in the player: exit fullscreen if fullscreen (most TV
+  // browsers already do this natively before JS ever sees the key, but not
+  // all of them), otherwise fall through to the default (browser history
+  // back, landing on the item page this was opened from).
+  useTvBack(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return true;
+    }
+    return false;
+  });
 
   /**
    * Watch-party sync. applyingRemoteSync suppresses the outbound send that

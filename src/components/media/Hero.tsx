@@ -61,6 +61,7 @@ export function Hero({ item, imdb }: { item: MediaItem; imdb?: string | null }) 
         <div className="btn-row">
           <Link
             className="btn"
+            data-tv-autofocus="true"
             href={watchHref(item.Id, item.Name, item.ProductionYear, resume)}
           >
             ▶ {resume > 0 ? "Resume" : "Play"}

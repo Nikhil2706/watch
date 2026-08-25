@@ -1397,6 +1397,11 @@ a.curator-card:hover {
   margin-right: 2px;
 }
 
+.subtitle-fetch-note {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 /* Technical detail, at the bottom, as one quiet line rather than a grid of
    cards competing with the cast for attention. */
 .file-line {
