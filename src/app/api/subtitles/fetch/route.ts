@@ -1,3 +1,4 @@
+import { getItem } from "@/lib/media";
 import { checkRateLimit, rateLimitHeaders, SUBTITLE_FETCH_LIMIT } from "@/lib/ratelimit";
 import { getSessionFromRequest } from "@/lib/session";
 import { fetchSubtitleForItem } from "@/lib/subtitle-fetch";
@@ -43,6 +44,18 @@ export async function POST(request: Request): Promise<Response> {
     const body = await readJsonBody(request);
     if (typeof body.itemId !== "string" || body.itemId === "") {
       throw new ValidationError("itemId is required.");
+    }
+
+    // Same session-scoped gate as /api/subtitles/check — fetchSubtitleForItem
+    // resolves through the admin-key getFullItem() internally, so without this
+    // a restricted viewer could have the server fetch and write a subtitle
+    // file for a title they're blocked from seeing anywhere else.
+    const item = await getItem(session, body.itemId);
+    if (!item) {
+      return Response.json(
+        { error: "not_found", message: "No such item." },
+        { status: 404, headers: NO_STORE },
+      );
     }
 
     const result = await fetchSubtitleForItem(body.itemId, session.userId, false);

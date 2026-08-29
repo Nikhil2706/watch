@@ -2,6 +2,7 @@ import { createReadStream, statSync } from "node:fs";
 import { basename } from "node:path";
 import { Readable } from "node:stream";
 
+import { getItem } from "@/lib/media";
 import { getSessionFromRequest } from "@/lib/session";
 import { DownloadSourceError, getDownloadJob, queueDownload } from "@/lib/downloads";
 
@@ -36,6 +37,20 @@ export async function GET(
   }
 
   const { itemId } = await context.params;
+
+  // Resolve through getItem() rather than going straight to the download
+  // queue: queueDownload() -> resolveSourcePath() -> getFullItem() uses the
+  // admin API key, which has no concept of who is asking. getItem() is the
+  // session-scoped accessor every page already goes through, so a title this
+  // viewer can't see — parental-control restricted, or simply gone — is a 404
+  // here exactly as it is on /item and /watch, instead of a downloadable file.
+  const item = await getItem(session, itemId);
+  if (!item) {
+    return Response.json(
+      { error: "not_found", message: "No such item." },
+      { status: 404, headers: NO_STORE },
+    );
+  }
 
   let job = getDownloadJob(itemId);
   if (!job) {
