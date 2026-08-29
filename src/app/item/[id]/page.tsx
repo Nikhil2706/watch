@@ -10,6 +10,7 @@ import { CuratorPicks } from "@/components/media/CuratorPicks";
 import { ListButtons } from "@/components/media/ListButtons";
 import { RatingsRow } from "@/components/media/RatingsRow";
 import { getRatingSummary } from "@/lib/community";
+import { getCachedContentWarning, toDisplaySignals } from "@/lib/content-warnings";
 import { curationsForItem } from "@/lib/curations";
 import { getMemberships } from "@/lib/lists";
 import { getRatings } from "@/lib/ratings";
@@ -82,6 +83,8 @@ export default async function ItemPage({
   const trivia = imdbId ? resolveTriviaForFilm(imdbId) : [];
   const ratingSummary = imdbId ? getRatingSummary(imdbId) : null;
   const usRating = ratingSummary && ratingSummary.count > 0 ? { average: ratingSummary.average!, count: ratingSummary.count } : null;
+  const contentWarning = imdbId ? getCachedContentWarning(imdbId) : null;
+  const contentWarningDisplay = contentWarning ? toDisplaySignals(contentWarning) : null;
 
   // "In this series" — every film Wikipedia's own film-series lists carry
   // for this franchise (see film-series.ts), not just the ones owned. The
@@ -202,6 +205,39 @@ export default async function ItemPage({
         ) : null}
 
         <RatingsRow ratings={ratings} community={item.CommunityRating} accolade={accolade} usRating={usRating} />
+
+        {/* Shown to everyone, not just parental-control accounts — this is
+            informational (helping someone decide), separate from the filter
+            that hides a title outright. contentWarningDisplay is null both
+            when there's genuinely nothing flagged AND when the backfill
+            hasn't reached this title yet — deliberately not distinguished
+            here, since neither case has anything honest to say. */}
+        {contentWarningDisplay ? (
+          <div className="subtitle-line">
+            <span className="subtitle-label">Content notes</span>
+            {contentWarningDisplay.certifications.map((c) => (
+              <span key={c} className="chip">
+                {c}
+              </span>
+            ))}
+            {contentWarningDisplay.topics.slice(0, 8).map((t) => (
+              <span key={t} className="chip">
+                {t}
+              </span>
+            ))}
+            {contentWarningDisplay.topics.length > 8 ? (
+              <span className="subtitle-label">+{contentWarningDisplay.topics.length - 8} more</span>
+            ) : null}
+            {contentWarningDisplay.hasDddSource ? (
+              <span className="content-warning-attribution">
+                Sexual content/violence data{" "}
+                <a href="https://www.doesthedogdie.com" target="_blank" rel="noopener">
+                  Powered by DoesTheDogDie.com
+                </a>
+              </span>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Which languages are available matters to a room deciding what to
             put on; the codec and container do not. Those moved to the footer. */}

@@ -19,7 +19,7 @@
  * schema state (PRAGMA table_info) before acting and is therefore safe to run
  * on every migration regardless of how many times it fires.
  */
-export const SCHEMA_VERSION = 36;
+export const SCHEMA_VERSION = 37;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -207,6 +207,19 @@ CREATE TABLE IF NOT EXISTS content_warnings (
 -- against the shared daily quota) every time another viewer hits play.
 -- status is 'found', 'not_found' or 'error'; requested_by is a user id, or
 -- 'curator' for a Library Review-triggered fetch.
+-- "How many subtitles does OpenSubtitles have for this?" — the availability
+-- count FetchSubtitlesButton shows before a viewer commits to a fetch (see
+-- /api/subtitles/check). Cached because OpenSubtitles states a 40
+-- requests/10-seconds cap on this endpoint that's shared across this app's
+-- ENTIRE Api-Key — every viewer combined, not per-user — so a live call on
+-- every item-page view doesn't hold up once more than a couple of people
+-- are browsing at once.
+CREATE TABLE IF NOT EXISTS subtitle_availability_cache (
+  imdb_id    TEXT PRIMARY KEY,
+  count      INTEGER NOT NULL,
+  checked_at INTEGER NOT NULL
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS subtitle_fetch_attempts (
   jellyfin_item_id TEXT PRIMARY KEY,
   status           TEXT NOT NULL,

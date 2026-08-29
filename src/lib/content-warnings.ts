@@ -39,6 +39,45 @@ export interface CachedContentWarning {
   signals: string[];
 }
 
+export interface ContentWarningDisplay {
+  /** e.g. "US: R", "GB: 18" — from TMDB certifications. */
+  certifications: string[];
+  /** Readable topic/keyword labels, deduplicated, DDD's vote-count parenthetical stripped. */
+  topics: string[];
+  /** Whether any of the above came from DDD — gates whether the attribution link needs to show. */
+  hasDddSource: boolean;
+}
+
+/**
+ * Turns the raw signals array (built for a curator sanity-checking a
+ * surprising result — "US:R", "keyword:nudity", "ddd:there's excessive gore
+ * (4 yes / 0 no)") into something a viewer can actually read. Returns null
+ * for "nothing to show" (no signals at all), same as getCachedContentWarning
+ * returning null for "never checked" — a caller needs to keep those two
+ * states distinct rather than treating an empty result as "confirmed clean".
+ */
+export function toDisplaySignals(warning: CachedContentWarning): ContentWarningDisplay | null {
+  if (warning.signals.length === 0) return null;
+
+  const certifications: string[] = [];
+  const topics = new Set<string>();
+  let hasDddSource = false;
+
+  for (const signal of warning.signals) {
+    if (signal.startsWith("ddd:")) {
+      hasDddSource = true;
+      // "ddd:there's excessive gore (4 yes / 0 no)" -> "there's excessive gore"
+      topics.add(signal.slice(4).replace(/\s*\(\d+ yes \/ \d+ no\)\s*$/, "").trim());
+    } else if (signal.startsWith("keyword:")) {
+      topics.add(signal.slice(8).trim());
+    } else if (/^[A-Z]{2}:/.test(signal)) {
+      certifications.push(signal.replace(":", ": "));
+    }
+  }
+
+  return { certifications: [...new Set(certifications)], topics: [...topics], hasDddSource };
+}
+
 /** Sync local read — the hot-path call, used by parental-control.ts on every filterVisible()/getItem() check. */
 export function getCachedContentWarning(imdbId: string): CachedContentWarning | null {
   const row = asRow<ContentWarningRow>(

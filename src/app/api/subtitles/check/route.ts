@@ -1,5 +1,5 @@
 import { getFullItem } from "@/lib/jellyfin";
-import { getFeatureSubtitleCount, isOpenSubtitlesConfigured } from "@/lib/opensubtitles";
+import { getCachedSubtitleCount, isOpenSubtitlesConfigured } from "@/lib/opensubtitles";
 import { checkRateLimit, rateLimitHeaders, SUBTITLE_CHECK_LIMIT } from "@/lib/ratelimit";
 import { getSessionFromRequest } from "@/lib/session";
 import { readJsonBody, ValidationError } from "@/lib/validation";
@@ -17,6 +17,10 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
  * never touches the shared daily download quota. Used by
  * FetchSubtitlesButton to show a real count (or hide the button entirely
  * when the answer is zero) instead of a viewer clicking blind.
+ *
+ * getCachedSubtitleCount() (opensubtitles.ts) does the actual caching — see
+ * its own comment for why: /features has a 40-requests/10-seconds cap
+ * shared across this app's entire Api-Key, not per user.
  */
 export async function POST(request: Request): Promise<Response> {
   const session = getSessionFromRequest(request);
@@ -52,8 +56,8 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ count: null }, { headers: NO_STORE });
     }
 
-    const count = await getFeatureSubtitleCount(imdbId.replace(/^tt/, ""), "en");
-    return Response.json({ count: count?.forLanguage ?? 0 }, { headers: NO_STORE });
+    const count = await getCachedSubtitleCount(imdbId, "en");
+    return Response.json({ count }, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof ValidationError) {
       return Response.json(

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { asRow, getDb } from "./db";
 import { env } from "./env";
 
 /**
@@ -199,6 +200,61 @@ export async function getFeatureSubtitleCount(
     total: attributes.subtitles_count,
     forLanguage: attributes.subtitles_counts[language] ?? 0,
   };
+}
+
+/**
+ * Cached count for exactly one language, since that's the only thing
+ * FetchSubtitlesButton actually shows. Weekly TTL — new subtitles do get
+ * uploaded for older titles occasionally, but nowhere near often enough to
+ * justify a live call on every page view.
+ *
+ * This is the fix for a real gap: OpenSubtitles states /features at 40
+ * requests/10 seconds, shared across this app's ENTIRE Api-Key — every
+ * viewer combined, not per-user. A handful of people browsing different
+ * subtitle-less titles in the same short window could realistically
+ * approach that uncached. Cache-miss/stale still calls it live; a repeat
+ * check for the same title, by anyone, doesn't.
+ */
+const SUBTITLE_AVAILABILITY_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+interface SubtitleAvailabilityRow {
+  imdb_id: string;
+  count: number;
+  checked_at: number;
+}
+
+/**
+ * imdbId is the full "tt1234567" form (matching Jellyfin's ProviderIds.Imdb
+ * and every other cache table's convention) — OpenSubtitles' own /features
+ * call wants the bare number, so the "tt" gets stripped here, once, rather
+ * than leaving each caller to remember to do it.
+ */
+export async function getCachedSubtitleCount(imdbId: string, language: string): Promise<number | null> {
+  const db = getDb();
+  const cached = asRow<SubtitleAvailabilityRow>(
+    db.prepare("SELECT * FROM subtitle_availability_cache WHERE imdb_id = ?").get(imdbId),
+  );
+  if (cached && Date.now() - cached.checked_at < SUBTITLE_AVAILABILITY_CACHE_TTL_MS) {
+    return cached.count;
+  }
+
+  let count: number | null;
+  try {
+    count = (await getFeatureSubtitleCount(imdbId.replace(/^tt/, ""), language))?.forLanguage ?? 0;
+  } catch (error) {
+    console.error(`[opensubtitles] availability check failed for ${imdbId}:`, error);
+    // A stale cached value is still a better answer than none — only fall
+    // through to null (unknown) when there was never a successful check.
+    return cached?.count ?? null;
+  }
+
+  db.prepare(
+    `INSERT INTO subtitle_availability_cache (imdb_id, count, checked_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(imdb_id) DO UPDATE SET count = excluded.count, checked_at = excluded.checked_at`,
+  ).run(imdbId, count, Date.now());
+
+  return count;
 }
 
 interface RawDownloadResponse {
