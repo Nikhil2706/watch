@@ -31,6 +31,17 @@ export function AppBar({
           <Link href="/watchlist">My list</Link>
           <Link href="/curator">Picks</Link>
           {langloisMode ? <Link href="/upload">Upload</Link> : null}
+          {/* Both halves of the phone-remote feature, reachable from every
+              page. Which one you want depends on which device you are holding,
+              so both are always offered rather than guessed at: "Remote" turns
+              this device into the controller, "Pair phone" turns it into the
+              screen being controlled. */}
+          <Link href="/remote" className="nav-remote">
+            Remote
+          </Link>
+          <Link href="/screen" className="nav-remote">
+            Pair phone
+          </Link>
         </nav>
         <div className="spacer" />
         <SearchBox initialQuery={query ?? ""} />

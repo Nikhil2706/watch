@@ -51,6 +51,18 @@ export default async function LoginPage({
           from an existing member. Ask whoever told you about the club to send
           you a link.
         </p>
+        {/*
+         * Both remote routes are behind auth, so linking them here is about
+         * discoverability, not access: they carry ?next= so signing in lands
+         * you on the one you actually wanted instead of the home page. Someone
+         * standing in front of a television wants "Use as TV"; someone holding
+         * a phone wants "Use as remote".
+         */}
+        <p className="auth-remote-links">
+          <a href="/login?next=%2Fremote">Use this phone as a remote</a>
+          <span aria-hidden="true"> · </span>
+          <a href="/login?next=%2Fscreen">Use this device as the TV</a>
+        </p>
       </div>
     </AuthShell>
   );
