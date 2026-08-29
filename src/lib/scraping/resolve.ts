@@ -71,18 +71,29 @@ export interface ResolvedAccolade {
   sourceUrl: string | null;
 }
 
+/**
+ * Win vs. nomination is carried as a prefix on the free-text label — "Won:
+ * Best Sound Editing, 92nd Academy Awards" against "Nominated: ..." — as
+ * written by wikipedia.ts and wikipedia-lists.ts. Kept in one place so the
+ * badge and the ranking below can't drift apart on what counts as a win.
+ */
+function isWinLabel(label: string): boolean {
+  return label.startsWith("Won");
+}
+
 function fromMention(m: AccoladeMention, locked: boolean): ResolvedAccolade {
   const sourceUrl = m.article_url.startsWith("http") ? m.article_url : null;
   if (m.accolade_label) {
-    const isWin = m.accolade_label.startsWith("Won");
-    return { badge: isWin ? "Won" : "Nom.", detail: `${m.accolade_label} — ${m.source_name}`, locked, sourceUrl };
+    const badge = isWinLabel(m.accolade_label) ? "Won" : "Nom.";
+    return { badge, detail: `${m.accolade_label} — ${m.source_name}`, locked, sourceUrl };
   }
   return { badge: `#${m.accolade_rank}`, detail: `${m.article_title} — ${m.source_name}`, locked, sourceUrl };
 }
 
 /**
  * "Most prominent" = a win beats any numeric rank; among ranks (scraped or
- * from the curator's own lists), lowest number wins. Curator-built lists
+ * from the curator's own lists), lowest number wins; a nomination ranks
+ * below both, but still shows when it's all a film has. Curator-built lists
  * participate in "auto" without needing a separate lock — building the
  * list is already the curation act.
  */
@@ -99,7 +110,11 @@ export function resolveAccolade(imdbId: string): ResolvedAccolade | null {
   }
 
   const scraped = accoladeMentionsForFilm(imdbId);
-  const win = scraped.find((m) => m.accolade_label);
+  // Only a genuine win short-circuits the ranked list below. articles.ts
+  // orders every labelled row ahead of the ranked ones without distinguishing
+  // "Won:" from "Nominated:", so matching on the label alone here would let a
+  // nomination suppress a real #1 placement purely by row order.
+  const win = scraped.find((m) => m.accolade_label && isWinLabel(m.accolade_label));
   if (win) return fromMention(win, false);
 
   const curator = curatorAccoladeMentionsForFilm(imdbId);
@@ -115,5 +130,11 @@ export function resolveAccolade(imdbId: string): ResolvedAccolade | null {
   ].sort((a, b) => a.rank - b.rank);
 
   const best = ranked[0];
-  return best ? { badge: `#${best.rank}`, detail: best.label, locked: false, sourceUrl: best.sourceUrl } : null;
+  if (best) {
+    return { badge: `#${best.rank}`, detail: best.label, locked: false, sourceUrl: best.sourceUrl };
+  }
+
+  // No win and nothing ranked — a nomination is still worth showing.
+  const nomination = scraped.find((m) => m.accolade_label);
+  return nomination ? fromMention(nomination, false) : null;
 }
