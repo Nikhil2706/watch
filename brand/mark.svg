@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none"><defs>
+  <radialGradient id="light" cx="0.5" cy="0.4" r="0.62">
+    <stop offset="0" stop-color="#fffaf1"/>
+    <stop offset="0.38" stop-color="#ffe3b8"/>
+    <stop offset="0.8" stop-color="#ffd096"/>
+    <stop offset="1" stop-color="#eda75f"/>
+  </radialGradient>
+  <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+    <stop offset="0.3" stop-color="#ffc072" stop-opacity="0.5"/>
+    <stop offset="0.62" stop-color="#ffc072" stop-opacity="0.14"/>
+    <stop offset="1" stop-color="#ffc072" stop-opacity="0"/>
+  </radialGradient>
+  <linearGradient id="barrel" x1="0.15" y1="0" x2="0.85" y2="1">
+    <stop offset="0" stop-color="#eef3fb" stop-opacity="0.72"/>
+    <stop offset="0.45" stop-color="#9aa4b8" stop-opacity="0.22"/>
+    <stop offset="1" stop-color="#ffd9a0" stop-opacity="0.62"/>
+  </linearGradient>
+  <linearGradient id="topsheen" x1="0" y1="0" x2="0.25" y2="1">
+    <stop offset="0" stop-color="#ffffff" stop-opacity="0.075"/>
+    <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+  </linearGradient></defs>
+  <circle cx="128" cy="128" r="148.8" fill="url(#halo)"/>
+  <path d="M 224 128 A 96 96 0 0 0 80 44.862 Z" fill="#343e52"/>
+  <path d="M 176 44.862 A 96 96 0 0 0 32 128 Z" fill="#495771"/>
+  <path d="M 80 44.862 A 96 96 0 0 0 80 211.138 Z" fill="#3f4b62"/>
+  <path d="M 32 128 A 96 96 0 0 0 176 211.138 Z" fill="#222a39"/>
+  <path d="M 80 211.138 A 96 96 0 0 0 224 128 Z" fill="#141a25"/>
+  <path d="M 176 211.138 A 96 96 0 0 0 176 44.862 Z" fill="#1a212d"/>
+  <g stroke="#ffe6c4" stroke-opacity="0.3" stroke-width="2.112" stroke-linecap="round" fill="none"><path d="M 224 128 L 128 72.574"/><path d="M 176 44.862 L 80 100.287"/><path d="M 80 44.862 L 80 155.713"/><path d="M 32 128 L 128 183.426"/><path d="M 80 211.138 L 176 155.713"/><path d="M 176 211.138 L 176 100.287"/></g>
+  <path d="M 176 100.287 L 128 72.574 L 80 100.287 L 80 155.713 L 128 183.426 L 176 155.713 Z" fill="url(#light)"/>
+  <path d="M 176 100.287 L 128 72.574 L 80 100.287 L 80 155.713 L 128 183.426 L 176 155.713 Z" fill="none" stroke="#fff6e6" stroke-opacity="0.55" stroke-width="1.152" stroke-linejoin="round"/>
+  <circle cx="128" cy="128" r="96" fill="none" stroke="url(#barrel)" stroke-width="2.592"/>
+</svg>

@@ -1,0 +1,3 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none">
+  <mask id="leafcut" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256"><path d="M 32 128 a 96 96 0 1 0 192 0 a 96 96 0 1 0 -192 0 Z M 176 100.287 L 128 72.574 L 80 100.287 L 80 155.713 L 128 183.426 L 176 155.713 Z" fill="#fff" fill-rule="evenodd"/><g stroke="#000" stroke-width="5.28"><path d="M 224 128 L 176 100.287"/><path d="M 176 44.862 L 128 72.574"/><path d="M 80 44.862 L 80 100.287"/><path d="M 32 128 L 80 155.713"/><path d="M 80 211.138 L 128 183.426"/><path d="M 176 211.138 L 176 155.713"/></g></mask><rect width="256" height="256" fill="currentColor" mask="url(#leafcut)"/>
+</svg>

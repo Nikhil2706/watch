@@ -5,7 +5,10 @@
 // serving a stale session state. Phase 3 (real downloads) gets its own
 // separate storage path entirely; this cache is shell-only.
 
-const CACHE_NAME = "watch-shell-v1";
+// Bumped to v2 with the aperture icon set. The activate handler deletes every
+// cache that is not CACHE_NAME, so bumping this is what makes an already
+// installed app drop the old icons instead of keeping them forever.
+const CACHE_NAME = "watch-shell-v2";
 const PRECACHE_URLS = ["/login", "/manifest.json", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {

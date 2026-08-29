@@ -108,6 +108,6 @@ export const config = {
      * login is deliberately NOT in this exclusion list (see the comment
      * above) — the function's own first branch handles it.
      */
-    "/((?!api/|jf/|invite/|party/|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|apple-touch-icon.png|favicon-32.png).*)",
+    "/((?!api/|jf/|invite/|party/|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|icon-maskable-512.png|apple-touch-icon.png|favicon-32.png).*)",
   ],
 };
