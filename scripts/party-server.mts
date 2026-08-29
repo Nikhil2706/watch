@@ -38,12 +38,15 @@
  *   {type:"chat", message: ChatMessage}
  *   {type:"sync", action, positionSeconds, by}
  *   {type:"participants", list: Participant[]}
+ *   {type:"ended"}   -- party is over (creator ended it, or the 15-minute
+ *                        empty-room sweep did); socket is closed right after
  *
  * Client -> server:
  *   {type:"chat", body: string}
  *   {type:"sync", action:"play"|"pause"|"seek", positionSeconds: number}
  *   {type:"grant", targetId: string}    -- creator only
  *   {type:"revoke", targetId: string}   -- creator only
+ *   {type:"end"}                        -- creator only, ends the party now
  * ---------------------------------------------------------------------------
  */
 
@@ -276,6 +279,95 @@ function broadcastParticipants(roomId: string): void {
   broadcast(roomId, { type: "participants", list: participantList(roomId) });
 }
 
+/**
+ * Ends a party right now: marks it over in the DB (idempotent — the WHERE
+ * clause makes a second call a no-op), tells anyone still connected, and
+ * drops their sockets so a stale tab can't keep syncing playback against a
+ * room nobody considers live anymore. Shared by the creator's explicit
+ * "end party" action and the empty-room sweep below, so both paths behave
+ * identically instead of drifting apart.
+ */
+function endRoom(roomId: string): void {
+  db.prepare("UPDATE party_rooms SET ended_at = ? WHERE id = ? AND ended_at IS NULL").run(Date.now(), roomId);
+  broadcast(roomId, { type: "ended" });
+  const state = rooms.get(roomId);
+  if (state) {
+    for (const conn of state.connections) conn.socket.close(4000, "party_ended");
+  }
+  rooms.delete(roomId);
+  emptySince.delete(roomId);
+}
+
+// -----------------------------------------------------------------------
+// Auto-end sweep — a party nobody is in for 15+ minutes gets ended
+// automatically instead of staying "live" forever (there was previously no
+// cleanup path at all: the last disconnect only dropped the in-memory
+// RoomState, never touched party_rooms.ended_at).
+//
+// emptySince is tracked independently of `rooms`, and on a timer rather
+// than a per-room disconnect timeout, because a room can be "empty" from
+// this process's point of view without this process ever having seen a
+// connection for it — e.g. right after a restart, looking at a room that
+// was abandoned days ago. In that case emptySince starts counting from
+// "the first sweep that observed it empty", not from the true abandonment
+// time, so an already-abandoned room takes up to one more sweep interval
+// to end after a restart rather than ending instantly. That's an accepted
+// trade for not needing a persisted "last active" column just for this.
+// -----------------------------------------------------------------------
+
+const EMPTY_TIMEOUT_MS = 15 * 60 * 1000;
+const SWEEP_INTERVAL_MS = 60 * 1000;
+const emptySince = new Map<string, number>();
+
+function sweepEmptyRooms(): void {
+  const liveRooms = asRows<{ id: string }>(
+    db.prepare("SELECT id FROM party_rooms WHERE started_at IS NOT NULL AND ended_at IS NULL").all(),
+  );
+  const liveIds = new Set(liveRooms.map((r) => r.id));
+
+  for (const roomId of liveIds) {
+    const hasConnections = (rooms.get(roomId)?.connections.size ?? 0) > 0;
+    if (hasConnections) {
+      emptySince.delete(roomId);
+      continue;
+    }
+    const since = emptySince.get(roomId);
+    if (since === undefined) {
+      emptySince.set(roomId, Date.now());
+    } else if (Date.now() - since >= EMPTY_TIMEOUT_MS) {
+      console.log(`[party] auto-ending room ${roomId} (empty ${Math.round((Date.now() - since) / 60000)}min)`);
+      endRoom(roomId);
+    }
+  }
+
+  for (const roomId of emptySince.keys()) {
+    if (!liveIds.has(roomId)) emptySince.delete(roomId);
+  }
+
+  // Rooms ended somewhere other than here — the creator pressing "End watch
+  // party", which goes over HTTP to the gate (see
+  // src/app/api/party/[roomId]/route.ts) because /ws/party is not routed in
+  // production and a socket-only end button cannot be pressed at all.
+  //
+  // The database is the shared channel between the two processes, so this is
+  // where an external end becomes visible. Without it those participants keep
+  // a live-looking room open indefinitely: nothing tells them, and the next
+  // reconnect would 404 with no explanation.
+  for (const roomId of [...rooms.keys()]) {
+    if (liveIds.has(roomId)) continue;
+    const state = rooms.get(roomId);
+    if (!state || state.connections.size === 0) {
+      rooms.delete(roomId);
+      continue;
+    }
+    console.log(`[party] room ${roomId} was ended elsewhere; closing ${state.connections.size} connection(s)`);
+    broadcast(roomId, { type: "ended" });
+    for (const conn of state.connections) conn.socket.close(4000, "party_ended");
+    rooms.delete(roomId);
+    emptySince.delete(roomId);
+  }
+}
+
 // -----------------------------------------------------------------------
 // Server
 // -----------------------------------------------------------------------
@@ -384,6 +476,12 @@ function handleConnection(socket: WebSocket, roomId: string, identity: Identity)
       broadcastParticipants(roomId);
       return;
     }
+
+    if (msg.type === "end") {
+      if (!isCreator(roomId, identity)) return;
+      endRoom(roomId);
+      return;
+    }
   });
 
   socket.on("close", () => {
@@ -396,3 +494,5 @@ function handleConnection(socket: WebSocket, roomId: string, identity: Identity)
 httpServer.listen(PORT, () => {
   console.log(`[party] listening on :${PORT} (db: ${dbPath})`);
 });
+
+setInterval(sweepEmptyRooms, SWEEP_INTERVAL_MS);

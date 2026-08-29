@@ -64,10 +64,11 @@ services:
       # explicitly for exactly this reason; don't add one that doesn't.
       target: runtime
       args:
-        # Baked into the client bundle at build time — see the Dockerfile's
-        # own comment on this ARG. Only needs setting if the party server
-        # is ever routed somewhere other than same-origin "/ws/party".
-        NEXT_PUBLIC_PARTY_WS_PATH: ${NEXT_PUBLIC_PARTY_WS_PATH:-/ws/party}
+        # NEXT_PUBLIC_PARTY_WS_PATH was removed 2026-08-28 along with the
+        # WebSocket transport it configured. The watch party now uses SSE on
+        # this same origin (src/lib/party-bus.ts), so there is no separate
+        # realtime host to point anything at.
+        {}
     container_name: jellyfin-gate
     restart: unless-stopped
     # Deliberately the lowest cpus ceiling of the three real services but the
@@ -172,6 +173,33 @@ services:
       target: worker
     container_name: jellyfin-gate-worker
     restart: unless-stopped
+    # In WORKER_MODE=queue the script drains what's queued and exits 0 (see the
+    # WORKER_MODE note below). Left alone, `restart: unless-stopped` then
+    # respawns the whole container immediately, forever — roughly 8,600
+    # container starts a day on an idle box, and because Docker applies
+    # exponential backoff to those restarts (observed: 9s, 14s, 28s, 54s,
+    # capping at 60s) a job queued by the gate's Transform button could sit
+    # unnoticed for up to a minute.
+    #
+    # Wrapping the same script in a shell loop keeps ONE container resident and
+    # re-runs the drain on a fixed, predictable interval instead. Cheaper (no
+    # per-cycle container/network/mount setup) and more responsive. The trap
+    # forwards SIGTERM to the node child so `docker compose stop worker` still
+    # shuts a conversion down cleanly rather than waiting out the timeout and
+    # being SIGKILLed mid-transcode.
+    #
+    # This deliberately does NOT change what the worker acts on: still only
+    # explicitly queued jobs, still no folder watching or library-wide scan.
+    command:
+      - sh
+      - -c
+      - |
+        trap 'kill -TERM "$$child" 2>/dev/null; exit 0' TERM INT
+        while true; do
+          node /app/scripts/media-worker.mjs & child=$$!
+          wait "$$child"
+          sleep "$${WORKER_IDLE_SLEEP_SECONDS:-60}"
+        done
     # Same weight class as jellyfin: it's the other software-encode process
     # on this box, and PAUSE_WHILE_STREAMING already keeps it from running
     # concurrently with active playback by design — this ceiling is a safety
@@ -191,6 +219,10 @@ services:
       - MEDIA_INCOMING=/incoming
       - MEDIA_LIBRARY=/media
       - WATCH_POLL_SECONDS=${WATCH_POLL_SECONDS:-30}
+      # How long the queue-mode wrapper loop (see `command:` above) sleeps
+      # between drains. Lower = a queued Transform job starts sooner; higher =
+      # fewer wakeups on an idle box. Only meaningful in WORKER_MODE=queue.
+      - WORKER_IDLE_SLEEP_SECONDS=${WORKER_IDLE_SLEEP_SECONDS:-60}
       # "queue" (default): drains only what the gate's Transform button
       # queued in media_jobs, then exits — no folder watching, no
       # library-wide auto-discovery. Set WORKER_MODE=watch to restore the
@@ -238,13 +270,31 @@ services:
   # start it explicitly and by itself for local testing:
   #
   #   docker compose up -d --build party
-  party:
+  # RETIRED 2026-08-28. Do not start this service.
+  #
+  # Watch-party realtime moved into the gate process and off WebSockets — see
+  # src/lib/party-bus.ts. The short version: this service spoke WebSocket over
+  # `/ws/party`, a path that was never routed, because production fronts the
+  # app with a remotely managed Cloudflare tunnel whose ingress rules live in
+  # the Cloudflare dashboard rather than in any file here. Every watch party
+  # was therefore inert. SSE over the gate's own :3000 needs no edge change.
+  #
+  # Running this alongside the new implementation would be ACTIVELY HARMFUL,
+  # not merely redundant: its empty-room sweep counts *its own* WebSocket
+  # connections, would see zero for every room now that clients connect to the
+  # gate instead, and would auto-end every live party after fifteen minutes.
+  #
+  # Kept in the file (rather than deleted) so the reasoning survives, and
+  # renamed so `docker compose up` cannot start it by accident. scripts/
+  # party-server.mts is likewise kept but no longer runs.
+  party-retired:
+    profiles: ["retired"]
     build:
       context: .
       dockerfile: Dockerfile
       target: party
     container_name: jellyfin-gate-party
-    restart: unless-stopped
+    restart: "no"
     cpus: "0.5"
     mem_limit: 256m
     networks:

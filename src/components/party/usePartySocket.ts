@@ -3,19 +3,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Client side of scripts/party-server.mts's protocol — see that file's own
- * header comment for the full message shapes. Kept in sync by hand rather
- * than a shared import: the server is a standalone process outside the
- * Next.js build entirely (see DESIGN-watch-party.md), so there's no module
- * boundary that could import a shared type from here anyway.
+ * Client side of the watch-party realtime protocol.
  *
- * Connects to a same-origin path (NEXT_PUBLIC_PARTY_WS_PATH, default
- * "/ws/party") rather than a full URL — production routes that path to the
- * separate `party` container at the edge (cloudflared ingress or an
- * equivalent reverse-proxy rule), same public hostname as everything else.
- * That routing isn't wired up yet (see docker-compose.yml's `party` service
- * comment) — this will simply fail to connect until it is, same as any
- * other not-yet-deployed piece of this feature.
+ * Was a WebSocket to `/ws/party`, served by scripts/party-server.mts. That
+ * path was never routed: production fronts this app with a remotely managed
+ * Cloudflare tunnel whose ingress lives in the Cloudflare dashboard, so the
+ * route could not be added from the codebase and every party silently did
+ * nothing — chat that never sent, sync that never synced, a room that looked
+ * completely normal.
+ *
+ * Now: an SSE stream down (`GET /api/party/{roomId}/events`) and plain POSTs
+ * up (`POST /api/party/{roomId}/send`), both ordinary HTTP to the same origin
+ * the tunnel already serves. The name `usePartySocket` is kept because it is
+ * still exactly one live connection per room and every caller's usage is
+ * unchanged.
+ *
+ * Server logic lives in src/lib/party-bus.ts (in the gate process now, not a
+ * separate service).
  */
 
 export interface PartyChatMessage {
@@ -39,40 +43,46 @@ export interface PartySyncEvent {
   by: string;
 }
 
-const WS_PATH = process.env.NEXT_PUBLIC_PARTY_WS_PATH ?? "/ws/party";
 const RECONNECT_DELAY_MS = 2000;
+const MAX_RECONNECT_DELAY_MS = 30_000;
+/** Three failures is enough to stop pretending it is a blip and tell the user. */
+const ATTEMPTS_BEFORE_UNREACHABLE = 3;
 
 export function usePartySocket(roomId: string) {
   const [connected, setConnected] = useState(false);
+  const [unreachable, setUnreachable] = useState(false);
   const [messages, setMessages] = useState<PartyChatMessage[]>([]);
   const [participants, setParticipants] = useState<PartyParticipant[]>([]);
   const [initialState, setInitialState] = useState<{ positionSeconds: number; paused: boolean } | null>(null);
   const [lastSync, setLastSync] = useState<PartySyncEvent | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
+  const [ended, setEnded] = useState(false);
+
+  const sourceRef = useRef<EventSource | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closedByUs = useRef(false);
+  const endedRef = useRef(false);
+  const attempts = useRef(0);
 
   useEffect(() => {
     closedByUs.current = false;
+    endedRef.current = false;
 
     function connect() {
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const socket = new WebSocket(`${protocol}//${window.location.host}${WS_PATH}?room=${encodeURIComponent(roomId)}`);
-      socketRef.current = socket;
+      if (closedByUs.current || endedRef.current) return;
 
-      socket.onopen = () => setConnected(true);
+      const source = new EventSource(`/api/party/${encodeURIComponent(roomId)}/events`);
+      sourceRef.current = source;
 
-      socket.onclose = () => {
-        setConnected(false);
-        if (!closedByUs.current) {
-          reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY_MS);
-        }
-      };
+      source.addEventListener("ready", () => {
+        setConnected(true);
+        setUnreachable(false);
+        attempts.current = 0;
+      });
 
-      socket.onmessage = (event) => {
+      source.addEventListener("party", (event) => {
         let msg: Record<string, unknown>;
         try {
-          msg = JSON.parse(event.data);
+          msg = JSON.parse((event as MessageEvent).data);
         } catch {
           return;
         }
@@ -96,8 +106,50 @@ export function usePartySocket(roomId: string) {
               by: String(msg.by),
             });
             break;
+          case "ended":
+            endedRef.current = true;
+            setEnded(true);
+            setConnected(false);
+            source.close();
+            sourceRef.current = null;
+            break;
         }
+      });
+
+      source.onerror = () => {
+        source.close();
+        sourceRef.current = null;
+        setConnected(false);
+        if (closedByUs.current || endedRef.current) return;
+
+        attempts.current += 1;
+        if (attempts.current >= ATTEMPTS_BEFORE_UNREACHABLE) setUnreachable(true);
+
+        // Exponential backoff, capped. EventSource does not expose the HTTP
+        // status, so a room that ended between reconnects looks the same as a
+        // network blip from here — the /events route answers 410 for an ended
+        // room, and the check below turns that into a proper "ended" state
+        // rather than an endless retry.
+        void fetch(`/api/party/${encodeURIComponent(roomId)}/events`, { method: "HEAD" })
+          .then((r) => {
+            if (r.status === 410) {
+              endedRef.current = true;
+              setEnded(true);
+              return;
+            }
+            scheduleRetry();
+          })
+          .catch(scheduleRetry);
       };
+    }
+
+    function scheduleRetry() {
+      if (closedByUs.current || endedRef.current) return;
+      const delay = Math.min(
+        RECONNECT_DELAY_MS * 2 ** Math.min(attempts.current - 1, 4),
+        MAX_RECONNECT_DELAY_MS,
+      );
+      reconnectTimer.current = setTimeout(connect, delay);
     }
 
     connect();
@@ -105,25 +157,65 @@ export function usePartySocket(roomId: string) {
     return () => {
       closedByUs.current = true;
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-      socketRef.current?.close();
+      sourceRef.current?.close();
+      sourceRef.current = null;
     };
   }, [roomId]);
 
-  const sendChat = useCallback((body: string) => {
-    socketRef.current?.send(JSON.stringify({ type: "chat", body }));
+  const post = useCallback(
+    async (payload: Record<string, unknown>) => {
+      try {
+        const response = await fetch(`/api/party/${encodeURIComponent(roomId)}/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (response.status === 410) {
+          endedRef.current = true;
+          setEnded(true);
+        }
+        return response.ok;
+      } catch {
+        return false;
+      }
+    },
+    [roomId],
+  );
+
+  const sendChat = useCallback((body: string) => void post({ type: "chat", body }), [post]);
+  const sendSync = useCallback(
+    (action: "play" | "pause" | "seek", positionSeconds: number) =>
+      void post({ type: "sync", action, positionSeconds }),
+    [post],
+  );
+  const grant = useCallback((targetId: string) => void post({ type: "grant", targetId }), [post]);
+  const revoke = useCallback((targetId: string) => void post({ type: "revoke", targetId }), [post]);
+
+  /**
+   * Ending is a room state change, not a message, and lives on its own route
+   * so it keeps working with no stream open. PartyRoomClient calls that route
+   * directly; this stays for callers that had it, and just marks the local
+   * view as over.
+   */
+  const end = useCallback(() => {
+    endedRef.current = true;
+    setEnded(true);
+    sourceRef.current?.close();
+    sourceRef.current = null;
   }, []);
 
-  const sendSync = useCallback((action: "play" | "pause" | "seek", positionSeconds: number) => {
-    socketRef.current?.send(JSON.stringify({ type: "sync", action, positionSeconds }));
-  }, []);
-
-  const grant = useCallback((targetId: string) => {
-    socketRef.current?.send(JSON.stringify({ type: "grant", targetId }));
-  }, []);
-
-  const revoke = useCallback((targetId: string) => {
-    socketRef.current?.send(JSON.stringify({ type: "revoke", targetId }));
-  }, []);
-
-  return { connected, messages, participants, initialState, lastSync, sendChat, sendSync, grant, revoke };
+  return {
+    connected,
+    unreachable,
+    messages,
+    participants,
+    initialState,
+    lastSync,
+    ended,
+    sendChat,
+    sendSync,
+    grant,
+    revoke,
+    end,
+  };
 }

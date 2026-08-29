@@ -91,15 +91,20 @@ export function PartyChatPanel({
         ))}
       </div>
 
+      {/* The composer is disabled while the socket is down. sendChat() writes
+          straight to the WebSocket, so an enabled box with no connection
+          accepts a message, clears the field, and drops it on the floor with
+          no error — the user believes they said something they did not. */}
       <form className="party-composer" onSubmit={submit}>
         <input
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Say something…"
+          placeholder={connected ? "Say something…" : "Chat is offline"}
           maxLength={1000}
+          disabled={!connected}
         />
-        <button type="submit" disabled={!draft.trim()}>
+        <button type="submit" disabled={!connected || !draft.trim()}>
           Send
         </button>
       </form>

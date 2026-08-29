@@ -35,6 +35,37 @@ export default async function PartyRoomPage({ params }: { params: Promise<{ room
   const identity = await resolvePartyIdentity(roomId);
   if (!identity) redirect(`/login?next=${encodeURIComponent(`/party/${roomId}`)}`);
 
+  /**
+   * An ended party is not a party. Previously only the guest-link route
+   * checked this, so opening /party/{id} for a finished room rendered the
+   * full live UI — player, chat box, "End watch party" button — while the
+   * realtime server rejected the socket upgrade with a 404, leaving the
+   * client reconnecting every two seconds forever with nothing on screen to
+   * explain why. Send people to the film instead, which is what they
+   * actually wanted.
+   */
+  if (room.endedAt !== null) {
+    return (
+      <div className="party-page party-page-ended">
+        <div className="party-ended-card">
+          <h1>This watch party has ended</h1>
+          <p>
+            <strong>{room.filmTitle}</strong> — the party finished{" "}
+            {new Date(room.endedAt).toLocaleString()}.
+          </p>
+          <p className="party-ended-actions">
+            <Link href={room.filmHref} className="btn">
+              Watch it on your own
+            </Link>
+            <Link href="/" className="btn ghost">
+              Back home
+            </Link>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (identity.kind === "guest") {
     return (
       <div className="party-page party-page-chat-only">
