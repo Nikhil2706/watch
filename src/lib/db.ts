@@ -316,6 +316,24 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "users") && !columnExists(db, "users", "parental_control")) {
     db.exec("ALTER TABLE users ADD COLUMN parental_control INTEGER NOT NULL DEFAULT 0");
   }
+
+  // v38: subtitle_availability_cache was keyed on imdb_id alone, while
+  // getCachedSubtitleCount() takes a language — so whichever language was
+  // checked first for a title owned its row, and a later check in another
+  // language silently read back the first one's count. Re-keyed on
+  // (imdb_id, language).
+  //
+  // Dropped rather than altered because SQLite cannot change a primary key
+  // in place, and here that costs nothing: this is a pure cache of an
+  // upstream count, refilled on the next check. Falls through to SCHEMA_SQL's
+  // CREATE TABLE IF NOT EXISTS, which runs right after this function returns
+  // and recreates it in the current shape — same pattern as v14 above.
+  if (
+    tableExists(db, "subtitle_availability_cache") &&
+    !columnExists(db, "subtitle_availability_cache", "language")
+  ) {
+    db.exec("DROP TABLE subtitle_availability_cache");
+  }
 }
 
 /**
