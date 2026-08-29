@@ -15,7 +15,16 @@ export function LoginForm({ next }: { next: string }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+  /**
+   * Sign-in has two waits, not one, and they fail for completely different
+   * reasons — so they get different labels. "authenticating" is the POST to
+   * /api/auth/login (Jellyfin verifies the password). "redirecting" is the
+   * full document load of the destination, which is a server-rendered
+   * authenticated page and takes roughly a second on this host. Reporting both
+   * as "Signing in…" made a successful login look like a hung one.
+   */
+  const [phase, setPhase] = useState<"idle" | "authenticating" | "redirecting">("idle");
+  const pending = phase !== "idle";
   const errorRef = useRef<HTMLParagraphElement>(null);
 
   // Move focus to the message when one appears. `role="alert"` announces it to
@@ -39,7 +48,7 @@ export function LoginForm({ next }: { next: string }) {
       return;
     }
 
-    setPending(true);
+    setPhase("authenticating");
     setError(null);
 
     try {
@@ -62,16 +71,24 @@ export function LoginForm({ next }: { next: string }) {
             ? "Can't reach the library right now. The machine it runs on may be offline — try again in a few minutes."
             : (data.message ?? "Sign in failed."),
         );
-        setPending(false);
+        setPhase("idle");
         return;
       }
+
+      // Credentials are accepted at this point; what follows is a full
+      // document load of `next`, which is a server-rendered authenticated page
+      // and currently costs about a second. The old page stays on screen for
+      // all of it, so without changing the label the user sits looking at
+      // "Signing in…" long after signing in actually finished, with no way to
+      // tell whether their password was even right.
+      setPhase("redirecting");
 
       // Full navigation rather than a client-side push, so the new cookie is
       // picked up by the server components on the next render.
       window.location.assign(next);
     } catch {
       setError("No connection. Check your network and try again.");
-      setPending(false);
+      setPhase("idle");
     }
   }
 
@@ -119,7 +136,10 @@ export function LoginForm({ next }: { next: string }) {
         {pending ? (
           <>
             <span className="btn-spinner" aria-hidden="true" />
-            Signing in…
+            {/* Once the password has been accepted, say so. The remaining wait
+                is the library page rendering, and telling the user that is the
+                difference between "did my password work?" and "it's loading". */}
+            {phase === "redirecting" ? "Signed in — loading your library…" : "Signing in…"}
           </>
         ) : (
           "Sign in"
