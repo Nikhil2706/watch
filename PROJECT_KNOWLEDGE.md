@@ -511,6 +511,239 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
+### 2026-08-28 (latest) — The logo: the aperture finished, and every surface made to agree
+`Brand.tsx` has always drawn an aperture, with a comment explaining why it is
+not a play triangle. The app icon and favicon never got the memo: they shipped
+a blue **W** — a letter, in `--accent`, which is the one colour the palette
+comment reserves for things you can press. Two identities for one product, and
+the one strangers meet first said nothing. This finishes the existing mark
+rather than inventing a new one.
+
+- **The mark is a lit iris.** Six leaves in cool metal around a hexagonal
+  opening lit warm from behind, which is the projector-in-a-dark-room the
+  sign-in page already sets up. Warm stays the brand and sits at the centre;
+  the accent blue never touches the logo.
+- **It is a construction, not a drawing.** Six chords across a circle of
+  radius R leave a hexagon of circumradius R/√3, apothem R/2, and each chord
+  is trisected by it. Every leaf is the circular segment its chord cuts off,
+  so the six tile the disc exactly — no seam, no gap. One parameter (the
+  chord's half-span; 60° is the logo, 90° is shut) opens and closes the whole
+  thing. `brand/gen.py` re-renders the entire system from it.
+- **Four cuts**, because one drawing cannot survive every size: full (48px+),
+  line (`currentColor`, in the app), small (ring and opening only, under 24px
+  — this is why the 16px favicon still reads as a lens), and single-ink with
+  the leaf edges masked out, so print does not get a washer.
+- **`Mark()` now draws the opening explicitly** and six leading edges instead
+  of twelve half-chords. The old version showed both halves of every chord,
+  which reads as a hex lattice rather than as six leaves. All six lean the
+  same way; that chirality is what stops it looking like a snowflake, so the
+  mark must never be mirrored.
+- **Two changes that are easy to miss, and both are load-bearing.**
+  `middleware.ts`'s matcher is an explicit allowlist of PWA assets, so the new
+  `icon-maskable-512.png` had to be named there or it would have 307'd to
+  `/login` and Android would have silently fallen back. And `sw.js` precaches
+  the icons under a versioned cache name that `activate` only purges when the
+  name changes — without bumping `watch-shell-v1` → `v2`, every already
+  installed app would have kept the blue W forever.
+- **Rendering PNGs on this box needs the container.** There is no node on the
+  Windows PATH; `sharp` (libvips, with the SVG loader) lives in the running
+  `jellyfin-gate` image. `brand/raster.js` runs there with
+  `NODE_PATH=/app/node_modules`.
+
+### 2026-08-28 (last) — Watch party moved off WebSockets to SSE; it now actually works
+The blocker from the audit below is fixed: the transport changed rather than
+the infrastructure, because the infrastructure could not be changed from here.
+
+- **Realtime moved into the gate process** as `src/lib/party-bus.ts`, an SSE
+  stream down (`GET /api/party/{roomId}/events`) and plain POSTs up
+  (`POST /api/party/{roomId}/send`). Ordinary HTTP to the same origin the
+  tunnel already serves — no Cloudflare dashboard access needed, which was the
+  thing blocking the WebSocket route.
+- **It had to move into the gate, not stay a service.** Room state (playback
+  position, who is present) is in-memory, and a separate process cannot see
+  the gate's subscribers.
+- **The `party` container is retired, and leaving it running would have been
+  actively harmful** — not merely redundant. Its empty-room sweep counts its
+  own WebSocket connections; with clients now connecting to the gate it would
+  have seen zero for every room and auto-ended every live party after fifteen
+  minutes. The sweep moved into party-bus.ts with everything else. The compose
+  service is renamed `party-retired` behind a profile so `up` cannot start it,
+  and `NEXT_PUBLIC_PARTY_WS_PATH` is gone.
+- **Protocol kept identical** (chat / sync / grant / revoke, same payloads) so
+  only the transport changed, and `usePartySocket` keeps its name and return
+  shape — no caller needed rewriting.
+- **Verified end to end on a throwaway clone** with two signed-in users and a
+  live room: both streams get history/state/participants on join; chat reaches
+  the other participant; a non-controller's sync is ignored (`applied:false`)
+  while the host's is broadcast; a non-creator's grant is refused 403; a grant
+  flips `isController` in the participants broadcast; the host's own sync is
+  NOT echoed back to them (which would make their player fight itself); chat
+  history persists for a later joiner; a non-creator cannot end the party;
+  the creator's end reaches **both** streams instantly; and afterwards
+  GET/HEAD/POST all answer 410 while the page renders the "ended" card.
+
+### 2026-08-28 (later still) — Watch party start/end journey audited; six issues, five fixed
+- **The blocker, not fixed here because it can't be from this machine**: the
+  whole feature is dead in production. `usePartySocket` connects to
+  same-origin `/ws/party`, and nothing routes that anywhere — no middleware
+  rewrite, no `next.config` rewrite, and the `party` container's 4001 is not
+  published. The tunnel is `cloudflared tunnel run --token-file`, i.e.
+  *remotely managed*, so its ingress lives in the Cloudflare dashboard rather
+  than on this box. The gate CAN reach `http://party:4001` container-to-
+  container (verified, HTTP 200), so the service itself is fine — only the
+  edge path is missing.
+- **Ending a party was impossible.** The button called `socket.end()` only,
+  over the socket that never connects. There was already an HTTP route
+  (`POST /api/party/{roomId}`) doing exactly this, unused. The button now ends
+  over HTTP and additionally sends the socket message when a connection
+  happens to exist (instant notify instead of waiting for a sweep).
+- **That HTTP route ignored its own documented body.** The comment said
+  `{ end: true }` but nothing checked it, so *any* POST to the URL ended the
+  party — a stray prefetch or double-submit would do it. Now validated.
+- **An HTTP end told nobody.** `endPartyRoom()` writes `ended_at` and stops;
+  the realtime process only broadcast when it did the ending itself. The sweep
+  in party-server.mts now also closes rooms it finds ended in the shared
+  database, broadcasting `ended` and closing sockets. Up to one sweep interval
+  (60s) of lag, instant when the socket path works.
+- **Ended parties rendered as live rooms.** The page only checked `!room`, so
+  a finished party still showed player, chat and the End button, while the
+  realtime server 404'd the upgrade — leaving the client reconnecting every
+  two seconds forever with nothing on screen explaining it. The guest-link
+  route had the `endedAt` check; the main page did not. It now shows an
+  "ended" card linking to the film.
+- **Silent failure everywhere else.** The reconnect was a fixed 2s retry with
+  no ceiling and no user-visible state, so a party looked completely normal
+  while doing nothing. Now: exponential backoff to a 30s cap, an `unreachable`
+  flag after three failures, a banner saying live chat and sync are offline,
+  and the chat composer disabled while disconnected — it previously accepted a
+  message, cleared the field, and dropped it.
+
+### 2026-08-28 (later) — Phone remote: control the TV from your phone, as a web page
+The TV browser is bad at exactly three things — text entry, dense information,
+and pointer-precision UI — and a phone is good at all three. So the phone now
+drives the television.
+
+- **`/remote` on your phone**: now-playing panel with poster, progress and
+  transport (play/pause, ±10s, ±30s), navigation (Back/Browse/Home/Reload),
+  and library search that opens a result **on the TV**. Search matters most:
+  typing with a D-pad and an on-screen keyboard is the single biggest
+  drop-off point on a television.
+- **`/screen` on the TV** shows a six-character pairing code. The alphabet
+  excludes O/0, I/1/L, S/5 and Z/2 — someone is reading this off a TV from
+  across a room.
+- **Built as a web page, not an app**, deliberately. Everything a remote needs
+  the phone browser already does, and it works on iOS with no store account or
+  build pipeline. The Capacitor shell wraps the real site anyway, so the
+  native app inherits `/remote` for free. An install nudge (`beforeinstallprompt`
+  on Chromium, Share → Add to Home Screen instructions on iOS, since Safari
+  fires no such event) pushes people to a home-screen icon.
+- **SSE, not WebSocket — and the reason matters.** `scripts/party-server.mts`
+  already speaks play/pause/seek and was the obvious home for this, but it
+  needs a `/ws/party` upgrade route at the edge, and production runs a
+  *remotely-managed* Cloudflare tunnel (`cloudflared tunnel run --token-file`)
+  whose ingress lives in the Cloudflare dashboard, not on this box. So a
+  WebSocket route cannot be added from here. SSE is plain chunked HTTP to the
+  same `:3000` origin the tunnel already serves. Verified empirically before
+  building on it: ticks arrive ~1s apart through Cloudflare, not buffered.
+- **Registry is in-memory** (same reasoning as `device-pairing.ts` /
+  `ratelimit.ts`: one process, one Jellyfin box) so there is no schema
+  migration. A gate restart drops it and that is survivable by design — the TV
+  keeps its screenId in localStorage and re-registers, the phone keeps the id
+  it paired with, so the pairing heals itself without anyone retyping a code.
+- **Authorisation is ownership, nothing more**: you can only see and drive
+  screens belonging to your own account. Pairing codes pick the right TV; they
+  are not a security boundary. `navigate` accepts same-origin paths only — a
+  remote that can be talked into pointing a television at an arbitrary URL is
+  an open redirect with a screen attached.
+- The TV agent drives the DOM's own `<video>` element rather than Player.tsx's
+  Vidstack API, so it stays decoupled from that component's lifecycle.
+- **Fixed same day, two bugs that made every command fail** with "that screen
+  isn't connected". First: `ScreenAgent` only activated on TV mode, a stored
+  screenId, or `?screen=1` — so on a first-ever visit to `/screen` it bailed
+  and never opened its SSE stream, while `ScreenCode` registered the screen
+  regardless. Being on `/screen` is now itself an activation trigger, and
+  activation is re-evaluated on navigation instead of only at mount. Second,
+  and the reason it was confusing rather than merely broken: `online` was
+  computed from `lastSeen`, so a screen that had registered but never opened a
+  command stream advertised itself as *connected* and then rejected everything
+  sent to it. `online` now means exactly "a command sent right now would be
+  delivered" — a live subscriber, nothing else — and the phone shows an
+  actionable "isn't listening, reload the page on that screen" banner instead.
+- **Both routes are now linked from the AppBar and the login page**
+  (`?next=` carried through, since both sit behind auth), because a feature
+  nobody can find is a feature nobody uses.
+- **Tested end-to-end against a throwaway clone**, since the real thing needs
+  two signed-in sessions and nobody's credentials should be involved: a second
+  gate container on :3100 with its own database and a synthetic user, driven
+  through two real browser tabs. That found two things static review had not.
+  - **The remote controlled itself.** `screenId` lives in localStorage, which
+    is shared across tabs, so the phone registered as the *same* screen it was
+    driving and every command was delivered to the remote's own tab too —
+    pressing "Home" navigated the phone away from the remote. ScreenAgent now
+    stays dormant on `/remote`: a browser being used as the remote must never
+    also be a screen.
+  - **With two screens, nothing was selected**, so the UI rendered the screen
+    dropdown *and* the "connect to your TV" pair form simultaneously — a
+    select that looks chosen above a page insisting nothing is connected. It
+    now auto-selects the first screen that is actually listening.
+  - Also confirmed under test: cross-account isolation (a second user sees an
+    empty list, gets 404 on a direct fetch, cannot command, and is refused the
+    SSE stream — with both failure modes returning 409 so there is no oracle),
+    the same-origin guard on `navigate`, code pairing including lowercase
+    input, and state round-tripping.
+
+### 2026-08-28 — Browse's decade filter was completely broken; loading states added everywhere
+- **Every decade filter returned zero films.** The sidebar linked the
+  facet's display *name* (`?value=1990s`) while `filterMovies()` compared
+  against the bare decade (`"1990"`), so nothing ever matched and Browse
+  said "No films match this filter" for all ten decades. The page title
+  gave it away independently by rendering "1990**ss**" — it appends its
+  own "s" to a value that was already pluralised. Genre/director/actor
+  were never affected; their id and name are identical.
+- **The fix lives where it can be tested.** The filtering logic moved to
+  `src/lib/browse-filters.ts`, which is deliberately free of *all* runtime
+  imports — no `server-only`, no SQLite handle — so it can be loaded
+  directly by `node --test`. `browse-data.ts` couldn't be imported that
+  way, which is exactly how a filter this broken survived unnoticed.
+  `npm test` now exists and runs 17 cases.
+- **Worth knowing if you touch this**: the first version of those tests
+  passed against the broken code. `filterMovies()` was never wrong — given
+  `"1990"` it always worked. The defect was purely the *wiring* in the
+  page's JSX, which a unit test calling the function directly sails past.
+  So the id-vs-name decision now lives in a tested `facetLinkValue()` and
+  the test is a round trip: the value the sidebar links must select that
+  facet's films. Old `?value=1990s` links still work — the parser accepts
+  both forms so anything bookmarked pre-fix doesn't return an empty grid.
+- **Also fixed**: typing in the sidebar's facet search silently cleared
+  your selected genre/director and reset the grid to the whole library. It
+  carried `dim` and `sort` through as hidden inputs but not `value`.
+- **Loading states, because pages take about a second.** The app had no
+  `loading.tsx` anywhere, so in the App Router a link click showed
+  *nothing* until the server finished rendering — which reads as "my click
+  didn't work." Sign-in now distinguishes its two waits: "Signing in…"
+  (password check) then "Signed in — loading your library…" (the
+  destination page render), so a slow load no longer looks like a rejected
+  password.
+- **Revised the same day after seeing it.** A generic `loading.tsx` was the
+  wrong shape for most routes: its presence makes Next *unmount the current
+  page*, so a plain spinner blanked the whole app — AppBar and all — then
+  brought it back, which reads as a flicker rather than as progress. Only
+  Browse keeps a `loading.tsx`, because its skeleton mirrors the real
+  layout closely enough that replacing the page looks like the page
+  arriving. Everywhere else the route-level loaders were deleted and
+  replaced with `NavProgress`: a 2px bar across the top, which keeps the
+  current page on screen. It waits 150ms before appearing (most navigations
+  beat that, and a bar that flashes on every quick click is worse than
+  none) and eases toward 90% without reaching it, since it cannot know real
+  progress and a bar sitting at 100% while you wait is a lie.
+- **Where the second actually goes** (measured, not guessed): the
+  catalogue fetch from Jellyfin is ~1.1 MB / 1159 items, ~355 ms warm and
+  ~1.4 s cold. JSON parsing is 19 ms and the facet maths 2 ms — the CPU
+  side is noise. The catalogue cache holds for only 20 s, so ordinary
+  browsing pays that fetch again on nearly every page load. Raising the
+  TTL is the obvious lever but it trades freshness of watched-state, which
+  is a product call, so it was left alone.
+
 ### 2026-08-19 (later still) — Site-wide series-row bug fixed, popularity diversity, redesigned library review, alternate versions, full crew credits, offline downloads, Langlois uploads
 A big batch, all built, verified, and deployed together in one joint pass
 (per a new working rule — see "Batch changes, deploy together" below).

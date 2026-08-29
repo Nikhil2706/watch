@@ -1397,6 +1397,19 @@ a.curator-card:hover {
   margin-right: 2px;
 }
 
+/* DoesTheDogDie's required attribution — deliberately plain-text-adjacent
+   rather than chip-styled, so it doesn't read as one more content note
+   among the others. */
+.content-warning-attribution {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.content-warning-attribution a {
+  color: var(--muted);
+  text-decoration: underline;
+}
+
 .subtitle-fetch-note {
   font-size: 0.78rem;
   color: var(--muted);
@@ -3407,3 +3420,460 @@ button:focus-visible {
   font-size: 0.78rem;
   margin-left: 8px;
 }
+
+.party-end-btn {
+  align-self: flex-start;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--danger);
+  background: transparent;
+  color: var(--danger);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.party-end-btn:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.party-ended-banner {
+  grid-column: 1 / -1;
+  padding: 10px 14px;
+  margin: 16px 16px 0;
+  border-radius: 8px;
+  border: 1px solid var(--danger);
+  background: rgba(239, 91, 107, 0.12);
+  color: var(--danger);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- *
+ * Route-transition loading states
+ *
+ * Added 2026-08-28. Authenticated pages cost roughly a second to render
+ * (the dominant term is a ~1.1 MB / 1159-item library fetch from Jellyfin,
+ * measured at ~355 ms warm and ~1.4 s cold, repeated because the catalogue
+ * cache only holds for 20 s). Until that changes, the App Router had NO
+ * loading.tsx anywhere, so clicking a link did nothing visible at all until
+ * the server finished — which reads as "my click didn't work".
+ *
+ * Reuses the existing `skeleton` keyframes rather than adding another
+ * animation, and follows the same prefers-reduced-motion guard as .spinner
+ * and .player-skeleton above.
+ * ---------------------------------------------------------------- */
+
+.skeleton-block {
+  background: linear-gradient(100deg, #0d1016 30%, #151a22 50%, #0d1016 70%);
+  background-size: 200% 100%;
+  animation: skeleton 1.4s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-block { animation: none; }
+}
+
+/* Navigation progress bar. Sits above everything, including the sticky
+   AppBar, because it is the one thing that must be visible during a
+   navigation. Only Browse still replaces its page with a skeleton; every
+   other route keeps the current page on screen and shows this instead. */
+.nav-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 9999;
+  pointer-events: none;
+  background: transparent;
+}
+
+.nav-progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent, #5b8def);
+  /* A soft leading edge reads as motion even while the width is easing. */
+  box-shadow: 0 0 8px var(--accent, #5b8def);
+  transition: width 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-progress span { transition: none; }
+}
+
+/* Stand-in for the AppBar, which each page renders itself rather than the
+   layout — without this the skeleton has no top bar and the real page
+   visibly jumps down when it arrives. */
+.skeleton-appbar {
+  height: 52px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.browse-skeleton .dim-tabs-skeleton {
+  height: 34px;
+  margin-bottom: 14px;
+}
+
+.browse-skeleton .search-skeleton {
+  height: 32px;
+  margin-bottom: 12px;
+}
+
+.browse-skeleton .value-row-skeleton {
+  height: 26px;
+  margin-bottom: 6px;
+}
+
+.browse-skeleton .topbar-skeleton {
+  height: 28px;
+  width: 220px;
+  margin: 20px 20px 18px;
+}
+
+.browse-skeleton .poster-skeleton {
+  aspect-ratio: 2 / 3;
+  width: 100%;
+}
+
+/* Visually hidden but announced by screen readers. The loading skeletons are
+   aria-hidden decoration, so without a real text node in the live region a
+   screen-reader user gets no signal that a navigation is under way. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------------------------------------------------------------- *
+ * Phone remote (/remote)
+ *
+ * Thumb-first: this page is used one-handed, in the dark, while something is
+ * already playing on a television. Controls sit low and are large; nothing
+ * here assumes a pointer or a second hand.
+ * ---------------------------------------------------------------- */
+
+.remote {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 18px 16px calc(28px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.remote-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.remote-head h1 { font-size: 1.3rem; margin: 0; }
+
+.remote-status { font-size: 0.8rem; color: var(--muted); }
+.remote-status.online { color: var(--ok, #5bd18b); }
+
+.remote-screen-select {
+  background: var(--surface, #12151c);
+  color: var(--text, #f2f4f8);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 0.85rem;
+}
+
+.remote-notice {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(91, 141, 239, 0.12);
+  border: 1px solid rgba(91, 141, 239, 0.3);
+  font-size: 0.86rem;
+}
+
+.remote-hint { color: var(--muted); font-size: 0.86rem; line-height: 1.5; }
+
+/* ---- pairing ---- */
+.remote-pair h2 { font-size: 1rem; margin: 0 0 8px; }
+.remote-pair form { display: flex; gap: 8px; margin-top: 12px; }
+
+.remote-code-input {
+  flex: 1;
+  font-size: 1.4rem;
+  letter-spacing: 0.28em;
+  text-align: center;
+  text-transform: uppercase;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+}
+
+.remote-primary {
+  background: var(--accent, #5b8def);
+  color: #fff;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 18px;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+/* ---- now playing ---- */
+.remote-now { display: flex; gap: 14px; align-items: center; }
+
+.remote-art { flex: 0 0 84px; }
+.remote-art img,
+.remote-art-empty {
+  width: 84px;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.remote-meta { min-width: 0; flex: 1; }
+.remote-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.98rem;
+  /* Titles are long and the phone is narrow; two lines then clip. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.remote-sub { margin: 4px 0 0; color: var(--muted); font-size: 0.82rem; }
+
+.remote-bar {
+  margin-top: 10px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.remote-bar span { display: block; height: 100%; background: var(--accent, #5b8def); }
+.remote-times { margin: 6px 0 0; font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---- transport ---- */
+.remote-transport {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.remote-transport button {
+  /* 56px min: comfortably above the ~44px touch-target floor, because these
+     get pressed without looking. */
+  min-height: 56px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface, #12151c);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.remote-transport .remote-playpause {
+  background: var(--accent, #5b8def);
+  border-color: transparent;
+  color: #fff;
+  font-size: 1.15rem;
+}
+
+.remote-transport button:active { transform: scale(0.97); }
+
+.remote-nav { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.remote-nav button {
+  min-height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+/* ---- search ---- */
+.remote-search input {
+  width: 100%;
+  padding: 13px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font-size: 1rem; /* 16px minimum, or iOS zooms the page on focus. */
+}
+
+.remote-hits { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.remote-hits button {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: var(--surface, #12151c);
+  color: var(--text);
+}
+.remote-hits button:active { border-color: var(--accent, #5b8def); }
+.remote-hits img,
+.remote-hit-blank {
+  width: 40px;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 5px;
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.05);
+}
+.remote-hit-text { min-width: 0; }
+.remote-hit-name { display: block; font-size: 0.9rem; font-weight: 600; }
+.remote-hit-reason { display: block; font-size: 0.76rem; color: var(--muted); margin-top: 2px; }
+
+/* ---- install nudge ---- */
+.install-nudge {
+  position: sticky;
+  bottom: calc(8px + env(safe-area-inset-bottom));
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-2, #1a1f28);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+.install-copy { display: flex; flex-direction: column; gap: 2px; font-size: 0.82rem; }
+.install-copy span { color: var(--muted); }
+.install-actions { display: flex; gap: 8px; flex: 0 0 auto; align-items: center; }
+.install-dismiss {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  padding: 8px;
+}
+
+/* ---- pairing code, shown on the television ---- */
+.screen-code {
+  margin: 18px 20px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.3);
+  max-width: 520px;
+}
+.screen-code h2 { margin: 0 0 6px; font-size: 1rem; }
+.screen-code p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.screen-code .code {
+  display: inline-block;
+  margin-top: 12px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 2.4rem;
+  letter-spacing: 0.3em;
+  font-weight: 700;
+}
+html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
+
+/* Remote/screen entry points. Slightly de-emphasised in the nav: they are
+   utilities, not content destinations, and shouldn't compete with Browse. */
+.appbar nav .nav-remote { color: var(--muted); }
+.appbar nav .nav-remote:hover { color: var(--text); }
+
+.auth-remote-links {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.auth-remote-links a { color: var(--muted); text-decoration: underline; }
+.auth-remote-links a:hover { color: var(--text); }
+
+/* Shown when a screen is listed but has no live command stream — the state
+   that previously rendered as "connected" and then rejected every command. */
+.remote-offline {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255, 204, 51, 0.1);
+  border: 1px solid rgba(255, 204, 51, 0.32);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.remote-offline strong { display: block; margin-bottom: 2px; }
+
+/* Screen picker on /remote — used instead of a bare dropdown so each screen
+   shows what it is and what it's doing, rather than three identical rows. */
+.remote-screen-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.remote-screen-list button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 12px 14px;
+  min-height: 56px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface, #12151c);
+  color: var(--text);
+}
+.remote-screen-list button:active { border-color: var(--accent, #5b8def); }
+.remote-screen-name { font-weight: 600; font-size: 0.95rem; }
+.remote-screen-where { font-size: 0.78rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.remote-link-btn {
+  margin-top: 12px;
+  background: none;
+  border: 0;
+  padding: 8px 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-decoration: underline;
+}
+
+.remote-stale-note { margin-top: 14px; opacity: 0.8; }
+
+/* Watch party: ended room and degraded (no realtime) states. */
+.party-page-ended {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 70vh;
+  padding: 24px;
+}
+.party-ended-card {
+  max-width: 460px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px 26px;
+  background: var(--surface, #12151c);
+}
+.party-ended-card h1 { font-size: 1.25rem; margin: 0 0 10px; }
+.party-ended-card p { color: var(--muted); margin: 0 0 6px; }
+.party-ended-actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+
+.party-degraded-banner {
+  grid-column: 1 / -1;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: rgba(255, 204, 51, 0.1);
+  border: 1px solid rgba(255, 204, 51, 0.32);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+.party-degraded-banner strong { display: block; margin-bottom: 2px; }
