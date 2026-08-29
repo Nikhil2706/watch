@@ -91,6 +91,23 @@ export const PARTY_CREATE_LIMIT: RateLimitRule = {
   windowMs: 60 * 60 * 1000,
 };
 
+/**
+ * Messages into a watch party — chat, which writes a row per call, and sync,
+ * which fans out to every member's stream. Sized for a lively room (a burst
+ * of reactions during a scene, a player emitting seeks while someone
+ * scrubs), so it only catches a client stuck in a loop or someone pasting a
+ * flood. Keyed per identity per room at the call site, so one noisy room
+ * can't rate-limit the same person in another.
+ *
+ * Unlike the rest of the party endpoints this one is reachable by a guest
+ * holding nothing but a share link, which is why it gets a ceiling at all.
+ */
+export const PARTY_SEND_LIMIT: RateLimitRule = {
+  name: "party_send",
+  limit: 240,
+  windowMs: 60 * 1000,
+};
+
 /** Starting a TV pairing handshake — same shape as LOGIN_LIMIT, since both ultimately hit Jellyfin's own auth. */
 export const DEVICE_START_LIMIT: RateLimitRule = {
   name: "device_start",
