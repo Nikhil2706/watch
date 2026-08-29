@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { JellyfinError, refreshLibrary } from "@/lib/jellyfin";
 import { relinkUnmatchedAccoladeEntries, relinkUnmatchedArticleLinks } from "@/lib/scraping/articles";
 import { relinkUnmatchedFilmSeriesEntries } from "@/lib/scraping/film-series";
+import { invalidateLibraryIndex } from "@/lib/scraping/match";
 import { promoteSubtitles } from "@/lib/subtitle-promotion";
 
 export const runtime = "nodejs";
@@ -40,6 +41,15 @@ export async function POST(request: Request): Promise<Response> {
          ON CONFLICT(id) DO UPDATE SET triggered_at = excluded.triggered_at`,
       )
       .run(Date.now());
+
+    // Drop the scrapers' cached library snapshot before relinking, so the
+    // pass below matches against the newest titles this process can see
+    // rather than whatever the library looked like when the first scrape of
+    // this container's lifetime ran. Only half the story on its own —
+    // /Library/Refresh above returns as soon as Jellyfin *starts* scanning,
+    // so anything it hasn't indexed yet is still invisible here; match.ts's
+    // own TTL is what eventually catches those.
+    invalidateLibraryIndex();
 
     // Fire-and-forget: a newly-scanned film might resolve mentions that were
     // sitting unmatched from before it was owned (a scraped review, an

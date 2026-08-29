@@ -22,18 +22,34 @@ interface LibraryEntry {
   year: number | null;
 }
 
-// Rebuilt from Jellyfin on first use per process, then reused — a scrape run
-// checks dozens to hundreds of titles against the same library snapshot, and
-// nothing about the library changes mid-run. invalidateLibraryIndex() clears
-// it after a library scan so the next scrape/relink sees new titles.
+// Rebuilt from Jellyfin on first use, then reused for INDEX_TTL_MS — a scrape
+// run checks dozens to hundreds of titles against the same library snapshot,
+// and nothing about the library changes mid-run. invalidateLibraryIndex()
+// clears it after a library scan so the next scrape/relink sees new titles.
+//
+// The TTL is the backstop, not the main mechanism, and it is load-bearing:
+// titles also arrive without anyone calling invalidateLibraryIndex() (the
+// worker publishing a converted file, Jellyfin's own periodic auto-scan), and
+// even the explicit call can't fully cover the manual path — /Library/Refresh
+// only *starts* Jellyfin scanning and returns immediately, so the rebuild
+// right after it can still read a library that hasn't finished. Without an
+// expiry those cases pin one snapshot for the whole process lifetime, and a
+// newly-added film stays unmatchable until the container restarts.
+//
+// Five minutes: long enough that a single scrape run keeps one snapshot
+// throughout (the property the caching exists for), short enough that
+// staleness heals on its own well before anyone notices it.
+const INDEX_TTL_MS = 5 * 60 * 1000;
+
 let cachedIndex: Map<string, LibraryEntry[]> | null = null;
+let cachedAt = 0;
 
 export function invalidateLibraryIndex(): void {
   cachedIndex = null;
 }
 
 async function getLibraryIndex(): Promise<Map<string, LibraryEntry[]>> {
-  if (cachedIndex) return cachedIndex;
+  if (cachedIndex && Date.now() - cachedAt < INDEX_TTL_MS) return cachedIndex;
 
   const movies = await listAllMoviesAdmin();
   const index = new Map<string, LibraryEntry[]>();
@@ -46,6 +62,7 @@ async function getLibraryIndex(): Promise<Map<string, LibraryEntry[]>> {
     index.get(key)!.push({ imdbId, year: movie.ProductionYear ?? null });
   }
   cachedIndex = index;
+  cachedAt = Date.now();
   return index;
 }
 
