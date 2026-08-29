@@ -124,14 +124,23 @@ function hasNoMetadata(item: MediaItem): boolean {
  * the precedent that was already true for excluded/thin-metadata items
  * before rollout existed.
  */
-function filterVisible(items: MediaItem[], session: ResolvedSession): MediaItem[] {
+function filterVisible(
+  items: MediaItem[],
+  session: ResolvedSession,
+  options: { requireMetadata?: boolean } = {},
+): MediaItem[] {
+  // `requireMetadata: false` drops ONLY the thin-metadata rule — see
+  // getCollection(), where grouping is itself the curatorial answer to the
+  // open question that rule exists to flag. Exclusions, scheduled rollout and
+  // parental control still apply; this is not a way to see hidden titles.
+  const requireMetadata = options.requireMetadata ?? true;
   const excluded = getExcludedPathSet();
   const whitelisted = getWhitelistedPathSet();
   const rolloutHiddenPaths = getHiddenRolloutPathSet();
   const rolloutHiddenImdb = getHiddenRolloutImdbSet();
   return items.filter((item) => {
     if (item.Path && excluded.has(item.Path)) return false;
-    if (hasNoMetadata(item) && !(item.Path && whitelisted.has(item.Path))) return false;
+    if (requireMetadata && hasNoMetadata(item) && !(item.Path && whitelisted.has(item.Path))) return false;
     if (item.Path && rolloutHiddenPaths.has(item.Path)) return false;
     if (item.ProviderIds?.Imdb && rolloutHiddenImdb.has(item.ProviderIds.Imdb)) return false;
     // "Stop showing R-rated or equivalent movies" — see parental-control.ts.
@@ -171,10 +180,11 @@ export async function getLatest(session: ResolvedSession): Promise<MediaItem[]> 
 }
 
 /**
- * Short-lived cache for getAllMovies()'s result, keyed per Jellyfin user
- * (the response carries that user's own UserData — watch state, favorites —
- * so a shared cache across users would leak one viewer's progress into
- * another's page). Several call sites (Browse, Search's broad-match fallback,
+ * Short-lived cache for the raw Jellyfin item list (visibility filtering
+ * happens per call, on the way out — see fetchAllMoviesCached), keyed per
+ * Jellyfin user (the response carries that user's own UserData — watch
+ * state, favorites — so a shared cache across users would leak one viewer's
+ * progress into another's page). Several call sites (Browse, Search's broad-match fallback,
  * and — via getCollection() — every Collection page and every grouped-episode
  * item page) each independently pull up to 2000 items just to filter it down
  * to what they actually need; this doesn't remove that per-call cost on a
@@ -203,7 +213,19 @@ function allMoviesCache(): Map<string, AllMoviesCacheEntry> {
   return globalThis.__jellyfinGateAllMoviesCache;
 }
 
-export async function getAllMovies(
+/**
+ * The cached Jellyfin fetch behind getAllMovies(), WITHOUT filterVisible()
+ * applied — the cache holds what Jellyfin returned, and each caller filters
+ * on the way out. Callers that need the standard visibility rules should use
+ * getAllMovies(); this exists for getCollection(), which needs the same
+ * fetch under a slightly different rule.
+ *
+ * Filtering per call rather than per cache fill costs four SQLite reads a
+ * call (already the documented budget for filterVisible) and means a
+ * curator's exclude/whitelist edit takes effect immediately instead of after
+ * the 20s TTL expires.
+ */
+async function fetchAllMoviesCached(
   session: ResolvedSession,
   options: { limit?: number; sortBy?: string; genre?: string } = {},
 ): Promise<MediaItem[]> {
@@ -229,9 +251,16 @@ export async function getAllMovies(
     fields: LIST_FIELDS,
     enableImageTypes: "Primary,Backdrop",
   });
-  const result = filterVisible(data?.Items ?? [], session);
+  const result = data?.Items ?? [];
   cache.set(cacheKey, { data: result, expiresAt: Date.now() + ALL_MOVIES_CACHE_TTL_MS });
   return result;
+}
+
+export async function getAllMovies(
+  session: ResolvedSession,
+  options: { limit?: number; sortBy?: string; genre?: string } = {},
+): Promise<MediaItem[]> {
+  return filterVisible(await fetchAllMoviesCached(session, options), session);
 }
 
 export interface PersonCredit {
@@ -380,7 +409,18 @@ export async function getCollection(
 
   const pathSet = new Set(group.paths);
   const confirmedPaths = getConfirmedPathSet();
-  const all = await getAllMovies(session, { limit: 2000 });
+  // requireMetadata: false — an episode whose OMDb backfill hasn't landed yet
+  // still belongs in its own show's episode list. Grouping these paths was
+  // itself the curator's answer to the "is this a real title?" question the
+  // thin-metadata rule exists to raise, and library-review.ts treats a
+  // grouped path as decided for exactly that reason — so applying the rule
+  // here silently dropped episodes from a show that genuinely has them, with
+  // the parts count agreeing with the short list and nothing flagging it.
+  // Unconfirmed names are already handled: resolveEpisodeLabel() falls back to
+  // the filename's own guess rather than trusting Jellyfin's.
+  const all = filterVisible(await fetchAllMoviesCached(session, { limit: 2000 }), session, {
+    requireMetadata: false,
+  });
   const items: CollectionItem[] = all
     .filter((item) => item.Path && pathSet.has(item.Path))
     .map((item) => {
