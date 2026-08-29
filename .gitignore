@@ -8,6 +8,10 @@ next-env.d.ts
 # Local secrets and the database (contains live Jellyfin access tokens).
 .env
 .env.local
+# Machine-specific host-path overrides for running on Docker CE inside WSL
+# (Linux forms of MEDIA_PATH etc). No secrets, but it describes this box's
+# drive layout and is meaningless on any other machine.
+.env.wsl-paths
 data/
 *.db
 *.db-shm

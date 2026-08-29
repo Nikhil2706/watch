@@ -5,7 +5,9 @@ import { AppBar } from "@/components/AppBar";
 import { PosterCard } from "@/components/media/PosterCard";
 import {
   buildBrowseData,
+  facetLinkValue,
   filterMovies,
+  isFacetSelected,
   sortMovies,
   type BrowseDim,
   type BrowseSort,
@@ -93,9 +95,18 @@ export default async function BrowsePage({
     return s ? `/browse?${s}` : "/browse";
   };
 
+  // Title comes from the matching facet's display name rather than being
+  // reconstructed from the URL value. The old `${value}s` produced "1990ss"
+  // once a decade link started passing the already-pluralised display name,
+  // and would still misrender for any bookmarked pre-fix link.
+  const selectedFacet =
+    (dim === "genre" || dim === "decade") && value
+      ? (dim === "genre" ? facets.genres : facets.decades).find((f) => isFacetSelected(f, dim, value))
+      : null;
+
   let title = "Browse";
   if (value) {
-    if (dim === "genre" || dim === "decade") title = dim === "decade" ? `${value}s` : value;
+    if (dim === "genre" || dim === "decade") title = selectedFacet?.name ?? value;
     else title = selectedPerson?.name ?? value;
   }
 
@@ -120,6 +131,12 @@ export default async function BrowsePage({
           <form className="sidebar-search" action="/browse" method="get">
             <input type="hidden" name="dim" value={dim} />
             <input type="hidden" name="sort" value={sort} />
+            {/* This box filters the facet list in the sidebar, not the grid.
+                Without carrying `value` through, typing here also silently
+                cleared whatever genre/director was selected and reset the grid
+                to the whole library — `dim` and `sort` were already preserved,
+                so dropping only `value` was an oversight rather than intent. */}
+            {value ? <input type="hidden" name="value" value={value} /> : null}
             <input
               type="text"
               name="q"
@@ -166,8 +183,13 @@ export default async function BrowsePage({
                 : (filteredValues as typeof facets.genres).map((f) => (
                     <Link
                       key={f.id}
-                      href={baseQuery({ value: f.name, q: undefined })}
-                      className={`value-row${value === f.name ? " active" : ""}`}
+                      // Must go through facetLinkValue, not f.name. For genres
+                      // the two are identical, but for decades id is "1990" and
+                      // name is "1990s" — linking the display name made every
+                      // decade filter match nothing. The id/name choice is a
+                      // tested contract in browse-filters.ts; don't inline it.
+                      href={baseQuery({ value: facetLinkValue(f), q: undefined })}
+                      className={`value-row${isFacetSelected(f, dim, value) ? " active" : ""}`}
                     >
                       <span className="vname">{f.name}</span>
                       <span className="vcount">{f.count}</span>

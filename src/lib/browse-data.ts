@@ -1,5 +1,6 @@
 import "server-only";
 
+import { decadeOf, type BrowseSort } from "./browse-filters";
 import { asRow, getDb } from "./db";
 import {
   getAllGroupSeriesPosters,
@@ -171,9 +172,10 @@ export function popularityScore(movie: BrowseMovie, libraryMeanRating: number): 
   return movie.seen ? base * SEEN_PENALTY : base;
 }
 
-export function decadeOf(year: number | null): number | null {
-  return year ? Math.floor(year / 10) * 10 : null;
-}
+// Re-exported so page.tsx keeps its single import site for Browse concerns,
+// while the logic itself stays in a dependency-free, testable module.
+export { decadeOf, facetLinkValue, filterMovies, isFacetSelected, parseDecade } from "./browse-filters";
+export type { BrowseDim, BrowseSort, FilterableMovie } from "./browse-filters";
 
 export interface FacetValue {
   id: string;
@@ -408,17 +410,9 @@ export async function buildBrowseData(session: ResolvedSession): Promise<BrowseD
   return { catalogue, facets };
 }
 
-export type BrowseDim = "genre" | "director" | "actor" | "decade";
-export type BrowseSort = "popularity" | "newest" | "oldest";
-
-export function filterMovies(movies: BrowseMovie[], dim: BrowseDim, value: string | null): BrowseMovie[] {
-  if (value === null) return movies;
-  if (dim === "genre") return movies.filter((m) => m.genres.includes(value));
-  if (dim === "decade") return movies.filter((m) => String(decadeOf(m.year)) === value);
-  if (dim === "director") return movies.filter((m) => m.directors.includes(value));
-  if (dim === "actor") return movies.filter((m) => m.actors.includes(value));
-  return movies;
-}
+// BrowseDim/BrowseSort/filterMovies now live in ./browse-filters (re-exported
+// at the top of this file) so they can be unit-tested without dragging in
+// server-only and the SQLite handle.
 
 /**
  * Diminishing-returns discount for "popularity" sort, so one heavily
