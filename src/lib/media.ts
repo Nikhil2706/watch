@@ -1001,6 +1001,18 @@ export function collapseEpisodeGroups(rawItems: MediaItem[]): CollapsedRow {
   const titles = new Map<string, string>();
   const seenGroups = new Set<string>();
 
+  // "Finished the show" = every episode present here played. Gathered up front
+  // because the collapse loop below pushes a group at its FIRST member and
+  // skips the rest, so from inside it a show's remaining episodes aren't
+  // visible — same definition browse-data.ts uses for a group's `seen`.
+  const groupPlayed = new Map<string, boolean>();
+  for (const item of rawItems) {
+    const g = item.Path ? groupedPaths.get(item.Path) : undefined;
+    if (!g) continue;
+    const played = item.UserData?.Played === true;
+    groupPlayed.set(g.groupId, (groupPlayed.get(g.groupId) ?? true) && played);
+  }
+
   for (const item of rawItems) {
     const g = item.Path ? groupedPaths.get(item.Path) : undefined;
     if (!g) {
@@ -1012,7 +1024,14 @@ export function collapseEpisodeGroups(rawItems: MediaItem[]): CollapsedRow {
 
     const full = getGroup(g.groupId);
     const name = full?.groupName ?? g.groupName;
-    items.push({ Id: g.groupId, Name: name, Type: "Group" });
+    // UserData carried explicitly: a group has no Jellyfin item behind it, so
+    // without this PosterCard's watched badge reads every show as unwatched.
+    items.push({
+      Id: g.groupId,
+      Name: name,
+      Type: "Group",
+      UserData: { Played: groupPlayed.get(g.groupId) === true },
+    });
     hrefs.set(g.groupId, `/collection/${g.groupId}`);
     partsCounts.set(g.groupId, full?.paths.length ?? 1);
     posters.set(g.groupId, seriesPosters.get(g.groupId) ?? null);
