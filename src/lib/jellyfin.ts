@@ -797,6 +797,30 @@ export async function listAllMoviesAdmin(
   return data.Items;
 }
 
+/**
+ * One item in the same shape as listAllMoviesAdmin, for refreshing a single
+ * row after it changes rather than re-pulling the whole library.
+ *
+ * Correcting one film's title used to invalidate the entire cached listing,
+ * which made the very next page load pay for a full re-fetch — measured at
+ * 16 seconds for the heavy shape. This is the same query narrowed by id.
+ */
+export async function getAdminMovie(
+  itemId: string,
+  options: { withMediaSources?: boolean } = {},
+): Promise<AdminMovieListItem | null> {
+  const { withMediaSources = true } = options;
+  const fields = withMediaSources
+    ? "Overview,ProviderIds,Path,ProductionYear,MediaSources"
+    : "Overview,ProviderIds,Path,ProductionYear";
+
+  const data = await jellyfinFetch<{ Items: AdminMovieListItem[] }>(
+    `/Items?Ids=${encodeURIComponent(itemId)}&IncludeItemTypes=Movie&Recursive=true&Fields=${fields}`,
+    { token: env.jellyfinApiKey, timeoutMs: 20_000 },
+  );
+  return data.Items?.[0] ?? null;
+}
+
 /** True if this item has no subtitle stream at all — embedded or external. */
 export function hasNoSubtitles(item: AdminMovieListItem): boolean {
   const streams = item.MediaSources?.[0]?.MediaStreams ?? [];

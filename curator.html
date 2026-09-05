@@ -2102,6 +2102,28 @@
     lw.rows = rows;
   }
 
+  /*
+   * Patch one item in place instead of re-reading the library.
+   *
+   * Hiding a film or showing it anyway changes one boolean that the client
+   * already knows the value of, and re-fetching 1,159 films with their stream
+   * lists to learn it is why the list took a moment to catch up after every
+   * edit. Structural changes — grouping, dissolving, merging, a scan — still
+   * reload, because they change which rows exist at all.
+   */
+  function lwPatchItem(itemId, changes) {
+    var item = review.itemsById[itemId];
+    if (item) { for (var k in changes) if (Object.prototype.hasOwnProperty.call(changes, k)) item[k] = changes[k]; }
+    for (var i = 0; i < lw.items.length; i++) {
+      if (lw.items[i].id !== itemId) continue;
+      for (var k2 in changes) if (Object.prototype.hasOwnProperty.call(changes, k2)) lw.items[i][k2] = changes[k2];
+      break;
+    }
+    if (!lw.loaded) return;
+    lwBuildRows();
+    lwRender();
+  }
+
   function lwRowById(id) {
     return lw.rows.filter(function (r) { return r.id === id; })[0] || null;
   }
@@ -2423,7 +2445,7 @@
       btn.disabled = true;
       btn.textContent = "Undoing…";
       Promise.resolve(undoFn())
-        .then(function () { bar.remove(); show("ok", "Undone."); return lwLoad(true); })
+        .then(function () { bar.remove(); show("ok", "Undone."); })
         .catch(function (e) { show("err", e.message); btn.disabled = false; btn.textContent = undoLabel; });
     });
 
@@ -2634,8 +2656,7 @@
     api("/api/admin/library/unexclude", { method: "POST", body: { path: it.path } })
       .then(function () {
         show("ok", "No longer excluded.");
-        it.isExcluded = false;
-        renderBrowse();
+        lwPatchItem(itemId, { isExcluded: false });
       })
       .catch(function (e) { show("err", e.message); });
   }
@@ -2797,8 +2818,10 @@
     if (btn) { btn.disabled = true; btn.textContent = "Excluding…"; }
     api("/api/admin/library/exclude", { method: "POST", body: { path: it.path } })
       .then(function () {
+        lwPatchItem(itemId, { isExcluded: true, needsDecision: false });
         lwOfferUndo("Hidden from the site — " + it.name + ".", "Put it back", function () {
-          return api("/api/admin/library/unexclude", { method: "POST", body: { path: it.path } });
+          return api("/api/admin/library/unexclude", { method: "POST", body: { path: it.path } })
+            .then(function () { lwPatchItem(itemId, { isExcluded: false }); });
         });
         markRowDone(itemId, "Excluded");
         loadCuration();
@@ -2813,8 +2836,10 @@
     if (btn) { btn.disabled = true; btn.textContent = "Showing…"; }
     api("/api/admin/library/whitelist", { method: "POST", body: { path: it.path } })
       .then(function () {
+        lwPatchItem(itemId, { isWhitelisted: true, needsDecision: false });
         lwOfferUndo(it.name + " will show on the site now, without metadata.", "Undo", function () {
-          return api("/api/admin/library/unwhitelist", { method: "POST", body: { path: it.path } });
+          return api("/api/admin/library/unwhitelist", { method: "POST", body: { path: it.path } })
+            .then(function () { lwPatchItem(itemId, { isWhitelisted: false, needsDecision: true }); });
         });
         markRowDone(itemId, "Shown anyway");
         loadCuration();

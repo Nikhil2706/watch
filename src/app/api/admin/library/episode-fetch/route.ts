@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { invalidateAdminMovies } from "@/lib/admin-library-cache";
+import { refreshAdminMovie } from "@/lib/admin-library-cache";
 import { applyOmdbEpisodeMetadata, clearItemBackdrop, setItemImage } from "@/lib/jellyfin";
 import { getGroupSeriesId, markMetadataConfirmed } from "@/lib/library-curation";
 import { fetchOmdbEpisode } from "@/lib/omdb-episodes";
@@ -62,11 +62,14 @@ export async function POST(request: Request): Promise<Response> {
     });
     /*
      * The title, synopsis and poster just changed in Jellyfin, so the cached
-     * admin listing now describes the OLD episode. Without this the console
-     * keeps showing the wrong name after a successful fetch — the change looks
-     * like it did not take.
+     * admin listing still describes the OLD episode — without this the console
+     * keeps showing the wrong name and the change looks like it did not take.
+     *
+     * One row, so refresh one row. Dropping the whole listing here made the
+     * next read wait on a full re-fetch of the library, which is what made
+     * the list slow to come back after every single edit.
      */
-    invalidateAdminMovies();
+    await refreshAdminMovie(itemId);
 
     if (path) markMetadataConfirmed(path);
 

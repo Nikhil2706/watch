@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { invalidateAdminMovies } from "@/lib/admin-library-cache";
+import { refreshAdminMovie } from "@/lib/admin-library-cache";
 import { applyRemoteSearchMatch, clearItemBackdrop, type RemoteSearchResult } from "@/lib/jellyfin";
 import { markMetadataConfirmed } from "@/lib/library-curation";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
@@ -35,7 +35,7 @@ export async function POST(request: Request): Promise<Response> {
 
     await applyRemoteSearchMatch(itemId, candidate as RemoteSearchResult);
     // The title just changed; the cached listing still has the wrong one.
-    invalidateAdminMovies();
+    await refreshAdminMovie(itemId);
 
     /*
      * Drop any backdrop the previous (wrong) match left behind.

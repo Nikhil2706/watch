@@ -1,6 +1,6 @@
 import "server-only";
 
-import { listAllMoviesAdmin, type AdminMovieListItem } from "./jellyfin";
+import { getAdminMovie, listAllMoviesAdmin, type AdminMovieListItem } from "./jellyfin";
 
 /**
  * A short-lived cache of the whole-library admin listing.
@@ -89,10 +89,43 @@ function refresh(key: string, withMediaSources: boolean): Promise<AdminMovieList
 }
 
 /**
- * Drops both shapes. Called after anything that changes what Jellyfin would
- * return — a library scan, an applied metadata match — so the next read is
- * fresh rather than up to a minute behind the thing the curator just did.
+ * Drops both shapes. For changes that alter WHICH films exist — a library
+ * scan, a version merge — where there is no single row to patch.
+ *
+ * Prefer refreshAdminMovie() when one known item changed: this makes the next
+ * reader pay for a full re-fetch of the library, which is 16 seconds in the
+ * heavy shape.
  */
 export function invalidateAdminMovies(): void {
   cache.clear();
+}
+
+/**
+ * Re-reads ONE item and splices it into whatever is cached.
+ *
+ * Correcting a film's title or poster changes exactly one row, and dropping
+ * the whole listing to reflect that meant the next page load waited on a full
+ * re-fetch. This keeps the cache warm and costs a single narrow query.
+ *
+ * Never throws: a failed refresh leaves the cached row as it was, which is
+ * stale by one field, and the ordinary staleness path corrects it within the
+ * minute. That is a better outcome than an editing action reporting failure
+ * because a follow-up read did.
+ */
+export async function refreshAdminMovie(itemId: string): Promise<void> {
+  for (const [key, entry] of cache) {
+    const index = entry.items.findIndex((item) => item.Id === itemId);
+    if (index === -1) continue;
+    try {
+      const fresh = await getAdminMovie(itemId, { withMediaSources: key === "heavy" });
+      if (!fresh) {
+        // Gone from Jellyfin entirely — drop it rather than keep a ghost.
+        entry.items.splice(index, 1);
+        continue;
+      }
+      entry.items[index] = fresh;
+    } catch (error) {
+      console.warn(`[admin-library-cache] could not refresh ${itemId}:`, error);
+    }
+  }
 }
