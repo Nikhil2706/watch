@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
+import { invalidateAdminMovies } from "@/lib/admin-library-cache";
 import { setManualMetadata } from "@/lib/jellyfin";
 import { markMetadataConfirmed } from "@/lib/library-curation";
 import { optionalInt, optionalString, readJsonBody, ValidationError } from "@/lib/validation";
@@ -43,6 +44,10 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     await setManualMetadata(itemId, { name, overview, year });
+
+    // Same reasoning as apply-match: the cached listing is now behind.
+
+    invalidateAdminMovies();
     if (path) markMetadataConfirmed(path);
     return Response.json({ saved: true }, { headers: NO_STORE });
   } catch (error) {

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { listAllMoviesAdmin } from "../jellyfin";
+import { getAdminMovies } from "../admin-library-cache";
 import { normaliseTitle } from "../library-review";
 
 /**
@@ -35,7 +35,7 @@ export function invalidateLibraryIndex(): void {
 async function getLibraryIndex(): Promise<Map<string, LibraryEntry[]>> {
   if (cachedIndex) return cachedIndex;
 
-  const movies = await listAllMoviesAdmin();
+  const movies = await getAdminMovies({ withMediaSources: false });
   const index = new Map<string, LibraryEntry[]>();
   for (const movie of movies) {
     const imdbId = movie.ProviderIds?.Imdb;

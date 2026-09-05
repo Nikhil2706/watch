@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { listAllMoviesAdmin } from "@/lib/jellyfin";
+import { getAdminMovies } from "@/lib/admin-library-cache";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 import { fetchWikipediaForFilm } from "@/lib/scraping/wikipedia";
 import { createScrapeJob, markScrapeJobDone, markScrapeJobFailed } from "@/lib/scraping/jobs";
@@ -34,7 +34,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "invalid_request", message: "Invalid request." }, { status: 400, headers: NO_STORE });
   }
 
-  const movies = await listAllMoviesAdmin();
+  const movies = await getAdminMovies({ withMediaSources: false });
   const movie = movies.find((m) => m.ProviderIds?.Imdb === imdbId);
   if (!movie) {
     return Response.json(

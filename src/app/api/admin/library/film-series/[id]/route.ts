@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { listAllMoviesAdmin } from "@/lib/jellyfin";
+import { getAdminMovies } from "@/lib/admin-library-cache";
 import { getRolloutPlan, listRolloutSlots, reconcileSeriesSlots } from "@/lib/rollout";
 import { getSeriesById } from "@/lib/scraping/film-series";
 
@@ -32,7 +32,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     return Response.json({ error: "not_found", message: "No such film series." }, { status: 404, headers: NO_STORE });
   }
 
-  const movies = await listAllMoviesAdmin();
+  const movies = await getAdminMovies({ withMediaSources: false });
   const byImdb = new Map<string, (typeof movies)[number]>();
   for (const m of movies) {
     const imdb = m.ProviderIds?.Imdb;

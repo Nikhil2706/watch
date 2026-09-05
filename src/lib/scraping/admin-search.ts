@@ -2,7 +2,7 @@ import "server-only";
 
 import { signResource } from "../crypto";
 import { env } from "../env";
-import { listAllMoviesAdmin } from "../jellyfin";
+import { getAdminMovies } from "../admin-library-cache";
 import { getGroupedPathMap, getGroupSeriesId, getGroupSeriesPoster } from "../library-curation";
 import { normaliseTitle } from "../library-review";
 import { itemHref } from "../slugs";
@@ -48,7 +48,9 @@ export async function searchLibraryForAdmin(query: string, limit = 8): Promise<A
   const key = normaliseTitle(query);
   if (!key) return [];
 
-  const movies = await listAllMoviesAdmin();
+  // Light shape (no MediaSources) and cached: this runs on a keystroke
+  // debounce, and nothing here needs a title's stream list.
+  const movies = await getAdminMovies({ withMediaSources: false });
   const groupedPaths = getGroupedPathMap();
   const seenGroups = new Set<string>();
   const hits: AdminSearchHit[] = [];

@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
+import { invalidateAdminMovies } from "@/lib/admin-library-cache";
 import { getDb } from "@/lib/db";
 import { JellyfinError, refreshLibrary } from "@/lib/jellyfin";
 import { relinkUnmatchedAccoladeEntries, relinkUnmatchedArticleLinks } from "@/lib/scraping/articles";
@@ -34,6 +35,9 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     await refreshLibrary();
+    // A scan is the whole point at which "what is in the library" changes, so
+    // the cached listing must not answer for the next minute with the old one.
+    invalidateAdminMovies();
     getDb()
       .prepare(
         `INSERT INTO health_last_scan (id, triggered_at) VALUES (1, ?)

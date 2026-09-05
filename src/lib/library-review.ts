@@ -4,7 +4,8 @@ import { dirname } from "node:path";
 
 import { env } from "./env";
 import { episodeLabel, parseEpisodeInfo } from "./episode-naming";
-import { hasNoSubtitles, listAllMoviesAdmin, type AdminMovieListItem } from "./jellyfin";
+import { getAdminMovies } from "./admin-library-cache";
+import { hasNoSubtitles, type AdminMovieListItem } from "./jellyfin";
 import {
   getExcludedPathSet,
   getGroup,
@@ -103,7 +104,7 @@ export async function buildLibraryReview(): Promise<{
   missingSubtitles: ReviewItem[];
   totalMovies: number;
 }> {
-  const all = await listAllMoviesAdmin();
+  const all = await getAdminMovies();
 
   // Already-decided paths (excluded, grouped, or explicitly whitelisted
   // despite having no metadata) are resolved — they stop presenting as open
@@ -181,7 +182,7 @@ export interface BrowseItem extends ReviewItem {
  * separately-shaped lists against one search box.
  */
 export async function buildLibraryBrowse(): Promise<BrowseItem[]> {
-  const all = await listAllMoviesAdmin();
+  const all = await getAdminMovies();
 
   const excluded = getExcludedPathSet();
   const grouped = getGroupedPathMap();
@@ -256,7 +257,7 @@ export async function buildGroupDetail(groupId: string): Promise<GroupDetail | n
   if (!group) return null;
 
   const pathSet = new Set(group.paths);
-  const all = await listAllMoviesAdmin();
+  const all = await getAdminMovies();
   const items: GroupMemberItem[] = all
     .filter((m) => m.Path && pathSet.has(m.Path))
     .map((m) => {
@@ -316,7 +317,7 @@ export interface TransformCandidate extends ReviewItem {
  * Transform button per file without the worker running on its own.
  */
 export async function listTransformCandidates(): Promise<TransformCandidate[]> {
-  const all = await listAllMoviesAdmin();
+  const all = await getAdminMovies();
   const excluded = getExcludedPathSet();
 
   return all

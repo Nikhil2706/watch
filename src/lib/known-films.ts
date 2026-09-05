@@ -1,13 +1,13 @@
 import "server-only";
 
-import { listAllMoviesAdmin } from "./jellyfin";
+import { getAdminMovies } from "./admin-library-cache";
 
 /**
  * Shared by every backfill scheduler (OMDb ratings, Wikipedia) that needs
  * "every library movie with a known IMDb id" — one cached admin-scoped
- * Jellyfin pull instead of each scheduler keeping its own, since
- * listAllMoviesAdmin() also pulls MediaSources for the whole library, which
- * is genuinely heavy (see its own comment in jellyfin.ts).
+ * Jellyfin pull instead of each scheduler keeping its own. Nothing here reads
+ * a stream list, so it asks for the light shape and skips MediaSources
+ * entirely (see listAllMoviesAdmin's own comment for what that costs).
  */
 
 export interface KnownFilm {
@@ -41,7 +41,7 @@ declare global {
 }
 
 async function fetchAndCacheKnownFilms(): Promise<KnownFilm[]> {
-  const movies = await listAllMoviesAdmin();
+  const movies = await getAdminMovies({ withMediaSources: false });
   const films = movies
     .filter((m): m is typeof m & { ProviderIds: { Imdb: string } } => Boolean(m.ProviderIds?.Imdb))
     .map((m) => ({ imdbId: m.ProviderIds.Imdb, jellyfinId: m.Id, name: m.Name, year: m.ProductionYear ?? null }));

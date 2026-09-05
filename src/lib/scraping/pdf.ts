@@ -5,7 +5,7 @@ import "server-only";
 import "pdf-parse/worker";
 import { PDFParse } from "pdf-parse";
 
-import { listAllMoviesAdmin } from "../jellyfin";
+import { getAdminMovies } from "../admin-library-cache";
 import { normaliseTitle } from "../library-review";
 import { upsertScrapedArticle, type FilmMentionInput } from "./articles";
 
@@ -42,7 +42,7 @@ export async function extractPdfText(buffer: Buffer): Promise<string> {
  */
 export async function findLibraryFilmsInText(fullText: string): Promise<FilmMentionInput[]> {
   const normalisedText = normaliseTitle(fullText);
-  const movies = await listAllMoviesAdmin();
+  const movies = await getAdminMovies({ withMediaSources: false });
 
   const mentions: FilmMentionInput[] = [];
   for (const movie of movies) {

@@ -765,15 +765,32 @@ export async function getActiveSessions(): Promise<JellyfinSessionSummary> {
   };
 }
 
-export async function listAllMoviesAdmin(): Promise<AdminMovieListItem[]> {
+export async function listAllMoviesAdmin(
+  options: { withMediaSources?: boolean } = {},
+): Promise<AdminMovieListItem[]> {
+  const { withMediaSources = true } = options;
+
+  /*
+   * MediaSources is the single most expensive thing this client asks for, and
+   * most callers don't want it.
+   *
+   * It pulls every stream of every title — some carry 40+ subtitle tracks —
+   * and measured against the real library that is 4.1 MB in 13 seconds,
+   * versus 0.9 MB in 0.4 seconds without. It is only needed to answer "does
+   * this file have subtitles at all" (hasNoSubtitles), so anything that just
+   * needs titles and ids asks for the cheap shape instead. The admin search
+   * was paying the full 13 seconds per keystroke to return a handful of names.
+   */
+  const fields = withMediaSources
+    ? "Overview,ProviderIds,Path,ProductionYear,MediaSources"
+    : "Overview,ProviderIds,Path,ProductionYear";
+
   const data = await jellyfinFetch<{ Items: AdminMovieListItem[] }>(
     // ImageTags.Primary arrives on every item by default — confirmed
     // empirically, not gated by Fields= like Overview/ProviderIds/etc are.
-    "/Items?IncludeItemTypes=Movie&Recursive=true&Fields=Overview,ProviderIds,Path,ProductionYear,MediaSources&Limit=2000",
-    // MediaSources pulls every stream (some titles carry 40+ subtitle tracks)
-    // for the whole library in one call — genuinely heavier than the rest of
-    // this client's traffic, so the default 15s budget isn't enough here.
-    { token: env.jellyfinApiKey, timeoutMs: 90_000 },
+    `/Items?IncludeItemTypes=Movie&Recursive=true&Fields=${fields}&Limit=2000`,
+    // The heavy shape needs far more than the client's default 15s budget.
+    { token: env.jellyfinApiKey, timeoutMs: withMediaSources ? 90_000 : 30_000 },
   );
   return data.Items;
 }
