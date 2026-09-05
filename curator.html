@@ -1371,6 +1371,24 @@
     });
   }
 
+  /* Byte sizes, everywhere in this file. Deliberately up here with the other
+     shared helpers rather than inside whichever tab happened to need it first —
+     it used to be declared TWICE, once in Uploads and once in Health, and since
+     function declarations hoist, the second silently won everywhere. The one
+     that won rendered anything under a megabyte as "0 MB", which quietly
+     flattened the whole storage-breakdown panel.
+
+     1024-based, so this says GB where it strictly means GiB — the same thing
+     Windows Explorer shows, and the point here is comparing sizes to each
+     other, not matching a drive manufacturer's label. */
+  function fmtBytes(n) {
+    if (!n && n !== 0) return "—";
+    var units = ["B", "KB", "MB", "GB", "TB"];
+    var i = 0;
+    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+    return n.toFixed(i === 0 ? 0 : 1) + " " + units[i];
+  }
+
   function load() {
     return api("/api/admin/invites").then(function (data) {
       state.invites = (data && data.invites) || [];
@@ -1538,14 +1556,6 @@
   /* ================================================================
    * Uploads — Langlois-mode quarantine review
    * ================================================================ */
-  function fmtBytes(n) {
-    if (!n && n !== 0) return "—";
-    var units = ["B", "KB", "MB", "GB", "TB"];
-    var i = 0;
-    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
-    return n.toFixed(i === 0 ? 0 : 1) + " " + units[i];
-  }
-
   var UPLOAD_STATUS_LABEL = {
     uploaded: "Uploaded, awaiting scan",
     scanning: "Scanning",
@@ -1765,13 +1775,6 @@
    * Health
    * ================================================================ */
   var healthTimer = null;
-
-  function fmtBytes(n) {
-    if (n === null || n === undefined) return "—";
-    var gb = n / 1e9;
-    if (gb >= 1) return gb.toFixed(1) + " GB";
-    return (n / 1e6).toFixed(0) + " MB";
-  }
 
   function fmtAgo(ms) {
     if (ms === null || ms === undefined) return "never";
@@ -4964,9 +4967,11 @@
     });
   }
 
-  // Deliberately not the file's fmtBytes(): that one rounds to GB/MB, and
-  // picking between near-identical copies is exactly where the smaller units
-  // carry the information.
+  // Identical to fmtBytes() as of the de-duplication above, and now redundant.
+  // It was written separate because the file's fmtBytes() then rounded to
+  // GB/MB, which is useless for picking between near-identical copies — that
+  // is no longer true, since the coarse one is what got deleted. Kept only to
+  // hold this change to the fmtBytes bug; fold it into fmtBytes and drop it.
   function dfBytes(n) {
     if (!n && n !== 0) return "—";
     var u = ["B", "KB", "MB", "GB", "TB"], i = 0;
