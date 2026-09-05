@@ -76,13 +76,18 @@ docker run --rm --user 0 --entrypoint node ... jellyfin-gate-gate \
   --test --experimental-strip-types src/lib/*.test.ts
 ```
 
-Two console checks worth keeping (they each caught a real bug this session):
+Two console checks live in `scripts/checks/` — both caught real bugs this
+session, and neither needs a rebuild:
 
-- **`check-curator.sh`** — parses every inline `<script>` in curator.html with
-  `new Function`. Catches syntax breakage a diff will not show you.
-- **`check-ids.py`** — proves every `$("id")` the script reaches for exists in
-  the markup. It found two dangling references left by deleted cards, each of
-  which would have thrown at load and broken the **entire** console.
+```
+bash scripts/checks/check-console-syntax.sh   # parses every inline <script>
+python scripts/checks/check-console-ids.py    # every $("id") exists in the markup
+```
+
+The second one matters more than it sounds: deleting a card leaves the handler
+that referenced it behind, and `$("gone").addEventListener` throws at load,
+taking the **entire** dashboard down rather than just that feature. It found
+two of those after the Library rewrite.
 
 And the technique that found the rest: copy curator.html to `/tmp`, append a
 harness that stubs `window.fetch` with canned data, serve **that copy only**
@@ -175,6 +180,49 @@ PRAGMA table_info(subtitle_availability_cache);       -- expect a `language` col
 
 ---
 
+## This branch is shared — expect divergence
+
+`platform-additions` is worked on from more than one place. A push on
+2026-09-05 was **rejected** because eight commits had landed on it from another
+session while this one was going.
+
+- **Never force-push it.** Fetch, look at what is actually there, merge, and
+  re-run the checks on the merged tree. `git log --oneline HEAD..origin/<branch>`
+  before anything else.
+- **Migration numbers are the thing that collides.** Two lines of work each
+  picked `SCHEMA_VERSION = 38` for unrelated changes. Before choosing a number,
+  check both sides:
+  ```
+  grep -oE 'SCHEMA_VERSION = [0-9]+' src/lib/schema.ts
+  git show origin/platform-additions:src/lib/schema.ts | grep -oE 'SCHEMA_VERSION = [0-9]+'
+  ```
+  Keeping both sets of migrations is safe — each is guarded by a live
+  `columnExists`/`tableExists` check, so order does not matter — but the number
+  must end up **higher than any database already records**, or the set never
+  replays and the other side's work silently never runs.
+- **Merging can produce code that compiles in your head and not in the file.**
+  The conflict resolution here left a stray closing brace that tsc caught
+  immediately. Always run the typecheck, the tests and `check-curator.sh` on
+  the *merged* tree, not just on your own commits.
+
+---
+
+## Before pushing: audit for secrets
+
+The repo is connected to a public GitHub PR, and a copy of `.env` was very
+nearly committed once (see Traps). Check the actual values, not just filenames:
+
+```
+bash scripts/checks/secret-audit.sh [branch]
+```
+
+It prints only whether each was found, never the value. Two things it taught:
+short keys (OMDb's is 8 characters) fall below a naive length threshold, so
+test them explicitly; and `git log --name-only` alone is not enough, because a
+secret can arrive inside a file whose name looks innocent.
+
+---
+
 ## Open items
 
 - **Test the backdrop question.** Does re-mapping a film via Search leave the
@@ -191,6 +239,10 @@ PRAGMA table_info(subtitle_availability_cache);       -- expect a `language` col
 - **~33 GB reclaimable**: Docker Desktop's `docker_data.vhdx` (31.9 GB, dead
   since the 2026-08-27 migration) and the retired `jellyfin-gate-party` image.
   Planned, **not** done — image the drive first.
+- **The undeployed parental-control fix.** `fdfbc3b` (stop downloads and
+  subtitle fetches bypassing parental control) came in with the merge and is
+  **not running**. It is the one item in that batch worth shipping promptly
+  rather than waiting for the next change to carry it.
 - **Console latency is fine.** All 15 admin endpoints measured ≤0.4 s warm.
   Two apparent outliers were first-hit route compilation, not real.
 
