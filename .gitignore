@@ -21,3 +21,7 @@ data/
 *.db-shm
 *.db-wal
 tsconfig.tsbuildinfo
+
+# .NET build output (dupefinder/) — same reasoning as node_modules/ above.
+dupefinder/**/bin/
+dupefinder/**/obj/

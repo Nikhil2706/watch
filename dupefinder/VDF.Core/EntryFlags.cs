@@ -1,0 +1,47 @@
+// /*
+//     Copyright (C) 2026 0x90d
+//     This file is part of VideoDuplicateFinder
+//     VideoDuplicateFinder is free software: you can redistribute it and/or modify
+//     it under the terms of the GNU Affero General Public License as published by
+//     the Free Software Foundation, either version 3 of the License, or
+//     (at your option) any later version.
+//     VideoDuplicateFinder is distributed in the hope that it will be useful,
+//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//     GNU Affero General Public License for more details.
+//     You should have received a copy of the GNU Affero General Public License
+//     along with VideoDuplicateFinder.  If not, see <http://www.gnu.org/licenses/>.
+// */
+//
+
+using System;
+using System.Runtime.CompilerServices;
+
+namespace VDF.Core {
+	[Flags]
+	public enum EntryFlags {
+		IsImage = 1,
+		ManuallyExcluded = 2,
+		ThumbnailError = 4,
+		MetadataError = 8,
+		TooDark = 16,
+		NoAudioTrack = 32,           // File has no audio stream; skip audio fingerprinting
+		AudioFingerprintError = 64,  // Audio extraction/fingerprinting failed
+		SilentAudioTrack = 128,      // File has audio but it's silent; fingerprint is all zeros and unusable
+		ReparsePoint = 256,          // File has FILE_ATTRIBUTE_REPARSE_POINT (symlink, junction, cloud placeholder)
+		ReparsePointChecked = 512,   // ReparsePoint has been populated; entries from older databases lack it
+
+		AllErrors = ThumbnailError | MetadataError | TooDark
+	}
+
+	public static class EntryFlagExtensions {
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static bool Any(this EntryFlags f, EntryFlags checkFlags) => (f & checkFlags) > 0;
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static bool Has(this EntryFlags f, EntryFlags checkFlags) => (f & checkFlags) == checkFlags;
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void Set(this ref EntryFlags f, EntryFlags setFlag) => f |= setFlag;
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void Set(this ref EntryFlags f, EntryFlags setFlag, bool falseToReset) => f = (f & ~setFlag) | (falseToReset ? setFlag : 0);
+	}
+}

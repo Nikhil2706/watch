@@ -12,3 +12,7 @@ data
 README.md
 deploy
 *.tsbuildinfo
+# The dupefinder sidecar is a separate .NET service with its own build context
+# (dupefinder/Dockerfile). The gate/worker build does `COPY . .`, so without this
+# line every Node image build also copies ~850KB of vendored C# it never uses.
+dupefinder

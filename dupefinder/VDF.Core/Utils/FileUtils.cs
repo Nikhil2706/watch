@@ -1,0 +1,415 @@
+// /*
+//     Copyright (C) 2026 0x90d
+//     This file is part of VideoDuplicateFinder
+//     VideoDuplicateFinder is free software: you can redistribute it and/or modify
+//     it under the terms of the GNU Affero General Public License as published by
+//     the Free Software Foundation, either version 3 of the License, or
+//     (at your option) any later version.
+//     VideoDuplicateFinder is distributed in the hope that it will be useful,
+//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//     GNU Affero General Public License for more details.
+//     You should have received a copy of the GNU Affero General Public License
+//     along with VideoDuplicateFinder.  If not, see <http://www.gnu.org/licenses/>.
+// */
+//
+
+using System.Collections.Frozen;
+using System.IO.Enumeration;
+using System.Linq;
+using System.Runtime.InteropServices;
+
+namespace VDF.Core.Utils {
+	internal static class FileUtils {
+		internal static readonly string[] ImageExtensions = {
+			".jpg",
+			".jpeg",
+			".png",
+			".gif",
+			".bmp",
+			".tiff",
+			".webp",
+			".heic",
+			".heif"};
+		static readonly string[] VideoExtensions = {
+			".mp4",
+			".wmv",
+			".avi",
+			".mkv",
+			".flv",
+			".mov",
+			".mpg",
+			".mpeg",
+			".m4v",
+			".asf",
+			".f4v",
+			".webm",
+			".divx",
+			".m2t",
+			".m2ts",
+			".mts",
+			".vob",
+			".ts",
+			".rmvb",
+			".rm"
+		};
+		static readonly FrozenSet<string> VideoExtensionSet = VideoExtensions.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+		static readonly FrozenSet<string> ImageExtensionSet = ImageExtensions.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+		static readonly FrozenSet<string> AllExtensionSet = VideoExtensions.Concat(ImageExtensions).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+		internal static bool IsVideoExtension(string extension) => VideoExtensionSet.Contains(extension);
+		internal static bool IsMediaExtension(string extension) => AllExtensionSet.Contains(extension);
+		/// <summary>True when the file path has a still-image extension (decoded as a single frame by FFmpeg).</summary>
+		internal static bool IsImageFile(string path) => ImageExtensionSet.Contains(Path.GetExtension(path));
+		/// <summary>
+		/// True for HEIF-family images (.heic/.heif). Apple photos store the full-resolution
+		/// picture as a tile-grid stream group that FFmpeg assembles via an internal
+		/// filtergraph, which needs different CLI plumbing than plain one-stream images (#869).
+		/// </summary>
+		internal static bool IsHeifImageFile(string path) {
+			string extension = Path.GetExtension(path);
+			return extension.Equals(".heic", StringComparison.OrdinalIgnoreCase) ||
+				extension.Equals(".heif", StringComparison.OrdinalIgnoreCase);
+		}
+		// Folders the OS owns ($RECYCLE.BIN, System Volume Information, Config.Msi, Recovery)
+		// carry Hidden AND System. System alone is user content: Explorer honours a folder's
+		// desktop.ini icon only when the folder has the read-only or system attribute, so people
+		// mark whole libraries +S, and an unconditional System skip hid every one of them (#876).
+		// Hidden alone has been scanned since 2021 (a1c4806).
+		const FileAttributes HiddenSystemFolder = FileAttributes.Hidden | FileAttributes.System;
+		internal static List<FileInfo> GetFilesRecursive(string initial, bool ignoreReadonly, bool ignoreReparsePoints, bool recursive, bool includeImages, List<string> excludeFolders, CancellationToken cancellationToken) {
+			EnumerationOptions enumerationOptions = new() {
+				IgnoreInaccessible = true,
+				// No attribute skip for files: a video marked +S or +H is still a video.
+				AttributesToSkip = FileAttributes.None
+			};
+
+			if (ignoreReadonly)
+				enumerationOptions.AttributesToSkip |= FileAttributes.ReadOnly;
+			if (ignoreReparsePoints)
+				enumerationOptions.AttributesToSkip |= FileAttributes.ReparsePoint;
+
+			// Subfolders are filtered explicitly (below) instead of via AttributesToSkip, so
+			// skipped folders can be counted and logged; an attribute-skipped folder silently
+			// hides its entire subtree otherwise (#876).
+			EnumerationOptions directoryEnumerationOptions = new() {
+				IgnoreInaccessible = true,
+				AttributesToSkip = FileAttributes.None
+			};
+
+			// Span-based extension probe: non-matching files are rejected before any
+			// FileInfo (or even file-name string) is allocated.
+			var extensionLookup = (includeImages ? AllExtensionSet : VideoExtensionSet)
+				.GetAlternateLookup<ReadOnlySpan<char>>();
+
+			List<FileInfo> files = new();
+			Queue<DirectoryInfo> subFolders = new();
+			subFolders.Enqueue(new(initial));
+			int skippedHiddenSystem = 0, skippedReadonly = 0, skippedReparse = 0;
+
+			while (subFolders.Count > 0) {
+				if (cancellationToken.IsCancellationRequested)
+					break;
+				DirectoryInfo currentFolder = subFolders.Dequeue();
+				// File listing and subfolder discovery fail independently: a single
+				// unreadable entry aborting the file enumeration (e.g. filesystem
+				// corruption on an external drive) must not cost the whole subtree —
+				// that turned "Include subfolders" into a no-op with only the root
+				// folder's files partially found and no per-subfolder hint (#876).
+				try {
+					files.AddRange(new FileSystemEnumerable<FileInfo>(currentFolder.FullName,
+						(ref FileSystemEntry entry) => (FileInfo)entry.ToFileSystemInfo(),
+						enumerationOptions) {
+						ShouldIncludePredicate = (ref FileSystemEntry entry) =>
+							!entry.IsDirectory && extensionLookup.Contains(Path.GetExtension(entry.FileName))
+					});
+				}
+				catch (DirectoryNotFoundException) {
+					// Deleted between discovery and enumeration — subfolder discovery
+					// below would fail the same way, and the initial folder's existence
+					// is checked by the caller.
+					continue;
+				}
+				catch (Exception e) {
+					Logger.Instance.Warn($"Failed to list the files of '{currentFolder.FullName}' (files found before the error are kept, subfolders are still scanned): {e}");
+				}
+
+				if (!recursive)
+					break;
+				try {
+					foreach (DirectoryInfo subFolder in currentFolder.EnumerateDirectories("*", directoryEnumerationOptions)
+						.Where(d => !excludeFolders.Any(x => {
+							if (x.IndexOfAny(['*', '?']) < 0)
+								return d.FullName.Equals(x, StringComparison.OrdinalIgnoreCase);
+							bool hasSeparator = x.Contains(Path.DirectorySeparatorChar) || x.Contains(Path.AltDirectorySeparatorChar);
+							return hasSeparator
+								? System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(x, d.FullName)
+								: System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(x, d.Name);
+						}))) {
+						if (cancellationToken.IsCancellationRequested)
+							break;
+						// Attributes come prepopulated from the enumeration — no extra syscall.
+						FileAttributes attributes = subFolder.Attributes;
+						// Hidden AND System only (see HiddenSystemFolder); System alone is scanned.
+						if ((attributes & HiddenSystemFolder) == HiddenSystemFolder) {
+							skippedHiddenSystem++;
+							continue;
+						}
+						if (ignoreReadonly && (attributes & FileAttributes.ReadOnly) != 0) {
+							skippedReadonly++;
+							continue;
+						}
+						if (ignoreReparsePoints && (attributes & FileAttributes.ReparsePoint) != 0) {
+							skippedReparse++;
+							continue;
+						}
+						subFolders.Enqueue(subFolder);
+					}
+				}
+				catch (DirectoryNotFoundException) { }
+				catch (Exception e) {
+					Logger.Instance.Warn($"Failed to list the subfolders of '{currentFolder.FullName}': {e}");
+				}
+			}
+
+			if (skippedHiddenSystem + skippedReadonly + skippedReparse > 0) {
+				var reasons = new List<string>(3);
+				if (skippedHiddenSystem > 0)
+					reasons.Add($"{skippedHiddenSystem} hidden system folder(s), the signature of folders the OS owns such as the recycle bin");
+				if (skippedReadonly > 0)
+					reasons.Add($"{skippedReadonly} read-only ('Ignore read-only folders' is enabled)");
+				if (skippedReparse > 0)
+					reasons.Add($"{skippedReparse} reparse points/links ('Exclude reparse points' is enabled)");
+				Logger.Instance.Info($"Skipped {skippedHiddenSystem + skippedReadonly + skippedReparse} subfolder(s) of '{initial}' including everything inside them: {string.Join(", ", reasons)}.");
+			}
+
+			return files;
+
+		}
+
+		/// <summary>
+		/// Get safe path on all systems ignoring slashes
+		/// </summary>
+		/// <param name="path1"></param>
+		/// <param name="path2"></param>
+		/// <returns></returns>
+		internal static string SafePathCombine(string path1, string path2) {
+			if (!Path.IsPathRooted(path2))
+				return Path.Combine(path1, path2);
+
+			path2 = path2.TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+			return Path.Combine(path1, path2);
+		}
+
+		// NTFS allows arbitrary UTF-16 in filenames, including lone surrogates
+		// (e.g. files dropped from a browser/messenger that mangled an emoji into a
+		// half-pair). FFmpeg expects a UTF-8 path, but lone surrogates have no UTF-8
+		// encoding — .NET's default UTF-8 encoder silently substitutes '?', and the
+		// path FFmpeg receives no longer matches the file on disk. We reject those
+		// up front so the native binding never sees an unrepresentable string.
+		internal static bool IsPathFFmpegSafe(string path) {
+			if (string.IsNullOrEmpty(path))
+				return true;
+			try {
+				_ = strictUtf8.GetByteCount(path);
+				return true;
+			}
+			catch (System.Text.EncoderFallbackException) {
+				return false;
+			}
+		}
+
+		static readonly System.Text.UTF8Encoding strictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
+		/// <summary>
+		/// Possible flags for the SHFileOperation method.
+		/// </summary>
+		[Flags]
+		internal enum FileOperationFlags : ushort {
+			/// <summary>
+			/// Do not show a dialog during the process
+			/// </summary>
+			FOF_SILENT = 0x0004,
+			/// <summary>
+			/// Do not ask the user to confirm selection
+			/// </summary>
+			FOF_NOCONFIRMATION = 0x0010,
+			/// <summary>
+			/// Delete the file to the recycle bin.  (Required flag to send a file to the bin
+			/// </summary>
+			FOF_ALLOWUNDO = 0x0040,
+			/// <summary>
+			/// Do not show the names of the files or folders that are being recycled.
+			/// </summary>
+			FOF_SIMPLEPROGRESS = 0x0100,
+			/// <summary>
+			/// Surpress errors, if any occur during the process.
+			/// </summary>
+			FOF_NOERRORUI = 0x0400,
+			/// <summary>
+			/// Warn if files are too big to fit in the recycle bin and will need
+			/// to be deleted completely.
+			/// </summary>
+			FOF_WANTNUKEWARNING = 0x4000,
+		}
+
+		/// <summary>
+		/// File Operation Function Type for SHFileOperation
+		/// </summary>
+		internal enum FileOperationType : uint {
+			/// <summary>
+			/// Move the objects
+			/// </summary>
+			FO_MOVE = 0x0001,
+			/// <summary>
+			/// Copy the objects
+			/// </summary>
+			FO_COPY = 0x0002,
+			/// <summary>
+			/// Delete (or recycle) the objects
+			/// </summary>
+			FO_DELETE = 0x0003,
+			/// <summary>
+			/// Rename the object(s)
+			/// </summary>
+			FO_RENAME = 0x0004,
+		}
+
+		[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+		internal struct SHFILEOPSTRUCT {
+
+			public IntPtr hwnd;
+			[MarshalAs(UnmanagedType.U4)]
+			public FileOperationType wFunc;
+			public string pFrom;
+			public string pTo;
+			public FileOperationFlags fFlags;
+			[MarshalAs(UnmanagedType.Bool)]
+			public bool fAnyOperationsAborted;
+			public IntPtr hNameMappings;
+			public string lpszProgressTitle;
+		}
+
+		[DllImport("shell32.dll", CharSet = CharSet.Auto)]
+		internal static extern int SHFileOperation(ref SHFILEOPSTRUCT FileOp);
+
+		/// <summary>
+		/// Moves a file to the system trash/recycle bin on Linux and macOS.
+		/// Returns true if the file was successfully moved to trash, false if trash is unavailable
+		/// (caller should fall back to permanent deletion).
+		/// Not intended for Windows — use SHFileOperation there.
+		/// </summary>
+		internal static bool MoveToTrash(string filePath) {
+			if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+				return MoveToTrashMacOS(filePath);
+			if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+				return MoveToTrashLinux(filePath);
+			return false;
+		}
+
+		static bool MoveToTrashLinux(string filePath) {
+			// Freedesktop.org Trash specification: https://specifications.freedesktop.org/trash-spec/
+			string dataHome = Environment.GetEnvironmentVariable("XDG_DATA_HOME")
+				?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share");
+			string filesDir = Path.Combine(dataHome, "Trash", "files");
+			string infoDir = Path.Combine(dataHome, "Trash", "info");
+
+			try {
+				Directory.CreateDirectory(filesDir);
+				Directory.CreateDirectory(infoDir);
+			}
+			catch {
+				return false;
+			}
+
+			// If the file is on a different filesystem (e.g. network share), skip trash
+			// to avoid downloading the entire file to the local trash directory.
+			if (!IsOnSameFileSystem(filePath, filesDir))
+				return false;
+
+			string fileName = Path.GetFileName(filePath);
+			string destPath = Path.Combine(filesDir, fileName);
+			string infoPath = Path.Combine(infoDir, fileName + ".trashinfo");
+
+			// Resolve name conflicts
+			int counter = 1;
+			while (File.Exists(destPath) || File.Exists(infoPath)) {
+				string newName = $"{Path.GetFileNameWithoutExtension(fileName)}_{counter++}{Path.GetExtension(fileName)}";
+				destPath = Path.Combine(filesDir, newName);
+				infoPath = Path.Combine(infoDir, newName + ".trashinfo");
+			}
+
+			string trashInfo = $"[Trash Info]\nPath={filePath}\nDeletionDate={DateTime.Now:yyyy-MM-ddTHH:mm:ss}\n";
+			try {
+				File.WriteAllText(infoPath, trashInfo);
+				File.Move(filePath, destPath);
+				return true;
+			}
+			catch {
+				try { File.Delete(infoPath); } catch { /* ignore */ }
+				return false;
+			}
+		}
+
+		/// <summary>
+		/// Checks whether two paths reside on the same mounted filesystem by comparing
+		/// their mount points from <see cref="DriveInfo.GetDrives"/>.
+		/// </summary>
+		internal static bool IsOnSameFileSystem(string path1, string path2) {
+			try {
+				string fullPath1 = Path.GetFullPath(path1);
+				string fullPath2 = Path.GetFullPath(path2);
+				var drives = DriveInfo.GetDrives();
+				return GetMountPoint(fullPath1, drives) == GetMountPoint(fullPath2, drives);
+			}
+			catch {
+				return true; // assume same filesystem on error — let File.Move decide
+			}
+		}
+
+		static string GetMountPoint(string fullPath, DriveInfo[] drives) {
+			string bestMatch = "/";
+			foreach (var drive in drives) {
+				if (fullPath.StartsWith(drive.Name, StringComparison.Ordinal) && drive.Name.Length > bestMatch.Length)
+					bestMatch = drive.Name;
+			}
+			return bestMatch;
+		}
+
+		static bool MoveToTrashMacOS(string filePath) {
+			// ~/.Trash is the standard macOS trash for the home volume.
+			// For files on other volumes, macOS uses <volume>/.Trashes/<uid>/ — but that
+			// requires cross-volume copy+delete. Fall back to permanent deletion in that case.
+			string trashDir = Path.Combine(
+				Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".Trash");
+
+			try {
+				Directory.CreateDirectory(trashDir);
+			}
+			catch {
+				return false;
+			}
+
+			// If the file is on a different volume, skip trash to avoid cross-volume copy.
+			if (!IsOnSameFileSystem(filePath, trashDir))
+				return false;
+
+			string fileName = Path.GetFileName(filePath);
+			string destPath = Path.Combine(trashDir, fileName);
+
+			// Resolve name conflicts
+			int counter = 1;
+			while (File.Exists(destPath)) {
+				destPath = Path.Combine(trashDir,
+					$"{Path.GetFileNameWithoutExtension(fileName)}_{counter++}{Path.GetExtension(fileName)}");
+			}
+
+			try {
+				File.Move(filePath, destPath);
+				return true;
+			}
+			catch {
+				return false;
+			}
+		}
+	}
+}

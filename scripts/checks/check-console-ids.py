@@ -6,9 +6,12 @@ throws at load, taking the ENTIRE dashboard with it, not just that feature.
 This found two such references on 2026-09-05 after the Library rewrite.
 
 Run from the repo root:  python scripts/checks/check-console-ids.py
+Takes the same shape of file as an argument:
+                         python scripts/checks/check-console-ids.py dupefinder/console.html
 """
 import io, re, sys
-s = io.open('curator.html', encoding='utf-8', newline='').read()
+target = sys.argv[1] if len(sys.argv) > 1 else 'curator.html'
+s = io.open(target, encoding='utf-8', newline='').read()
 html_ids = set(re.findall(r'id="([A-Za-z0-9_-]+)"', s))
 # ids the script creates at runtime rather than declaring in markup
 runtime_ids = {"lwUndoBar", "lwUndoBtn"}

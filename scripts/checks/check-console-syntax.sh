@@ -7,11 +7,16 @@
 # second, without a rebuild or a browser.
 #
 # Runs inside the existing gate image, so it needs no local node.
+#
+# Second argument picks the file, for the other console-shaped page in this repo:
+#   bash scripts/checks/check-console-syntax.sh "" dupefinder/console.html
 set -uo pipefail
 REPO=${1:-/mnt/c/Users/Dell/Downloads/jellyfin-gate}
-docker run --rm --user 0 -v "$REPO":/src -w /src --entrypoint node jellyfin-gate-gate -e '
+REPO=${REPO:-/mnt/c/Users/Dell/Downloads/jellyfin-gate}
+TARGET=${2:-curator.html}
+docker run --rm --user 0 -v "$REPO":/src -w /src -e TARGET="$TARGET" --entrypoint node jellyfin-gate-gate -e '
 const fs = require("fs");
-const html = fs.readFileSync("curator.html", "utf8");
+const html = fs.readFileSync(process.env.TARGET, "utf8");
 const blocks = [...html.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
 if (!blocks.length) { console.log("no inline script found"); process.exit(1); }
 let bad = 0;

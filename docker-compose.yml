@@ -258,6 +258,62 @@ services:
     # GPU access is in docker-compose.linux.yml. Without it the worker encodes
     # in software — correct, just slower.
 
+  # Duplicate-video detection. A thin HTTP API of our own (dupefinder/) over
+  # VDF.Core, the detection engine from 0x90d/videoduplicatefinder, vendored at
+  # dupefinder/VDF.Core. Deliberately NOT VDF.Web, which ships its own whole UI:
+  # the point is jellyfin-gate's own console calling a purpose-built internal
+  # API. See dupefinder/README.md and vdf_jellyfin_gate_handoff.md.
+  #
+  # PROFILE-GATED, and that is the important line in this block. A plain
+  # `docker compose up -d` — what the boot script and every routine restart run
+  # — must not build or start this. A Docker image build is the single heaviest
+  # write load on this machine, whose boot SSD is failing (three 0x154 crashes
+  # on 2026-09-05, one of them during a rebuild). Starting it is an explicit,
+  # deliberate act, with someone watching:
+  #
+  #   docker compose --env-file .env --env-file .env.wsl-paths \
+  #     --profile dupefinder up -d --build dupefinder
+  #
+  # Not on the `edge` network and not in the tunnel's hostname list: this is a
+  # curator-only tool, reachable from the gate container over `internal` and
+  # from this host's own loopback, and from nowhere else.
+  dupefinder:
+    profiles: ["dupefinder"]
+    build:
+      context: ./dupefinder
+      dockerfile: Dockerfile
+    container_name: jellyfin-gate-dupefinder
+    restart: unless-stopped
+    # Scanning is ffmpeg-bound and will happily eat the box. Same ceiling as the
+    # worker, and the lowest priority weight of anything here: a duplicate scan
+    # is never what a real visitor is waiting on.
+    cpus: "1.5"
+    mem_limit: 1g
+    cpu_shares: 256
+    networks:
+      - internal
+    ports:
+      # Loopback, same posture as the gate. This is what lets the static
+      # prototype page (a browser file:// tab on this host, the curator.html
+      # pattern) call the API directly while the UI shape is still being
+      # validated — no image rebuild in that loop. Once this is folded into
+      # gate's own build, the browser goes through gate and this can drop.
+      - "${DUPEFINDER_BIND:-127.0.0.1}:8082:8080"
+    environment:
+      - DUPEFINDER_API_KEY=${DUPEFINDER_API_KEY:?set DUPEFINDER_API_KEY in .env}
+      - MEDIA_LIBRARY=/media
+      # Not a file path like the gate's DATABASE_PATH — VDF.Core wants the
+      # FOLDER it may keep its own scanned-files cache in.
+      - DATABASE_PATH=/app/data
+    volumes:
+      # VDF.Core's own cache of per-file hashes. Persisting it is what makes a
+      # second scan cheap; losing it costs time, never correctness.
+      - dupefinder-data:/app/data
+      # Read-WRITE, like the gate's mount and unlike jellyfin's: culling
+      # duplicates is the entire point of this service. /api/delete will only
+      # remove a path the last completed scan itself flagged (see Program.cs).
+      - ${MEDIA_PATH:-./media}:/media
+
   # Watch-party realtime service — chat + playback sync over WebSocket. See
   # DESIGN-watch-party.md and scripts/party-server.mts's own header comment.
   #
@@ -411,3 +467,4 @@ volumes:
   jellyfin-config:
   jellyfin-cache:
   gate-data:
+  dupefinder-data:

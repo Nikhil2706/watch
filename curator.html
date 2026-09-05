@@ -133,6 +133,51 @@
     .lw-split { grid-template-columns: 1fr; }
     .lw-rail { border-right: 0; border-bottom: 1px solid var(--border); max-height: 300px; }
   }
+  /* ---- Duplicates workspace ----------------------------------------- */
+  .df-progress { height: 4px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 12px; }
+  .df-progress i { display: block; height: 100%; background: var(--accent); transition: width 0.3s; }
+  .df-scanline { font-size: 12px; color: var(--dead); margin-top: 7px; font-variant-numeric: tabular-nums;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Sticky: the delete action has to stay reachable partway down a long
+     results list, which is where the decision actually gets made. */
+  .df-bulk { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; align-items: center;
+    flex-wrap: wrap; padding: 9px 13px; margin-bottom: 12px; border-radius: 8px;
+    border: 1px solid var(--warm-line); background: rgba(24, 21, 16, 0.95);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); font-size: 13px; }
+  .df-bulk button { width: auto; font-size: 12px; padding: 5px 11px; }
+
+  .df-group { border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+    margin-bottom: 12px; overflow: hidden; }
+  .df-group-head { display: flex; align-items: center; gap: 8px; padding: 7px 13px;
+    background: var(--surface-2); border-bottom: 1px solid var(--border);
+    font-size: 12.5px; color: var(--muted); }
+  .df-group-head b { color: var(--text); }
+
+  .df-item { display: flex; gap: 12px; align-items: flex-start; padding: 11px 13px;
+    border-bottom: 1px solid rgba(35, 41, 53, 0.6); }
+  .df-item:last-child { border-bottom: 0; }
+  .df-item.sel { background: rgba(239, 91, 107, 0.07); }
+  .df-item > input[type="checkbox"] { width: auto; margin: 3px 0 0; flex: 0 0 auto; }
+
+  .df-frames { display: flex; gap: 3px; flex: 0 0 auto; }
+  .df-frames img, .df-frames .df-ph { width: 104px; height: 59px; object-fit: cover; border-radius: 4px;
+    background: var(--surface-2); border: 1px solid var(--border); display: block; }
+  .df-frames .df-ph { display: grid; place-items: center; color: var(--dead); font-size: 10px; }
+
+  .df-meta { flex: 1 1 auto; min-width: 0; }
+  .df-facts { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 7px; }
+  .df-fact { font-size: 11px; padding: 2px 7px; border-radius: 5px; background: var(--surface-2);
+    border: 1px solid var(--border); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .df-fact.best { border-color: rgba(91, 209, 139, 0.4); background: rgba(91, 209, 139, 0.1); color: #bff3d5; }
+  .df-fact.clip { border-color: var(--warm-line); background: rgba(255, 217, 160, 0.08); color: var(--warm); }
+  .df-fact.sim { border-color: rgba(91, 141, 239, 0.4); background: rgba(91, 141, 239, 0.12); color: #cfe0ff; }
+
+  @media (max-width: 860px) {
+    .df-item { flex-wrap: wrap; }
+    .df-frames img, .df-frames .df-ph { width: 84px; height: 48px; }
+  }
+
   /* --- Header -------------------------------------------------------- */
   .top {
     display: flex; align-items: center; gap: 12px;
@@ -583,6 +628,7 @@
 
   <nav class="tabs" id="tabNav" style="display:none">
     <button class="tab-btn" data-tab="library">Library</button>
+    <button class="tab-btn" data-tab="dupes">Duplicates</button>
     <button class="tab-btn" data-tab="worker">Worker</button>
     <button class="tab-btn" data-tab="accolades">Accolades</button>
     <button class="tab-btn" data-tab="health">Health</button>
@@ -664,6 +710,76 @@
       </div>
 
     </div>
+  </div>
+
+  <!-- ============================== Duplicates tab ============================== -->
+  <div class="tab-panel" id="tab-dupes" data-tab="dupes">
+
+    <!-- ============================================================
+         Duplicate finder.
+
+         Talks to the `dupefinder` sidecar DIRECTLY, not through the gate,
+         which is why this tab carries its own URL and key rather than
+         reusing the connection at the top of the page. Two reasons:
+
+         - It is a separate service with a separate secret. Routing it
+           through the gate would mean the gate holding a second key and
+           proxying image bytes, for no gain today.
+         - It keeps this whole feature a console-only change. Per the
+           no-rebuild-for-console rule, editing this file needs no deploy;
+           the moment the browser has to reach dupefinder VIA the gate,
+           every tweak to those routes costs a Docker image rebuild, and
+           this machine's boot SSD is the reason we don't want that.
+
+         The sidecar is profile-gated in docker-compose.yml, so if this tab
+         cannot connect the likely answer is that it was never started. See
+         dupefinder/README.md.
+         ============================================================ -->
+
+    <div class="card">
+      <div class="row">
+        <div>
+          <label for="dfBase">Dupefinder URL</label>
+          <input id="dfBase" value="http://127.0.0.1:8082" spellcheck="false">
+        </div>
+        <div style="flex:2 1 260px">
+          <label for="dfKey">Dupefinder API key</label>
+          <input id="dfKey" type="password" placeholder="from .env — DUPEFINDER_API_KEY" spellcheck="false" autocomplete="off">
+        </div>
+        <div class="narrow" style="flex:0 0 auto">
+          <button id="dfConnect">Connect</button>
+        </div>
+      </div>
+      <div class="note">
+        A separate service from the gate, with its own key. Held in this tab's memory only.
+      </div>
+    </div>
+
+    <div class="card" id="dfScanCard" style="display:none">
+      <div class="row" style="align-items:center">
+        <div style="flex:0 0 auto"><button id="dfStart">Scan the library</button></div>
+        <div style="flex:0 0 auto"><button id="dfStop" class="ghost" disabled>Stop</button></div>
+        <div style="flex:0 0 auto"><button id="dfReload" class="ghost">Reload results</button></div>
+        <div style="flex:1 1 auto"></div>
+        <div style="flex:0 0 auto"><span class="lw-chip" id="dfPhase">idle</span></div>
+      </div>
+      <div class="df-progress"><i id="dfBar" style="width:0"></i></div>
+      <div class="df-scanline" id="dfScanline">Not scanning.</div>
+    </div>
+
+    <div id="dfResults" style="display:none">
+      <div class="lw-chips" id="dfChips"></div>
+      <div class="df-bulk" id="dfBulk" style="display:none">
+        <b id="dfSelCount">0 selected</b>
+        <span id="dfSelSize" class="lw-sub"></span>
+        <div style="flex:1 1 auto"></div>
+        <button id="dfSelectRest" class="ghost">Select every copy but the keeper</button>
+        <button id="dfClearSel" class="ghost">Clear</button>
+        <button id="dfDelete" class="danger" disabled>Delete selected</button>
+      </div>
+      <div id="dfGroups"></div>
+    </div>
+
   </div>
 
   <!-- ============================== Worker tab ============================== -->
@@ -4816,6 +4932,385 @@
 
   // Sub-tab content loads once, the first time its tab is shown.
   // The builder lives under Films now, and loads with that view.
+
+  /* ================================================================
+   * Duplicates
+   *
+   * The only tab that does NOT talk to the gate. It calls the dupefinder
+   * sidecar directly (see the panel's own comment for why), so it carries
+   * its own base/key and its own fetch helper rather than reusing api().
+   * ================================================================ */
+  var dfState = { base: "", key: "", groups: [], selected: null, poll: null };
+  dfState.selected = {};   // path -> true; a plain object, to match this file's style
+
+  function dfSelectedPaths() { return Object.keys(dfState.selected); }
+
+  function dfApi(path, opts) {
+    opts = opts || {};
+    var init = { method: opts.method || "GET", headers: { "X-Dupefinder-Key": dfState.key } };
+    if (opts.body) {
+      init.headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(opts.body);
+    }
+    return fetch(dfState.base + path, init).then(function (r) {
+      if (r.status === 401) throw new Error("Dupefinder rejected the key.");
+      return r.json().then(function (body) {
+        if (!r.ok) throw new Error(body && body.error ? body.error : "HTTP " + r.status);
+        return body;
+      }, function () {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return null;
+      });
+    });
+  }
+
+  // Deliberately not the file's fmtBytes(): that one rounds to GB/MB, and
+  // picking between near-identical copies is exactly where the smaller units
+  // carry the information.
+  function dfBytes(n) {
+    if (!n && n !== 0) return "—";
+    var u = ["B", "KB", "MB", "GB", "TB"], i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return n.toFixed(i === 0 ? 0 : 1) + " " + u[i];
+  }
+
+  function dfDuration(sec) {
+    if (!sec) return "—";
+    var s = Math.round(sec), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    s = s % 60;
+    return (h ? h + ":" + String(m).padStart(2, "0") : String(m)) + ":" + String(s).padStart(2, "0");
+  }
+
+  // "thumbnails" counts as busy: the scan is done but its results are not
+  // servable yet, and on a real library it is the phase that takes minutes.
+  function dfIsBusy(phase) {
+    return phase === "hashing" || phase === "comparing" || phase === "thumbnails";
+  }
+
+  // Which copy in a group to KEEP. Emphatically not the engine's own
+  // "IsBestSize", which is a Min() — in VDF "best size" means the smallest file,
+  // and following it here would keep the most truncated copy and delete the
+  // original. Observed for real during testing: an 8-second clip was flagged
+  // best over the 30-second source it came from.
+  //
+  // Order: never a partial clip; then longest, then highest resolution, then
+  // highest bitrate, then largest file. Length first because a short copy of a
+  // long work is the one irreversible mistake this tool can make.
+  function dfPickKeeper(g) {
+    var ranked = g.items.slice().sort(function (a, b) {
+      if (!!a.isPartialClip !== !!b.isPartialClip) return a.isPartialClip ? 1 : -1;
+      if (b.durationSeconds !== a.durationSeconds) return b.durationSeconds - a.durationSeconds;
+      var ap = dfPixels(a), bp = dfPixels(b);
+      if (bp !== ap) return bp - ap;
+      if ((b.bitrateKbs || 0) !== (a.bitrateKbs || 0)) return (b.bitrateKbs || 0) - (a.bitrateKbs || 0);
+      return b.size - a.size;
+    });
+    return ranked[0];
+  }
+
+  function dfPixels(item) {
+    if (!item.frameSize) return 0;
+    var wh = String(item.frameSize).split("x");
+    return (parseInt(wh[0], 10) || 0) * (parseInt(wh[1], 10) || 0);
+  }
+
+  function dfApplyStatus(s) {
+    $("dfPhase").textContent = s.phase;
+    var busy = dfIsBusy(s.phase);
+    $("dfStart").disabled = busy;
+    $("dfStop").disabled = !busy;
+    var pct = s.maxPosition ? Math.round((s.currentPosition / s.maxPosition) * 100) : 0;
+    if (s.phase === "thumbnails")
+      pct = s.thumbnailsTotal ? Math.round((s.thumbnailsDone / s.thumbnailsTotal) * 100) : 0;
+    $("dfBar").style.width = pct + "%";
+
+    if (s.phase === "thumbnails") {
+      $("dfScanline").textContent = "Extracting previews — " + s.thumbnailsDone + "/" +
+        s.thumbnailsTotal + " (" + pct + "%). Results appear when this finishes.";
+    } else if (busy) {
+      $("dfScanline").textContent = pct + "% — " + s.currentPosition + "/" + s.maxPosition +
+        (s.currentStage ? " — " + s.currentStage : "") +
+        (s.remainingSeconds ? " — " + dfDuration(s.remainingSeconds) + " left" : "") +
+        (s.currentFile ? " — " + s.currentFile : "");
+    } else if (s.phase === "done") {
+      $("dfScanline").textContent = "Scan complete — " + s.groupCount + " groups, " +
+        s.itemCount + " files, took " + dfDuration(s.elapsedSeconds) + ".";
+    } else if (s.phase === "aborted") {
+      $("dfScanline").textContent = "Scan stopped — cancelled, or aborted on an error. " +
+        "docker logs jellyfin-gate-dupefinder says which.";
+    } else {
+      $("dfScanline").textContent = "Not scanning.";
+    }
+  }
+
+  function dfStartPolling() {
+    if (dfState.poll) return;
+    dfState.poll = setInterval(function () {
+      dfApi("/api/scan/status").then(function (s) {
+        dfApplyStatus(s);
+        if (!dfIsBusy(s.phase)) {
+          clearInterval(dfState.poll); dfState.poll = null;
+          if (s.phase === "done") dfLoadGroups();
+        }
+      }).catch(function (err) {
+        clearInterval(dfState.poll); dfState.poll = null;
+        show("err", err.message);
+      });
+    }, 1500);
+  }
+
+  function dfRefreshStatus() {
+    return dfApi("/api/scan/status").then(function (s) {
+      $("dfScanCard").style.display = "";
+      dfApplyStatus(s);
+      if (dfIsBusy(s.phase)) dfStartPolling();
+      else if (s.phase === "done" && !dfState.groups.length) dfLoadGroups();
+      return s;
+    });
+  }
+
+  $("dfConnect").addEventListener("click", function () {
+    dfState.base = $("dfBase").value.trim().replace(/\/+$/, "");
+    dfState.key = $("dfKey").value.trim();
+    if (!dfState.base || !dfState.key) { show("err", "Dupefinder URL and key are both required."); return; }
+    dfRefreshStatus().then(function (s) {
+      show("ok", "Connected to dupefinder. Phase: " + s.phase);
+    }).catch(function (err) {
+      show("err", err.message + " — is the sidecar started? It is profile-gated; " +
+        "see dupefinder/README.md.");
+    });
+  });
+
+  $("dfStart").addEventListener("click", function () {
+    dfApi("/api/scan/start", { method: "POST" }).then(function () {
+      $("dfResults").style.display = "none";
+      dfState.groups = []; dfState.selected = {};
+      show("ok", "Scan started.");
+      dfStartPolling();
+    }).catch(function (err) { show("err", err.message); });
+  });
+
+  $("dfStop").addEventListener("click", function () {
+    dfApi("/api/scan/stop", { method: "POST" })
+      .then(function () { show("ok", "Stopping…"); })
+      .catch(function (err) { show("err", err.message); });
+  });
+
+  $("dfReload").addEventListener("click", function () { dfLoadGroups(); });
+
+  function dfLoadGroups() {
+    return dfApi("/api/groups").then(function (groups) {
+      dfState.groups = groups || [];
+      dfState.selected = {};
+      dfRender();
+    }).catch(function (err) { show("err", err.message); });
+  }
+
+  function dfRender() {
+    var host = $("dfGroups");
+    host.textContent = "";
+    $("dfResults").style.display = "";
+
+    var files = 0, clipGroups = 0, reclaimable = 0;
+    dfState.groups.forEach(function (g) {
+      files += g.items.length;
+      if (g.items.some(function (i) { return i.isPartialClip; })) clipGroups++;
+      // Everything but the largest copy in a group is what culling would free.
+      var bySize = g.items.slice().sort(function (a, b) { return b.size - a.size; });
+      bySize.slice(1).forEach(function (i) { reclaimable += i.size; });
+    });
+
+    var chips = $("dfChips");
+    chips.textContent = "";
+    [["groups", dfState.groups.length, true],
+     ["files", files, false],
+     ["with a partial clip", clipGroups, false],
+     ["reclaimable", dfBytes(reclaimable), true]].forEach(function (c) {
+      var el = document.createElement("span");
+      el.className = "lw-chip" + (c[2] ? " on" : "");
+      var b = document.createElement("b");
+      b.textContent = c[1];
+      el.appendChild(b);
+      el.appendChild(document.createTextNode(" " + c[0]));
+      chips.appendChild(el);
+    });
+
+    if (!dfState.groups.length) {
+      host.innerHTML = '<div class="lw-pane-empty">No duplicate groups in the last scan.</div>';
+      $("dfBulk").style.display = "none";
+      return;
+    }
+    $("dfBulk").style.display = "";
+    dfState.groups.forEach(function (g) { host.appendChild(dfGroupNode(g)); });
+    dfUpdateBulk();
+  }
+
+  function dfGroupNode(g) {
+    var wrap = document.createElement("div");
+    wrap.className = "df-group";
+
+    var head = document.createElement("div");
+    head.className = "df-group-head";
+    var n = document.createElement("b");
+    n.textContent = g.items.length + " files";
+    head.appendChild(n);
+    var sim = Math.max.apply(null, g.items.map(function (i) { return i.similarity; }));
+    head.appendChild(document.createTextNode(" · up to " + sim.toFixed(1) + "% similar"));
+    if (g.items.some(function (i) { return i.isPartialClip; }))
+      head.appendChild(document.createTextNode(" · contains a partial clip"));
+    wrap.appendChild(head);
+
+    var keeper = dfPickKeeper(g);
+    g.items.forEach(function (item) {
+      wrap.appendChild(dfItemNode(item, item.path === keeper.path));
+    });
+    return wrap;
+  }
+
+  function dfItemNode(item, isKeeper) {
+    var row = document.createElement("div");
+    row.className = "df-item";
+
+    var cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = !!dfState.selected[item.path];
+    cb.addEventListener("change", function () {
+      if (cb.checked) dfState.selected[item.path] = true;
+      else delete dfState.selected[item.path];
+      row.classList.toggle("sel", cb.checked);
+      dfUpdateBulk();
+    });
+    row.classList.toggle("sel", cb.checked);
+    row.appendChild(cb);
+
+    var frames = document.createElement("div");
+    frames.className = "df-frames";
+    var count = Math.min(item.thumbnailCount || 0, 3);
+    if (!count) {
+      var ph = document.createElement("div");
+      ph.className = "df-ph";
+      ph.textContent = "no preview";
+      frames.appendChild(ph);
+    } else {
+      for (var f = 0; f < count; f++) frames.appendChild(dfLazyFrame(item.path, f));
+    }
+    row.appendChild(frames);
+
+    var meta = document.createElement("div");
+    meta.className = "df-meta";
+    var path = document.createElement("div");
+    path.className = "lw-path";
+    path.textContent = item.path;
+    meta.appendChild(path);
+
+    var facts = document.createElement("div");
+    facts.className = "df-facts";
+    function fact(text, cls) {
+      var el = document.createElement("span");
+      el.className = "df-fact" + (cls ? " " + cls : "");
+      el.textContent = text;
+      facts.appendChild(el);
+    }
+    if (isKeeper) fact("keep this one", "best");
+    fact(item.similarity.toFixed(1) + "% match", "sim");
+    // Size carries no "best" badge on purpose: the engine's flag for it means
+    // SMALLEST, which is the opposite of what to keep. See dfPickKeeper.
+    fact(dfBytes(item.size) + (item.isSmallestSize ? " (smallest)" : ""));
+    fact(dfDuration(item.durationSeconds), item.isLongestDuration ? "best" : "");
+    if (item.frameSize) fact(item.frameSize);
+    if (item.format) fact(item.format);
+    if (item.fps) fact(item.fps.toFixed(0) + " fps");
+    if (item.audioFormat) fact(item.audioFormat);
+    if (item.hdrFormat) fact(item.hdrFormat);
+    if (item.isPartialClip) fact("clip @ " + dfDuration(item.partialClipOffsetSeconds), "clip");
+    if (item.isAiMatched) fact("AI match", "clip");
+    meta.appendChild(facts);
+    row.appendChild(meta);
+    return row;
+  }
+
+  // Thumbnails carry an auth header, so they cannot be a plain <img src> —
+  // fetch as a blob and swap in an object URL, and only once the row is near
+  // the viewport, because a real library is hundreds of rows. An inactive tab
+  // is display:none, so nothing here loads until the tab is actually opened.
+  var dfObserver = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (!entry.isIntersecting) return;
+      var img = entry.target;
+      dfObserver.unobserve(img);
+      fetch(dfState.base + "/api/thumbnail?path=" + encodeURIComponent(img.getAttribute("data-path")) +
+            "&frame=" + img.getAttribute("data-frame"),
+            { headers: { "X-Dupefinder-Key": dfState.key } })
+        .then(function (r) { return r.ok ? r.blob() : null; })
+        .then(function (blob) { if (blob) img.src = URL.createObjectURL(blob); })
+        .catch(function () {});
+    });
+  }, { rootMargin: "300px" });
+
+  function dfLazyFrame(path, frame) {
+    var img = document.createElement("img");
+    img.alt = "";
+    img.setAttribute("data-path", path);
+    img.setAttribute("data-frame", frame);
+    dfObserver.observe(img);
+    return img;
+  }
+
+  function dfUpdateBulk() {
+    var size = 0, paths = dfState.selected;
+    dfState.groups.forEach(function (g) {
+      g.items.forEach(function (i) { if (paths[i.path]) size += i.size; });
+    });
+    var n = dfSelectedPaths().length;
+    $("dfSelCount").textContent = n + " selected";
+    $("dfSelSize").textContent = n ? "(" + dfBytes(size) + ")" : "";
+    $("dfDelete").disabled = !n;
+  }
+
+  $("dfSelectRest").addEventListener("click", function () {
+    dfState.selected = {};
+    dfState.groups.forEach(function (g) {
+      var keep = dfPickKeeper(g);
+      g.items.forEach(function (i) { if (i.path !== keep.path) dfState.selected[i.path] = true; });
+    });
+    dfRender();
+  });
+
+  $("dfClearSel").addEventListener("click", function () {
+    dfState.selected = {};
+    dfRender();
+  });
+
+  $("dfDelete").addEventListener("click", function () {
+    var paths = dfSelectedPaths();
+    if (!paths.length) return;
+
+    // A group with every copy ticked means losing the work entirely, not
+    // de-duplicating it. Easy to do by hand with shift-clicking, and not what
+    // this tool is for — so it gets named in the prompt rather than silently done.
+    var wiped = [];
+    dfState.groups.forEach(function (g) {
+      var sel = g.items.filter(function (i) { return dfState.selected[i.path]; }).length;
+      if (sel && sel === g.items.length) wiped.push(g);
+    });
+    var warn = wiped.length
+      ? "\n\nWARNING: in " + wiped.length + " group(s) you have selected EVERY copy, " +
+        "so no copy of those files will be left."
+      : "";
+    if (!confirm("Permanently delete " + paths.length + " file(s) from the library?" +
+                 warn + "\n\nThis cannot be undone."))
+      return;
+    dfApi("/api/delete", { method: "POST", body: { paths: paths } }).then(function (results) {
+      var ok = 0, failed = [];
+      (results || []).forEach(function (r) { if (r.deleted) ok++; else failed.push(r); });
+      if (failed.length)
+        show("err", ok + " deleted, " + failed.length + " failed — first: " +
+          failed[0].path + " (" + failed[0].error + ")");
+      else
+        show("ok", ok + " file(s) deleted.");
+      dfLoadGroups();
+    }).catch(function (err) { show("err", err.message); });
+  });
 
   // Restore a same-session key so a refresh does not mean retyping it.
   try {

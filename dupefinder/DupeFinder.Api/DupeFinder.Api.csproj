@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- This service never sets Settings.UseNativeFfmpegBinding, UseAiMatching or
+         ExcludeHardLinks (see Program.cs) — VDF.Core's optional FFmpeg.AutoGen,
+         onnxruntime and Mono.Posix.NETStandard dependencies are pulled in transitively
+         by the ProjectReference below but never exercised. Kept that way deliberately:
+         it is what lets this run on the plain Debian-based ASP.NET runtime image
+         without a native-library surprise (see the Dockerfile's own note on this).
+    -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VDF.Core\VDF.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,216 @@
+// /*
+//     Copyright (C) 2026 0x90d
+//     This file is part of VideoDuplicateFinder
+//     VideoDuplicateFinder is free software: you can redistribute it and/or modify
+//     it under the terms of the GNU Affero General Public License as published by
+//     the Free Software Foundation, either version 3 of the License, or
+//     (at your option) any later version.
+//     VideoDuplicateFinder is distributed in the hope that it will be useful,
+//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//     GNU Affero General Public License for more details.
+//     You should have received a copy of the GNU Affero General Public License
+//     along with VideoDuplicateFinder.  If not, see <http://www.gnu.org/licenses/>.
+// */
+//
+
+
+namespace VDF.Core {
+	public enum FolderMatchMode { None, SameFolderOnly, DifferentFolderOnly }
+
+	public sealed class Settings {
+		// Settable so System.Text.Json can populate these from --settings JSON; without
+		// a setter STJ silently leaves them empty even with IncludeFields=true (read-only
+		// collection properties aren't repopulated by the default object converter).
+		public HashSet<string> IncludeList { get; set; } = new HashSet<string>();
+		public HashSet<string> BlackList { get; set; } = new HashSet<string>();
+
+		public bool IgnoreReadOnlyFolders;
+		public bool IgnoreReparsePoints;
+		public bool ExcludeHardLinks;
+		public bool GeneratePreviewThumbnails;
+		public bool UseNativeFfmpegBinding;
+		public bool IncludeSubDirectories = true;
+		public bool IncludeImages = true;
+		public bool ExtendedFFToolsLogging;
+		public bool LogExcludedFiles;
+		public bool AlwaysRetryFailedSampling;
+		public bool IgnoreBlackPixels;
+		public bool IgnoreWhitePixels;
+		public bool CompareHorizontallyFlipped;
+		public bool IncludeNonExistingFiles;
+		/// <summary>
+		/// Remember deleted content: keep the fingerprint of files whose last copy was deleted
+		/// ("tombstones") and include them in comparison, so a re-downloaded copy of content the
+		/// user already curated out is recognized. Also makes database cleanup tombstone-aware.
+		/// Off (default) = VDF behaves exactly as without the feature.
+		/// </summary>
+		public bool RememberDeletedContent;
+		/// <summary>
+		/// Missing files participate in scans when either switch requests it: the user's explicit
+		/// <see cref="IncludeNonExistingFiles"/>, or <see cref="RememberDeletedContent"/> (tombstones
+		/// must be compared even when the user never opted into listing non-existing files).
+		/// </summary>
+		internal bool IncludeMissingFiles => IncludeNonExistingFiles || RememberDeletedContent;
+		public bool ScanAgainstEntireDatabase;
+		public FolderMatchMode FolderMatchMode;
+		public int SameFolderDepth = 1;
+		public bool UsePHashing;
+		/// <summary>
+		/// #842: run BOTH classic algorithms (grayscale percent-diff and pHash) in one
+		/// comparison pass. A pair counts as duplicate when either matches; the
+		/// <see cref="DuplicateFlags.GrayscaleMatched"/>/<see cref="DuplicateFlags.PHashMatched"/>
+		/// flags record which one(s) found it. Takes precedence over <see cref="UsePHashing"/>.
+		/// Costs one extra comparison per pair, not a second scan of the files - the
+		/// pHashes derive from the same stored grayscale samples.
+		/// </summary>
+		public bool CombineGrayscaleAndPHash;
+		public bool UseExifCreationDate;
+		public string LanguageCode = "en";
+
+		public FFTools.FFHardwareAccelerationMode HardwareAccelerationMode;
+
+		public byte Threshhold = 5;
+		public float Percent = 96f;
+		/// <summary>
+		/// Minimum fraction (0..1) of sampled frame positions that must individually pass
+		/// the pHash similarity threshold for a pair to count as duplicates. Only used
+		/// when <see cref="UsePHashing"/> is on.
+		/// </summary>
+		public float PHashRequiredMatchingSampleRatio = 0.6f;
+		public double PercentDurationDifference = 20d;
+		public double DurationDifferenceMinSeconds;
+		public double DurationDifferenceMaxSeconds;
+		public double MaxSamplingDurationSeconds;
+
+		public int ThumbnailCount = 1;
+		/// <summary>Maximum width in pixels for display thumbnails (0 = original resolution).</summary>
+		public int ThumbnailMaxWidth = 100;
+		public int MaxDegreeOfParallelism = 1;
+		/// <summary>
+		/// Per-drive concurrency cap for slow drives (spindle HDDs, network shares, drives that
+		/// cannot be classified). A single spinning disk seek-thrashes when many files are read
+		/// at once, so it gets this low cap while SSDs share the full
+		/// <see cref="MaxDegreeOfParallelism"/> budget. 0 or negative = default of 2.
+		/// </summary>
+		public int HddMaxDegreeOfParallelism = 2;
+		/// <summary>
+		/// Worker cap for the CPU-bound duplicate-matching phases (visual compare,
+		/// partial-clip compare). Separate from <see cref="MaxDegreeOfParallelism"/>,
+		/// which governs media READS and is tuned to storage, not CPU. 0 or negative =
+		/// automatic: use most of the machine while reserving headroom for the UI.
+		/// </summary>
+		public int MatchingMaxDegreeOfParallelism;
+
+		Dictionary<string, string> driveTypeOverrides = new(StringComparer.OrdinalIgnoreCase);
+		/// <summary>
+		/// Storage-type overrides for scan concurrency, keyed by drive root (e.g. <c>D:\</c>,
+		/// <c>\\server\share</c>, <c>/mnt/usb</c>) with value <c>SSD</c> or <c>HDD</c>. Drives
+		/// not listed are classified automatically (network shares count as HDD, everything
+		/// else by a short seek-latency probe at scan start). An override always wins — use it
+		/// when the probe gets a drive wrong.
+		/// </summary>
+		public Dictionary<string, string> DriveTypeOverrides {
+			get => driveTypeOverrides;
+			// System.Text.Json does not preserve the comparer when repopulating — re-wrap so
+			// drive-letter keys stay case-insensitive after settings deserialization.
+			set => driveTypeOverrides = value == null
+				? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+				: new Dictionary<string, string>(value, StringComparer.OrdinalIgnoreCase);
+		}
+
+		public string CustomFFArguments = string.Empty;
+		public string CustomDatabaseFolder = string.Empty;
+
+		public bool FilterByFilePathContains;
+		public List<string> FilePathContainsTexts = new();
+		public bool FilterByFilePathNotContains;
+		public List<string> FilePathNotContainsTexts = new();
+		public bool FilterByFileSize;
+		public int MaximumFileSize;
+		public int MinimumFileSize;
+
+		// ── Partial clip detection ──────────────────────────────────────────────
+		/// <summary>Enable audio-fingerprint-based partial clip detection.</summary>
+		public bool EnablePartialClipDetection;
+		/// <summary>
+		/// Minimum ratio of clip-duration / source-duration for a pair to be a candidate.
+		/// Default 0.10 (clip must be at least 10% of the longer video).
+		/// </summary>
+		public double PartialClipMinRatio = 0.10;
+		/// <summary>
+		/// Minimum average Hamming similarity (0–1) for a sliding-window match to be
+		/// accepted as a partial clip.  Default 0.80.
+		/// </summary>
+		public double PartialClipSimilarityThreshold = 0.80;
+		/// <summary>
+		/// When true, partial clip matches must also pass a visual frame check at the
+		/// matched offset. Suppresses false positives from videos sharing the same audio
+		/// (e.g. TikToks reusing a song) but with different visual content.
+		/// </summary>
+		public bool PartialClipRequireVisualMatch = true;
+		/// <summary>
+		/// Minimum visual similarity (0–1) for the on-demand frame check used by
+		/// <see cref="PartialClipRequireVisualMatch"/>.  Default 0.85.
+		/// Compared via pHash when <see cref="UsePHashing"/> is enabled, otherwise via
+		/// 32×32 grayscale percentage difference.
+		/// </summary>
+		public double PartialClipVisualThreshold = 0.85;
+
+		// ── AI matching (neural embeddings) ─────────────────────────────────
+		/// <summary>
+		/// Additional matching pass using neural image embeddings (DINOv2 via ONNX
+		/// Runtime). A pair that fails the classic gray-bytes/pHash check is still
+		/// reported (flagged <see cref="DuplicateFlags.AiMatched"/>) when the mean
+		/// embedding similarity of its sampled positions reaches <see cref="AiPercent"/>.
+		/// Requires the AI components (ONNX Runtime + model) — see AI.AiComponents.
+		/// </summary>
+		public bool UseAiMatching;
+		/// <summary>Similarity threshold (percent = cosine·100) for the AI matching pass.</summary>
+		public float AiPercent = 94f;
+		/// <summary>
+		/// Detect partial/time-shifted duplicates visually: dense keyframe embeddings
+		/// matched by temporal offset consistency. Unlike <see cref="EnablePartialClipDetection"/>
+		/// this needs no audio track, so it also covers silent, muted and re-dubbed copies.
+		/// Requires the same AI components as <see cref="UseAiMatching"/>.
+		/// </summary>
+		public bool EnableAiPartialDetection;
+		/// <summary>Per-frame hit threshold (percent) for visual partial detection.</summary>
+		public float AiPartialHitPercent = 89f;
+		/// <summary>
+		/// True when any enabled feature requires the AI components (ONNX Runtime + model)
+		/// — the single gate every frontend and the engine check before scanning. New
+		/// AI-backed settings must be added here, not at the call sites.
+		/// </summary>
+		[System.Text.Json.Serialization.JsonIgnore]
+		public bool NeedsAiComponents => UseAiMatching || EnableAiPartialDetection;
+
+		// ── Database checkpoints ────────────────────────────────────────────
+		/// <summary>
+		/// Interval in minutes between automatic database saves during scanning.
+		/// 0 = disabled (only save at phase boundaries). Default 5.
+		/// </summary>
+		public int DatabaseCheckpointIntervalMinutes = 5;
+
+		/// <summary>
+		/// Returns the allowed duration tolerance in seconds for a video of the given duration,
+		/// based on <see cref="PercentDurationDifference"/>, <see cref="DurationDifferenceMinSeconds"/>,
+		/// and <see cref="DurationDifferenceMaxSeconds"/>. When the percent rule is disabled (0%),
+		/// the seconds bounds act as a flat tolerance so users can run a seconds-only comparison.
+		/// </summary>
+		internal double GetDurationToleranceSeconds(double durationSeconds) {
+			if (PercentDurationDifference > 0) {
+				double toleranceSeconds = durationSeconds * PercentDurationDifference / 100d;
+				if (DurationDifferenceMinSeconds > 0)
+					toleranceSeconds = Math.Max(toleranceSeconds, DurationDifferenceMinSeconds);
+				if (DurationDifferenceMaxSeconds > 0)
+					toleranceSeconds = Math.Min(toleranceSeconds, DurationDifferenceMaxSeconds);
+				return Math.Max(0d, toleranceSeconds);
+			}
+			// Percent rule disabled: tolerance comes solely from the seconds bounds. Without a
+			// percent term, Max would otherwise pin the tolerance to 0; instead take the largest
+			// enabled bound so a seconds-only setup behaves like a flat tolerance.
+			return Math.Max(0d, Math.Max(DurationDifferenceMinSeconds, DurationDifferenceMaxSeconds));
+		}
+	}
+}
