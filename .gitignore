@@ -12,6 +12,10 @@ next-env.d.ts
 # (Linux forms of MEDIA_PATH etc). No secrets, but it describes this box's
 # drive layout and is meaningless on any other machine.
 .env.wsl-paths
+# Any hand-made copy of a secrets file. One of these was very nearly
+# committed on 2026-09-05 - .env itself is ignored, its backups were not.
+.env.bak*
+.env.*.bak
 data/
 *.db
 *.db-shm

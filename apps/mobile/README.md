@@ -2,7 +2,7 @@
 
 Phase 2 of the [Phone App Roadmap](https://claude.ai/code/artifact/d348b540-6d87-402f-97ff-a1c47e155c4f) —
 scaffolded, not built. This directory is a real Capacitor project: it wraps
-the deployed site (`https://watch2.abhigyanverma.com`, in **remote-URL
+the deployed site (`https://watch.abhigyanverma.com`, in **remote-URL
 mode** per `capacitor.config.json`'s `server.url` — the app loads the actual
 server-rendered pages through the WebView, not a bundled static copy) in a
 native Android shell.

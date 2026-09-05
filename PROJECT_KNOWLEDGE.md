@@ -47,7 +47,9 @@ real web address without you having to open any ports on your router.
 - **The drop-zone for new files:** `C:\Media\incoming` — the watch-folder
   worker picks up anything dropped here, converts it if needed, and moves it
   into the real library automatically.
-- **The public site:** `https://watch2.abhigyanverma.com`
+- **The public site:** `https://watch.abhigyanverma.com` (watch2 still resolves
+  to the same place, but watch is canonical as of 2026-09-05 — it is what
+  PUBLIC_URL, invite links, the watch-party phone QR and the watchdog all use)
 - **The Curator's Dashboard:** `curator.html`, right in the project folder —
   you open it as a local file in a browser and it talks to the running site
   using an admin key (from `.env`) to do everything: manage invites, review

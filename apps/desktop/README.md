@@ -11,7 +11,7 @@ eventual installer lands around 5-15MB instead of hundreds.
   `com.abhigyanverma.watch` (**placeholder — same caveat as the mobile app**,
   confirm before distributing)
 - `src-tauri/tauri.conf.json` configured for **remote-URL mode**: the main
-  window's `url` points straight at `https://watch2.abhigyanverma.com` — the
+  window's `url` points straight at `https://watch.abhigyanverma.com` — the
   app loads the real deployed site, not a bundled copy. `src/` (the default
   vanilla template's placeholder HTML) is unused for the same reason
   `apps/mobile/www/index.html` is — Tauri's tooling expects `frontendDist`
