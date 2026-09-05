@@ -1,26 +1,10 @@
 import "server-only";
 
-import { signResource } from "../crypto";
-import { env } from "../env";
 import { getAdminMovies } from "../admin-library-cache";
+import { adminThumbUrl } from "../admin-thumb";
 import { getGroupedPathMap, getGroupSeriesId, getGroupSeriesPoster } from "../library-curation";
 import { normaliseTitle } from "../library-review";
 import { itemHref } from "../slugs";
-
-/**
- * A signed admin thumbnail URL — NOT the /jf/ path the public site uses.
- *
- * The console is a local file:// page: its <img> requests are cross-site, so
- * the session cookie /jf/ requires never travels, and an <img> cannot send the
- * X-Admin-Key header either. Signing the URL is what makes a library poster
- * displayable there at all. See src/app/api/admin/thumb/[itemId]/route.ts.
- */
-function flatPosterUrl(id: string, tag: string | null | undefined): string | null {
-  if (!tag) return null;
-  const sig = signResource(`${id}:${tag}`, env.adminApiKey);
-  const query = new URLSearchParams({ tag, sig });
-  return `/api/admin/thumb/${encodeURIComponent(id)}?${query.toString()}`;
-}
 
 /**
  * A tiny admin-key-gated library search for the Accolades dashboard's
@@ -69,7 +53,7 @@ export async function searchLibraryForAdmin(query: string, limit = 8): Promise<A
       // not every member the way browse-data.ts's full members-scan fallback
       // does (getGroupedPathMap doesn't expose a cheap members list here) —
       // fine for an admin picker that also shows a name/year caption.
-      const groupPoster = getGroupSeriesPoster(g.groupId) ?? flatPosterUrl(movie.Id, movie.ImageTags?.Primary);
+      const groupPoster = getGroupSeriesPoster(g.groupId) ?? adminThumbUrl(movie.Id, movie.ImageTags?.Primary);
       hits.push({ imdbId, name: g.groupName, year: null, href: `/collection/${g.groupId}`, posterUrl: groupPoster });
       continue;
     }
@@ -82,7 +66,7 @@ export async function searchLibraryForAdmin(query: string, limit = 8): Promise<A
       name: movie.Name,
       year: movie.ProductionYear ?? null,
       href: itemHref(movie.Id, movie.Name, movie.ProductionYear),
-      posterUrl: flatPosterUrl(movie.Id, movie.ImageTags?.Primary),
+      posterUrl: adminThumbUrl(movie.Id, movie.ImageTags?.Primary),
     });
   }
   return hits;

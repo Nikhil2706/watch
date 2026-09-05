@@ -32,6 +32,7 @@ export async function register(): Promise<void> {
   // Browse first — without this, that's exactly what happens after every
   // restart once the previous warm-up's 12-hour cache entry has lapsed.
   void warmBrowseCache();
+  void warmAdminLibraryCache();
 
   void startAutoScrapeLoop();
   void startLibraryNotifyLoop();
@@ -196,6 +197,27 @@ async function warmBrowseCache(): Promise<void> {
     console.log("[boot] browse cast cache warm");
   } catch (error) {
     console.error("[boot] browse cast cache warm-up failed (Browse will fetch it on first request instead):", error);
+  }
+}
+
+/**
+ * The admin library listing, fetched once in the background at boot.
+ *
+ * The curator console's Library tab now loads itself on arrival rather than
+ * behind three "Load" buttons, and that listing is the expensive shape — it
+ * carries MediaSources so the workspace can flag files with no subtitles and
+ * compare duplicate copies, which measures around 16 seconds against the real
+ * library. Paying it here, before anyone is waiting, means the tab opens
+ * against a warm cache instead. Failure is fine: the console falls back to
+ * fetching it itself, exactly as it did before.
+ */
+async function warmAdminLibraryCache(): Promise<void> {
+  try {
+    const { getAdminMovies } = await import("./lib/admin-library-cache");
+    await getAdminMovies();
+    console.log("[boot] admin library cache warm");
+  } catch (error) {
+    console.error("[boot] admin library cache warm-up failed (the console will fetch it on demand):", error);
   }
 }
 

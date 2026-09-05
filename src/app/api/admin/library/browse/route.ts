@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
+import { asRow, getDb } from "@/lib/db";
 import { buildLibraryBrowse } from "@/lib/library-review";
 
 export const runtime = "nodejs";
@@ -20,7 +21,16 @@ export async function GET(request: Request): Promise<Response> {
 
   try {
     const items = await buildLibraryBrowse();
-    return Response.json({ items }, { headers: NO_STORE });
+    // The workspace loads this on arrival and says when the library was last
+    // scanned, so the scan button reads as part of the same picture rather
+    // than an unrelated action sitting above it.
+    const scan = asRow<{ triggered_at: number }>(
+      getDb().prepare("SELECT triggered_at FROM health_last_scan WHERE id = 1").get(),
+    );
+    return Response.json(
+      { items, lastScanAt: scan?.triggered_at ?? null },
+      { headers: NO_STORE },
+    );
   } catch (error) {
     console.error("[admin/library/browse] failed:", error);
     return Response.json(

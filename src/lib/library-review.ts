@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 import { env } from "./env";
 import { episodeLabel, parseEpisodeInfo } from "./episode-naming";
 import { getAdminMovies } from "./admin-library-cache";
+import { adminThumbUrl } from "./admin-thumb";
 import { hasNoSubtitles, type AdminMovieListItem } from "./jellyfin";
 import {
   getExcludedPathSet,
@@ -168,6 +169,16 @@ export interface BrowseItem extends ReviewItem {
   isExcluded: boolean;
   isGrouped: boolean;
   groupName: string | null;
+  /** The group this file belongs to, so a row can open its show without a second lookup — the workspace collapses a show to ONE row and needs to know which. */
+  groupId: string | null;
+  /** Signed thumbnail URL, or null when the item has no poster. NOT a /jf/ path: the console is a file:// page whose cookies never reach the site (see src/app/api/admin/thumb). */
+  posterUrl: string | null;
+  /** Vertical resolution, e.g. 1080. Null when Jellyfin reports no video stream. */
+  height: number | null;
+  /** Bytes on disk, null when unknown. */
+  sizeBytes: number | null;
+  /** How many subtitle streams the file carries, embedded or external. */
+  subtitleCount: number;
   /** Pins a row to the top of the redesigned browse UI's default sort — anything the curator hasn't resolved yet. */
   needsDecision: boolean;
 }
@@ -208,9 +219,25 @@ export async function buildLibraryBrowse(): Promise<BrowseItem[]> {
     const isVisible = !isExcluded && (!isThinMetadata || isWhitelisted);
     const isMissingSubtitles = isVisible && hasNoSubtitles(m);
 
+    /*
+     * Facts about the file itself, carried so the workspace can compare two
+     * copies of the same film side by side. Resolution, size and whether it
+     * has subtitles ARE the basis for choosing between duplicates, and the old
+     * duplicates panel showed none of them. Free here: this builder already
+     * asks Jellyfin for MediaSources to answer the missing-subtitle question.
+     */
+    const source = m.MediaSources?.[0];
+    const streams = source?.MediaStreams ?? [];
+    const video = streams.find((stream) => stream.Type === "Video");
+
     return {
       ...review,
       jellyfinId: m.Id,
+      groupId: groupInfo?.groupId ?? null,
+      posterUrl: adminThumbUrl(m.Id, m.ImageTags?.Primary),
+      height: video?.Height ?? null,
+      sizeBytes: source?.Size ?? null,
+      subtitleCount: streams.filter((stream) => stream.Type === "Subtitle").length,
       imdbId: m.ProviderIds?.Imdb ?? null,
       tmdbId: m.ProviderIds?.Tmdb ?? null,
       overview: m.Overview ?? "",

@@ -718,6 +718,8 @@ export interface AdminMovieListItem {
   ImageTags?: { Primary?: string };
   MediaSources?: Array<{
     Container?: string;
+    /** Bytes on disk. Returned with MediaSources; only ever read to compare two copies of the same film. */
+    Size?: number;
     MediaStreams?: Array<{ Type: string; Codec?: string; Width?: number; Height?: number }>;
   }>;
 }

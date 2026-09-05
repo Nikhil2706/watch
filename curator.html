@@ -34,6 +34,102 @@
     pointer-events: none;
   }
 
+
+  /* ---- Library workspace ------------------------------------------- */
+  .lw-subtabs { display: flex; gap: 18px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+  .lw-subtab { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted);
+    font-size: 0.88rem; padding: 0 0 8px; cursor: pointer; width: auto; }
+  .lw-subtab:hover { color: var(--text); }
+  .lw-subtab.active { color: var(--text); border-bottom-color: var(--warm); }
+
+  .lw-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+  .lw-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 11px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 12px;
+    white-space: nowrap; cursor: pointer; width: auto; }
+  .lw-chip:hover { color: var(--text); }
+  .lw-chip b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .lw-chip.on { border-color: var(--warm-line); background: rgba(255, 217, 160, 0.08); color: var(--warm); }
+  .lw-chip.on b { color: var(--warm); }
+  .lw-chip.alert b { color: var(--warn); }
+  .lw-chip[disabled] { opacity: 0.45; cursor: default; }
+
+  .lw-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .lw-tools input[type="text"] { flex: 1 1 240px; min-width: 0; }
+  .lw-tools select { flex: 0 0 auto; width: auto; }
+  .lw-tools button { flex: 0 0 auto; }
+
+  .lw-bulk { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px;
+    padding: 8px 12px; border: 1px solid var(--warm-line); border-radius: 8px;
+    background: rgba(255, 217, 160, 0.06); font-size: 13px; }
+
+  .lw-split { display: grid; grid-template-columns: 260px minmax(0, 1fr); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; min-height: 460px; }
+
+  .lw-rail { border-right: 1px solid var(--border); background: var(--surface);
+    max-height: 620px; overflow-y: auto; }
+  .lw-rail-item { display: flex; align-items: center; gap: 9px; padding: 7px 10px;
+    border-bottom: 1px solid rgba(35, 41, 53, 0.6); cursor: pointer; }
+  .lw-rail-item:last-child { border-bottom: 0; }
+  .lw-rail-item:hover { background: var(--surface-2); }
+  .lw-rail-item.sel { background: rgba(91, 141, 239, 0.14); box-shadow: inset 2px 0 0 var(--accent); }
+  .lw-rail-name { flex: 1 1 auto; min-width: 0; font-size: 12.5px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+  .lw-rail-item.sel .lw-rail-name { color: var(--text); }
+  .lw-rail-sub { display: block; font-size: 10.5px; color: var(--dead); }
+  .lw-rail-check { width: auto; flex: 0 0 auto; margin: 0; }
+  .lw-thumb { width: 26px; height: 39px; flex: 0 0 auto; border-radius: 3px; object-fit: cover;
+    background: var(--surface-2); border: 1px solid var(--border); }
+  .lw-thumb-empty { display: inline-block; }
+  .lw-dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; background: transparent; }
+  .lw-dot.warn { background: var(--warn); }
+  .lw-dot.dead { background: var(--dead); }
+  .lw-dot.accent { background: var(--accent); }
+  .lw-dot.danger { background: var(--danger); }
+
+  .lw-pane { padding: 16px; min-width: 0; background: #0b0e14; overflow-x: hidden; }
+  .lw-pane-empty { color: var(--muted); font-size: 13px; padding: 40px 8px; text-align: center; }
+  .lw-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 14px; }
+  .lw-poster { width: 86px; height: 129px; flex: 0 0 auto; border-radius: 5px; object-fit: cover;
+    background: var(--surface-2); border: 1px solid var(--border); }
+  .lw-head-text { min-width: 0; flex: 1 1 auto; }
+  .lw-title { font-size: 15px; font-weight: 600; }
+  .lw-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .lw-path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+    color: var(--dead); margin-top: 6px; word-break: break-all; }
+  .lw-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .lw-acts button, .lw-acts a { width: auto; font-size: 12px; padding: 5px 11px; }
+  .lw-section { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--dead); margin: 16px 0 8px; }
+
+  .lw-copies { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 9px; }
+  .lw-copy { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+    background: var(--surface); display: flex; flex-direction: column; gap: 6px; }
+  .lw-copy.best { border-color: var(--ok); }
+  .lw-spec { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); }
+
+  .lw-ep { display: flex; align-items: center; gap: 10px; padding: 6px 10px; font-size: 12.5px;
+    border-bottom: 1px solid rgba(35, 41, 53, 0.6); }
+  .lw-ep:last-child { border-bottom: 0; }
+  .lw-ep-n { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+    color: var(--dead); width: 62px; flex: 0 0 auto; }
+  .lw-ep-t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lw-ep.gap { color: var(--warn); border-top: 1px dashed rgba(255, 204, 51, 0.35);
+    border-bottom: 1px dashed rgba(255, 204, 51, 0.35);
+    background: repeating-linear-gradient(135deg, rgba(255,204,51,0.05) 0 8px, transparent 8px 16px); }
+  .lw-ep.gap .lw-ep-n { color: var(--warn); }
+  .lw-list-box { border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    background: var(--surface); max-height: 320px; overflow-y: auto; }
+
+  .lw-undo { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; z-index: 60;
+    display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-radius: 10px;
+    border: 1px solid var(--ok); background: rgba(12, 18, 15, 0.96); color: var(--ok);
+    font-size: 13px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); }
+  .lw-undo button { width: auto; padding: 4px 12px; font-size: 12px; }
+
+  @media (max-width: 860px) {
+    .lw-split { grid-template-columns: 1fr; }
+    .lw-rail { border-right: 0; border-bottom: 1px solid var(--border); max-height: 300px; }
+  }
   /* --- Header -------------------------------------------------------- */
   .top {
     display: flex; align-items: center; gap: 12px;
@@ -504,108 +600,75 @@
   <!-- ============================== Library tab ============================== -->
   <div class="tab-panel" id="tab-library" data-tab="library">
 
-    <!-- Library -->
+    <!-- ============================================================
+         The library workspace.
+         One list, loaded on arrival. A rail on the left to FIND things,
+         a pane on the right to DO things to them. What used to be five
+         stacked cards - Scan, Library review, Browse, Film series,
+         Current decisions - is a filter, a toolbar and two sub-views:
+         every one of those cards showed the same underlying list, and
+         buildLibraryBrowse() already returns every flag they filtered on.
+         ============================================================ -->
     <div class="card" id="libraryCard" style="display:none">
-      <div class="row">
-        <div>
-          <div class="card-title">Scan folder</div>
-          <div class="note" style="margin-top:2px">
-            Rescans the Da Moveesh folder and adds any new files to the library. Also run this after deleting a movie.
-          </div>
-        </div>
-        <div style="flex:0 0 auto">
-          <button id="scanLibrary" class="ghost">Scan folder</button>
-        </div>
-      </div>
-    </div>
 
-    <!-- Library review -->
-    <div class="card" id="reviewCard" style="display:none">
-      <div class="row" style="margin-bottom:10px">
-        <div>
-          <div class="card-title">Library review</div>
-          <div class="note" style="margin-top:2px">
-            Duplicate titles, files with no fetched metadata, and visible films with no subtitles.
-            Files with no metadata stay off the site until you fix them, whitelist them, or exclude them.
-          </div>
-        </div>
-        <div style="flex:0 0 auto">
-          <button id="loadReview" class="ghost">Load review</button>
-        </div>
+      <div class="lw-subtabs">
+        <button class="lw-subtab active" data-lw-view="films">Films &amp; shows</button>
+        <button class="lw-subtab" data-lw-view="franchises">Franchises</button>
+        <button class="lw-subtab" data-lw-view="history">History</button>
       </div>
-      <div id="reviewBody" style="display:none">
-        <div id="reviewSummary" class="muted" style="margin-bottom:10px"></div>
-        <div id="dupSection"></div>
-        <div id="thinSection" style="margin-top:18px"></div>
-        <div id="subsSection" style="margin-top:18px"></div>
-      </div>
-    </div>
 
-    <!-- Browse library: every movie, searchable, needs-decision first -->
-    <div class="card" id="browseCard" style="display:none">
-      <div class="row" style="margin-bottom:10px">
-        <div>
-          <div class="card-title">Browse library</div>
-          <div class="note" style="margin-top:2px">
-            Every movie, not just the ones with a flagged problem. Search, or scroll — items needing a
-            decision sort to the top. Click Search/Manual on any row to fix its metadata mapping, or check
-            2+ rows and use "Group checked as one" to merge episodes the system didn't recognise as a show.
-          </div>
-        </div>
-        <div style="flex:0 0 auto"><button id="loadBrowse" class="ghost">Load library</button></div>
-      </div>
-      <div id="browseBody" style="display:none">
-        <div class="row" style="margin-bottom:10px">
-          <div><input type="text" id="browseSearch" placeholder="Search by title…"></div>
-          <div style="flex:0 0 auto">
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap">
-              <input type="checkbox" id="browseNeedsOnly" style="width:auto"> Needs decision only
-            </label>
-          </div>
-          <div style="flex:0 0 auto" class="muted" id="browseCount"></div>
-        </div>
-        <div id="browseList" class="rv-group" style="max-height:640px;overflow-y:auto"></div>
-      </div>
-    </div>
+      <!-- ---------------- Films & shows ---------------- -->
+      <div id="lwFilms">
+        <div class="lw-chips" id="lwChips"></div>
 
-    <!-- Film series: Wikipedia-sourced franchise membership (SeriesRow.tsx's
-         "In this series" row on the public site) — this is the one place
-         to see them all, and to set a scheduled rollout on one. -->
-    <div class="card" id="filmSeriesCard" style="display:none">
-      <div class="row" style="margin-bottom:10px">
-        <div>
-          <div class="card-title">Film series</div>
-          <div class="note" style="margin-top:2px">
-            Every scraped franchise. "Matched" is how many entries have a resolved IMDb id at all — not how
-            many you actually own; open a series to see which of those you have and set a release schedule.
-          </div>
+        <div class="lw-tools">
+          <input type="text" id="lwSearch" placeholder="Search title or filename…" spellcheck="false">
+          <select id="lwSort">
+            <option value="needs">Needs you first</option>
+            <option value="name">Title A–Z</option>
+          </select>
+          <button class="ghost" id="lwScan">Scan folder</button>
+          <span class="muted" id="lwScanAge"></span>
         </div>
-        <div style="flex:0 0 auto"><button id="loadFilmSeries" class="ghost">Load film series</button></div>
+
+        <div id="lwBulk" class="lw-bulk" style="display:none"></div>
+
+        <div class="lw-split">
+          <div class="lw-rail" id="lwRail"></div>
+          <div class="lw-pane" id="lwPane"></div>
+        </div>
       </div>
-      <div id="filmSeriesBody" style="display:none">
+
+      <!-- ---------------- Franchises ----------------
+           Genuinely a different subject: Wikipedia-scraped series membership
+           and their release schedules, not files on disk. Kept separate
+           rather than folded into the list above. -->
+      <div id="lwFranchises" style="display:none">
+        <div class="note" style="margin-bottom:10px">
+          Every scraped franchise. "Matched" counts entries with a resolved IMDb id — not how many
+          you own; open one to see which of those are here and set a release schedule.
+        </div>
         <div id="filmSeriesList"></div>
       </div>
-    </div>
 
-    <!-- Current decisions: the document -->
-    <div class="card" id="curationCard" style="display:none">
-      <div class="row" style="margin-bottom:10px">
-        <div>
-          <div class="card-title">Current decisions</div>
-          <div class="note" style="margin-top:2px">
-            Every exclude, group and whitelist made from this dashboard, in one place. Nothing here ever touches
-            Da Moveesh &mdash; undo anything below and it's back on the site immediately. Click Manage on a group to
-            reorder episodes, correct a mis-tagged one, or link its real series for OMDb lookups.
+      <!-- ---------------- History ----------------
+           The audit trail: every exclude, group and whitelist. The workspace
+           can now undo any of them from the row itself, so this is a record
+           rather than the only route to the action. -->
+      <div id="lwHistory" style="display:none">
+        <div class="row" style="margin-bottom:10px;align-items:flex-start">
+          <div class="note" style="flex:1 1 auto">
+            Every exclude, group and whitelist made from this dashboard. Nothing here ever touches
+            Da Moveesh — undo anything and it is back on the site immediately.
+          </div>
+          <div style="flex:0 0 auto">
+            <button class="ghost" id="resolveKinds" title="Ask OMDb whether each linked show is a TV series or a film in parts">Resolve episodes/parts</button>
           </div>
         </div>
-        <div style="flex:0 0 auto">
-          <button id="resolveKinds" class="ghost">Resolve episodes/parts</button>
-          <button id="loadCurationBtn" class="ghost">Refresh</button>
-        </div>
+        <div id="curationBody"></div>
       </div>
-      <div id="curationBody"></div>
-    </div>
 
+    </div>
   </div>
 
   <!-- ============================== Worker tab ============================== -->
@@ -1027,6 +1090,10 @@
       b.classList.toggle("active", b.getAttribute("data-tab") === name);
     });
     try { sessionStorage.setItem("jfg_tab", name); } catch (e) {}
+    // The library workspace loads itself the first time you look at it —
+    // arriving at an empty tab with three "Load" buttons on it was the whole
+    // complaint. Later visits reuse what is already in memory.
+    if (name === "library" && state.key) lwLoad(false);
   }
   document.querySelectorAll(".tab-btn").forEach(function (b) {
     b.addEventListener("click", function () { showTab(b.getAttribute("data-tab")); });
@@ -1375,7 +1442,7 @@
   }
 
   // Groups linked before OMDb's Type was read carry no kind, so their tiles
-  // still say "parts". One pass fills them in; per-group overrides win and are
+  // still say "parts". One pass fills them in; a curator's own override is
   // never touched, since this only visits rows where kind IS NULL.
   $("resolveKinds").addEventListener("click", function () {
     var btn = $("resolveKinds");
@@ -1384,9 +1451,9 @@
     btn.textContent = "Asking OMDb…";
     api("/api/admin/library/group-kind/backfill", { method: "POST" })
       .then(function (data) {
-        if (!data.checked) { show("ok", "Every linked group already has a kind."); return; }
+        if (!data.checked) { show("ok", "Every linked show already has a kind."); return; }
         show("ok", data.resolved + " of " + data.checked + " resolved" +
-          (data.unresolved ? " — " + data.unresolved + " OMDb had no answer for; set those by hand in Manage." : "."));
+          (data.unresolved ? " — " + data.unresolved + " OMDb had no answer for; set those by hand in Show settings." : "."));
       })
       .catch(function (e) { show("err", e.message); })
       .then(function () { btn.disabled = false; btn.textContent = label; });
@@ -1403,10 +1470,8 @@
       state.invites = (data && data.invites) || [];
       $("tabNav").style.display = "";
       $("libraryCard").style.display = "";
-      $("reviewCard").style.display = "";
-      $("browseCard").style.display = "";
-      $("filmSeriesCard").style.display = "";
-      $("curationCard").style.display = "";
+      // Review, Browse, Film series and Current decisions are all inside
+      // libraryCard now — one workspace rather than five stacked cards.
       $("candidatesCard").style.display = "";
       $("queueCard").style.display = "";
       $("createCard").style.display = "";
@@ -1481,17 +1546,6 @@
     var done = function () { $("copy").textContent = "Copied"; setTimeout(function () { $("copy").textContent = "Copy"; }, 1500); };
     if (navigator.clipboard) navigator.clipboard.writeText(el.value).then(done, function () { document.execCommand("copy"); done(); });
     else { document.execCommand("copy"); done(); }
-  });
-
-  $("scanLibrary").addEventListener("click", function () {
-    clearMsg();
-    var btn = $("scanLibrary");
-    btn.disabled = true;
-    btn.textContent = "Scanning…";
-    api("/api/admin/library/scan", { method: "POST" })
-      .then(function () { show("ok", "Scan started. Jellyfin picks up new and removed files in the background."); })
-      .catch(function (e) { show("err", e.message); })
-      .then(function () { btn.disabled = false; btn.textContent = "Scan folder"; });
   });
 
   /* ================================================================
@@ -1908,68 +1962,595 @@
       .trim();
   }
 
-  $("loadReview").addEventListener("click", function () {
-    clearMsg();
-    var btn = $("loadReview");
-    btn.disabled = true;
-    btn.textContent = "Loading…";
-    api("/api/admin/library/review").then(function (data) {
-      review.duplicates = data.duplicates || [];
-      review.thinMetadata = data.thinMetadata || [];
-      review.missingSubtitles = data.missingSubtitles || [];
-      review.itemsById = {};
-      review.duplicates.forEach(function (g) { g.items.forEach(function (it) { review.itemsById[it.id] = it; }); });
-      review.thinMetadata.forEach(function (g) { g.items.forEach(function (it) { review.itemsById[it.id] = it; }); });
-      review.missingSubtitles.forEach(function (it) { review.itemsById[it.id] = it; });
-      // The Browse Library panel (below) shares this same itemsById map so
-      // its rows can reuse the Search/Manual/Whitelist/Exclude/Group panel
-      // functions unmodified — re-merge its items back in so reloading THIS
-      // panel doesn't wipe out an already-loaded Browse panel's rows.
-      if (browse.items.length) browse.items.forEach(function (it) { review.itemsById[it.id] = it; });
-      $("reviewBody").style.display = "";
-      $("reviewSummary").textContent = data.totalMovies + " movies scanned — " +
-        review.duplicates.length + " duplicate-title group" + (review.duplicates.length === 1 ? "" : "s") +
-        ", " + review.thinMetadata.reduce(function (n, g) { return n + g.items.length; }, 0) +
-        " with no fetched metadata across " + review.thinMetadata.length + " folder" + (review.thinMetadata.length === 1 ? "" : "s") +
-        ", " + review.missingSubtitles.length + " visible film" + (review.missingSubtitles.length === 1 ? "" : "s") + " with no subtitles.";
-      renderDuplicates();
-      renderThin();
-      renderMissingSubtitles();
-    }).catch(function (e) { show("err", e.message); })
-      .then(function () { btn.disabled = false; btn.textContent = "Load review"; });
+
+  /* ================================================================
+   * Library workspace
+   *
+   * One list, loaded on arrival. The rail on the left is for FINDING —
+   * poster, name, one status dot, nothing clickable but the row itself.
+   * The pane on the right is for DOING, and holds every action there is
+   * for whatever is selected.
+   *
+   * This replaces five stacked cards (Scan, Library review, Browse, Film
+   * series, Current decisions), three of which needed their own button
+   * pressed before they showed anything at all. They were three
+   * renderings of ONE list: buildLibraryBrowse() already returns every
+   * flag they filtered on, in a single payload, for exactly this reason.
+   *
+   * The action functions themselves are untouched. openSearchPanel,
+   * openManualPanel, openPosterPanel and the group manage panel all look
+   * their target up globally by id and render into a slot, so the pane
+   * only has to provide the slot they already expect.
+   * ================================================================ */
+  var lw = {
+    items: [],
+    rows: [],
+    loaded: false,
+    loading: false,
+    filter: "needs",
+    selected: null,
+    checked: {},
+    lastScanAt: null,
+  };
+
+  var LW_FILTERS = [
+    { key: "needs", label: "Needs you", alert: true, test: function (r) { return r.needsDecision; } },
+    { key: "dup", label: "Duplicates", alert: true, test: function (r) { return r.isDuplicate; } },
+    { key: "nometa", label: "No metadata", alert: true, test: function (r) { return r.isThinMetadata && !r.isWhitelisted; } },
+    { key: "nosubs", label: "No subtitles", alert: false, test: function (r) { return r.isMissingSubtitles; } },
+    { key: "shows", label: "Shows", alert: false, test: function (r) { return r.kind === "show"; } },
+    { key: "hidden", label: "Hidden", alert: false, test: function (r) { return r.isExcluded; } },
+    { key: "all", label: "Everything", alert: false, test: function () { return true; } }
+  ];
+
+  function lwBytes(n) {
+    if (!n && n !== 0) return null;
+    var units = ["B", "KB", "MB", "GB", "TB"];
+    var i = 0;
+    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+    return n.toFixed(i > 1 ? 1 : 0) + " " + units[i];
+  }
+
+  function lwThumbHtml(url, cls) {
+    if (!url) return '<span class="' + cls + ' lw-thumb-empty"></span>';
+    var src = url.indexOf("http") === 0 ? url : state.base + url;
+    return '<img class="' + cls + '" src="' + esc(src) + '" alt="" loading="lazy">';
+  }
+
+  function lwAgo(ts) {
+    if (!ts) return "never scanned";
+    var mins = Math.round((Date.now() - ts) / 60000);
+    if (mins < 1) return "scanned just now";
+    if (mins < 60) return "scanned " + mins + " min ago";
+    var hrs = Math.round(mins / 60);
+    if (hrs < 24) return "scanned " + hrs + (hrs === 1 ? " hour ago" : " hours ago");
+    return "scanned " + Math.round(hrs / 24) + " days ago";
+  }
+
+  /*
+   * A show is ONE row, the way it is one tile on the site — not eight
+   * episode files. Its flags are the union of its members', so a show with
+   * a single subtitle-less episode still surfaces under "No subtitles".
+   */
+  function lwBuildRows() {
+    var rows = [];
+    var groups = {};
+
+    lw.items.forEach(function (it) {
+      review.itemsById[it.id] = it;
+
+      if (it.isGrouped && it.groupId) {
+        var g = groups[it.groupId];
+        if (!g) {
+          g = groups[it.groupId] = {
+            kind: "show",
+            id: "group:" + it.groupId,
+            groupId: it.groupId,
+            name: it.groupName || "Untitled show",
+            year: null,
+            poster: null,
+            members: [],
+            needsDecision: false,
+            isDuplicate: false,
+            isThinMetadata: false,
+            isMissingSubtitles: false,
+            isWhitelisted: false,
+            isExcluded: false
+          };
+          rows.push(g);
+        }
+        g.members.push(it);
+        if (!g.poster && it.posterUrl) g.poster = it.posterUrl;
+        if (it.isThinMetadata && !it.isWhitelisted) g.isThinMetadata = true;
+        if (it.isMissingSubtitles) g.isMissingSubtitles = true;
+        return;
+      }
+
+      rows.push({
+        kind: "film",
+        id: it.id,
+        item: it,
+        name: it.name,
+        year: it.year,
+        poster: it.posterUrl,
+        needsDecision: it.needsDecision,
+        isDuplicate: it.isDuplicate,
+        isThinMetadata: it.isThinMetadata,
+        isMissingSubtitles: it.isMissingSubtitles,
+        isWhitelisted: it.isWhitelisted,
+        isExcluded: it.isExcluded
+      });
+    });
+
+    lw.rows = rows;
+  }
+
+  function lwRowById(id) {
+    return lw.rows.filter(function (r) { return r.id === id; })[0] || null;
+  }
+
+  function lwMatches(row, q) {
+    if (!q) return true;
+    if (row.name.toLowerCase().indexOf(q) !== -1) return true;
+    // The FILENAME is searchable too, which is the way back from a wrongly
+    // matched film: it shows the wrong title, but you still know what the
+    // file on disk is called.
+    var paths = row.kind === "show"
+      ? row.members.map(function (m) { return m.path || ""; })
+      : [row.item.path || ""];
+    for (var i = 0; i < paths.length; i++) {
+      if (paths[i].toLowerCase().indexOf(q) !== -1) return true;
+    }
+    if (row.year && String(row.year).indexOf(q) !== -1) return true;
+    return false;
+  }
+
+  function lwVisibleRows() {
+    var q = ($("lwSearch").value || "").trim().toLowerCase();
+    var f = LW_FILTERS.filter(function (x) { return x.key === lw.filter; })[0] || LW_FILTERS[0];
+    var rows = lw.rows.filter(function (r) { return f.test(r) && lwMatches(r, q); });
+
+    if ($("lwSort").value === "name") {
+      rows.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    } else {
+      rows.sort(function (a, b) {
+        if (a.needsDecision !== b.needsDecision) return a.needsDecision ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+    }
+    return rows;
+  }
+
+  function lwRenderChips() {
+    $("lwChips").innerHTML = LW_FILTERS.map(function (f) {
+      var n = lw.rows.filter(f.test).length;
+      var cls = "lw-chip" + (f.key === lw.filter ? " on" : "") + (f.alert && n ? " alert" : "");
+      return '<button class="' + cls + '" data-lw-filter="' + f.key + '"' + (n ? "" : " disabled") + '>' +
+        esc(f.label) + ' <b>' + n + '</b></button>';
+    }).join("");
+  }
+
+  function lwStateDot(row) {
+    if (row.isExcluded) return "danger";
+    if (row.isThinMetadata && !row.isWhitelisted) return "warn";
+    if (row.isDuplicate) return "warn";
+    if (row.isMissingSubtitles) return "dead";
+    if (row.kind === "show") return "accent";
+    return "";
+  }
+
+  function lwRenderRail() {
+    var rows = lwVisibleRows();
+    var el = $("lwRail");
+    if (!rows.length) {
+      el.innerHTML = '<div class="empty" style="padding:20px">Nothing here.</div>';
+      return;
+    }
+    el.innerHTML = rows.map(function (r) {
+      var sub = r.kind === "show" ? r.members.length + " files" : (r.year ? String(r.year) : "");
+      return '<div class="lw-rail-item' + (lw.selected === r.id ? " sel" : "") + '" data-lw-row="' + esc(r.id) + '">' +
+        (r.kind === "film"
+          ? '<input type="checkbox" class="lw-rail-check" data-lw-check="' + esc(r.id) + '"' +
+            (lw.checked[r.id] ? " checked" : "") + '>'
+          : '<span class="lw-rail-check"></span>') +
+        '<span class="lw-dot ' + lwStateDot(r) + '"></span>' +
+        lwThumbHtml(r.poster, "lw-thumb") +
+        '<span class="lw-rail-name">' + esc(r.name) +
+          (sub ? '<span class="lw-rail-sub">' + esc(sub) + '</span>' : "") +
+        '</span>' +
+        '</div>';
+    }).join("");
+  }
+
+  function lwRenderBulk() {
+    var ids = Object.keys(lw.checked).filter(function (k) { return lw.checked[k]; });
+    var el = $("lwBulk");
+    if (ids.length < 2) { el.style.display = "none"; el.innerHTML = ""; return; }
+    el.style.display = "";
+    el.innerHTML = '<strong>' + ids.length + ' selected</strong>' +
+      '<button class="ghost" data-lw-action="group-new">Group as one show</button>' +
+      '<button class="ghost" data-lw-action="group-add">Add to an existing show</button>' +
+      '<button class="ghost" data-lw-action="clear-checks">Clear</button>';
+  }
+
+  /* ---- the pane ------------------------------------------------- */
+
+  function lwStatusLine(it) {
+    var bits = [];
+    if (it.isExcluded) bits.push("Hidden from the site");
+    if (it.isThinMetadata && !it.isWhitelisted) bits.push("No metadata fetched — hidden until fixed");
+    if (it.isThinMetadata && it.isWhitelisted) bits.push("No metadata, shown anyway");
+    if (it.isDuplicate) bits.push("Duplicate title");
+    if (it.isMissingSubtitles) bits.push("No subtitles");
+    if (!bits.length) bits.push("Nothing needs deciding");
+    return bits.join(" · ");
+  }
+
+  function lwFilmActions(it) {
+    var out = "";
+    out += '<button data-action="search" data-item-id="' + esc(it.id) + '">Identify</button>';
+    out += '<button class="ghost" data-action="manual" data-item-id="' + esc(it.id) + '">Type it in</button>';
+    out += '<button class="ghost" data-action="poster" data-item-id="' + esc(it.id) + '">Poster</button>';
+    out += '<button class="ghost" data-action="fetch-subtitles" data-item-id="' + esc(it.id) + '">Subtitles</button>';
+    if (it.isThinMetadata && !it.isWhitelisted) {
+      out += '<button class="ghost" data-action="whitelist" data-item-id="' + esc(it.id) + '">Show anyway</button>';
+    }
+    out += it.isExcluded
+      ? '<button class="ghost" data-action="unexclude" data-item-id="' + esc(it.id) + '">Put back on the site</button>'
+      : '<button class="danger" data-action="exclude" data-item-id="' + esc(it.id) + '">Hide from the site</button>';
+    return out;
+  }
+
+  function lwLinks(it) {
+    var out = folderLinkHtml(it);
+    // "View on site" uses the bare /item/{id} form, which slugs.ts documents
+    // as its own fallback — no need to reproduce the slug here.
+    out += ' <a class="rv-openfolder" href="' + esc(state.base + "/item/" + it.id) + '" target="_blank" rel="noopener">View on site</a>';
+    return out;
+  }
+
+  /*
+   * Two copies of a film mean nothing apart and everything side by side —
+   * with the three facts the choice actually turns on. The old duplicates
+   * panel showed none of them.
+   */
+  function lwDuplicateHtml(row) {
+    var name = row.name.toLowerCase();
+    var copies = lw.rows.filter(function (r) {
+      return r.kind === "film" && r.isDuplicate && r.name.toLowerCase() === name;
+    });
+    if (copies.length < 2) return "";
+
+    var best = null;
+    copies.forEach(function (c) {
+      if (!best || (c.item.height || 0) > (best.item.height || 0)) best = c;
+    });
+
+    return '<div class="lw-section">The copies (' + copies.length + ')</div>' +
+      '<div class="lw-copies">' + copies.map(function (c) {
+        var specs = [];
+        specs.push(c.item.height ? c.item.height + "p" : "resolution unknown");
+        var size = lwBytes(c.item.sizeBytes);
+        if (size) specs.push(size);
+        specs.push(c.item.subtitleCount ? c.item.subtitleCount + " subtitle tracks" : "no subtitles");
+        return '<div class="lw-copy' + (c === best ? " best" : "") + '">' +
+          '<span class="lw-spec">' + esc(specs.join(" · ")) + '</span>' +
+          '<span class="lw-path">' + esc(shortPath(c.item.path)) + '</span>' +
+          (c.id === row.id
+            ? '<span class="muted" style="font-size:12px">Showing this one</span>'
+            : '<button class="ghost" data-lw-action="select" data-lw-target="' + esc(c.id) + '">Look at this copy</button>') +
+          '<button class="ghost" data-lw-action="keep-this" data-lw-target="' + esc(c.id) + '">Keep this one, hide the rest</button>' +
+          '</div>';
+      }).join("") + '</div>';
+  }
+
+  function lwRenderFilmPane(row) {
+    var it = row.item;
+    return '<div class="lw-head">' +
+        lwThumbHtml(it.posterUrl, "lw-poster") +
+        '<div class="lw-head-text">' +
+          '<div class="lw-title">' + esc(it.name) + (it.year ? ' <span class="muted">(' + it.year + ')</span>' : "") + '</div>' +
+          '<div class="lw-sub">' + esc(lwStatusLine(it)) + '</div>' +
+          '<div class="lw-path">' + esc(it.path || "") + '</div>' +
+          '<div class="lw-acts">' + lwFilmActions(it) + '</div>' +
+          '<div style="margin-top:8px;font-size:12px">' + lwLinks(it) + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="rv-panel-slot" data-panel-for="' + esc(it.id) + '"></div>' +
+      (row.isDuplicate ? lwDuplicateHtml(row) : "");
+  }
+
+  function lwRenderShowPane(row) {
+    return '<div class="lw-head">' +
+        lwThumbHtml(row.poster, "lw-poster") +
+        '<div class="lw-head-text">' +
+          '<div class="lw-title">' + esc(row.name) + '</div>' +
+          '<div class="lw-sub">' + row.members.length + ' files' +
+            (row.isMissingSubtitles ? ' · some episodes have no subtitles' : "") + '</div>' +
+          '<div class="lw-acts">' +
+            '<button data-lw-action="manage-group" data-lw-target="' + esc(row.groupId) + '">Show settings</button>' +
+            '<a class="btn ghost" href="' + esc(state.base + "/collection/" + row.groupId) + '" target="_blank" rel="noopener">View on site</a>' +
+            '<button class="danger" data-action="ungroup" data-group-id="' + esc(row.groupId) + '">Dissolve this show</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="cur-group-panel-slot" data-panel-for-group="' + esc(row.groupId) + '" data-open="0"></div>' +
+      '<div class="lw-section">Files</div>' +
+      '<div class="lw-list-box">' + row.members.map(function (m) {
+        return '<div class="lw-ep">' +
+          '<span class="lw-ep-n">' + (m.isMissingSubtitles ? "no subs" : "") + '</span>' +
+          '<span class="lw-ep-t">' + esc(m.name) + '</span>' +
+          '<button class="ghost" data-lw-action="select-member" data-lw-target="' + esc(m.id) + '">Open</button>' +
+          '</div>';
+      }).join("") + '</div>';
+  }
+
+  function lwRenderPane() {
+    var el = $("lwPane");
+    if (!lw.selected) {
+      el.innerHTML = '<div class="lw-pane-empty">Pick something on the left.</div>';
+      return;
+    }
+    var row = lwRowById(lw.selected);
+    if (!row) { el.innerHTML = '<div class="lw-pane-empty">That item is no longer in the list.</div>'; return; }
+    el.innerHTML = row.kind === "show" ? lwRenderShowPane(row) : lwRenderFilmPane(row);
+  }
+
+  function lwRender() {
+    lwRenderChips();
+    lwRenderRail();
+    lwRenderBulk();
+    lwRenderPane();
+    $("lwScanAge").textContent = lwAgo(lw.lastScanAt);
+  }
+
+  function lwSelect(id) {
+    lw.selected = id;
+    lwRenderRail();
+    lwRenderPane();
+  }
+
+  function lwLoad(force) {
+    if (lw.loading) return Promise.resolve();
+    if (lw.loaded && !force) return Promise.resolve();
+    lw.loading = true;
+    $("lwRail").innerHTML = '<div class="empty" style="padding:20px">Loading…</div>';
+    return api("/api/admin/library/browse").then(function (data) {
+      lw.items = data.items || [];
+      lw.lastScanAt = data.lastScanAt || null;
+      lw.loaded = true;
+      lwBuildRows();
+      // Keep the selection across a reload where we can — an action that
+      // refreshes the list shouldn't throw you back to nothing selected.
+      if (lw.selected && !lwRowById(lw.selected)) lw.selected = null;
+      lwRender();
+    }).catch(function (e) {
+      $("lwRail").innerHTML = '<div class="empty" style="padding:20px">' + esc(e.message) + '</div>';
+      show("err", e.message);
+    }).then(function () { lw.loading = false; });
+  }
+
+
+  /*
+   * Holes in a season's numbering, from the episode numbers group-detail
+   * already parses out of the filenames.
+   *
+   * Only the gaps BETWEEN what is here: a season that stops at 21 when 22
+   * exist upstream reports nothing, because nothing local can know that. The
+   * server has the same rule in src/lib/episode-gaps.ts, which is the tested
+   * copy — this one exists because the console renders its own episode list.
+   */
+  function lwEpisodeGaps(items) {
+    var bySeason = {};
+    items.forEach(function (it) {
+      if (typeof it.episode !== "number" || it.episode <= 0) return;
+      var season = typeof it.season === "number" ? it.season : 0;
+      (bySeason[season] = bySeason[season] || []).push(it.episode);
+    });
+
+    var out = [];
+    Object.keys(bySeason).forEach(function (season) {
+      var nums = bySeason[season];
+      if (nums.length < 2) return;
+      var seen = {};
+      nums.forEach(function (n) { seen[n] = true; });
+      var lo = Math.min.apply(null, nums);
+      var hi = Math.max.apply(null, nums);
+      for (var n = lo + 1; n < hi; n++) {
+        if (!seen[n]) out.push({ season: Number(season), episode: n });
+      }
+    });
+    return out;
+  }
+
+  function lwGapsHtml(items) {
+    var gaps = lwEpisodeGaps(items);
+    if (!gaps.length) return "";
+    return '<div class="lw-ep gap">' +
+      '<span class="lw-ep-n">missing</span>' +
+      '<span class="lw-ep-t">' +
+      esc(gaps.map(function (g) {
+        return g.season ? "S" + g.season + "E" + g.episode : "episode " + g.episode;
+      }).join(", ")) +
+      ' — not in the library</span></div>';
+  }
+
+
+  /*
+   * Undo.
+   *
+   * Every decision the workspace makes is reversible — nothing here touches a
+   * file on Da Moveesh, it only records what the site should show. So the
+   * confirmation says so, and carries the way back, instead of leaving you to
+   * find the inverse action in another view.
+   */
+  var lwUndoTimer = null;
+
+  function lwOfferUndo(text, undoLabel, undoFn) {
+    var existing = $("lwUndoBar");
+    if (existing) existing.remove();
+    clearTimeout(lwUndoTimer);
+
+    var bar = document.createElement("div");
+    bar.className = "lw-undo";
+    bar.id = "lwUndoBar";
+    bar.innerHTML = '<span>' + esc(text) + '</span>' +
+      '<button class="ghost" id="lwUndoBtn">' + esc(undoLabel) + '</button>';
+    document.body.appendChild(bar);
+
+    $("lwUndoBtn").addEventListener("click", function () {
+      var btn = $("lwUndoBtn");
+      btn.disabled = true;
+      btn.textContent = "Undoing…";
+      Promise.resolve(undoFn())
+        .then(function () { bar.remove(); show("ok", "Undone."); return lwLoad(true); })
+        .catch(function (e) { show("err", e.message); btn.disabled = false; btn.textContent = undoLabel; });
+    });
+
+    // Long enough to notice and act on, short enough not to sit there
+    // claiming to be undoable forever.
+    lwUndoTimer = setTimeout(function () { bar.remove(); }, 12000);
+  }
+
+  /* ---- interaction ---------------------------------------------- */
+
+  $("lwSearch").addEventListener("input", function () { lwRenderRail(); });
+  $("lwSort").addEventListener("change", function () { lwRenderRail(); });
+
+  $("lwChips").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-lw-filter]");
+    if (!btn || btn.disabled) return;
+    lw.filter = btn.getAttribute("data-lw-filter");
+    lwRenderChips();
+    lwRenderRail();
   });
 
-  $("loadBrowse").addEventListener("click", function () {
-    clearMsg();
-    var btn = $("loadBrowse");
-    btn.disabled = true;
-    btn.textContent = "Loading…";
-    api("/api/admin/library/browse").then(function (data) {
-      browse.items = data.items || [];
-      browse.loaded = true;
-      browse.items.forEach(function (it) { review.itemsById[it.id] = it; });
-      $("browseBody").style.display = "";
-      renderBrowse();
-    }).catch(function (e) { show("err", e.message); })
-      .then(function () { btn.disabled = false; btn.textContent = "Load library"; });
+  $("lwRail").addEventListener("click", function (e) {
+    var check = e.target.closest("[data-lw-check]");
+    if (check) {
+      lw.checked[check.getAttribute("data-lw-check")] = check.checked;
+      lwRenderBulk();
+      return;
+    }
+    var row = e.target.closest("[data-lw-row]");
+    if (row) lwSelect(row.getAttribute("data-lw-row"));
   });
 
+  $("lwScan").addEventListener("click", function () {
+    var btn = $("lwScan");
+    btn.disabled = true;
+    var before = lw.items.length;
+    btn.textContent = "Scanning…";
+    api("/api/admin/library/scan", { method: "POST" })
+      .then(function () {
+        // Jellyfin's scan is fire-and-forget, so wait a beat before asking
+        // what changed rather than reporting on the library as it was.
+        return new Promise(function (resolve) { setTimeout(resolve, 4000); });
+      })
+      .then(function () { return lwLoad(true); })
+      .then(function () {
+        var added = lw.items.length - before;
+        var needing = lw.rows.filter(function (r) { return r.needsDecision; }).length;
+        show("ok", added > 0
+          ? added + " new file" + (added === 1 ? "" : "s") + " picked up. " + needing + " need a decision."
+          : "Scan finished — nothing new. " + needing + " still need a decision.");
+      })
+      .catch(function (e) { show("err", e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = "Scan folder"; });
+  });
+
+  /*
+   * The pane's own actions. Anything with a plain data-action attribute is
+   * already handled by the delegated listener on document.body (Search,
+   * Manual, Poster, Exclude, ...) — these are the ones the workspace adds.
+   */
+  document.body.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-lw-action]");
+    if (!btn) return;
+    var action = btn.getAttribute("data-lw-action");
+    var target = btn.getAttribute("data-lw-target");
+
+    if (action === "select") { lwSelect(target); return; }
+    if (action === "select-member") { lwSelect(target); return; }
+    if (action === "manage-group") { toggleGroupManage(target); return; }
+    if (action === "clear-checks") { lw.checked = {}; lwRenderRail(); lwRenderBulk(); return; }
+
+    if (action === "keep-this") {
+      var keeper = lwRowById(target);
+      if (!keeper) return;
+      var name = keeper.name.toLowerCase();
+      var others = lw.rows.filter(function (r) {
+        return r.kind === "film" && r.isDuplicate && r.name.toLowerCase() === name && r.id !== target;
+      });
+      if (!others.length) return;
+      if (!confirm("Hide " + others.length + " other cop" + (others.length === 1 ? "y" : "ies") +
+        " of " + keeper.name + "?" + String.fromCharCode(10) + String.fromCharCode(10) +
+        "Nothing is deleted from the drive. They stop showing on the site and you can put any of them back.")) return;
+      btn.disabled = true;
+      Promise.all(others.map(function (o) {
+        return api("/api/admin/library/exclude", { method: "POST", body: { path: o.item.path } });
+      })).then(function () {
+        show("ok", "Kept " + keeper.name + ", hid the rest.");
+        return lwLoad(true);
+      }).catch(function (err) { show("err", err.message); btn.disabled = false; });
+      return;
+    }
+
+    if (action === "group-new" || action === "group-add") {
+      var ids = Object.keys(lw.checked).filter(function (k) { return lw.checked[k]; });
+      var paths = ids.map(function (id) {
+        var r = lwRowById(id);
+        return r && r.item ? r.item.path : null;
+      }).filter(Boolean);
+      if (paths.length < 2 && action === "group-new") { show("err", "Tick at least two files."); return; }
+
+      if (action === "group-new") {
+        var groupName = prompt("Name this show:", "");
+        if (!groupName) return;
+        btn.disabled = true;
+        api("/api/admin/library/group", { method: "POST", body: { name: groupName, paths: paths } })
+          .then(function () { show("ok", "Grouped as " + groupName + "."); lw.checked = {}; return lwLoad(true); })
+          .catch(function (err) { show("err", err.message); btn.disabled = false; });
+      } else {
+        var shows = lw.rows.filter(function (r) { return r.kind === "show"; });
+        if (!shows.length) { show("err", "There are no shows to add to yet."); return; }
+        var pick = prompt("Add to which show?" + String.fromCharCode(10) +
+          shows.map(function (s, i) { return (i + 1) + ") " + s.name; }).join(String.fromCharCode(10)));
+        var idx = parseInt(pick, 10);
+        if (!idx || idx < 1 || idx > shows.length) return;
+        btn.disabled = true;
+        api("/api/admin/library/group-add", { method: "POST", body: { groupId: shows[idx - 1].groupId, paths: paths } })
+          .then(function () { show("ok", "Added to " + shows[idx - 1].name + "."); lw.checked = {}; return lwLoad(true); })
+          .catch(function (err) { show("err", err.message); btn.disabled = false; });
+      }
+      return;
+    }
+  });
+
+  /* ---- sub-views ------------------------------------------------- */
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-lw-view]"), function (btn) {
+    btn.addEventListener("click", function () {
+      var view = btn.getAttribute("data-lw-view");
+      Array.prototype.forEach.call(document.querySelectorAll("[data-lw-view]"), function (b) {
+        b.classList.toggle("active", b === btn);
+      });
+      $("lwFilms").style.display = view === "films" ? "" : "none";
+      $("lwFranchises").style.display = view === "franchises" ? "" : "none";
+      $("lwHistory").style.display = view === "history" ? "" : "none";
+      if (view === "franchises" && !lw.franchisesLoaded) {
+        lw.franchisesLoaded = true;
+        api("/api/admin/library/film-series")
+          .then(function (data) { renderFilmSeriesList(data.series || []); })
+          .catch(function (e) { show("err", e.message); lw.franchisesLoaded = false; });
+      }
+      if (view === "history") loadCuration();
+    });
+  });
   /* ================================================================
    * Film series (rollout.ts's other subject type — see the "Film series"
    * card's own note above for why this view exists at all).
    * ================================================================ */
-  $("loadFilmSeries").addEventListener("click", function () {
-    clearMsg();
-    var btn = $("loadFilmSeries");
-    btn.disabled = true;
-    btn.textContent = "Loading…";
-    api("/api/admin/library/film-series").then(function (data) {
-      $("filmSeriesBody").style.display = "";
-      renderFilmSeriesList(data.series || []);
-    }).catch(function (e) { show("err", e.message); })
-      .then(function () { btn.disabled = false; btn.textContent = "Load film series"; });
-  });
-
   function renderFilmSeriesList(series) {
     var el = $("filmSeriesList");
     if (!series.length) { el.innerHTML = '<div class="cur-empty">No scraped film series yet.</div>'; return; }
@@ -2013,74 +2594,6 @@
     slot.innerHTML = html;
   }
 
-  function browseBadges(it) {
-    var b = "";
-    if (it.isDuplicate) b += '<span class="pill s-revoked">duplicate</span> ';
-    if (it.isThinMetadata) b += '<span class="pill s-revoked">no metadata</span> ';
-    if (it.isMissingSubtitles) b += '<span class="pill">no subtitles</span> ';
-    if (it.isWhitelisted) b += '<span class="pill s-active">shown anyway</span> ';
-    if (it.isExcluded) b += '<span class="pill s-revoked">excluded</span> ';
-    if (it.isGrouped) b += '<span class="pill s-active">grouped: ' + esc(it.groupName || "") + '</span> ';
-    return b;
-  }
-
-  function renderBrowse() {
-    var q = ($("browseSearch").value || "").trim().toLowerCase();
-    var needsOnly = $("browseNeedsOnly").checked;
-
-    var filtered = browse.items.filter(function (it) {
-      if (needsOnly && !it.needsDecision) return false;
-      if (q && it.name.toLowerCase().indexOf(q) === -1) return false;
-      return true;
-    });
-
-    // Needs-decision first (per item 5's brief: "browsable all movies, on
-    // top the ones that need decision"), then alphabetical within each
-    // group — a stable, predictable order rather than popularity/recency,
-    // since this list exists to be scanned and searched, not browsed for
-    // discovery.
-    filtered.sort(function (a, b) {
-      if (a.needsDecision !== b.needsDecision) return a.needsDecision ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-
-    $("browseCount").textContent = filtered.length + " of " + browse.items.length + " movies";
-
-    if (!filtered.length) {
-      $("browseList").innerHTML = '<div class="empty">Nothing matches.</div>';
-      return;
-    }
-
-    var html = '<div class="row" style="margin-bottom:8px">' +
-      '<div style="flex:0 0 auto"><label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">' +
-      '<input type="checkbox" class="rv-select-all" style="width:auto"> Select all shown</label></div>' +
-      '<div style="flex:0 0 auto"><button class="ghost" data-action="browse-group">Group checked as one</button></div>' +
-      '<div style="flex:0 0 auto"><button class="ghost" data-action="browse-group-add">Add checked to existing group</button></div>' +
-      '</div>';
-    filtered.forEach(function (it) {
-      html += '<div class="rv-item" data-item-id="' + it.id + '"><input type="checkbox" data-item-id="' + it.id + '">' +
-        '<div class="rv-name">' + esc(it.name) + (it.year ? " (" + it.year + ")" : "") + ' ' + browseBadges(it) +
-        '<span class="rv-path">' + esc(shortPath(it.path)) + '</span></div>' +
-        '<div class="rv-item-actions">' +
-        folderLinkHtml(it) +
-        (it.isThinMetadata && !it.isWhitelisted ? '<button class="ghost" data-action="whitelist" data-item-id="' + it.id + '">Show anyway</button>' : "") +
-        '<button class="ghost" data-action="search" data-item-id="' + it.id + '">Search</button>' +
-        '<button class="ghost" data-action="manual" data-item-id="' + it.id + '">Manual</button>' +
-        '<button class="ghost" data-action="poster" data-item-id="' + it.id + '">Change poster</button>' +
-        (it.isMissingSubtitles ? '<button class="ghost" data-action="fetch-subtitles" data-item-id="' + it.id + '">Fetch subtitles</button>' : "") +
-        (it.isExcluded
-          ? '<button class="ghost" data-action="unexclude" data-item-id="' + it.id + '">Un-exclude</button>'
-          : '<button class="danger" data-action="exclude" data-item-id="' + it.id + '">Exclude</button>') +
-        '</div></div>' +
-        '<div class="rv-panel-slot" data-panel-for="' + it.id + '"></div>';
-    });
-    $("browseList").innerHTML = html;
-    wireSelectAll($("browseList"));
-  }
-
-  $("browseSearch").addEventListener("input", renderBrowse);
-  $("browseNeedsOnly").addEventListener("change", renderBrowse);
-
   function unexcludeBrowseItem(itemId) {
     var it = review.itemsById[itemId];
     if (!it || !it.path) return;
@@ -2093,71 +2606,6 @@
       .catch(function (e) { show("err", e.message); });
   }
 
-  function renderDuplicates() {
-    var el = $("dupSection");
-    if (!review.duplicates.length) { el.innerHTML = '<div class="muted">No duplicate titles found.</div>'; return; }
-    var html = "<strong>Duplicates</strong>";
-    review.duplicates.forEach(function (g, gi) {
-      html += '<div class="rv-group" data-group-kind="dup" data-group-index="' + gi + '">' +
-        '<div class="rv-group-head"><strong>' + esc(g.items[0].name) + '</strong>' +
-        '<span class="rv-count">' + g.items.length + ' copies</span><span class="spacer"></span>' +
-        '<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">' +
-        '<input type="checkbox" class="rv-select-all" style="width:auto"> Select all</label>' +
-        '<button class="ghost" data-action="dup-keep">Keep checked, discard rest</button>' +
-        '<button class="ghost" data-action="dup-group">Group checked as one</button>' +
-        '<button class="ghost" data-action="dup-versions" title="Different cuts of the same film — an American vs. Italian cut, not an accidental duplicate. Merges as Jellyfin\'s own alternate-version picker instead of discarding either.">Different cuts, not duplicates</button></div>';
-      g.items.forEach(function (it) {
-        html += '<div class="rv-item" data-item-id="' + it.id + '"><input type="checkbox" data-item-id="' + it.id + '">' +
-          '<div class="rv-name">' + esc(it.name) + (it.year ? " (" + it.year + ")" : "") +
-          '<span class="rv-path">' + esc(shortPath(it.path)) + '</span></div>' +
-          '<div class="rv-item-actions">' + folderLinkHtml(it) + '</div></div>';
-      });
-      html += "</div>";
-    });
-    el.innerHTML = html;
-    wireSelectAll(el);
-  }
-
-  function renderThin() {
-    var el = $("thinSection");
-    if (!review.thinMetadata.length) { el.innerHTML = '<div class="muted">Everything has some metadata.</div>'; return; }
-    var html = "<strong>No fetched metadata</strong>";
-    review.thinMetadata.forEach(function (g, gi) {
-      var folderLabel = g.folder.split("/").slice(-1)[0] || g.folder;
-      html += '<div class="rv-group" data-group-kind="thin" data-group-index="' + gi + '">' +
-        '<div class="rv-group-head"><strong class="rv-folder-toggle" data-action="toggle-folder">' + esc(folderLabel) +
-        '</strong><span class="rv-count">' + g.items.length + ' file' + (g.items.length === 1 ? "" : "s") + '</span>' +
-        '<span class="spacer"></span>' +
-        '<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer" title="Check every file in this folder">' +
-        '<input type="checkbox" class="rv-select-all" style="width:auto"> Select all</label>' +
-        '<button class="ghost" data-action="thin-group">Group checked as one</button></div>' +
-        '<div class="rv-folder-body" style="display:' + (g.items.length <= 4 ? "" : "none") + '">';
-      g.items.forEach(function (it) {
-        html += '<div class="rv-item" data-item-id="' + it.id + '"><input type="checkbox" data-item-id="' + it.id + '">' +
-          '<div class="rv-name">' + esc(it.name) +
-          '<span class="rv-path">' + esc(shortPath(it.path)) + '</span></div>' +
-          '<div class="rv-item-actions">' +
-          folderLinkHtml(it) +
-          '<button class="ghost" data-action="whitelist" data-item-id="' + it.id + '">Show anyway</button>' +
-          '<button class="ghost" data-action="search" data-item-id="' + it.id + '">Search</button>' +
-          '<button class="ghost" data-action="manual" data-item-id="' + it.id + '">Manual</button>' +
-          '<button class="danger" data-action="exclude" data-item-id="' + it.id + '">Exclude</button>' +
-          '</div></div>' +
-          '<div class="rv-panel-slot" data-panel-for="' + it.id + '"></div>';
-      });
-      html += "</div></div>";
-    });
-    el.innerHTML = html;
-    wireSelectAll(el);
-  }
-
-  // Checks/unchecks every item checkbox within the SAME .rv-group as the
-  // "Select all" box that changed — scoped per-folder, not global, so
-  // selecting all of one folder doesn't touch another folder's checkboxes.
-  // Needed once a folder gets past a handful of files (The West Wing:
-  // 154 individual episode files) — clicking each one by hand isn't
-  // practical, which is what made grouping a large TV show "impossible"
-  // in practice even though each checkbox technically still worked.
   function wireSelectAll(container) {
     Array.prototype.forEach.call(container.querySelectorAll(".rv-select-all"), function (cb) {
       cb.addEventListener("change", function () {
@@ -2171,34 +2619,21 @@
     });
   }
 
-  function renderMissingSubtitles() {
-    var el = $("subsSection");
-    var items = review.missingSubtitles;
-    if (!items.length) {
-      el.innerHTML = '<strong>Missing subtitles</strong>' +
-        '<div class="muted" style="margin-top:6px">Everything visible has at least one subtitle track.</div>';
-      return;
-    }
-    var html = '<strong>Missing subtitles</strong><span class="rv-count"> ' +
-      items.length + ' visible film' + (items.length === 1 ? "" : "s") + '</span>' +
-      '<div class="note" style="margin:2px 0 8px">' +
-      'On the site now, but nothing to caption with yet. Open the folder and drop a matching .srt in.' +
-      '</div><div class="rv-group">';
-    items.forEach(function (it) {
-      html += '<div class="rv-item" data-item-id="' + esc(it.id) + '"><div class="rv-name">' + esc(it.name) + (it.year ? " (" + it.year + ")" : "") +
-        '<span class="rv-path">' + esc(shortPath(it.path)) + '</span></div>' +
-        '<div class="rv-item-actions">' +
-        '<button class="ghost" data-action="fetch-subtitles" data-item-id="' + esc(it.id) + '">Fetch from OpenSubtitles</button>' +
-        folderLinkHtml(it) + '</div></div>';
-    });
-    html += "</div>";
-    el.innerHTML = html;
-  }
-
   // The only reliable proof an action landed: mark the exact row it touched,
   // right where the admin is already looking, rather than relying on them to
   // notice a banner at the top of a page they're scrolled deep into.
   function markRowDone(itemId, label) {
+    /*
+     * In the workspace there is no row to decorate — the fact of the change
+     * belongs in the list itself, so reload it instead. Debounced, because a
+     * single action (apply a match, then confirm it) can call through here
+     * more than once.
+     */
+    if (lw.loaded) {
+      clearTimeout(lw.refreshTimer);
+      lw.refreshTimer = setTimeout(function () { lwLoad(true); }, 600);
+    }
+
     var row = document.querySelector('.rv-item[data-item-id="' + itemId + '"]');
     if (!row) return;
 
@@ -2324,12 +2759,13 @@
   function excludeItem(itemId) {
     var it = review.itemsById[itemId];
     if (!it || !it.path) return;
-    if (!confirm('Hide "' + it.name + '" from the site?\n\nDa Moveesh is not touched — this just records the decision. Undo any time from "Current decisions" below.')) return;
     var btn = document.querySelector('.rv-item-actions [data-action="exclude"][data-item-id="' + itemId + '"]');
     if (btn) { btn.disabled = true; btn.textContent = "Excluding…"; }
     api("/api/admin/library/exclude", { method: "POST", body: { path: it.path } })
       .then(function () {
-        show("ok", "Excluded “" + it.name + "”.");
+        lwOfferUndo("Hidden from the site — " + it.name + ".", "Put it back", function () {
+          return api("/api/admin/library/unexclude", { method: "POST", body: { path: it.path } });
+        });
         markRowDone(itemId, "Excluded");
         loadCuration();
       })
@@ -2343,7 +2779,9 @@
     if (btn) { btn.disabled = true; btn.textContent = "Showing…"; }
     api("/api/admin/library/whitelist", { method: "POST", body: { path: it.path } })
       .then(function () {
-        show("ok", "“" + it.name + "” will show on the site now, even without fetched metadata.");
+        lwOfferUndo(it.name + " will show on the site now, without metadata.", "Undo", function () {
+          return api("/api/admin/library/unwhitelist", { method: "POST", body: { path: it.path } });
+        });
         markRowDone(itemId, "Shown anyway");
         loadCuration();
       })
@@ -2819,6 +3257,8 @@
       '<button class="ghost" data-action="fetch-all-episodes" data-group-id="' + esc(detail.groupId) + '">Fetch all from OMDb</button>' +
       '</div>';
 
+    html += lwGapsHtml(detail.items);
+
     detail.items.forEach(function (it) {
       var primary = it.label || it.name;
       var mismatch = it.label && it.name && primary !== it.name;
@@ -2958,7 +3398,8 @@
       .catch(function (e) { show("err", e.message); btn.disabled = false; });
   }
 
-  $("loadCurationBtn").addEventListener("click", function () { clearMsg(); loadCuration(); });
+  // "Current decisions" is the workspace's History view now, and reloads when
+  // you open it — see the sub-view handler.
 
   $("curationBody").addEventListener("click", function (e) {
     var btn = e.target.closest("[data-cur-action]");

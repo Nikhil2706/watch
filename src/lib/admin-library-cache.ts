@@ -13,10 +13,14 @@ import { listAllMoviesAdmin, type AdminMovieListItem } from "./jellyfin";
  *
  * Two things happen here:
  *
- *  1. A result is reused for TTL_MS. The library only changes when somebody
- *     drops a file in and a scan runs, so seconds-old data is not stale in any
- *     way a curator would notice — and the scan route calls invalidate()
- *     anyway, so "I just added a film" is still immediate.
+ *  1. A result is reused for FRESH_MS, and past that it is STILL served —
+ *     immediately — while a refresh runs behind it. The library only changes
+ *     when somebody drops a file in and a scan runs, and the scan route calls
+ *     invalidate() itself, so "I just added a film" is never behind. What this
+ *     buys is that nobody ever waits 16 seconds for the expensive shape once
+ *     it has been fetched once: the console's Library tab opens instantly on
+ *     a slightly-old list and corrects itself a moment later. A blocking
+ *     fetch happens only when there is nothing cached at all.
  *
  *  2. Concurrent callers share ONE in-flight request. Without this the very
  *     first keystroke of a search still fans out into several simultaneous
@@ -28,7 +32,7 @@ import { listAllMoviesAdmin, type AdminMovieListItem } from "./jellyfin";
  * one just because it arrived first.
  */
 
-const TTL_MS = 60_000;
+const FRESH_MS = 60_000;
 
 interface Entry {
   fetchedAt: number;
@@ -49,11 +53,26 @@ export async function getAdminMovies(
   const key = keyFor(withMediaSources);
 
   const cached = cache.get(key);
-  if (cached && Date.now() - cached.fetchedAt < TTL_MS) return cached.items;
-
   const existing = inFlight.get(key);
-  if (existing) return existing;
 
+  if (cached) {
+    // Stale-while-revalidate: hand back what we have either way, and only
+    // kick off a refresh if one isn't already running.
+    if (Date.now() - cached.fetchedAt >= FRESH_MS && !existing) {
+      void refresh(key, withMediaSources).catch(() => {
+        // A failed background refresh keeps the last good listing. The next
+        // caller tries again; nobody is shown an error for data they already
+        // have.
+      });
+    }
+    return cached.items;
+  }
+
+  if (existing) return existing;
+  return refresh(key, withMediaSources);
+}
+
+function refresh(key: string, withMediaSources: boolean): Promise<AdminMovieListItem[]> {
   const request = listAllMoviesAdmin({ withMediaSources })
     .then((items) => {
       cache.set(key, { fetchedAt: Date.now(), items });
