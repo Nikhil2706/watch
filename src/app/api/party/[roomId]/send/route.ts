@@ -1,5 +1,6 @@
 import { isRoomLive, postChat, postSync, setController } from "@/lib/party-bus";
 import { resolvePartyIdentity } from "@/lib/party-identity";
+import { checkRateLimit, PARTY_SEND_LIMIT, rateLimitHeaders } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +36,16 @@ export async function POST(
 
   if (!isRoomLive(roomId)) {
     return Response.json({ error: "ended", message: "This watch party has ended." }, { status: 410, headers: NO_STORE });
+  }
+
+  // Per identity per room: chat writes a row and sync fans out to every
+  // member's stream, and a guest holding only a share link can reach both.
+  const limit = checkRateLimit(PARTY_SEND_LIMIT, `${roomId}:${identity.kind}:${identity.id}`);
+  if (!limit.allowed) {
+    return Response.json(
+      { error: "rate_limited", message: "Slow down a moment." },
+      { status: 429, headers: { ...NO_STORE, ...rateLimitHeaders(PARTY_SEND_LIMIT, limit) } },
+    );
   }
 
   let body: Record<string, unknown>;

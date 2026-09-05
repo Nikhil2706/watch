@@ -1,4 +1,4 @@
-import { getFullItem } from "@/lib/jellyfin";
+import { getItem } from "@/lib/media";
 import { getCachedSubtitleCount, isOpenSubtitlesConfigured } from "@/lib/opensubtitles";
 import { checkRateLimit, rateLimitHeaders, SUBTITLE_CHECK_LIMIT } from "@/lib/ratelimit";
 import { getSessionFromRequest } from "@/lib/session";
@@ -49,9 +49,19 @@ export async function POST(request: Request): Promise<Response> {
       throw new ValidationError("itemId is required.");
     }
 
-    const item = await getFullItem(body.itemId);
-    const providerIds = item.ProviderIds as Record<string, string> | undefined;
-    const imdbId = providerIds?.Imdb;
+    // Session-scoped, not the admin-key getFullItem(): otherwise a viewer
+    // under parental control could confirm a restricted title exists (and how
+    // many subtitles it has) through an endpoint the rest of the app would
+    // never show them. getItem() returns null for restricted-or-missing alike.
+    const item = await getItem(session, body.itemId);
+    if (!item) {
+      return Response.json(
+        { error: "not_found", message: "No such item." },
+        { status: 404, headers: NO_STORE },
+      );
+    }
+
+    const imdbId = item.ProviderIds?.Imdb;
     if (!imdbId) {
       return Response.json({ count: null }, { headers: NO_STORE });
     }

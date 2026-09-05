@@ -341,6 +341,30 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "notifications") && !columnExists(db, "notifications", "note")) {
     db.exec("ALTER TABLE notifications ADD COLUMN note TEXT");
   }
+
+  // ALSO v38 on another branch, kept alongside the three above after the two
+  // were merged: subtitle_availability_cache was keyed on imdb_id alone, while
+  // getCachedSubtitleCount() takes a language — so whichever language was
+  // checked first for a title owned its row, and a later check in another
+  // language silently read back the first one's count. Re-keyed on
+  // (imdb_id, language).
+  //
+  // Dropped rather than altered because SQLite cannot change a primary key
+  // in place, and here that costs nothing: this is a pure cache of an
+  // upstream count, refilled on the next check. Falls through to SCHEMA_SQL's
+  // CREATE TABLE IF NOT EXISTS, which runs right after this function returns
+  // and recreates it in the current shape — same pattern as v14 above.
+  //
+  // The version number is 41 for exactly this reason: both branches had
+  // written 38, and a database already at 40 would otherwise never replay
+  // this one. Order does not matter — every migration here is guarded by a
+  // live schema check, not by the number.
+  if (
+    tableExists(db, "subtitle_availability_cache") &&
+    !columnExists(db, "subtitle_availability_cache", "language")
+  ) {
+    db.exec("DROP TABLE subtitle_availability_cache");
+  }
 }
 
 /**

@@ -219,6 +219,7 @@ const SUBTITLE_AVAILABILITY_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface SubtitleAvailabilityRow {
   imdb_id: string;
+  language: string;
   count: number;
   checked_at: number;
 }
@@ -232,7 +233,9 @@ interface SubtitleAvailabilityRow {
 export async function getCachedSubtitleCount(imdbId: string, language: string): Promise<number | null> {
   const db = getDb();
   const cached = asRow<SubtitleAvailabilityRow>(
-    db.prepare("SELECT * FROM subtitle_availability_cache WHERE imdb_id = ?").get(imdbId),
+    db
+      .prepare("SELECT * FROM subtitle_availability_cache WHERE imdb_id = ? AND language = ?")
+      .get(imdbId, language),
   );
   if (cached && Date.now() - cached.checked_at < SUBTITLE_AVAILABILITY_CACHE_TTL_MS) {
     return cached.count;
@@ -249,10 +252,10 @@ export async function getCachedSubtitleCount(imdbId: string, language: string): 
   }
 
   db.prepare(
-    `INSERT INTO subtitle_availability_cache (imdb_id, count, checked_at)
-     VALUES (?, ?, ?)
-     ON CONFLICT(imdb_id) DO UPDATE SET count = excluded.count, checked_at = excluded.checked_at`,
-  ).run(imdbId, count, Date.now());
+    `INSERT INTO subtitle_availability_cache (imdb_id, language, count, checked_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(imdb_id, language) DO UPDATE SET count = excluded.count, checked_at = excluded.checked_at`,
+  ).run(imdbId, language, count, Date.now());
 
   return count;
 }

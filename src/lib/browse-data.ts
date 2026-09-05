@@ -113,7 +113,18 @@ async function buildBrowseCatalogue(allItems: MediaItem[]): Promise<BrowseCatalo
       // when series meta hasn't been filled in yet keeps the group from
       // vanishing off decade/genre facets entirely in the meantime.
       const first = g.members[0];
-      const pseudoItem: MediaItem = { Id: g.groupId, Name: g.groupName, Type: "Group" };
+      // "Seen" for a show reads as "finished watching it" — every episode played.
+      const seen = g.members.every((m) => m.UserData?.Played);
+      // Carried on the pseudo-item too, not just on the BrowseMovie beside it:
+      // a group has no Jellyfin item of its own, so anything rendering it from
+      // `item` alone (PosterCard's watched badge) would otherwise read a show
+      // with no UserData at all as permanently unwatched.
+      const pseudoItem: MediaItem = {
+        Id: g.groupId,
+        Name: g.groupName,
+        Type: "Group",
+        UserData: { Played: seen },
+      };
 
       return {
         item: pseudoItem,
@@ -126,8 +137,7 @@ async function buildBrowseCatalogue(allItems: MediaItem[]): Promise<BrowseCatalo
         imdbRating: seriesRatings?.imdb ? Number.parseFloat(seriesRatings.imdb) : null,
         imdbVotes: seriesRatings?.imdbVotes ? Number.parseInt(seriesRatings.imdbVotes.replace(/,/g, ""), 10) : null,
         communityRating: first?.CommunityRating ?? null,
-        // "Seen" for a show reads as "finished watching it" — every episode played.
-        seen: g.members.every((m) => m.UserData?.Played),
+        seen,
         isGroup: true,
         partsCount: g.members.length,
         partsUnit: partsUnitFor(groupKinds.get(g.groupId)),

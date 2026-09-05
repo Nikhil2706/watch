@@ -19,7 +19,18 @@
  * schema state (PRAGMA table_info) before acting and is therefore safe to run
  * on every migration regardless of how many times it fires.
  */
-export const SCHEMA_VERSION = 40;
+/*
+ * 41, not 40, because two branches both used 38.
+ *
+ * This branch used 38/39/40 (group kind, user suspension, curator notes) while
+ * another used 38 for re-keying subtitle_availability_cache. Merging the two
+ * sets of migrations is safe — every one of them is guarded by a live
+ * columnExists/tableExists check rather than by the number — but the number
+ * still has to ADVANCE past what any database already records, or
+ * runVersionedMigrations() will not replay the set at all. The live database
+ * is already at 40, so the other branch's v38 work would never have run here.
+ */
+export const SCHEMA_VERSION = 41;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -222,10 +233,15 @@ CREATE TABLE IF NOT EXISTS content_warnings (
 -- ENTIRE Api-Key — every viewer combined, not per-user — so a live call on
 -- every item-page view doesn't hold up once more than a couple of people
 -- are browsing at once.
+-- Keyed on (imdb_id, language), not imdb_id alone: the count OpenSubtitles
+-- reports is per language, so a single row per title would hand a French
+-- check whatever the English check cached.
 CREATE TABLE IF NOT EXISTS subtitle_availability_cache (
-  imdb_id    TEXT PRIMARY KEY,
+  imdb_id    TEXT NOT NULL,
+  language   TEXT NOT NULL,
   count      INTEGER NOT NULL,
-  checked_at INTEGER NOT NULL
+  checked_at INTEGER NOT NULL,
+  PRIMARY KEY (imdb_id, language)
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS subtitle_fetch_attempts (

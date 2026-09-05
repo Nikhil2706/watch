@@ -143,6 +143,33 @@ function sweep(now: number): void {
 }
 
 /**
+ * Screens one account may hold in the registry at once. A household has a
+ * television or three, so this is a ceiling on the in-memory map rather than
+ * a product limit anyone should ever meet.
+ *
+ * It's needed because sweep() only reclaims a screen after SCREEN_TTL_MS of
+ * silence: POSTing /api/remote/screen in a loop mints entries faster than
+ * they expire, growing the map for as long as the loop runs. Eviction
+ * deliberately considers only screens with no live SSE subscriber, which
+ * splits the two cases cleanly — a real television holds a stream open and is
+ * never evicted, while scripted registrations never subscribe at all and are
+ * exactly what gets reclaimed.
+ */
+const MAX_SCREENS_PER_USER = 20;
+
+function evictOverflow(userId: string): void {
+  const state = bus();
+  const owned = [...state.screens.values()].filter((s) => s.userId === userId);
+  if (owned.length < MAX_SCREENS_PER_USER) return;
+
+  const excess = owned.length - MAX_SCREENS_PER_USER + 1;
+  const reclaimable = owned
+    .filter((s) => s.subscribers.size === 0)
+    .sort((a, b) => a.lastSeen - b.lastSeen);
+  for (const screen of reclaimable.slice(0, excess)) state.screens.delete(screen.id);
+}
+
+/**
  * Called by a TV on load, and again whenever its SSE stream reconnects.
  * `existingId` comes from the TV's localStorage so a reload (or a gate
  * restart) keeps the same identity and any phone paired to it stays paired.
@@ -170,6 +197,8 @@ export function registerScreen(input: {
     }
     return { screenId: existing.id, code: existing.code, name: existing.name };
   }
+
+  evictOverflow(input.userId);
 
   const id = input.existingId && !state.screens.has(input.existingId) ? input.existingId : generateId();
   const screen: Screen = {

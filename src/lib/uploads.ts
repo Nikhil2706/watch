@@ -130,6 +130,38 @@ export function listUploads(): UploadSummary[] {
 export class UploadReviewError extends Error {}
 
 /**
+ * A free path in `dir` for `filename`, disambiguating "movie.mkv" to
+ * "movie (2).mkv" rather than landing on a name that already exists.
+ *
+ * Uploads are stored in quarantine under an id-prefixed name precisely so two
+ * people (or one person twice) can upload "movie.mkv" without collision, but
+ * the approved copy is deliberately published under the ORIGINAL name — the
+ * watch-folder pipeline and Jellyfin both read the filename as the title, so
+ * an id prefix would follow the film all the way into the library. That makes
+ * a collision possible again at exactly this step, and renameSync() replaces
+ * the destination silently on POSIX, so without this the second approval
+ * would destroy the first file's bytes with both rows still reading
+ * 'approved'.
+ *
+ * The existsSync/rename gap can't be interleaved here: Node is single
+ * threaded and there is no await between the two, and the only other process
+ * touching MEDIA_INCOMING (media-worker.mjs) consumes files rather than
+ * adding them.
+ */
+function freeDestination(dir: string, filename: string): string {
+  // `> 0`, not `!== -1`, so a dotfile keeps its whole name as the stem.
+  const dot = filename.lastIndexOf(".");
+  const stem = dot > 0 ? filename.slice(0, dot) : filename;
+  const ext = dot > 0 ? filename.slice(dot) : "";
+
+  let candidate = join(dir, filename);
+  for (let n = 2; existsSync(candidate); n += 1) {
+    candidate = join(dir, `${stem} (${n})${ext}`);
+  }
+  return candidate;
+}
+
+/**
  * Moves the quarantined file into MEDIA_INCOMING — the existing
  * watch-folder drop zone — so the normal media-worker.mjs pipeline
  * (probe, convert if needed, publish into the real library, Jellyfin
@@ -152,7 +184,7 @@ export function approveUpload(id: string, reviewedBy: string): void {
     );
   }
 
-  const destination = join(env.mediaIncomingPath, upload.filename);
+  const destination = freeDestination(env.mediaIncomingPath, upload.filename);
   try {
     renameSync(upload.quarantine_path, destination);
   } catch (error) {
