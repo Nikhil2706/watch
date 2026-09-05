@@ -2,6 +2,8 @@ import "server-only";
 
 import { basename, extname } from "node:path";
 
+import { findEpisodeMarker } from "./episode-markers";
+
 /**
  * Episode ordering and naming for grouped multi-part titles.
  *
@@ -30,8 +32,6 @@ const UNPARSED_SORT_KEY = Number.MAX_SAFE_INTEGER;
 const RELEASE_NOISE =
   /\b(1080p|2160p|720p|480p|4k|uhd|web[- ]?dl|webrip|bluray|blu[- ]?ray|brrip|bdrip|dvdrip|hdrip|hdtv|x264|x265|h ?264|h ?265|hevc|avc|aac\d*|ac3|dts|remux|proper|repack|amzn|nf|hulu|dsnp|multi|dual)\b/i;
 
-const SEASON_EPISODE = /\bS(\d{1,2})E(\d{1,3})\b/i;
-const BARE_EPISODE = /\bE(?:p(?:isode)?)?\.?\s*(\d{1,3})\b/i;
 
 function cleanTitleFragment(fragment: string): string | null {
   // Cut at the first release-noise token — everything past it is quality/
@@ -58,32 +58,18 @@ export function parseEpisodeInfo(pathOrFilename: string): ParsedEpisode {
   const filename = basename(pathOrFilename);
   const stem = filename.slice(0, filename.length - extname(filename).length);
 
-  const seasonEp = SEASON_EPISODE.exec(stem);
-  if (seasonEp) {
-    const season = Number.parseInt(seasonEp[1] ?? "0", 10);
-    const episode = Number.parseInt(seasonEp[2] ?? "0", 10);
-    const rest = stem.slice(seasonEp.index + seasonEp[0].length);
-    return {
-      season,
-      episode,
-      title: cleanTitleFragment(rest),
-      sortKey: season * 1000 + episode,
-    };
+  const marker = findEpisodeMarker(stem);
+  if (marker.episode === null) {
+    return { season: null, episode: null, title: null, sortKey: UNPARSED_SORT_KEY };
   }
 
-  const bareEp = BARE_EPISODE.exec(stem);
-  if (bareEp) {
-    const episode = Number.parseInt(bareEp[1] ?? "0", 10);
-    const rest = stem.slice(bareEp.index + bareEp[0].length);
-    return {
-      season: null,
-      episode,
-      title: cleanTitleFragment(rest),
-      sortKey: episode,
-    };
-  }
-
-  return { season: null, episode: null, title: null, sortKey: UNPARSED_SORT_KEY };
+  const rest = stem.slice(marker.endIndex);
+  return {
+    season: marker.season,
+    episode: marker.episode,
+    title: cleanTitleFragment(rest),
+    sortKey: marker.season === null ? marker.episode : marker.season * 1000 + marker.episode,
+  };
 }
 
 /** "Episode 7", "Episode 7: Title", or null when no marker was found at all. */

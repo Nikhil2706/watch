@@ -2647,7 +2647,7 @@
      * single action (apply a match, then confirm it) can call through here
      * more than once.
      */
-    if (lw.loaded) {
+    if (lw.loaded && !lw.suspendRefresh) {
       clearTimeout(lw.refreshTimer);
       lw.refreshTimer = setTimeout(function () { lwLoad(true); }, 600);
     }
@@ -3321,6 +3321,15 @@
   }
 
   function fetchAllEpisodes(groupId, btn) {
+    /*
+     * Hold the workspace still for the duration.
+     *
+     * Every successful fetch calls markRowDone, which asks the rail to
+     * reload; across a few hundred episodes that reloaded the whole library
+     * between each one, and the list visibly flickered the entire time. One
+     * refresh at the end says the same thing.
+     */
+    lw.suspendRefresh = true;
     var panel = btn.closest(".cur-group-manage");
     var buttons = Array.prototype.slice.call(
       panel.querySelectorAll('[data-action="fetch-episode"][data-group-id="' + groupId + '"]:not(:disabled)'),
@@ -3347,7 +3356,11 @@
     chain.then(function () {
       btn.disabled = false;
       btn.textContent = "Fetch all from OMDb";
-      show(failed ? "err" : "ok", "Fetched " + succeeded + (failed ? (", " + failed + " failed") : "") + ".");
+      lw.suspendRefresh = false;
+      show(failed ? "err" : "ok",
+        "Fetched " + succeeded +
+        (failed ? (", " + failed + " could not be found on OMDb — those keep their current titles") : "") + ".");
+      if (lw.loaded) lwLoad(true);
     });
   }
 
