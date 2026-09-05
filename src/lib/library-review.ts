@@ -157,11 +157,18 @@ export async function buildLibraryReview(): Promise<{
   return { duplicates, thinMetadata, missingSubtitles, totalMovies: all.length };
 }
 
+/*
+ * Everything here is sent for all ~1,200 films on every Library load, so a
+ * field nobody reads is not free. Three used to be:
+ *   overview   — 16% of the whole payload, never displayed by the console
+ *   jellyfinId — byte-for-byte identical to `id`
+ *   tmdbId     — read by nothing
+ * Together they were a fifth of a 1.14 MB response, serialised on the server
+ * and parsed in the browser every time, for nothing. Add a field here only if
+ * something actually renders it.
+ */
 export interface BrowseItem extends ReviewItem {
-  jellyfinId: string;
   imdbId: string | null;
-  tmdbId: string | null;
-  overview: string;
   isDuplicate: boolean;
   isThinMetadata: boolean;
   isMissingSubtitles: boolean;
@@ -232,15 +239,12 @@ export async function buildLibraryBrowse(): Promise<BrowseItem[]> {
 
     return {
       ...review,
-      jellyfinId: m.Id,
       groupId: groupInfo?.groupId ?? null,
       posterUrl: adminThumbUrl(m.Id, m.ImageTags?.Primary),
       height: video?.Height ?? null,
       sizeBytes: source?.Size ?? null,
       subtitleCount: streams.filter((stream) => stream.Type === "Subtitle").length,
       imdbId: m.ProviderIds?.Imdb ?? null,
-      tmdbId: m.ProviderIds?.Tmdb ?? null,
-      overview: m.Overview ?? "",
       isDuplicate,
       isThinMetadata,
       isMissingSubtitles,
