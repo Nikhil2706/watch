@@ -142,6 +142,39 @@ ladder ends at a reboot.
 
 ---
 
+## The repo is AHEAD of what is running (as of this handoff)
+
+A merge on 2026-09-05 brought in eight commits from another line of work on
+this same branch — subtitle-cache keying, the watched badge on TV shows, upload
+name collisions, the scrapers' library index, accolade ranking, bounds on the
+screen registry and party send, and **parental control on downloads and
+subtitle fetches**, which is the one worth deploying promptly.
+
+None of that is live. The running container was built from `669544b`, before
+the merge. To ship it:
+
+```
+docker compose --env-file .env --env-file .env.wsl-paths build gate
+docker compose --env-file .env --env-file .env.wsl-paths up -d --no-deps gate
+```
+
+**The merge reconciled a migration collision, so watch the first boot.** Both
+lines had used `SCHEMA_VERSION = 38`: this one for the group-kind column (then
+39 for user suspension, 40 for curator notes), the other for re-keying
+`subtitle_availability_cache` on `(imdb_id, language)`. The merged file is
+**41**, and both sets of migrations are kept. Every one is guarded by a live
+`columnExists`/`tableExists` check rather than by its number, so order does not
+matter — but the number had to advance past 40, which the live database already
+records, or the set would never replay and the other branch's work would never
+run here. After deploying, confirm:
+
+```
+PRAGMA user_version;                                  -- expect 41
+PRAGMA table_info(subtitle_availability_cache);       -- expect a `language` column
+```
+
+---
+
 ## Open items
 
 - **Test the backdrop question.** Does re-mapping a film via Search leave the
