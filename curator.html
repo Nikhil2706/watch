@@ -75,6 +75,9 @@
   .lw-rail-name { flex: 1 1 auto; min-width: 0; font-size: 12.5px; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
   .lw-rail-item.sel .lw-rail-name { color: var(--text); }
+  /* An article row carries no poster, so its title takes the full width. */
+  .ac-browse-card .lw-rail-name { white-space: normal; }
+  .ac-browse-card.sel { background: rgba(91, 141, 239, 0.14); box-shadow: inset 2px 0 0 var(--accent); }
   .lw-rail-sub { display: block; font-size: 10.5px; color: var(--dead); }
   .lw-rail-check { width: auto; flex: 0 0 auto; margin: 0; }
   .lw-thumb { width: 26px; height: 39px; flex: 0 0 auto; border-radius: 3px; object-fit: cover;
@@ -310,15 +313,6 @@
   .wk-status.status-running, .wk-status.status-pending { color: var(--accent); }
 
   /* --- Accolades tab ---------------------------------------------------- */
-  .subtabs { display: flex; gap: 6px; margin-bottom: 14px; }
-  .subtab-btn {
-    background: transparent; border: 1px solid var(--border); color: var(--muted);
-    font-size: 0.8rem; font-weight: 600; padding: 6px 13px; border-radius: 999px; cursor: pointer;
-  }
-  .subtab-btn:hover { color: var(--text); border-color: var(--accent); }
-  .subtab-btn.active { color: var(--text); background: rgba(91,141,239,.14); border-color: var(--accent); }
-  .subpanel { display: none; }
-  .subpanel.active { display: block; }
 
   .ac-lock-pill { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 9px; border-radius: 999px; margin-left: 8px; }
   .ac-lock-pill.locked { background: rgba(255,217,160,.15); color: var(--warm); border: 1px solid rgba(255,217,160,.35); }
@@ -334,13 +328,16 @@
   .ac-result-row:hover { color: var(--accent); }
   .ac-result-row .ac-r-year { color: var(--muted); font-size: 11px; }
 
-  .ac-poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 14px; margin-top: 12px; }
-  .ac-poster-tile { cursor: pointer; border-radius: 8px; overflow: hidden; border: 2px solid transparent; }
-  .ac-poster-tile:hover { border-color: var(--accent); }
-  .ac-poster-tile img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; background: var(--surface-2); }
-  .ac-poster-tile .ac-tile-ph { width: 100%; aspect-ratio: 2/3; display: grid; place-items: center; background: var(--surface-2); color: var(--muted); font-size: 11px; text-align: center; padding: 6px; }
-  .ac-poster-tile .ac-tile-title { font-size: 0.76rem; padding: 6px 4px 2px; }
-  .ac-poster-tile .ac-tile-sub { font-size: 0.68rem; color: var(--muted); padding: 0 4px 6px; }
+  /* The TMDB poster picker, opened from a film in the Library. It was named
+     ac-* because the Accolades search results once shared it; that search is
+     gone, so the name now says who owns it. */
+  .poster-pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 14px; margin-top: 12px; }
+  .poster-pick-tile { cursor: pointer; border-radius: 8px; overflow: hidden; border: 2px solid transparent; }
+  .poster-pick-tile:hover { border-color: var(--accent); }
+  .poster-pick-tile img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; background: var(--surface-2); }
+  .poster-pick-tile .poster-pick-ph { width: 100%; aspect-ratio: 2/3; display: grid; place-items: center; background: var(--surface-2); color: var(--muted); font-size: 11px; text-align: center; padding: 6px; }
+  .poster-pick-tile .poster-pick-title { font-size: 0.76rem; padding: 6px 4px 2px; }
+  .poster-pick-tile .poster-pick-sub { font-size: 0.68rem; color: var(--muted); padding: 0 4px 6px; }
 
   .ac-article-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
   .ac-article-row:first-child { border-top: 0; }
@@ -395,13 +392,10 @@
   .ac-rc-x { flex: 0 0 auto; background: transparent; border: 1px solid var(--border); color: var(--muted); font-size: 10px; padding: 1px 6px; border-radius: 999px; font-weight: 400; cursor: pointer; }
   .ac-reader-foot { display: flex; gap: 10px; margin-top: 4px; }
 
-  .ac-reader-backdrop { display: none; position: fixed; inset: 0; background: rgba(4,5,8,.72); z-index: 40; }
-  .ac-reader-backdrop.open { display: block; }
-  .ac-reader-panel {
-    display: none; position: fixed; inset: 4% 10%; z-index: 41; overflow-y: auto;
-    background: #14171f; border: 1px solid var(--panel-edge); border-radius: 16px; padding: 22px 26px;
-    box-shadow: 0 30px 80px rgba(0,0,0,.55);
-  }
+  /* The reader sits in the Articles pane rather than over the whole screen.
+     It used to be a fixed modal with a backdrop, which meant collecting a
+     passage cost you the list you were working through. */
+  .ac-reader-panel { display: none; }
   .ac-reader-panel.open { display: block; }
   .ac-reader-head { display: flex; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 14px; }
   .ac-reader-body { font-size: 13.5px; line-height: 1.7; color: #dbe0ea; }
@@ -718,141 +712,160 @@
   <!-- ============================== Accolades tab ============================== -->
   <div class="tab-panel" id="tab-accolades" data-tab="accolades">
 
-    <nav class="subtabs" id="acSubtabs">
-      <button class="subtab-btn active" data-subtab="ac-films">Films</button>
-      <button class="subtab-btn" data-subtab="ac-builder">Builder</button>
-      <button class="subtab-btn" data-subtab="ac-sources">Sources</button>
-      <button class="subtab-btn" data-subtab="ac-browse">Browse</button>
-    </nav>
+    <!-- ============================================================
+         The accolades workspace.
 
-    <!-- Films -->
-    <div class="subpanel active" id="sub-ac-films">
-      <div class="card">
-        <div class="card-title">Find a film</div>
-        <div class="note" style="margin-top:2px">Search your library, then manage everything found for it — linked articles, blurb, accolades, trivia.</div>
-        <div class="row" style="margin-top:10px">
-          <div><input id="acSearchInput" placeholder="Search your library…" spellcheck="false"></div>
-        </div>
-        <div id="acSearchResults" style="margin-top:6px"></div>
+         Same shape as the Library tab, deliberately: a rail to find, a
+         pane to do, chips that carry counts and double as the summary.
+
+         It replaces four sub-tabs (Films, Builder, Sources, Browse) that
+         never referred to each other, the first of which opened on a
+         search box - so the only way to see a film's material was to
+         already know which film you wanted. Measured when this was
+         written: 3,324 articles scraped into 58,311 blurb candidates and
+         187,799 trivia candidates across 330 films, and not one blurb,
+         trivia line or accolade ever chosen from any of it. The material
+         was never missing. It was invisible.
+         ============================================================ -->
+    <div class="card">
+
+      <div class="lw-subtabs">
+        <button class="lw-subtab active" data-acc-view="films">Films</button>
+        <button class="lw-subtab" data-acc-view="articles">Articles</button>
+        <button class="lw-subtab" data-acc-view="sources">Sources</button>
       </div>
 
-      <div id="acFilmDetail"></div>
-    </div>
+      <!-- ---------------- Films ---------------- -->
+      <div id="accFilms">
+        <div class="lw-chips" id="accChips"></div>
 
-    <!-- Builder -->
-    <div class="subpanel" id="sub-ac-builder">
-      <div class="card">
-        <div class="row" style="margin-bottom:4px">
-          <div>
-            <div class="card-title">Accolades you've built</div>
-            <div class="note" style="margin-top:2px">Your own ranked lists or award-style mentions. Click one to open it.</div>
+        <div class="lw-tools">
+          <input type="text" id="accSearch" placeholder="Search a film…" spellcheck="false">
+          <select id="accSort">
+            <option value="material">Most material first</option>
+            <option value="name">Title A–Z</option>
+          </select>
+          <button class="ghost" id="accSurprise" title="Open a film with good material, chosen at random">Surprise me</button>
+        </div>
+
+        <div class="lw-split">
+          <div class="lw-rail" id="accRail"></div>
+          <div class="lw-pane" id="accPane">
+            <div id="acFilmDetail"></div>
+          </div>
+        </div>
+
+        <!-- The builder folds in here: an accolade list is a thing you
+             attach to films, not a separate world. -->
+        <div class="row" style="margin-top:18px;align-items:center">
+          <div style="flex:1 1 auto">
+            <div class="card-title">Accolade lists</div>
+            <div class="note" style="margin-top:2px">
+              Your own rankings — a top ten, a season, a director's best. Entries resolve to films in
+              the library, and show up under Accolades on the film's page.
+            </div>
           </div>
           <div style="flex:0 0 auto"><button id="acNewAccolade" class="ghost">New accolade</button></div>
         </div>
-        <div id="acBuilderList"></div>
+        <div id="acBuilderList" style="margin-top:10px"></div>
       </div>
-    </div>
 
-    <!-- Sources -->
-    <div class="subpanel" id="sub-ac-sources">
-      <div class="card">
-        <div class="row">
-          <div>
-            <div class="card-title">Web sources</div>
-            <div class="note" style="margin-top:2px">Each one is checked against robots.txt/Terms before it's added. Off means configured but not run yet.</div>
+      <!-- ---------------- Articles ---------------- -->
+      <div id="accArticles" style="display:none">
+        <div class="lw-chips" id="accArtChips"></div>
+
+        <div class="lw-tools">
+          <input type="text" id="acBrowseSearch" placeholder="Search scraped titles…" spellcheck="false">
+          <select id="acBrowseMatchFilter">
+            <option value="all">All articles</option>
+            <option value="matched">Matched to a film</option>
+            <option value="unmatched">Unmatched</option>
+          </select>
+        </div>
+
+        <div class="ac-browse-stats" id="acBrowseStats"></div>
+        <div class="ac-browse-sources" id="acBrowseSources"></div>
+
+        <div class="lw-split">
+          <div class="lw-rail" id="acBrowseGrid"></div>
+          <div class="lw-pane" id="accArtPane">
+
+            <!-- The reader lives in the pane now, not over the top of
+                 everything. Same element ids and the same handlers - only
+                 its position changed, so collecting a passage no longer
+                 means losing the list you were working through. -->
+            <div class="ac-reader-panel" id="acReaderPanel">
+              <div class="ac-reader-head">
+                <div>
+                  <div class="card-title" id="acReaderTitle"></div>
+                  <div class="note" id="acReaderMeta" style="margin-top:2px"></div>
+                </div>
+                <button class="ghost" id="acReaderClose">✕ Close</button>
+              </div>
+              <div id="acReaderMatches"></div>
+
+              <div class="ac-reader-collector" id="acReaderCollectorBlurb">
+                <div class="ac-rc-head">Your blurb — select text below, then "Add to blurb"</div>
+                <div class="ac-rc-lines" id="acReaderCollectorBlurbLines"></div>
+              </div>
+              <div class="ac-reader-collector trivia" id="acReaderCollectorTrivia">
+                <div class="ac-rc-head">Your trivia facts — select text below, then "Add to trivia"</div>
+                <div class="ac-rc-lines" id="acReaderCollectorTriviaLines"></div>
+              </div>
+
+              <div class="ac-reader-body" id="acReaderBody"></div>
+
+              <div class="ac-reader-foot">
+                <button class="warm" data-ac-action="save-reader-blurb">Lock this blurb</button>
+                <button class="ghost" data-ac-action="save-reader-trivia">Save trivia facts</button>
+              </div>
+            </div>
+
+            <div id="accArtEmpty" class="lw-pane-empty">Pick an article on the left.</div>
           </div>
-          <div class="narrow" style="flex:0 0 auto">
-            <label for="acYearInput">Year</label>
+        </div>
+
+        <div style="text-align:center;margin-top:12px">
+          <button class="ghost" id="acBrowseLoadMore" style="display:none">Load more</button>
+        </div>
+      </div>
+
+      <!-- ---------------- Sources ---------------- -->
+      <div id="accSources" style="display:none">
+        <div class="row" style="margin-bottom:10px;align-items:center">
+          <div style="flex:1 1 auto">
+            <div class="card-title">Web sources</div>
+            <div class="note" style="margin-top:2px">Where the writing comes from. Toggle one off and it stops being scraped.</div>
+          </div>
+          <div style="flex:0 0 auto">
             <input id="acYearInput" type="number" style="width:90px">
           </div>
           <div style="flex:0 0 auto"><button id="acRunYearendlists">Run Year End Lists</button></div>
         </div>
         <div id="acSourcesList" style="margin-top:6px"></div>
-      </div>
 
-      <div class="card">
-        <div class="card-title">Wikipedia lists &amp; awards</div>
-        <div class="note" style="margin-top:2px">Ranked "best of" lists and festival winners, pulled from Wikipedia's own tables — same official API as the per-film fetch above.</div>
-        <div class="row" style="margin-top:10px">
-          <div>
-            <label for="acWikiListPreset">Page</label>
-            <select id="acWikiListPreset">
-              <option value="afi100movies">AFI's 100 Years...100 Movies</option>
-              <option value="afi100laughs">AFI's 100 Years...100 Laughs</option>
-              <option value="afi100thrills">AFI's 100 Years...100 Thrills</option>
-              <option value="oscarsbestpicture">Academy Award for Best Picture (winners)</option>
-              <option value="palmedor">Palme d'Or (Cannes winners)</option>
-              <option value="goldenlion">Golden Lion (Venice winners)</option>
-            </select>
+        <div style="margin-top:22px">
+          <div class="card-title">Wikipedia lists &amp; awards</div>
+          <div class="row" style="margin-top:8px;align-items:center">
+            <div style="flex:1 1 auto">
+              <select id="acWikiListPreset">
+              </select>
+            </div>
+            <div style="flex:0 0 auto"><button id="acRunWikiList">Run</button></div>
           </div>
-          <div style="flex:0 0 auto"><button id="acRunWikiList">Run</button></div>
+          <div id="acWikiListStatus" class="muted" style="margin-top:8px;font-size:13px"></div>
         </div>
-        <div id="acWikiListStatus" class="muted" style="margin-top:8px;font-size:13px"></div>
-      </div>
 
-      <div class="card">
-        <div class="card-title">Uploaded books</div>
-        <div class="note" style="margin-top:2px">Share a PDF of a film book or essay collection — every mention of a library film gets found and linked automatically.</div>
-        <div class="row" style="margin-top:10px">
-          <div><input id="acPdfFile" type="file" accept="application/pdf"></div>
-          <div style="flex:0 0 auto"><button id="acUploadPdf">Upload</button></div>
-        </div>
-        <div id="acBooksList" style="margin-top:10px"></div>
-      </div>
-    </div>
-
-    <!-- Browse: cross-source scraped-data visualizer -->
-    <div class="subpanel" id="sub-ac-browse">
-      <div class="ac-browse-stats" id="acBrowseStats"></div>
-
-      <div class="ac-browse-sources" id="acBrowseSources"></div>
-
-      <div class="card">
-        <div class="row" style="align-items:center">
-          <div style="flex:1"><input id="acBrowseSearch" placeholder="Search scraped titles…" spellcheck="false"></div>
-          <div class="narrow" style="flex:0 0 auto">
-            <select id="acBrowseMatchFilter">
-              <option value="">All articles</option>
-              <option value="only">Matched only</option>
-              <option value="none">Unmatched only</option>
-            </select>
+        <div style="margin-top:22px">
+          <div class="card-title">Uploaded books</div>
+          <div class="row" style="margin-top:8px;align-items:center">
+            <div style="flex:1 1 auto"><input id="acPdfFile" type="file" accept="application/pdf"></div>
+            <div style="flex:0 0 auto"><button id="acUploadPdf">Upload</button></div>
           </div>
-        </div>
-        <div class="ac-browse-grid" id="acBrowseGrid"></div>
-        <div style="text-align:center;margin-top:14px">
-          <button class="ghost" id="acBrowseLoadMore" style="display:none">Load more</button>
+          <div id="acBooksList" style="margin-top:10px"></div>
         </div>
       </div>
-    </div>
 
-  </div>
-
-  <!-- Article full-text reader — shared by every sub-tab that opens one -->
-  <div class="ac-reader-backdrop" id="acReaderBackdrop"></div>
-  <div class="ac-reader-panel" id="acReaderPanel">
-    <div class="ac-reader-head">
-      <div>
-        <div class="card-title" id="acReaderTitle"></div>
-        <div class="note" id="acReaderMeta" style="margin-top:2px"></div>
-      </div>
-      <button class="ghost" id="acReaderClose">✕ Close</button>
-    </div>
-    <div id="acReaderMatches"></div>
-
-    <div class="ac-reader-collector" id="acReaderCollectorBlurb">
-      <div class="ac-rc-head">Your blurb — select text below, then "Add to blurb"</div>
-      <div class="ac-rc-lines" id="acReaderCollectorBlurbLines"></div>
-    </div>
-    <div class="ac-reader-collector trivia" id="acReaderCollectorTrivia">
-      <div class="ac-rc-head">Your trivia facts — select text below, then "Add to trivia"</div>
-      <div class="ac-rc-lines" id="acReaderCollectorTriviaLines"></div>
-    </div>
-
-    <div class="ac-reader-body" id="acReaderBody"></div>
-
-    <div class="ac-reader-foot">
-      <button class="warm" data-ac-action="save-reader-blurb">Lock this blurb</button>
-      <button class="ghost" data-ac-action="save-reader-trivia">Save trivia facts</button>
     </div>
   </div>
 
@@ -1095,6 +1108,9 @@
     // arriving at an empty tab with three "Load" buttons on it was the whole
     // complaint. Later visits reuse what is already in memory.
     if (name === "library" && state.key) lwLoad(false);
+    // Accolades loads itself on arrival for the same reason the Library does:
+    // it used to open on a search box, so the material was invisible.
+    if (name === "accolades" && state.key) { accLoad(false); acLoadBuilder(); }
   }
   document.querySelectorAll(".tab-btn").forEach(function (b) {
     b.addEventListener("click", function () { showTab(b.getAttribute("data-tab")); });
@@ -2818,12 +2834,12 @@
             '<button class="ghost" data-action="close-panel" data-item-id="' + itemId + '">Close</button></div>';
           return;
         }
-        var html = '<div class="rv-inline-panel"><div class="ac-poster-grid">' +
+        var html = '<div class="rv-inline-panel"><div class="poster-pick-grid">' +
           posters.slice(0, 24).map(function (p) {
-            return '<div class="ac-poster-tile" data-action="apply-poster" data-item-id="' + itemId +
+            return '<div class="poster-pick-tile" data-action="apply-poster" data-item-id="' + itemId +
               '" data-image-url="' + esc(p.fullUrl) + '">' +
               '<img src="' + esc(p.thumbUrl) + '" alt="" loading="lazy">' +
-              '<div class="ac-tile-sub">' + (p.language ? p.language : "no lang") + ' · ★ ' + p.voteAverage.toFixed(1) + '</div>' +
+              '<div class="poster-pick-sub">' + (p.language ? p.language : "no lang") + ' · ★ ' + p.voteAverage.toFixed(1) + '</div>' +
               '</div>';
           }).join("") +
           '</div><button class="ghost" data-action="close-panel" data-item-id="' + itemId + '" style="margin-top:10px">Close</button></div>';
@@ -3553,16 +3569,8 @@
    * ================================================================ */
 
   // Sub-tabs, nested one level below the top-level tab bar.
-  document.querySelectorAll(".subtab-btn").forEach(function (b) {
-    b.addEventListener("click", function () {
-      var target = "sub-" + b.getAttribute("data-subtab");
-      var nav = b.parentElement;
-      nav.querySelectorAll(".subtab-btn").forEach(function (x) { x.classList.toggle("active", x === b); });
-      nav.parentElement.querySelectorAll(".subpanel").forEach(function (p) {
-        p.classList.toggle("active", p.id === target);
-      });
-    });
-  });
+  // The sub-tab mechanism is gone: Accolades was its only user, and it
+  // now uses the same view switcher as the Library workspace.
 
   /* ---- Browse: cross-source scraped-data visualizer -------------------- */
   var SRC_PALETTE = ["#5b8def", "#e8935a", "#6fc98a", "#c98ed1", "#e8c85a", "#6ba3c9", "#e8695a", "#8f9cad"];
@@ -3613,17 +3621,17 @@
   }
 
   function acBrowseCardHtml(a) {
+    // A rail row rather than a card: the article list is now a column beside
+    // the reader, so the whole thing has to fit in 240px.
     var color = acSrcColor(a.source_id);
-    var fetched = new Date(a.fetched_at).toLocaleDateString();
     var matched = a.matched_count > 0;
-    return '<div class="ac-browse-card" style="--src-color:' + color + '" data-article-id="' + esc(a.id) + '">' +
-      '<div class="ab-title">' + esc(a.title) + '</div>' +
-      '<div class="ab-meta">' +
-        '<span class="ab-src" style="color:' + color + '">' + esc(a.source_name) + '</span>' +
-        '<span class="ab-match ' + (matched ? "yes" : "no") + '">' + (matched ? "✓ " + a.matched_count + " matched" : "unmatched") + '</span>' +
-      '</div>' +
-      '<div style="margin-top:6px;font-size:10.5px;color:var(--muted)">' + fetched + '</div>' +
-    '</div>';
+    return '<div class="lw-rail-item ac-browse-card" data-article-id="' + esc(a.id) + '">' +
+      '<span class="lw-dot ' + (matched ? "accent" : "dead") + '" style="background:' + (matched ? color : "") + '"></span>' +
+      '<span class="lw-rail-name">' + esc(a.title) +
+        '<span class="lw-rail-sub">' + esc(a.source_name) +
+          (matched ? " · " + a.matched_count + " matched" : " · unmatched") +
+        '</span>' +
+      '</span></div>';
   }
 
   function acBrowseRenderGrid(append) {
@@ -3631,10 +3639,14 @@
     if (append) {
       $("acBrowseGrid").insertAdjacentHTML("beforeend", html);
     } else {
-      $("acBrowseGrid").innerHTML = html || '<div class="empty" style="grid-column:1/-1">Nothing scraped yet' + (acBrowseState.q || acBrowseState.source || acBrowseState.matched ? " matching this filter." : ".") + '</div>';
+      $("acBrowseGrid").innerHTML = html || '<div class="empty" style="padding:20px">Nothing scraped yet' + (acBrowseState.q || acBrowseState.source || acBrowseState.matched ? " matching this filter." : ".") + '</div>';
     }
     $("acBrowseGrid").querySelectorAll(".ac-browse-card").forEach(function (card) {
-      card.addEventListener("click", function () { acReadArticle(card.getAttribute("data-article-id")); });
+      card.addEventListener("click", function () {
+        $("acBrowseGrid").querySelectorAll(".ac-browse-card").forEach(function (c) { c.classList.remove("sel"); });
+        card.classList.add("sel");
+        acReadArticle(card.getAttribute("data-article-id"));
+      });
     });
   }
 
@@ -3680,9 +3692,7 @@
     acBrowseFetch(true);
   });
 
-  document.querySelectorAll('.subtab-btn[data-subtab="ac-browse"]').forEach(function (b) {
-    b.addEventListener("click", function () { if (!acBrowseLoaded) acBrowseLoad(); });
-  });
+  // Loading on first view is handled by the data-acc-view handler above.
 
   /* ---- Rich-text toolbar ----------------------------------------------
    * setRangeText() on a plain <textarea>, not contenteditable — guarantees
@@ -3726,7 +3736,6 @@
     $("acReaderBody").innerHTML = String(body).split("\n\n").map(function (p) {
       return "<p>" + esc(p) + "</p>";
     }).join("");
-    $("acReaderBackdrop").classList.add("open");
     $("acReaderPanel").classList.add("open");
     acBlurbPicks = [];
     acTriviaPicks = [];
@@ -3734,14 +3743,12 @@
     acHideReaderToolbar();
   }
   function acCloseReader() {
-    $("acReaderBackdrop").classList.remove("open");
     $("acReaderPanel").classList.remove("open");
     acHideReaderToolbar();
     acBlurbPicks = [];
     acTriviaPicks = [];
   }
   $("acReaderClose").addEventListener("click", acCloseReader);
-  $("acReaderBackdrop").addEventListener("click", acCloseReader);
 
   var acCurrentArticleId = null;
   var acCurrentArticle = null;
@@ -3855,38 +3862,203 @@
   var acCurrentImdb = null;
   var acSearchTimer = null;
 
-  function acSearch() {
-    var q = $("acSearchInput").value.trim();
-    var el = $("acSearchResults");
-    if (q.length < 2) { el.innerHTML = ""; return; }
-    api("/api/admin/accolades/search?q=" + encodeURIComponent(q)).then(function (data) {
-      var results = data.results || [];
-      if (!results.length) { el.innerHTML = '<div class="muted" style="padding:6px 0">No matches.</div>'; return; }
-      el.innerHTML = '<div class="ac-poster-grid">' + results.map(function (r) {
-        var posterSrc = r.posterUrl ? (r.posterUrl.indexOf("http") === 0 ? r.posterUrl : state.base + r.posterUrl) : null;
-        var poster = posterSrc
-          ? '<img src="' + esc(posterSrc) + '" alt="">'
-          : '<div class="ac-tile-ph">No poster</div>';
-        return '<div class="ac-poster-tile" data-ac-action="select-film" data-imdb-id="' + esc(r.imdbId) + '" data-name="' + esc(r.name) + '">' +
-          poster + '<div class="ac-tile-title">' + esc(r.name) + '</div>' +
-          '<div class="ac-tile-sub">' + (r.year || "") + '</div></div>';
-      }).join("") + '</div>';
-    }).catch(function (e) { show("err", e.message); });
+
+  /* ================================================================
+   * Accolades workspace — the Films rail
+   *
+   * The tab used to open on a search box, so a film's material was only
+   * reachable if you already knew which film you wanted. That is why
+   * 188,000 trivia candidates and 58,000 blurb candidates had produced
+   * exactly zero chosen lines: nothing ever showed you what was there.
+   *
+   * The counts are an invitation, not a backlog. "Material waiting" is a
+   * shelf of things worth an evening; it is deliberately not phrased as
+   * work owed, because this is a library someone keeps for pleasure.
+   * ================================================================ */
+  var acc = {
+    films: [],
+    loaded: false,
+    loading: false,
+    filter: "material",
+    selected: null,
+  };
+
+  var ACC_FILTERS = [
+    { key: "material", label: "Material waiting", test: function (f) { return f.hasMaterial && !f.curated; } },
+    { key: "blurb", label: "Blurb chosen", test: function (f) { return f.blurbChosen; } },
+    { key: "trivia", label: "Trivia chosen", test: function (f) { return f.triviaChosen > 0; } },
+    { key: "accolade", label: "Has an accolade", test: function (f) { return f.accoladeChosen; } },
+    { key: "all", label: "Everything", test: function () { return true; } }
+  ];
+
+  /** How much there is to read for a film — what "most material first" sorts on. */
+  function accWeight(f) {
+    return f.articles * 100 + f.blurbCandidates + f.triviaCandidates;
   }
-  $("acSearchInput").addEventListener("input", function () {
-    clearTimeout(acSearchTimer);
-    acSearchTimer = setTimeout(acSearch, 250);
+
+  function accVisibleFilms() {
+    var q = ($("accSearch").value || "").trim().toLowerCase();
+    var f = ACC_FILTERS.filter(function (x) { return x.key === acc.filter; })[0] || ACC_FILTERS[0];
+    var rows = acc.films.filter(function (film) {
+      if (!f.test(film)) return false;
+      if (!q) return true;
+      return film.name.toLowerCase().indexOf(q) !== -1 || String(film.year || "").indexOf(q) !== -1;
+    });
+    if ($("accSort").value === "name") {
+      rows.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    } else {
+      rows.sort(function (a, b) { return accWeight(b) - accWeight(a) || a.name.localeCompare(b.name); });
+    }
+    return rows;
+  }
+
+  function accRenderChips() {
+    $("accChips").innerHTML = ACC_FILTERS.map(function (f) {
+      var n = acc.films.filter(f.test).length;
+      var cls = "lw-chip" + (f.key === acc.filter ? " on" : "");
+      return '<button class="' + cls + '" data-acc-filter="' + f.key + '"' + (n ? "" : " disabled") + '>' +
+        esc(f.label) + ' <b>' + n + '</b></button>';
+    }).join("");
+  }
+
+  function accRenderRail() {
+    var rows = accVisibleFilms();
+    var el = $("accRail");
+    if (!rows.length) {
+      el.innerHTML = '<div class="empty" style="padding:20px">Nothing here.</div>';
+      return;
+    }
+    // Capped: the rail is for choosing something to work on, not for
+    // scrolling 1,159 films. Narrow it with the search box or a chip.
+    var shown = rows.slice(0, 200);
+    el.innerHTML = shown.map(function (f) {
+      var sub = f.curated
+        ? "done"
+        : (f.hasMaterial ? (f.articles + (f.articles === 1 ? " article" : " articles")) : "");
+      var dot = f.curated ? "accent" : (f.hasMaterial ? "warn" : "");
+      return '<div class="lw-rail-item' + (acc.selected === f.imdbId ? " sel" : "") + '" data-acc-film="' + esc(f.imdbId) +
+        '" data-acc-name="' + esc(f.name) + '">' +
+        '<span class="lw-dot ' + dot + '"></span>' +
+        lwThumbHtml(f.posterUrl, "lw-thumb") +
+        '<span class="lw-rail-name">' + esc(f.name) +
+          (sub ? '<span class="lw-rail-sub">' + esc(sub) + '</span>' : "") +
+        '</span></div>';
+    }).join("") +
+      (rows.length > shown.length
+        ? '<div class="empty" style="padding:12px;font-size:12px">' + (rows.length - shown.length) +
+          ' more — narrow it with the search box.</div>'
+        : "");
+  }
+
+  function accRender() {
+    accRenderChips();
+    accRenderRail();
+  }
+
+  function accLoad(force) {
+    if (acc.loading) return Promise.resolve();
+    if (acc.loaded && !force) return Promise.resolve();
+    acc.loading = true;
+    $("accRail").innerHTML = '<div class="empty" style="padding:20px">Loading…</div>';
+    return api("/api/admin/accolades/films").then(function (data) {
+      acc.films = data.films || [];
+      acc.loaded = true;
+      accRender();
+    }).catch(function (e) {
+      $("accRail").innerHTML = '<div class="empty" style="padding:20px">' + esc(e.message) + '</div>';
+      show("err", e.message);
+    }).then(function () { acc.loading = false; });
+  }
+
+  function accSelect(imdbId, name) {
+    acc.selected = imdbId;
+    accRenderRail();
+    acLoadFilmDetail(imdbId, name);
+  }
+
+  $("accSearch").addEventListener("input", accRenderRail);
+  $("accSort").addEventListener("change", accRenderRail);
+
+  $("accChips").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-acc-filter]");
+    if (!btn || btn.disabled) return;
+    acc.filter = btn.getAttribute("data-acc-filter");
+    accRenderChips();
+    accRenderRail();
+  });
+
+  $("accRail").addEventListener("click", function (e) {
+    var row = e.target.closest("[data-acc-film]");
+    if (!row) return;
+    accSelect(row.getAttribute("data-acc-film"), row.getAttribute("data-acc-name"));
+  });
+
+  /*
+   * The honest entry point for a section nobody is obliged to work
+   * through: pick something with good material and open it.
+   */
+  $("accSurprise").addEventListener("click", function () {
+    var pool = acc.films.filter(function (f) { return f.hasMaterial && !f.curated; });
+    if (!pool.length) { show("ok", "Nothing with material waiting — everything with something to read has been dealt with."); return; }
+    // Weighted towards the richer films without being deterministic: take a
+    // random pick from the best-stocked third.
+    pool.sort(function (a, b) { return accWeight(b) - accWeight(a); });
+    var top = pool.slice(0, Math.max(1, Math.ceil(pool.length / 3)));
+    var pick = top[Math.floor(Math.random() * top.length)];
+    acc.filter = "material";
+    $("accSearch").value = "";
+    accRenderChips();
+    accSelect(pick.imdbId, pick.name);
+    var row = document.querySelector('[data-acc-film="' + pick.imdbId + '"]');
+    if (row && row.scrollIntoView) row.scrollIntoView({ block: "center" });
+  });
+
+  /* ---- views ----------------------------------------------------- */
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-acc-view]"), function (btn) {
+    btn.addEventListener("click", function () {
+      var view = btn.getAttribute("data-acc-view");
+      Array.prototype.forEach.call(document.querySelectorAll("[data-acc-view]"), function (b) {
+        b.classList.toggle("active", b === btn);
+      });
+      $("accFilms").style.display = view === "films" ? "" : "none";
+      $("accArticles").style.display = view === "articles" ? "" : "none";
+      $("accSources").style.display = view === "sources" ? "" : "none";
+      if (view === "films") { accLoad(false); acLoadBuilder(); }
+      if (view === "articles" && !acBrowseLoaded) acBrowseLoad();
+      if (view === "sources") loadAcSources();
+    });
   });
 
   function acLoadFilmDetail(imdbId, name) {
+    if (acCurrentImdb !== imdbId) {
+      accShowAllBlurbs = false;
+      accShowAllTrivia = false;
+    }
     acCurrentImdb = imdbId;
-    $("acSearchResults").innerHTML = "";
-    $("acSearchInput").value = name;
     $("acFilmDetail").innerHTML = '<div class="muted" style="padding:10px 0">Loading…</div>';
     api("/api/admin/accolades/film/" + encodeURIComponent(imdbId)).then(function (data) {
       acRenderFilmDetail(name, data);
     }).catch(function (e) { show("err", e.message); });
   }
+
+  /*
+   * How readable a scraped passage is, as a stand-in for how good it is.
+   *
+   * Scraping produces a lot of fragments — half sentences, credits, stray
+   * captions — and they arrive in document order, so the usable lines are
+   * buried. A passage in the range a person would actually want under a
+   * poster scores highest; very short and very long ones fall away.
+   */
+  function accPassageScore(text) {
+    var n = (text || "").trim().length;
+    if (n < 40) return n;                       // fragments
+    if (n <= 240) return 1000 - Math.abs(150 - n);  // the sweet spot
+    return Math.max(0, 700 - (n - 240) / 4);    // whole paragraphs
+  }
+
+  var accShowAllBlurbs = false;
+  var accShowAllTrivia = false;
 
   function acRenderFilmDetail(name, data) {
     var lock = data.lock || {};
@@ -3916,12 +4088,28 @@
     if (!data.blurbCandidates.length) {
       html += '<div class="muted" style="padding:6px 0">No candidates yet.</div>';
     } else {
-      data.blurbCandidates.forEach(function (c) {
+      /*
+       * Best few first, the rest behind a count.
+       *
+       * A film can carry hundreds of blurb candidates in scrape order, and
+       * choosing three meant reading three hundred — which is why none were
+       * ever chosen. "Best" is a readable length: long enough to be a
+       * thought, short enough to sit under a poster.
+       */
+      var blurbSorted = data.blurbCandidates.slice().sort(function (a, b) {
+        return accPassageScore(b.passage_text) - accPassageScore(a.passage_text);
+      });
+      var blurbShown = accShowAllBlurbs ? blurbSorted : blurbSorted.slice(0, 3);
+      blurbShown.forEach(function (c) {
         var picked = lock.locked_blurb_candidate_id === c.id;
         html += '<div class="ac-option' + (picked ? " picked" : "") + '"><div style="flex:1"><div class="ac-o-text">"' + esc(c.passage_text) + '"</div>' +
           '<div class="ac-o-meta">' + esc(c.source_name) + '</div></div>' +
-          '<div class="ac-o-actions"><button class="ghost" data-ac-action="lock-blurb" data-candidate-id="' + esc(c.id) + '">Lock this</button></div></div>';
+          '<div class="ac-o-actions"><button class="ghost" data-ac-action="lock-blurb" data-candidate-id="' + esc(c.id) + '">Use this</button></div></div>';
       });
+      if (!accShowAllBlurbs && blurbSorted.length > blurbShown.length) {
+        html += '<button class="ghost" data-ac-action="show-all-blurbs" style="margin-top:6px">' +
+          'Show the other ' + (blurbSorted.length - blurbShown.length) + '</button>';
+      }
     }
     html += '<label style="margin-top:10px">Or write your own — or paste one copied from a site we don\'t scrape</label>' +
       '<div class="ac-rt-toolbar">' +
@@ -3984,10 +4172,19 @@
     if (!data.triviaCandidates.length) {
       html += '<div class="muted" style="padding:6px 0">None yet.</div>';
     } else {
-      data.triviaCandidates.forEach(function (t) {
-        html += '<div class="ac-trivia-row"><div><div class="ac-t-text">' + esc(t.fact_text) + '</div><div class="ac-t-meta">' + esc(t.article_title) + '</div></div>' +
-          '<button class="ghost" data-ac-action="add-trivia-candidate" data-candidate-id="' + esc(t.id) + '">Add to curated list</button></div>';
+      // Same reasoning as the blurbs: a film can carry hundreds of these.
+      var triviaSorted = data.triviaCandidates.slice().sort(function (a, b) {
+        return accPassageScore(b.fact_text) - accPassageScore(a.fact_text);
       });
+      var triviaShown = accShowAllTrivia ? triviaSorted : triviaSorted.slice(0, 5);
+      triviaShown.forEach(function (t) {
+        html += '<div class="ac-trivia-row"><div><div class="ac-t-text">' + esc(t.fact_text) + '</div><div class="ac-t-meta">' + esc(t.article_title) + '</div></div>' +
+          '<button class="ghost" data-ac-action="add-trivia-candidate" data-candidate-id="' + esc(t.id) + '">Use this</button></div>';
+      });
+      if (!accShowAllTrivia && triviaSorted.length > triviaShown.length) {
+        html += '<button class="ghost" data-ac-action="show-all-trivia" style="margin-top:6px">' +
+          'Show the other ' + (triviaSorted.length - triviaShown.length) + '</button>';
+      }
     }
     html += '<label style="margin-top:12px">Add your own</label>' +
       '<div class="ac-rt-toolbar">' +
@@ -4007,9 +4204,14 @@
 
   function acReloadFilmDetail() {
     if (!acCurrentImdb) return Promise.resolve();
-    var name = $("acSearchInput").value;
+    // The name comes from the rail row now that there is no search box.
+    var row = document.querySelector('[data-acc-film="' + acCurrentImdb + '"]');
+    var name = row ? row.getAttribute("data-acc-name") : "";
     return api("/api/admin/accolades/film/" + encodeURIComponent(acCurrentImdb)).then(function (data) {
       acRenderFilmDetail(name, data);
+      // Choosing a blurb or a trivia line changes what the chips count and
+      // what the rail's dot says, so bring those back in step.
+      if (acc.loaded) accLoad(true);
     });
   }
 
@@ -4170,6 +4372,12 @@
 
     if (action === "select-film") {
       acLoadFilmDetail(btn.getAttribute("data-imdb-id"), btn.getAttribute("data-name"));
+    } else if (action === "show-all-blurbs") {
+      accShowAllBlurbs = true;
+      acReloadFilmDetail();
+    } else if (action === "show-all-trivia") {
+      accShowAllTrivia = true;
+      acReloadFilmDetail();
     } else if (action === "rt-format") {
       wrapSelectionInTag($(btn.getAttribute("data-target")), btn.getAttribute("data-tag"));
     } else if (action === "read-article") {
@@ -4362,10 +4570,7 @@
   });
 
   // Sub-tab content loads once, the first time its tab is shown.
-  var acBuilderLoaded = false;
-  document.querySelectorAll('.subtab-btn[data-subtab="ac-builder"]').forEach(function (b) {
-    b.addEventListener("click", function () { if (!acBuilderLoaded) { acBuilderLoaded = true; acLoadBuilder(); } });
-  });
+  // The builder lives under Films now, and loads with that view.
 
   // Restore a same-session key so a refresh does not mean retyping it.
   try {
