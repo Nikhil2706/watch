@@ -9,9 +9,11 @@ import {
   getExcludedPathSet,
   getGroup,
   getGroupedPathMap,
+  getGroupKind,
   getGroupOverview,
   getGroupSeriesId,
   getWhitelistedPathSet,
+  type GroupKind,
 } from "./library-curation";
 
 /**
@@ -237,6 +239,8 @@ export interface GroupDetail {
   overview: string | null;
   /** The real TV series' IMDb id, if the admin has set one — what makes per-episode OMDb fetch possible. */
   seriesImdbId: string | null;
+  /** "series" | "movie" | null — decides whether tiles read "N episodes" or "N parts". Null until a series fetch or the curator settles it. */
+  kind: GroupKind | null;
   items: GroupMemberItem[];
 }
 
@@ -273,6 +277,7 @@ export async function buildGroupDetail(groupId: string): Promise<GroupDetail | n
     groupName: group.groupName,
     overview: getGroupOverview(groupId),
     seriesImdbId: getGroupSeriesId(groupId),
+    kind: getGroupKind(groupId),
     items,
   };
 }

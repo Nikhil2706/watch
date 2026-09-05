@@ -27,6 +27,7 @@ export function PosterCard({
   href,
   posterSrc,
   partsCount,
+  partsUnit = "parts",
   title,
 }: {
   item: MediaItem;
@@ -38,8 +39,10 @@ export function PosterCard({
   href?: string;
   /** Overrides the computed poster URL — used when a Collection has no image of its own. */
   posterSrc?: string | null;
-  /** When set, this card represents a group of films rather than one — shown as "N parts". */
+  /** When set, this card represents a group of films rather than one — shown as "N parts" / "N episodes". */
   partsCount?: number;
+  /** Wording for that count: a television series has episodes, a film released in instalments has parts. Defaults to parts, which is what an unresolved group reads as. */
+  partsUnit?: "parts" | "episodes";
   /** Overrides the displayed title — used for episode labels ("Episode 7: ..."), without touching item.Name. */
   title?: string;
 }) {
@@ -94,7 +97,9 @@ export function PosterCard({
 
         <div className="poster-title">{title ?? item.Name}</div>
         {partsCount !== undefined ? (
-          <div className="poster-badge">{partsCount} parts</div>
+          <div className="poster-badge">
+            {partsCount} {partsCount === 1 ? partsUnit.replace(/s$/, "") : partsUnit}
+          </div>
         ) : badge ? (
           <div className="poster-badge">{badge}</div>
         ) : item.ProductionYear ? (

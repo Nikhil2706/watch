@@ -530,7 +530,11 @@ button.secondary {
   white-space: nowrap;
 }
 
+/* One declaration for both the /watch page and the party room — this used to
+   be split across two rules in different sections of this file. */
 .player-stage {
+  position: relative;
+  width: 100%;
   flex: 1;
   display: grid;
   place-items: center;
@@ -1134,16 +1138,100 @@ a.curator-card:hover {
   font-size: 0.85rem;
 }
 
-.person-bio {
+/* Named holes in a season's numbering, under the row they belong to. Quiet on
+   purpose: it is a footnote about the library, not a problem the viewer can
+   act on. */
+.season-gap {
+  margin: -6px 20px 18px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.season-gap::before {
+  content: "";
+  display: inline-block;
+  width: 14px;
+  height: 1px;
+  margin-right: 8px;
+  vertical-align: middle;
+  background: var(--warm-line);
+}
+
+/* A curator's pick, on the film it was sent about. Warm-edged rather than
+   card-shaped: it is a voice, not another panel of metadata. */
+.curator-note {
+  margin: 14px 0 0;
+  padding: 12px 16px;
+  max-width: 620px;
+  border-left: 2px solid var(--warm);
+  background: rgba(255, 217, 160, 0.06);
+  border-radius: 0 8px 8px 0;
+}
+
+.curator-note-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--warm);
+}
+
+.curator-note-head time {
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--muted);
+}
+
+.curator-note blockquote {
+  margin: 6px 0 0;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.person-bio-wrap {
   margin: 10px 0 0;
+  max-width: 620px;
+}
+
+.person-bio {
+  margin: 0;
   color: #cdd4e0;
   font-size: 0.9rem;
-  max-width: 620px;
   display: -webkit-box;
   -webkit-line-clamp: 4;
   line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* Expanded: drop the clamp entirely rather than raising the line count, so a
+   bio of any length reads in full. */
+.person-bio-open {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: none;
+  line-clamp: none;
+}
+
+.person-bio-toggle {
+  width: auto;
+  margin-top: 6px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.person-bio-toggle:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 700px) {
@@ -1174,11 +1262,6 @@ a.curator-card:hover {
 /* ---------------------------------------------------------------- *
  * Player (Vidstack)
  * ---------------------------------------------------------------- */
-
-.player-stage {
-  position: relative;
-  width: 100%;
-}
 
 .vds-player {
   width: 100%;
@@ -3193,27 +3276,162 @@ button:focus-visible {
   width: 100%;
 }
 
+/*
+ * Player and chat share one gutter.
+ *
+ * Previously the grid had gap:0 and no padding, .party-room-side supplied its
+ * own 16px, and .party-room-player had no rule at all — so the video sat flush
+ * against the header while the chat card started 16px lower, and the video's
+ * right edge butted straight into the sidebar. The spacing now belongs to the
+ * grid, so both columns start on the same line.
+ */
 .party-room-grid {
+  --party-chrome: 52px; /* .player-bar's height — the only chrome above this grid */
   display: grid;
   grid-template-columns: 1fr;
-  gap: 0;
+  gap: 16px;
+  padding: 16px;
   flex: 1;
   min-height: 0;
 }
 
 @media (min-width: 900px) {
   .party-room-grid {
-    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-columns: minmax(0, 1fr) 360px;
     align-items: start;
   }
 }
 
+/* Chat moved to a phone or another tab — the player takes the whole width. */
+.party-room-grid.chat-detached {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.party-room-player {
+  min-width: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+}
+
+/*
+ * Sticky, and capped to the viewport, so the sidebar's own content can never
+ * push the page taller than the screen and scroll the film out of view — which
+ * is what happened once the guest-links panel and the End button sat below a
+ * 70vh chat box.
+ */
 .party-room-side {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 16px;
+  gap: 14px;
   min-height: 0;
+}
+
+@media (min-width: 900px) {
+  .party-room-side {
+    position: sticky;
+    top: 16px;
+    max-height: calc(100dvh - var(--party-chrome) - 32px);
+    overflow-y: auto;
+  }
+}
+
+/* Chat's own header — only rendered when chat is docked beside a player, so
+   it can be sent somewhere else. */
+.party-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+}
+
+.party-chat-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: auto;
+}
+
+.party-chat-head-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.party-chat-move {
+  width: auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.party-chat-move:hover {
+  color: var(--text);
+  border-color: var(--warm-line);
+}
+
+.party-chat-qr {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+}
+
+.party-chat-qr img {
+  width: 116px;
+  height: 116px;
+  flex: 0 0 auto;
+  background: #fff;
+  border-radius: 8px;
+  padding: 5px;
+}
+
+.party-chat-qr-side {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+
+.party-chat-qr-side p {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.party-chat-qr-side button {
+  align-self: flex-start;
+}
+
+/* Shown in the player column once chat has moved out. */
+.party-chat-away {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.party-chat-away button {
+  width: auto;
+  margin-left: auto;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--warm-line);
+  background: transparent;
+  color: var(--warm);
+  font-size: 0.76rem;
 }
 
 .party-chat {
@@ -3222,8 +3440,8 @@ button:focus-visible {
   border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: 10px;
   overflow: hidden;
-  min-height: 320px;
-  max-height: 70vh;
+  min-height: 280px;
+  flex: 1 1 auto;
 }
 
 .party-page-chat-only .party-chat {
@@ -3322,7 +3540,7 @@ button:focus-visible {
 
 .party-message {
   font-size: 0.85rem;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .party-name {
@@ -3336,20 +3554,40 @@ button:focus-visible {
   color: var(--muted);
 }
 
+/*
+ * The row is one control, not two: the input takes the space, the button is
+ * only as wide as its label.
+ *
+ * `min-width: 0` and the width override are both load-bearing. globals.css's
+ * own `form button[type="submit"] { width: 100% }` (for stacked login/upload
+ * forms) applies here too, and a 100%-wide flex item squeezed this input down
+ * to a ~20px sliver until it was overridden.
+ */
 .party-composer {
   display: flex;
+  align-items: stretch;
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--border, rgba(255, 255, 255, 0.1));
 }
 
 .party-composer input {
-  flex: 1;
-  padding: 8px 10px;
-  border-radius: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: 8px;
   border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
   background: rgba(255, 255, 255, 0.04);
   color: inherit;
+  font-size: 0.9rem;
+}
+
+.party-composer button[type="submit"] {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 9px 16px;
+  border-radius: 8px;
+  font-size: 0.9rem;
 }
 
 .party-guests {
@@ -3369,19 +3607,31 @@ button:focus-visible {
   color: var(--muted);
 }
 
+/* Same shape, same reason, as .party-composer above. */
 .party-guests-form {
   display: flex;
+  align-items: stretch;
   gap: 8px;
   margin-bottom: 10px;
 }
 
 .party-guests-form input {
-  flex: 1;
-  padding: 6px 8px;
-  border-radius: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 11px;
+  border-radius: 8px;
   border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
   background: rgba(255, 255, 255, 0.04);
   color: inherit;
+  font-size: 0.86rem;
+}
+
+.party-guests-form button[type="submit"] {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 0.86rem;
 }
 
 .party-guests-list {
@@ -3440,7 +3690,6 @@ button:focus-visible {
 .party-ended-banner {
   grid-column: 1 / -1;
   padding: 10px 14px;
-  margin: 16px 16px 0;
   border-radius: 8px;
   border: 1px solid var(--danger);
   background: rgba(239, 91, 107, 0.12);

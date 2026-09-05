@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import {
   getGroupOverview,
   setGroupOverview,
+  setGroupKind,
   setGroupSeriesId,
   setGroupSeriesMeta,
   setGroupSeriesPoster,
@@ -44,6 +45,12 @@ export async function POST(request: Request): Promise<Response> {
     setGroupSeriesId(groupId, parsed.imdb);
 
     const series = await fetchOmdbSeries(parsed.imdb);
+    /*
+     * Only ever set from OMDb here, never cleared: a curator who has already
+     * corrected this group by hand (a long film OMDb calls a mini-series)
+     * shouldn't have that undone by someone re-linking the same series.
+     */
+    if (series?.kind) setGroupKind(groupId, series.kind);
     if (series?.posterUrl) setGroupSeriesPoster(groupId, series.posterUrl);
     if (series?.overview && !getGroupOverview(groupId)) setGroupOverview(groupId, series.overview);
     if (series) {
@@ -56,7 +63,13 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     return Response.json(
-      { saved: true, imdbId: parsed.imdb, seriesName: series?.name ?? null, posterFound: Boolean(series?.posterUrl) },
+      {
+        saved: true,
+        imdbId: parsed.imdb,
+        seriesName: series?.name ?? null,
+        posterFound: Boolean(series?.posterUrl),
+        kind: series?.kind ?? null,
+      },
       { headers: NO_STORE },
     );
   } catch (error) {

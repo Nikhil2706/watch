@@ -229,6 +229,11 @@
   .ac-lock-pill.auto { background: rgba(147,156,173,.12); color: var(--muted); border: 1px solid var(--border); }
 
   .ac-result-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; cursor: pointer; }
+  .nf-result { display: flex; align-items: center; gap: 9px; }
+  .nf-result-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nf-thumb { width: 30px; height: 45px; flex: 0 0 auto; border-radius: 3px; object-fit: cover; background: var(--surface-2); border: 1px solid var(--border); }
+  .nf-thumb-empty { display: inline-block; }
+  .nf-selected { display: flex; align-items: center; gap: 9px; }
   .ac-result-row:first-child { border-top: 0; }
   .ac-result-row:hover { color: var(--accent); }
   .ac-result-row .ac-r-year { color: var(--muted); font-size: 11px; }
@@ -594,6 +599,7 @@
           </div>
         </div>
         <div style="flex:0 0 auto">
+          <button id="resolveKinds" class="ghost">Resolve episodes/parts</button>
           <button id="loadCurationBtn" class="ghost">Refresh</button>
         </div>
       </div>
@@ -877,6 +883,16 @@
       </div>
 
       <div style="margin-top:16px">
+        <label for="notifyNote">Why this one? (optional)</label>
+        <div class="note" style="margin-bottom:4px">
+          Shown to them on the film's page and on their Picks page, and kept for good.
+          The notification itself stays one line either way.
+        </div>
+        <textarea id="notifyNote" rows="3" maxlength="500" style="width:100%" placeholder="Because you liked Danger: Diabolik, and this is the same year and the same madness."></textarea>
+        <div class="note" id="notifyNoteCount">0 / 500</div>
+      </div>
+
+      <div style="margin-top:16px">
         <button id="notifySend" disabled>Send Curator's Pick</button>
       </div>
       <div id="notifyStatus" class="muted" style="margin-top:10px;font-size:13px"></div>
@@ -998,7 +1014,7 @@
   "use strict";
 
   var $ = function (id) { return document.getElementById(id); };
-  var state = { base: "", key: "", invites: [] };
+  var state = { base: "", key: "", invites: [], showInactive: false };
 
   /* ================================================================
    * Tabs
@@ -1052,6 +1068,15 @@
     });
   }
 
+  /* A poster for an admin list. posterUrl is either an absolute external URL
+     (a group's OMDb art) or a signed /api/admin/thumb path — never a bare /jf/
+     one, which cannot authenticate from this file:// page. */
+  function thumbHtml(posterUrl) {
+    if (!posterUrl) return '<span class="nf-thumb nf-thumb-empty"></span>';
+    var src = posterUrl.indexOf("http") === 0 ? posterUrl : state.base + posterUrl;
+    return '<img class="nf-thumb" src="' + esc(src) + '" alt="" loading="lazy">';
+  }
+
   function fmtDate(iso) {
     if (!iso) return "—";
     var d = new Date(iso);
@@ -1071,9 +1096,25 @@
     var f = $("filter").value;
     var rows = state.invites.filter(function (i) { return f === "all" || i.status === f; });
 
-    $("count").textContent = state.invites.length + " invite" + (state.invites.length === 1 ? "" : "s");
+    /*
+     * A revoked or expired invite is history, not work: it can't be acted on
+     * and it never becomes active again. With every one of them listed inline
+     * the table grew without limit and the handful of live links got lost in
+     * it. On the default view they collapse behind one line you can open.
+     * Choosing a specific status from the dropdown means you asked for them,
+     * so nothing is hidden then.
+     */
+    var dead = [];
+    if (f === "all" && !state.showInactive) {
+      var live = [];
+      rows.forEach(function (i) { (i.status === "active" ? live : dead).push(i); });
+      rows = live;
+    }
 
-    if (!rows.length) {
+    $("count").textContent = state.invites.length + " invite" + (state.invites.length === 1 ? "" : "s") +
+      (dead.length ? " · " + rows.length + " active" : "");
+
+    if (!rows.length && !dead.length) {
       $("tableWrap").innerHTML = '<div class="empty">Nothing to show.</div>';
       return;
     }
@@ -1100,7 +1141,21 @@
         '</td></tr>';
     });
 
-    $("tableWrap").innerHTML = html + "</tbody></table>";
+    var tableHtml = rows.length ? html + "</tbody></table>" : '<div class="empty">No active invites.</div>';
+    if (dead.length) {
+      tableHtml += '<div style="margin-top:10px"><button class="ghost" id="showInactive">Show ' +
+        dead.length + ' inactive invite' + (dead.length === 1 ? '' : 's') + '</button></div>';
+    } else if (state.showInactive && f === "all") {
+      tableHtml += '<div style="margin-top:10px"><button class="ghost" id="hideInactive">Hide inactive invites</button></div>';
+    }
+    $("tableWrap").innerHTML = tableHtml;
+
+    if ($("showInactive")) {
+      $("showInactive").addEventListener("click", function () { state.showInactive = true; render(); });
+    }
+    if ($("hideInactive")) {
+      $("hideInactive").addEventListener("click", function () { state.showInactive = false; render(); });
+    }
 
     Array.prototype.forEach.call(document.querySelectorAll("[data-revoke]"), function (btn) {
       btn.addEventListener("click", function () { revoke(btn.getAttribute("data-revoke")); });
@@ -1137,11 +1192,12 @@
       $("usersTableWrap").innerHTML = '<div class="empty">No users yet.</div>';
       return;
     }
-    var html = '<table><thead><tr><th>Username</th><th>Last seen</th><th>Langlois mode</th><th>Parental control</th></tr></thead><tbody>';
+    var html = '<table><thead><tr><th>Username</th><th>Last seen</th><th>Langlois mode</th><th>Parental control</th><th>Access</th></tr></thead><tbody>';
     state.users.forEach(function (u) {
       html += '<tr>' +
         '<td>' + esc(u.username) +
           (u.is_admin ? ' <span class="pill" title="Jellyfin administrator — managed in Jellyfin\'s own dashboard, not here">Admin</span>' : '') +
+          (u.suspended ? ' <span class="pill s-revoked" title="Access withdrawn: signed out everywhere and blocked from signing back in">Suspended</span>' : '') +
         '</td>' +
         '<td>' + fmtDate(new Date(u.last_seen_at).toISOString()) + '</td>' +
         '<td>' +
@@ -1159,6 +1215,13 @@
             (u.parental_control ? ' checked' : '') + '>' +
             (u.parental_control ? 'On' : 'Off') +
           '</label>' +
+        '</td>' +
+        '<td>' +
+          (u.is_admin
+            ? '<span class="muted" title="Revoking would also strip admin rights, so this is disabled for admin accounts">&mdash;</span>'
+            : '<button class="' + (u.suspended ? 'ghost' : 'danger') + '" data-suspend="' + esc(u.id) + '" data-to="' + (u.suspended ? '0' : '1') + '">' +
+                (u.suspended ? 'Restore access' : 'Revoke access') +
+              '</button>') +
         '</td>' +
       '</tr>';
     });
@@ -1179,6 +1242,29 @@
             cb.disabled = false;
             show("err", e.message);
           });
+      });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-suspend]"), function (btn) {
+      btn.addEventListener("click", function () {
+        var id = btn.getAttribute("data-suspend");
+        var on = btn.getAttribute("data-to") === "1";
+        var who = (state.users.filter(function (u) { return u.id === id; })[0] || {}).username || "this account";
+        var warning = "Revoke " + who + "\'s access?" +
+          "\n\nThey are signed out on every device immediately and cannot sign back in." +
+          "\nNothing is deleted \u2014 ratings, lists and comments all stay, and you can restore access at any time.";
+        if (on && !confirm(warning)) return;
+        btn.disabled = true;
+        api("/api/admin/users/" + encodeURIComponent(id), { method: "PATCH", body: { suspended: on } })
+          .then(function (data) {
+            show("ok", on
+              ? "Access revoked" + (data && data.signed_out
+                  ? " \u2014 signed out of " + data.signed_out + " session" + (data.signed_out === 1 ? "" : "s") + "."
+                  : ".")
+              : "Access restored. They can sign in again.");
+            return loadUsers();
+          })
+          .catch(function (e) { show("err", e.message); btn.disabled = false; });
       });
     });
 
@@ -1287,6 +1373,24 @@
       renderUploads();
     }).catch(function (e) { show("err", e.message); });
   }
+
+  // Groups linked before OMDb's Type was read carry no kind, so their tiles
+  // still say "parts". One pass fills them in; per-group overrides win and are
+  // never touched, since this only visits rows where kind IS NULL.
+  $("resolveKinds").addEventListener("click", function () {
+    var btn = $("resolveKinds");
+    btn.disabled = true;
+    var label = btn.textContent;
+    btn.textContent = "Asking OMDb…";
+    api("/api/admin/library/group-kind/backfill", { method: "POST" })
+      .then(function (data) {
+        if (!data.checked) { show("ok", "Every linked group already has a kind."); return; }
+        show("ok", data.resolved + " of " + data.checked + " resolved" +
+          (data.unresolved ? " — " + data.unresolved + " OMDb had no answer for; set those by hand in Manage." : "."));
+      })
+      .catch(function (e) { show("err", e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = label; });
+  });
 
   $("refreshUploads").addEventListener("click", loadUploads);
 
@@ -1706,11 +1810,18 @@
         var results = data.results || [];
         $("notifySearchResults").innerHTML = results.length
           ? results.map(function (r) {
-              return '<div class="ac-result-row" data-notify-select-imdb="' + esc(r.imdbId) + '" data-notify-select-name="' + esc(r.name) +
-                '" data-notify-select-href="' + esc(r.href) + '">' + esc(r.name) + ' <span class="ac-r-year">' + (r.year || "") + '</span></div>';
+              return '<div class="ac-result-row nf-result" data-notify-select-imdb="' + esc(r.imdbId) + '" data-notify-select-name="' + esc(r.name) +
+                '" data-notify-select-href="' + esc(r.href) + '" data-notify-select-poster="' + esc(r.posterUrl || "") + '">' +
+                thumbHtml(r.posterUrl) +
+                '<span class="nf-result-name">' + esc(r.name) + ' <span class="ac-r-year">' + (r.year || "") + '</span></span>' +
+                '</div>';
             }).join("")
           : '<div class="muted" style="padding:6px 0;font-size:13px">No matches.</div>';
-      }).catch(function () {});
+      // A silent catch here is why this once looked like nothing was fetching
+      // at all. Say what happened.
+      }).catch(function (e) {
+        $("notifySearchResults").innerHTML = '<div class="muted" style="padding:6px 0;font-size:13px">' + esc(e.message) + '</div>';
+      });
     }, 250);
   });
 
@@ -1721,10 +1832,12 @@
       imdbId: row.getAttribute("data-notify-select-imdb"),
       name: row.getAttribute("data-notify-select-name"),
       href: row.getAttribute("data-notify-select-href"),
+      posterUrl: row.getAttribute("data-notify-select-poster") || null,
     };
     $("notifySearchResults").innerHTML = "";
     $("notifySearchInput").value = notifyState.film.name;
-    $("notifySelectedFilm").textContent = "Selected: " + notifyState.film.name;
+    $("notifySelectedFilm").innerHTML = '<div class="nf-selected">' + thumbHtml(notifyState.film.posterUrl) +
+      '<span>Sending: <strong>' + esc(notifyState.film.name) + '</strong></span></div>';
     notifyUpdateSendState();
   });
 
@@ -1742,14 +1855,28 @@
     $("notifyStatus").textContent = "Sending…";
     api("/api/admin/notifications/curators-pick", {
       method: "POST",
-      body: { imdbId: notifyState.film.imdbId, filmTitle: notifyState.film.name, filmHref: notifyState.film.href, userIds: userIds },
+      body: {
+        imdbId: notifyState.film.imdbId,
+        filmTitle: notifyState.film.name,
+        filmHref: notifyState.film.href,
+        userIds: userIds,
+        note: $("notifyNote").value.trim(),
+      },
     }).then(function (data) {
-      $("notifyStatus").textContent = "Sent to " + data.notified + " user" + (data.notified === 1 ? "" : "s") + ".";
+      var hadNote = $("notifyNote").value.trim().length > 0;
+      $("notifyStatus").textContent = "Sent to " + data.notified + " user" + (data.notified === 1 ? "" : "s") +
+        (hadNote ? ", with your note." : ".");
+      $("notifyNote").value = "";
+      $("notifyNoteCount").textContent = "0 / 500";
       notifyUpdateSendState();
     }).catch(function (e) {
       $("notifyStatus").textContent = "Failed: " + e.message;
       notifyUpdateSendState();
     });
+  });
+
+  $("notifyNote").addEventListener("input", function () {
+    $("notifyNoteCount").textContent = $("notifyNote").value.length + " / 500";
   });
 
   document.querySelector('.tab-btn[data-tab="notify"]').addEventListener("click", notifyLoadUsers);
@@ -2433,6 +2560,7 @@
     else if (action === "save-group-name") saveGroupName(btn.getAttribute("data-group-id"), btn);
     else if (action === "save-group-overview") saveGroupOverview(btn.getAttribute("data-group-id"), btn);
     else if (action === "save-group-series") saveGroupSeries(btn.getAttribute("data-group-id"), btn);
+    else if (action === "save-group-kind") saveGroupKind(btn.getAttribute("data-group-id"), btn);
     else if (action === "fetch-episode") {
       fetchEpisode(itemId, btn.getAttribute("data-group-id"),
         parseInt(btn.getAttribute("data-season"), 10), parseInt(btn.getAttribute("data-episode"), 10), btn)
@@ -2674,6 +2802,17 @@
       '<input type="text" data-group-series value="' + esc(detail.seriesImdbId || "") + '" placeholder="https://www.imdb.com/title/tt.../"></div>' +
       '<div style="flex:0 0 auto"><button data-action="save-group-series" data-group-id="' + esc(detail.groupId) + '">Save series</button></div>' +
       '</div>' +
+      '<div class="row" style="align-items:center">' +
+      '<div><label>Counts as</label>' +
+      '<div class="note" style="margin-bottom:4px">Decides whether tiles say "' + detail.items.length + ' episodes" or "' + detail.items.length + ' parts". ' +
+        'Set from OMDb when you link the series — override it here when OMDb calls a long film a mini-series.</div>' +
+      '<select data-group-kind>' +
+        '<option value="">Not set — reads as parts</option>' +
+        '<option value="series"' + (detail.kind === "series" ? " selected" : "") + '>TV series — episodes</option>' +
+        '<option value="movie"' + (detail.kind === "movie" ? " selected" : "") + '>Film in parts — parts</option>' +
+      '</select></div>' +
+      '<div style="flex:0 0 auto"><button data-action="save-group-kind" data-group-id="' + esc(detail.groupId) + '">Save</button></div>' +
+      '</div>' +
       rolloutPanelHtml("group", detail.groupId, "Total episodes expected") +
       '<div class="row" style="margin-bottom:6px;align-items:center">' +
       '<strong>Episodes (' + detail.items.length + ')</strong><span class="spacer"></span>' +
@@ -2783,7 +2922,21 @@
     api("/api/admin/library/group-series", { method: "POST", body: { groupId: groupId, providerLink: val } })
       .then(function (data) {
         show("ok", "Series linked" + (data && data.seriesName ? " — " + data.seriesName : "") +
-          (data && data.posterFound ? ". Poster found for Browse and the collection page." : ". Fetch OMDb is ready for each episode."));
+          (data && data.posterFound ? ". Poster found for Browse and the collection page." : ". Fetch OMDb is ready for each episode.") +
+          (data && data.kind ? " OMDb calls this a " + (data.kind === "series" ? "TV series — tiles will say episodes." : "film — tiles will say parts.") : ""));
+      })
+      .catch(function (e) { show("err", e.message); })
+      .then(function () { btn.disabled = false; });
+  }
+
+  function saveGroupKind(groupId, btn) {
+    var panel = btn.closest(".cur-group-manage");
+    var val = panel.querySelector("[data-group-kind]").value;
+    if (!val) { show("err", 'Pick "TV series" or "Film in parts".'); return; }
+    btn.disabled = true;
+    api("/api/admin/library/group-kind", { method: "POST", body: { groupId: groupId, kind: val } })
+      .then(function () {
+        show("ok", val === "series" ? "Now counted in episodes." : "Now counted in parts.");
       })
       .catch(function (e) { show("err", e.message); })
       .then(function () { btn.disabled = false; });

@@ -14,6 +14,7 @@ interface Hit {
   reason: string;
   href?: string;
   partsCount?: number;
+  partsUnit?: "parts" | "episodes";
 }
 
 /**
@@ -135,7 +136,9 @@ export function SearchBox({ initialQuery = "" }: { initialQuery?: string }) {
                   {hit.year ? <span className="suggest-year"> {hit.year}</span> : null}
                 </div>
                 <div className="suggest-reason">
-                  {hit.partsCount ? `${hit.partsCount} parts` : hit.reason}
+                  {hit.partsCount
+                    ? `${hit.partsCount} ${hit.partsCount === 1 ? (hit.partsUnit ?? "part").replace(/s$/, "") : (hit.partsUnit ?? "parts")}`
+                    : hit.reason}
                 </div>
               </div>
             </a>

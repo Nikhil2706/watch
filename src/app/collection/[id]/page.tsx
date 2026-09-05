@@ -9,8 +9,11 @@ import { Row } from "@/components/media/Row";
 import { ScrollToEpisode } from "@/components/media/ScrollToEpisode";
 import { getRatingSummary } from "@/lib/community";
 import { currentSession } from "@/lib/current-user";
-import { getGroupSeriesId } from "@/lib/library-curation";
+import { CuratorNote } from "@/components/media/CuratorNote";
+import { getGroupKind, getGroupSeriesId, partsUnitFor } from "@/lib/library-curation";
+import { getCuratorNote } from "@/lib/notifications";
 import { getMemberships } from "@/lib/lists";
+import { episodeGaps } from "@/lib/episode-gaps";
 import { getCollection, type CollectionItem } from "@/lib/media";
 import { pendingRolloutCount } from "@/lib/rollout";
 
@@ -63,7 +66,12 @@ export default async function CollectionPage({
     collection.items.map(({ item }) => item.Id),
   );
 
-  const partsLabel = `${collection.items.length} part${collection.items.length === 1 ? "" : "s"}`;
+  // "154 episodes" for a television series, "8 parts" for a film released in
+  // instalments. Unresolved groups keep saying "parts", which is what every
+  // grouped title said before kind existed.
+  const unit = partsUnitFor(getGroupKind(id));
+  const singular = unit === "episodes" ? "episode" : "part";
+  const partsLabel = `${collection.items.length} ${collection.items.length === 1 ? singular : unit}`;
   // A scheduled rollout (rollout.ts) — how many more slots this show still
   // has coming, whether or not their files have even arrived yet. 0 for a
   // show with no rollout plan at all, so this stays silent for every
@@ -77,6 +85,8 @@ export default async function CollectionPage({
   // until the group has been linked to a real series (curator dashboard's
   // "Link series"), same as collection.ratings itself.
   const seriesImdbId = getGroupSeriesId(id);
+  // A show can be picked for someone too — same note, keyed on the series id.
+  const curatorNote = seriesImdbId ? getCuratorNote(session.userId, seriesImdbId) : null;
   const ratingSummary = seriesImdbId ? getRatingSummary(seriesImdbId) : null;
   const usRating = ratingSummary && ratingSummary.count > 0 ? { average: ratingSummary.average!, count: ratingSummary.count } : null;
 
@@ -128,6 +138,7 @@ export default async function CollectionPage({
               ) : null}
             </div>
             {collection.Overview ? <p>{collection.Overview}</p> : null}
+            {curatorNote ? <CuratorNote note={curatorNote} /> : null}
           </div>
         </section>
       ) : (
@@ -175,14 +186,28 @@ export default async function CollectionPage({
           <ScrollToEpisode episodeId={resumeTargetId} />
           {seasonNumbers.map((n) => {
             const seasonItems = seasons.get(n)!;
+            /*
+             * Say so when the numbering skips. Without this a season simply
+             * jumps from 12 to 14 and a viewer is left wondering whether they
+             * misremembered, whether it failed to load, or whether the show
+             * did something clever. Naming the missing episode answers it.
+             */
+            const missing = episodeGaps(seasonItems.map((it) => it.episode));
             return (
-              <Row
-                key={n}
-                title={`Season ${n}`}
-                items={seasonItems.map((it) => it.item)}
-                lists={lists}
-                itemTitles={new Map(seasonItems.filter((it) => it.label).map((it) => [it.item.Id, it.label as string]))}
-              />
+              <div key={n}>
+                <Row
+                  title={`Season ${n}`}
+                  items={seasonItems.map((it) => it.item)}
+                  lists={lists}
+                  itemTitles={new Map(seasonItems.filter((it) => it.label).map((it) => [it.item.Id, it.label as string]))}
+                />
+                {missing.length > 0 ? (
+                  <p className="season-gap" role="note">
+                    Not in the library:{" "}
+                    {missing.map((e) => `episode ${e}`).join(", ")}
+                  </p>
+                ) : null}
+              </div>
             );
           })}
           {extras.length > 0 ? (

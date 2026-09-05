@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 
+import { ExpandableBio } from "@/components/media/ExpandableBio";
 import { AppBar } from "@/components/AppBar";
 import { PosterCard } from "@/components/media/PosterCard";
 import { currentSession } from "@/lib/current-user";
@@ -66,9 +67,7 @@ export default async function PersonPage({
               ? "Nothing else in the library"
               : `${collapsed.items.length} title${collapsed.items.length === 1 ? "" : "s"} here`}
           </p>
-          {person.Overview ? (
-            <p className="person-bio">{person.Overview}</p>
-          ) : null}
+          {person.Overview ? <ExpandableBio text={person.Overview} /> : null}
         </div>
       </section>
 
@@ -82,6 +81,7 @@ export default async function PersonPage({
               href={collapsed.hrefs.get(item.Id)}
               posterSrc={collapsed.posters.get(item.Id)}
               partsCount={collapsed.partsCounts.get(item.Id)}
+              partsUnit={collapsed.partsUnits.get(item.Id)}
             />
           ))}
         </div>

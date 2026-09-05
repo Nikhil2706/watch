@@ -59,6 +59,12 @@ export interface OmdbSeries extends OmdbCredits {
   name: string;
   overview: string | null;
   posterUrl: string | null;
+  /**
+   * OMDb's own Type for this title — "series" for television, "movie" for a
+   * film (including one released in parts), null for anything else or absent.
+   * The response has always carried this; it was simply never read.
+   */
+  kind: "series" | "movie" | null;
 }
 
 /**
@@ -90,6 +96,7 @@ export async function fetchOmdbSeries(imdbId: string): Promise<OmdbSeries | null
       Writer?: string;
       imdbRating?: string;
       imdbID?: string;
+      Type?: string;
     };
     if (data.Response === "False" || !data.Title) {
       recordExternalApiCall("omdb", true);
@@ -101,6 +108,7 @@ export async function fetchOmdbSeries(imdbId: string): Promise<OmdbSeries | null
       name: data.Title,
       overview: na(data.Plot),
       posterUrl: na(data.Poster),
+      kind: data.Type === "series" ? "series" : data.Type === "movie" ? "movie" : null,
       ...readCredits(data),
     };
   } catch (error) {

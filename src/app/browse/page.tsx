@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { ExpandableBio } from "@/components/media/ExpandableBio";
 import { AppBar } from "@/components/AppBar";
 import { PosterCard } from "@/components/media/PosterCard";
 import {
@@ -255,7 +256,7 @@ export default async function BrowsePage({
                   {sorted.length} film{sorted.length === 1 ? "" : "s"} in this library
                 </p>
                 {personDetail?.Overview ? (
-                  <p className="person-bio">{personDetail.Overview}</p>
+                  <ExpandableBio text={personDetail.Overview} />
                 ) : null}
               </div>
             </section>
@@ -273,6 +274,7 @@ export default async function BrowsePage({
                     href={m.href}
                     posterSrc={m.poster ?? null}
                     partsCount={m.partsCount}
+                    partsUnit={m.partsUnit}
                   />
                 ) : (
                   <PosterCard key={m.item.Id} item={m.item} lists={lists.get(m.item.Id)} />

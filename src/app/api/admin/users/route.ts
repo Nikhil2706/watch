@@ -33,11 +33,12 @@ export async function GET(request: Request): Promise<Response> {
     last_seen_at: number;
     langlois_mode: number;
     parental_control: number;
+    suspended: number;
     jellyfin_user_id: string;
   }>(
     getDb()
       .prepare(
-        "SELECT id, username, last_seen_at, langlois_mode, parental_control, jellyfin_user_id FROM users ORDER BY last_seen_at DESC",
+        "SELECT id, username, last_seen_at, langlois_mode, parental_control, suspended, jellyfin_user_id FROM users ORDER BY last_seen_at DESC",
       )
       .all(),
   );
@@ -60,6 +61,7 @@ export async function GET(request: Request): Promise<Response> {
         last_seen_at: u.last_seen_at,
         langlois_mode: u.langlois_mode === 1,
         parental_control: u.parental_control === 1,
+        suspended: u.suspended === 1,
         is_admin: isAdmin,
       };
     }),

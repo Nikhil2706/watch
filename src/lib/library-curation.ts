@@ -182,6 +182,60 @@ export function getGroupSeriesId(groupId: string): string | null {
   return row?.imdb_id ?? null;
 }
 
+/**
+ * Whether a grouped title is a television series or a film released in parts.
+ *
+ * The distinction is only ever about wording — "154 episodes" versus "8 parts"
+ * — but getting it wrong is conspicuous on a tile. "unknown" is a real state,
+ * not a failure: groups created before this existed have no kind until their
+ * series is re-fetched, and they read as "parts" meanwhile, exactly as they
+ * did before.
+ */
+export type GroupKind = "series" | "movie";
+
+function toGroupKind(value: string | null | undefined): GroupKind | null {
+  return value === "series" || value === "movie" ? value : null;
+}
+
+export function getGroupKind(groupId: string): GroupKind | null {
+  const row = getDb()
+    .prepare("SELECT kind FROM library_group_series WHERE group_id = ?")
+    .get(groupId) as { kind: string | null } | undefined;
+  return toGroupKind(row?.kind);
+}
+
+/**
+ * Written both by the OMDb series fetch (which knows Type) and by the
+ * dashboard's own control, which must win: OMDb catalogues plenty of long
+ * films as mini-series, and no amount of re-fetching will change its mind.
+ * Requires the group to already have a series row — kind describes a linked
+ * title, and there is nothing to describe without one.
+ */
+export function setGroupKind(groupId: string, kind: GroupKind | null): boolean {
+  const result = getDb()
+    .prepare("UPDATE library_group_series SET kind = ?, updated_at = ? WHERE group_id = ?")
+    .run(kind, Date.now(), groupId);
+  return Number(result.changes) > 0;
+}
+
+/** Every group that has a resolved kind — one read for a whole browse/search page. */
+export function getAllGroupKinds(): Map<string, GroupKind> {
+  const rows = asRows<{ group_id: string; kind: string | null }>(
+    getDb().prepare("SELECT group_id, kind FROM library_group_series").all(),
+  );
+  const map = new Map<string, GroupKind>();
+  for (const r of rows) {
+    const kind = toGroupKind(r.kind);
+    if (kind) map.set(r.group_id, kind);
+  }
+  return map;
+}
+
+/** "episodes" for a series, "parts" for anything else — including not-yet-known. */
+export function partsUnitFor(kind: GroupKind | null | undefined): "episodes" | "parts" {
+  return kind === "series" ? "episodes" : "parts";
+}
+
 export function setGroupSeriesId(groupId: string, imdbId: string): void {
   getDb()
     .prepare(

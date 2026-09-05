@@ -3,9 +3,11 @@ import "server-only";
 import { decadeOf, type BrowseSort } from "./browse-filters";
 import { asRow, getDb } from "./db";
 import {
+  getAllGroupKinds,
   getAllGroupSeriesPosters,
   getGroupSeriesId,
   getGroupSeriesMeta,
+  partsUnitFor,
 } from "./library-curation";
 import {
   diversityDiscount,
@@ -57,6 +59,8 @@ export interface BrowseMovie {
   seen: boolean;
   isGroup: boolean;
   partsCount?: number;
+  /** Wording for partsCount — "episodes" for a television series, "parts" otherwise. */
+  partsUnit?: "parts" | "episodes";
 }
 
 export interface BrowseCatalogue {
@@ -95,6 +99,7 @@ async function buildBrowseCatalogue(allItems: MediaItem[]): Promise<BrowseCatalo
   const movies: BrowseMovie[] = ungrouped.map((item) => toBrowseMovie(item, ratings));
 
   const seriesPosters = getAllGroupSeriesPosters();
+  const groupKinds = getAllGroupKinds();
   const groupMovies = await Promise.all(
     groups.map(async (g): Promise<BrowseMovie> => {
       const meta = getGroupSeriesMeta(g.groupId);
@@ -125,6 +130,7 @@ async function buildBrowseCatalogue(allItems: MediaItem[]): Promise<BrowseCatalo
         seen: g.members.every((m) => m.UserData?.Played),
         isGroup: true,
         partsCount: g.members.length,
+        partsUnit: partsUnitFor(groupKinds.get(g.groupId)),
       };
     }),
   );

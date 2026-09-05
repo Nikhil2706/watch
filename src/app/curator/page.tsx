@@ -5,7 +5,8 @@ import { AppBar } from "@/components/AppBar";
 import { CuratorPicks } from "@/components/media/CuratorPicks";
 import { currentSession } from "@/lib/current-user";
 import { listCurations } from "@/lib/curations";
-import { getItem } from "@/lib/media";
+import { getItem, getItemsByImdbIds } from "@/lib/media";
+import { listPicksForUser } from "@/lib/notifications";
 import { itemHref } from "@/lib/slugs";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,22 @@ export default async function CuratorPage() {
   if (!session) redirect("/login");
 
   const all = listCurations(100);
+
+  /*
+   * Films the curator sent to THIS person, newest first, above the reading.
+   * They arrive as notifications, which until now meant a pick lived only in
+   * the bell — read once and gone. This is the page that page-title promises,
+   * so it belongs at the top of it.
+   *
+   * Posters come from one batched Jellyfin lookup by IMDb id rather than
+   * parsing the stored href, and a title no longer in the library simply
+   * renders without art instead of vanishing.
+   */
+  const picks = listPicksForUser(session.userId);
+  const pickItems = await getItemsByImdbIds(
+    session,
+    picks.map((p) => p.imdbId),
+  ).catch(() => new Map());
 
   // Split so a reader can tell "further reading on a film we have" from
   // "something worth reading in its own right".
@@ -50,7 +67,7 @@ export default async function CuratorPage() {
         </p>
       </div>
 
-      {all.length === 0 ? (
+      {all.length === 0 && picks.length === 0 ? (
         <div className="empty">
           <p>Nothing here yet.</p>
           <p className="hint" style={{ margin: 0 }}>
@@ -58,6 +75,33 @@ export default async function CuratorPage() {
             they refer to.
           </p>
         </div>
+      ) : null}
+
+      {picks.length > 0 ? (
+        <section className="row curator" aria-label="Picked for you">
+          <h2>Picked for you</h2>
+          <div className="curator-grid">
+            {picks.map((pick) => {
+              const item = pickItems.get(pick.imdbId);
+              return (
+                <div key={pick.imdbId} className="curator-card">
+                  <div className="curator-kind">
+                    {new Date(pick.sentAt).toLocaleDateString(undefined, {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                    })}
+                  </div>
+                  <div className="curator-title">{item?.Name ?? pick.filmTitle}</div>
+                  {pick.note ? <blockquote className="curator-comment">{pick.note}</blockquote> : null}
+                  <div className="curator-links">
+                    <Link href={pick.filmHref}>Watch it &rarr;</Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       ) : null}
 
       <CuratorPicks picks={standalone} heading="Reading" />

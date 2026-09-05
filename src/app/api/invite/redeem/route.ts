@@ -120,7 +120,9 @@ export async function POST(request: Request): Promise<Response> {
 
     // Step 3 of the brief. If this throws, the catch below deletes the user
     // rather than leaving an account with default (unrestricted) permissions.
-    await applyRestrictedPolicy(jellyfinUserId, { langloisMode: claim.langloisMode });
+    // A newly redeemed invite is never a suspended account — this is the one
+    // call site that can state that as a fact rather than looking it up.
+    await applyRestrictedPolicy(jellyfinUserId, { langloisMode: claim.langloisMode, suspended: false });
 
     // Log the new user in through the normal path so the token in the session
     // row is a real user token, not the admin key.

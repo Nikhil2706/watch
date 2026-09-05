@@ -11,7 +11,7 @@ import {
   LOGIN_LIMIT,
   rateLimitHeaders,
 } from "@/lib/ratelimit";
-import { createSessionForLogin, sessionCookie } from "@/lib/session";
+import { createSessionForLogin, sessionCookie, SuspendedAccountError } from "@/lib/session";
 import { readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -122,14 +122,27 @@ export async function POST(request: Request): Promise<Response> {
     console.warn("[auth/login] session prune failed:", error);
   }
 
-  const sessionId = createSessionForLogin({
-    jellyfinUserId: auth.User.Id,
-    username: auth.User.Name ?? username,
-    jellyfinToken: auth.AccessToken,
-    jellyfinDeviceId: deviceId,
-    userAgent: getUserAgent(request),
-    ip,
-  });
+  let sessionId: string;
+  try {
+    sessionId = createSessionForLogin({
+      jellyfinUserId: auth.User.Id,
+      username: auth.User.Name ?? username,
+      jellyfinToken: auth.AccessToken,
+      jellyfinDeviceId: deviceId,
+      userAgent: getUserAgent(request),
+      ip,
+    });
+  } catch (error) {
+    if (error instanceof SuspendedAccountError) {
+      // Same shape as a wrong password: no session, and nothing said about
+      // why. Whoever suspended this account can explain if they want to.
+      return Response.json(
+        { error: "unauthorized", message: "Sign-in failed. Check your username and password." },
+        { status: 401, headers: NO_STORE },
+      );
+    }
+    throw error;
+  }
 
   return Response.json(
     { ok: true, username: auth.User.Name ?? username },

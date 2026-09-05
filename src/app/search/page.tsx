@@ -57,6 +57,7 @@ export default async function SearchPage({
                 href={`/collection/${match.groupId}`}
                 posterSrc={match.posterSrc}
                 partsCount={match.partsCount}
+                partsUnit={match.partsUnit}
               />
             ) : (
               <PosterCard

@@ -5,6 +5,7 @@ import { userFetch, userPost } from "./jellyfin";
 import {
   getAllGroupSeriesPosters,
   getConfirmedPathSet,
+  getAllGroupKinds,
   getExcludedPathSet,
   getGroup,
   getGroupedPathMap,
@@ -13,6 +14,7 @@ import {
   getGroupSeriesMeta,
   getGroupSeriesPoster,
   getWhitelistedPathSet,
+  partsUnitFor,
 } from "./library-curation";
 import { isRestrictedContent } from "./parental-control";
 import { getRatings, type Ratings } from "./ratings";
@@ -327,6 +329,8 @@ export interface CollectionItem {
   label: string | null;
   /** Parsed from the filename, same as `label`'s own source — null for a part with no season/episode marker at all (an extra, a special), which the collection page groups into its own "Extras" row rather than guessing a season for it. */
   season: number | null;
+  /** The episode number within that season, from the same parse. Kept (rather than folded into `label` and discarded) so the collection page can spot a gap in the numbering — see episodeGaps(). */
+  episode: number | null;
 }
 
 export interface CollectionDetail {
@@ -389,12 +393,13 @@ export async function getCollection(
         item,
         label: resolveEpisodeLabel(item, parsed, confirmedPaths),
         season: parsed.season,
+        episode: parsed.episode,
         sortKey: parsed.sortKey,
         path: item.Path ?? "",
       };
     })
     .sort((a, b) => a.sortKey - b.sortKey || a.path.localeCompare(b.path))
-    .map(({ item, label, season }) => ({ item, label, season }));
+    .map(({ item, label, season, episode }) => ({ item, label, season, episode }));
 
   const meta = getGroupSeriesMeta(groupId);
   const seriesImdbId = getGroupSeriesId(groupId);
@@ -931,6 +936,8 @@ export interface SearchMatch {
   /** Set when this match stands in for a whole grouped title, not one file — links to /collection/{groupId}. */
   groupId?: string;
   partsCount?: number;
+  /** Wording for partsCount — "episodes" for a series, "parts" otherwise. */
+  partsUnit?: "parts" | "episodes";
   /** The series' own OMDb poster; overrides posterUrl(item) when set. Only present on a group match. */
   posterSrc?: string | null;
 }
@@ -943,6 +950,7 @@ export interface SearchHit {
   reason: string;
   href?: string;
   partsCount?: number;
+  partsUnit?: "parts" | "episodes";
 }
 
 /** Lightweight shape for the type-ahead dropdown. */
@@ -955,6 +963,7 @@ export function toSearchHit(match: SearchMatch): SearchHit {
     reason: match.reason,
     href: match.groupId ? `/collection/${match.groupId}` : undefined,
     partsCount: match.partsCount,
+    partsUnit: match.partsUnit,
   };
 }
 
@@ -967,6 +976,8 @@ export interface CollapsedRow {
   posters: Map<string, string | null>;
   /** groupId -> episode count, for PosterCard's "N parts" badge. */
   partsCounts: Map<string, number>;
+  /** groupId -> the wording for that count: a series has episodes, a film in instalments has parts. */
+  partsUnits: Map<string, "parts" | "episodes">;
   /** groupId -> the show's real name, in case the synthetic item's own Name ever needs overriding too. */
   titles: Map<string, string>;
 }
@@ -998,6 +1009,8 @@ export function collapseEpisodeGroups(rawItems: MediaItem[]): CollapsedRow {
   const hrefs = new Map<string, string>();
   const posters = new Map<string, string | null>();
   const partsCounts = new Map<string, number>();
+  const partsUnits = new Map<string, "parts" | "episodes">();
+  const groupKinds = getAllGroupKinds();
   const titles = new Map<string, string>();
   const seenGroups = new Set<string>();
 
@@ -1015,11 +1028,12 @@ export function collapseEpisodeGroups(rawItems: MediaItem[]): CollapsedRow {
     items.push({ Id: g.groupId, Name: name, Type: "Group" });
     hrefs.set(g.groupId, `/collection/${g.groupId}`);
     partsCounts.set(g.groupId, full?.paths.length ?? 1);
+    partsUnits.set(g.groupId, partsUnitFor(groupKinds.get(g.groupId)));
     posters.set(g.groupId, seriesPosters.get(g.groupId) ?? null);
     titles.set(g.groupId, name);
   }
 
-  return { items, hrefs, posters, partsCounts, titles };
+  return { items, hrefs, posters, partsCounts, partsUnits, titles };
 }
 
 /**
@@ -1029,6 +1043,7 @@ export function collapseEpisodeGroups(rawItems: MediaItem[]): CollapsedRow {
  */
 function finalizeGroupMatches(matches: SearchMatch[]): SearchMatch[] {
   const seriesPosters = getAllGroupSeriesPosters();
+  const groupKinds = getAllGroupKinds();
   return matches.map((match) => {
     if (!match.groupId) return match;
     const full = getGroup(match.groupId);
@@ -1037,6 +1052,7 @@ function finalizeGroupMatches(matches: SearchMatch[]): SearchMatch[] {
       reason: match.reason,
       groupId: match.groupId,
       partsCount: full?.paths.length,
+      partsUnit: partsUnitFor(groupKinds.get(match.groupId)),
       posterSrc: seriesPosters.get(match.groupId) ?? null,
     };
   });

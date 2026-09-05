@@ -316,6 +316,31 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "users") && !columnExists(db, "users", "parental_control")) {
     db.exec("ALTER TABLE users ADD COLUMN parental_control INTEGER NOT NULL DEFAULT 0");
   }
+
+  // v38: kind added to library_group_series — "series" or "movie", so a
+  // grouped title's tile can say "154 episodes" for a show and keep "8 parts"
+  // for a film released in parts. Same ALTER-on-an-existing-table shape as
+  // v28/v35. Existing rows stay NULL rather than guessing: unknown falls back
+  // to "parts", which is what every tile said before this shipped, so nothing
+  // changes visually until a group's kind is actually resolved.
+  if (tableExists(db, "library_group_series") && !columnExists(db, "library_group_series", "kind")) {
+    db.exec("ALTER TABLE library_group_series ADD COLUMN kind TEXT");
+  }
+
+  // v39: suspended added to users — reversible revocation of a person's
+  // access. Same ALTER-on-an-existing-table shape as v28/v35/v38. Defaults to
+  // 0, so nobody is suspended by the upgrade itself.
+  if (tableExists(db, "users") && !columnExists(db, "users", "suspended")) {
+    db.exec("ALTER TABLE users ADD COLUMN suspended INTEGER NOT NULL DEFAULT 0");
+  }
+
+  // v40: note added to notifications — the curator's reason for a pick, shown
+  // on the film page and the Picks page. Nullable with no default: every
+  // notification sent before this has no note, which is exactly right, and
+  // every kind other than curators_pick never sets one.
+  if (tableExists(db, "notifications") && !columnExists(db, "notifications", "note")) {
+    db.exec("ALTER TABLE notifications ADD COLUMN note TEXT");
+  }
 }
 
 /**

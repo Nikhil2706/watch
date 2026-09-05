@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { AppBar } from "@/components/AppBar";
+import { CuratorNote } from "@/components/media/CuratorNote";
 import { AccoladesSection } from "@/components/media/AccoladesSection";
 import { CastRow } from "@/components/media/CastRow";
 import { FetchSubtitlesButton } from "@/components/media/FetchSubtitlesButton";
@@ -9,6 +10,7 @@ import { CommunitySection } from "@/components/media/CommunitySection";
 import { CuratorPicks } from "@/components/media/CuratorPicks";
 import { ListButtons } from "@/components/media/ListButtons";
 import { RatingsRow } from "@/components/media/RatingsRow";
+import { getCuratorNote } from "@/lib/notifications";
 import { getRatingSummary } from "@/lib/community";
 import { getCachedContentWarning, toDisplaySignals } from "@/lib/content-warnings";
 import { curationsForItem } from "@/lib/curations";
@@ -84,6 +86,8 @@ export default async function ItemPage({
   const ratingSummary = imdbId ? getRatingSummary(imdbId) : null;
   const usRating = ratingSummary && ratingSummary.count > 0 ? { average: ratingSummary.average!, count: ratingSummary.count } : null;
   const contentWarning = imdbId ? getCachedContentWarning(imdbId) : null;
+  // Only this viewer's own pick, if the curator sent them one for this film.
+  const curatorNote = imdbId ? getCuratorNote(session.userId, imdbId) : null;
   const contentWarningDisplay = contentWarning ? toDisplaySignals(contentWarning) : null;
 
   // "In this series" — every film Wikipedia's own film-series lists carry
@@ -157,6 +161,7 @@ export default async function ItemPage({
             ) : null}
           </div>
           {item.Overview ? <p>{item.Overview}</p> : null}
+          {curatorNote ? <CuratorNote note={curatorNote} /> : null}
           <div className="btn-row">
             <ListButtons
               itemId={item.Id}
@@ -335,6 +340,7 @@ export default async function ItemPage({
             itemHrefs={collapsedSimilar.hrefs}
             itemPosters={collapsedSimilar.posters}
             itemPartsCounts={collapsedSimilar.partsCounts}
+            itemPartsUnits={collapsedSimilar.partsUnits}
           />
         </div>
       ) : null}

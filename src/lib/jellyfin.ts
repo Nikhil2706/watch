@@ -345,10 +345,27 @@ export async function deleteUser(userId: string): Promise<void> {
  */
 export async function applyRestrictedPolicy(
   userId: string,
-  options?: { langloisMode?: boolean },
+  options: { langloisMode?: boolean; suspended: boolean },
 ): Promise<void> {
   const user = await getUser(userId);
   const existing = user.Policy ?? {};
+
+  /*
+   * `suspended` is REQUIRED, and deliberately not optional.
+   *
+   * This policy object is rewritten from scratch on every call, so anything
+   * hardcoded here wins over whatever the account currently has. That is the
+   * point for the hard denials below — but IsDisabled used to be a literal
+   * `false`, which meant that toggling somebody's Langlois mode would silently
+   * un-suspend a revoked account as a side effect, with nothing in the UI to
+   * suggest it had happened.
+   *
+   * Making the field mandatory turns that into a compile error rather than a
+   * silent one: a new caller cannot forget it, and has to go and look up what
+   * the right answer is (users.suspended — see the column comment in
+   * schema.ts). Do not give this a default, and do not reintroduce a literal
+   * for IsDisabled below.
+   */
 
   const policy: Record<string, unknown> = {
     ...existing,
@@ -370,7 +387,7 @@ export async function applyRestrictedPolicy(
     SyncPlayAccess: "None",
 
     // --- Explicitly allowed ---
-    IsDisabled: false,
+    IsDisabled: options.suspended,
     EnableRemoteAccess: true,
     EnableMediaPlayback: true,
     // Left on so clients that cannot direct-play still work. On an i3-6100 a

@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { applyRemoteSearchMatch, type RemoteSearchResult } from "@/lib/jellyfin";
+import { applyRemoteSearchMatch, clearItemBackdrop, type RemoteSearchResult } from "@/lib/jellyfin";
 import { markMetadataConfirmed } from "@/lib/library-curation";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
@@ -33,6 +33,25 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     await applyRemoteSearchMatch(itemId, candidate as RemoteSearchResult);
+
+    /*
+     * Drop any backdrop the previous (wrong) match left behind.
+     *
+     * media.ts's backdropUrl() reads BackdropImageTags before it ever looks at
+     * the Primary poster, so a stale backdrop keeps the wrong film's still on
+     * the detail page even after everything else is corrected — the exact
+     * problem episode-fetch already clears backdrops for. Whether Jellyfin's
+     * own re-match also replaces images here is untested (see the note about
+     * replaceAllImages); this makes the answer not matter. Best-effort:
+     * clearItemBackdrop() treats a 404 as "nothing to delete", and a
+     * corrected title is worth keeping even if the artwork call fails.
+     */
+    try {
+      await clearItemBackdrop(itemId);
+    } catch (error) {
+      console.warn(`[admin/library/apply-match] backdrop clear failed for ${itemId}:`, error);
+    }
+
     if (path) markMetadataConfirmed(path);
     return Response.json({ applied: true }, { headers: NO_STORE });
   } catch (error) {

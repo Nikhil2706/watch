@@ -35,6 +35,8 @@ export function PartyRoomClient({
   const isController = isCreator || (me?.isController ?? false);
 
   const [ending, setEnding] = useState(false);
+  /* Chat has been sent to a phone or another tab — the film gets the width. */
+  const [chatDetached, setChatDetached] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
   const router = useRouter();
 
@@ -76,7 +78,7 @@ export function PartyRoomClient({
   }
 
   return (
-    <div className="party-room-grid">
+    <div className={chatDetached ? "party-room-grid chat-detached" : "party-room-grid"}>
       {socket.ended ? (
         <div className="party-ended-banner">This watch party has ended.</div>
       ) : null}
@@ -113,8 +115,22 @@ export function PartyRoomClient({
         )}
       </div>
 
-      <div className="party-room-side">
-        <PartyChatPanel roomId={roomId} isCreator={isCreator} socket={socket} />
+      {chatDetached ? (
+        <div className="party-chat-away" role="status">
+          <span>Chat is on your other screen.</span>
+          <button type="button" onClick={() => setChatDetached(false)}>
+            Bring it back
+          </button>
+        </div>
+      ) : null}
+
+      <div className="party-room-side" hidden={chatDetached}>
+        <PartyChatPanel
+          roomId={roomId}
+          isCreator={isCreator}
+          socket={socket}
+          onMoveOut={() => setChatDetached(true)}
+        />
         {isCreator ? <PartyGuestLinksPanel roomId={roomId} initialLinks={guestLinks} /> : null}
         {isCreator && !socket.ended ? (
           <>

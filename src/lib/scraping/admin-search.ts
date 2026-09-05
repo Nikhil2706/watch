@@ -1,13 +1,25 @@
 import "server-only";
 
+import { signResource } from "../crypto";
+import { env } from "../env";
 import { listAllMoviesAdmin } from "../jellyfin";
 import { getGroupedPathMap, getGroupSeriesId, getGroupSeriesPoster } from "../library-curation";
 import { normaliseTitle } from "../library-review";
 import { itemHref } from "../slugs";
 
-/** Same flat-tag poster template already used for person photos in browse-data.ts. */
+/**
+ * A signed admin thumbnail URL — NOT the /jf/ path the public site uses.
+ *
+ * The console is a local file:// page: its <img> requests are cross-site, so
+ * the session cookie /jf/ requires never travels, and an <img> cannot send the
+ * X-Admin-Key header either. Signing the URL is what makes a library poster
+ * displayable there at all. See src/app/api/admin/thumb/[itemId]/route.ts.
+ */
 function flatPosterUrl(id: string, tag: string | null | undefined): string | null {
-  return tag ? `/jf/Items/${id}/Images/Primary?fillWidth=160&fillHeight=240&quality=90&tag=${tag}` : null;
+  if (!tag) return null;
+  const sig = signResource(`${id}:${tag}`, env.adminApiKey);
+  const query = new URLSearchParams({ tag, sig });
+  return `/api/admin/thumb/${encodeURIComponent(id)}?${query.toString()}`;
 }
 
 /**

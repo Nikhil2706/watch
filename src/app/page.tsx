@@ -105,6 +105,7 @@ export default async function HomePage() {
         itemHrefs={collapsedLatest.hrefs}
         itemPosters={collapsedLatest.posters}
         itemPartsCounts={collapsedLatest.partsCounts}
+        itemPartsUnits={collapsedLatest.partsUnits}
       />
       {genreRows.map(({ genre, collapsed }) => (
         <Row
@@ -115,6 +116,7 @@ export default async function HomePage() {
           itemHrefs={collapsed.hrefs}
           itemPosters={collapsed.posters}
           itemPartsCounts={collapsed.partsCounts}
+          itemPartsUnits={collapsed.partsUnits}
         />
       ))}
       {/* Last, deliberately: this is operational detail, and someone arriving to

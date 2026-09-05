@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 /** 32 bytes of CSPRNG output, base64url encoded (43 chars, URL/chat safe). */
 export function generateToken(): string {
@@ -33,6 +33,24 @@ export function sha256Hex(input: string): string {
  * This is what guards ADMIN_API_KEY: without it, an attacker could recover the
  * key one byte at a time by measuring response latency.
  */
+/**
+ * A short signature over an admin-visible resource, keyed by the admin API key.
+ *
+ * The one place this is needed: an <img> cannot send an X-Admin-Key header, and
+ * the curator console is a local file:// page whose cookies never reach the
+ * site — so library thumbnails have to authenticate in the URL itself. Putting
+ * the admin key in a query string would leak the real secret into browser
+ * history, referrers and server logs; a signature derived from it leaks
+ * nothing and is scoped to exactly one resource.
+ */
+export function signResource(resource: string, key: string): string {
+  return createHmac("sha256", key).update(resource).digest("base64url").slice(0, 32);
+}
+
+export function verifyResourceSignature(resource: string, key: string, signature: string): boolean {
+  return constantTimeEqual(signResource(resource, key), signature);
+}
+
 export function constantTimeEqual(a: string, b: string): boolean {
   const digestA = createHash("sha256").update(a, "utf8").digest();
   const digestB = createHash("sha256").update(b, "utf8").digest();

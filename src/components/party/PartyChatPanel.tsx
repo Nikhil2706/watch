@@ -21,14 +21,24 @@ export function PartyChatPanel({
   roomId,
   isCreator,
   socket,
+  onMoveOut,
 }: {
   roomId: string;
   isCreator: boolean;
   socket: ReturnType<typeof usePartySocket>;
+  /**
+   * Set only when this panel is docked beside a player. Called once the
+   * conversation has somewhere else to live (another tab, or a phone), so the
+   * room can give the whole width back to the film. Absent on
+   * /party/[roomId]/chat, which IS the other place — offering to move the chat
+   * out of the only thing on the page would be nonsense.
+   */
+  onMoveOut?: () => void;
 }) {
   const { connected, messages, participants, sendChat, grant, revoke } = socket;
   const [draft, setDraft] = useState("");
   const [openMenuFor, setOpenMenuFor] = useState<string | null>(null);
+  const [showQr, setShowQr] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -43,8 +53,48 @@ export function PartyChatPanel({
     setDraft("");
   }
 
+  function openInTab() {
+    window.open(`/party/${roomId}/chat`, "_blank", "noopener,noreferrer");
+    onMoveOut?.();
+  }
+
   return (
     <div className="party-chat">
+      {onMoveOut ? (
+        <div className="party-chat-head">
+          <span className="party-chat-title">Chat</span>
+          <div className="party-chat-head-actions">
+            <button
+              type="button"
+              className="party-chat-move"
+              onClick={() => setShowQr((v) => !v)}
+              aria-expanded={showQr}
+            >
+              On my phone
+            </button>
+            <button type="button" className="party-chat-move" onClick={openInTab}>
+              In a new tab
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {showQr ? (
+        <div className="party-chat-qr">
+          {/* eslint-disable-next-line @next/next/no-img-element -- an SVG route, not an optimisable asset */}
+          <img src={`/api/party/${roomId}/chat-qr`} alt="QR code that opens this party's chat" />
+          <div className="party-chat-qr-side">
+            <p>
+              Scan this with a phone that&apos;s signed in here. The chat opens on its own, so the
+              screen can play the film uninterrupted.
+            </p>
+            <button type="button" className="party-chat-move" onClick={() => onMoveOut?.()}>
+              Done — hide chat here
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="party-participants">
         {participants.map((p) => (
           <div key={p.id} className="party-participant">

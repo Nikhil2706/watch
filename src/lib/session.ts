@@ -114,6 +114,14 @@ export function createUserAndSession(input: {
  * a Jellyfin account created out-of-band (or a database restored without it)
  * can still log in.
  */
+/** Thrown when a suspended account somehow gets past Jellyfin's own refusal. */
+export class SuspendedAccountError extends Error {
+  constructor() {
+    super("This account's access has been withdrawn.");
+    this.name = "SuspendedAccountError";
+  }
+}
+
 export function createSessionForLogin(input: {
   jellyfinUserId: string;
   username: string;
@@ -126,11 +134,21 @@ export function createSessionForLogin(input: {
   const sessionId = generateSessionId();
 
   transaction((db) => {
-    const existing = asRow<{ id: string }>(
+    const existing = asRow<{ id: string; suspended: number }>(
       db
-        .prepare("SELECT id FROM users WHERE jellyfin_user_id = ?")
+        .prepare("SELECT id, suspended FROM users WHERE jellyfin_user_id = ?")
         .get(input.jellyfinUserId),
     );
+
+    /*
+     * Second lock on the same door. Suspension sets Jellyfin's IsDisabled, so
+     * a suspended account should never authenticate far enough to reach this
+     * function at all — but "should never" is doing a lot of work there, and
+     * the cost of being sure is one column already in hand. Without it, the
+     * gate would happily mint a fresh session for someone whose access was
+     * withdrawn, the moment anything upstream disagreed.
+     */
+    if (existing?.suspended === 1) throw new SuspendedAccountError();
 
     let userId: string;
     if (existing) {
@@ -287,6 +305,35 @@ export function getSessionForRevocation(
     jellyfinToken: row.jellyfin_token,
     jellyfinDeviceId: row.jellyfin_device_id,
   };
+}
+
+/**
+ * Every live session belonging to one user, with the Jellyfin token needed to
+ * kill each one upstream too.
+ *
+ * Signing somebody out has to mean all of their devices, not the one the
+ * curator happens to be looking at — a suspension that leaves a phone still
+ * streaming is not a suspension.
+ */
+export function listSessionsForUser(
+  userId: string,
+): Array<{ id: string; jellyfinToken: string; jellyfinDeviceId: string }> {
+  const rows = asRows<{ id: string; jellyfin_token: string; jellyfin_device_id: string }>(
+    getDb()
+      .prepare("SELECT id, jellyfin_token, jellyfin_device_id FROM sessions WHERE user_id = ?")
+      .all(userId),
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    jellyfinToken: r.jellyfin_token,
+    jellyfinDeviceId: r.jellyfin_device_id,
+  }));
+}
+
+/** Drops every session row for one user. Returns how many were live. */
+export function destroySessionsForUser(userId: string): number {
+  const result = getDb().prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+  return Number(result.changes);
 }
 
 /* ------------------------------------------------------------------ *

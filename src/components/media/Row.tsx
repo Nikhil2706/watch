@@ -17,6 +17,7 @@ export function Row({
   itemHrefs,
   itemPosters,
   itemPartsCounts,
+  itemPartsUnits,
 }: {
   title: string;
   items: MediaItem[];
@@ -28,8 +29,10 @@ export function Row({
   itemHrefs?: Map<string, string>;
   /** item id -> poster override — the series' own poster, for a group tile. */
   itemPosters?: Map<string, string | null>;
-  /** item id -> episode count — renders the "N parts" badge in place of a year, for a group tile. */
+  /** item id -> episode count — renders the "N parts" / "N episodes" badge in place of a year, for a group tile. */
   itemPartsCounts?: Map<string, number>;
+  /** item id -> wording for that count. Absent means "parts". */
+  itemPartsUnits?: Map<string, "parts" | "episodes">;
 }) {
   if (items.length === 0) return null;
 
@@ -46,6 +49,7 @@ export function Row({
             href={itemHrefs?.get(item.Id)}
             posterSrc={itemPosters?.get(item.Id)}
             partsCount={itemPartsCounts?.get(item.Id)}
+            partsUnit={itemPartsUnits?.get(item.Id)}
           />
         ))}
       </div>

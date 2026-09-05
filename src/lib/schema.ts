@@ -19,7 +19,7 @@
  * schema state (PRAGMA table_info) before acting and is therefore safe to run
  * on every migration regardless of how many times it fires.
  */
-export const SCHEMA_VERSION = 37;
+export const SCHEMA_VERSION = 40;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -65,7 +65,15 @@ CREATE TABLE IF NOT EXISTS users (
   -- Curator-toggled from the Users panel (see /api/admin/users/:id). Purely a
   -- gate-side content filter — unlike langlois_mode, nothing here touches the
   -- account's real Jellyfin policy. See parental-control.ts.
-  parental_control     INTEGER NOT NULL DEFAULT 0
+  parental_control     INTEGER NOT NULL DEFAULT 0,
+  -- Access revoked, reversibly. This is the source of truth for the account's
+  -- Jellyfin IsDisabled flag: applyRestrictedPolicy() takes "suspended" as a
+  -- REQUIRED argument (it used to hardcode false), so a policy write for some
+  -- unrelated reason — a Langlois-mode toggle, say — cannot silently
+  -- re-enable a suspended account by omission. Read this column to answer it.
+  -- Suspending also deletes every session; this flag is what stops a new
+  -- login from simply replacing them.
+  suspended            INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -410,7 +418,12 @@ CREATE TABLE IF NOT EXISTS library_group_overview (
 CREATE TABLE IF NOT EXISTS library_group_series (
   group_id   TEXT PRIMARY KEY,
   imdb_id    TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  -- "series" | "movie", from OMDb's own Type field on the series lookup, or
+  -- set by hand from the dashboard when OMDb is wrong for our purposes (a long
+  -- film released in parts is frequently catalogued as a mini-series). Decides
+  -- whether the tile reads "154 episodes" or "8 parts". NULL = not known yet.
+  kind       TEXT
 ) STRICT;
 
 -- The series' own poster, separate from library_group_series rather than a
@@ -788,6 +801,12 @@ CREATE TABLE IF NOT EXISTS notifications (
   -- "new_episodes" only — how many episodes just became visible. NULL for
   -- every other kind.
   episode_count INTEGER,
+  -- "curators_pick" only — the curator's own reason for sending this, typed in
+  -- the console when the pick goes out. Shown on the film's page and on the
+  -- Picks page for the person who received it, and kept for good: it is the
+  -- recommendation itself, not a transient alert. The bell text does NOT use
+  -- it (see NotificationBell.tsx) — that stays one line.
+  note          TEXT,
   created_at    INTEGER NOT NULL,
   read_at       INTEGER
 ) STRICT;
