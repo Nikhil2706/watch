@@ -669,42 +669,41 @@
   <!-- ============================== Worker tab ============================== -->
   <div class="tab-panel" id="tab-worker" data-tab="worker">
 
-    <div class="card" id="workerAboutCard">
-      <div class="card-title">The worker never runs on its own</div>
-      <div class="note" style="margin-top:4px">
-        Transform queues a file here &mdash; a row in the database, nothing more. Nothing is converted until you
-        start the worker yourself:
-      </div>
-      <pre style="margin:10px 0 0;padding:10px 12px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:8px;font-size:12px;overflow-x:auto;"><code>docker compose up worker</code></pre>
-      <div class="note" style="margin-top:8px">
-        It drains whatever's queued below and exits on its own &mdash; no folder watching, no library-wide scanning.
-      </div>
-    </div>
+    <!-- ============================================================
+         The worker workspace.
 
+         Two cards that were two views of one subject - files that need
+         converting, and files being converted - with a Load button on
+         each. One rail of files, one pane, chips carrying the state.
+         ============================================================ -->
     <div class="card" id="candidatesCard" style="display:none">
-      <div class="row" style="margin-bottom:10px">
-        <div>
-          <div class="card-title">Needs conversion</div>
+
+      <div class="row" style="margin-bottom:10px;align-items:flex-start">
+        <div style="flex:1 1 auto">
+          <div class="card-title">Conversion</div>
           <div class="note" style="margin-top:2px">
-            Files that would fall back to a live transcode instead of playing directly in a browser &mdash;
-            read from Jellyfin's own analysis, nothing probed here.
+            Files that would fall back to a live transcode instead of playing directly in a browser,
+            read from Jellyfin's own analysis. Transform queues one — a database row, nothing more.
+            Nothing is converted until you start the worker yourself:
+            <code style="margin-left:4px">docker compose up worker</code>
           </div>
         </div>
-        <div style="flex:0 0 auto">
-          <button id="loadCandidates" class="ghost">Load candidates</button>
-        </div>
+        <div style="flex:0 0 auto"><button id="loadQueue" class="ghost">Refresh</button></div>
       </div>
-      <div id="candidatesBody"></div>
-    </div>
 
-    <div class="card" id="queueCard" style="display:none">
-      <div class="row" style="margin-bottom:10px">
-        <div><div class="card-title">Conversion queue</div></div>
-        <div style="flex:0 0 auto">
-          <button id="loadQueue" class="ghost">Refresh</button>
-        </div>
+      <div class="lw-chips" id="wkChips"></div>
+
+      <div class="lw-tools">
+        <input type="text" id="wkSearch" placeholder="Search title or filename…" spellcheck="false">
       </div>
-      <div id="queueBody"></div>
+
+      <div class="lw-split">
+        <div class="lw-rail" id="wkRail"></div>
+        <div class="lw-pane" id="wkPane"></div>
+      </div>
+
+      <div id="candidatesBody" style="display:none"></div>
+      <div id="queueBody" style="display:none"></div>
     </div>
 
   </div>
@@ -1062,6 +1061,7 @@
         through. Data on sexual content/violence topics
         <a href="https://www.doesthedogdie.com" target="_blank" rel="noopener">Powered by DoesTheDogDie.com</a>.
       </p>
+      <div class="lw-chips" id="peopleChips" style="margin-bottom:12px"></div>
       <div id="usersTableWrap" style="overflow-x:auto"></div>
     </div>
 
@@ -1080,6 +1080,7 @@
         Nothing reaches the real library without both — Approve only becomes available once the
         scan comes back clean.
       </p>
+      <div class="lw-chips" id="uploadsChips" style="margin-bottom:12px"></div>
       <div id="uploadsTableWrap" style="overflow-x:auto"></div>
     </div>
   </div>
@@ -1111,6 +1112,8 @@
     // Accolades loads itself on arrival for the same reason the Library does:
     // it used to open on a search box, so the material was invisible.
     if (name === "accolades" && state.key) { accLoad(false); acLoadBuilder(); }
+    if (name === "worker" && state.key) wkLoad(false);
+    if (name === "uploads" && state.key && !state.uploads) loadUploads();
   }
   document.querySelectorAll(".tab-btn").forEach(function (b) {
     b.addEventListener("click", function () { showTab(b.getAttribute("data-tab")); });
@@ -1271,13 +1274,42 @@
   /* ================================================================
    * Users — Langlois mode toggle
    * ================================================================ */
+  /*
+   * Still a table, for the same reason Uploads is: every column here is
+   * something you read across people rather than about one of them. What it
+   * takes from the other tabs is the counted chips — which matter more now
+   * that an account can be suspended, since "who is cut off" was previously
+   * only visible by reading every row.
+   */
+  var PEOPLE_FILTERS = [
+    { key: "all", label: "Everyone", test: function () { return true; } },
+    { key: "active", label: "Active", test: function (u) { return !u.suspended && !u.is_admin; } },
+    { key: "suspended", label: "Suspended", test: function (u) { return !!u.suspended; } },
+    { key: "langlois", label: "Langlois mode", test: function (u) { return !!u.langlois_mode; } },
+    { key: "admin", label: "Admins", test: function (u) { return !!u.is_admin; } }
+  ];
+  var peopleFilter = "all";
+
+  function renderPeopleChips() {
+    var all = state.users || [];
+    $("peopleChips").innerHTML = PEOPLE_FILTERS.map(function (f) {
+      var n = all.filter(f.test).length;
+      var cls = "lw-chip" + (f.key === peopleFilter ? " on" : "") +
+        (f.key === "suspended" && n ? " alert" : "");
+      return '<button class="' + cls + '" data-people-filter="' + f.key + '"' + (n ? "" : " disabled") + '>' +
+        esc(f.label) + ' <b>' + n + '</b></button>';
+    }).join("");
+  }
+
   function renderUsers() {
+    renderPeopleChips();
     if (!state.users || !state.users.length) {
       $("usersTableWrap").innerHTML = '<div class="empty">No users yet.</div>';
       return;
     }
     var html = '<table><thead><tr><th>Username</th><th>Last seen</th><th>Langlois mode</th><th>Parental control</th><th>Access</th></tr></thead><tbody>';
-    state.users.forEach(function (u) {
+    var peopleFilterFn = PEOPLE_FILTERS.filter(function (f) { return f.key === peopleFilter; })[0] || PEOPLE_FILTERS[0];
+    state.users.filter(peopleFilterFn.test).forEach(function (u) {
       html += '<tr>' +
         '<td>' + esc(u.username) +
           (u.is_admin ? ' <span class="pill" title="Jellyfin administrator — managed in Jellyfin\'s own dashboard, not here">Admin</span>' : '') +
@@ -1380,6 +1412,13 @@
 
   $("refreshUsers").addEventListener("click", loadUsers);
 
+  $("peopleChips").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-people-filter]");
+    if (!btn || btn.disabled) return;
+    peopleFilter = btn.getAttribute("data-people-filter");
+    renderUsers();
+  });
+
   /* ================================================================
    * Uploads — Langlois-mode quarantine review
    * ================================================================ */
@@ -1400,14 +1439,49 @@
     rejected: "Rejected",
   };
 
+  /*
+   * Deliberately still a table, not a rail and pane.
+   *
+   * Every column here — who sent it, how big, whether the scan cleared it,
+   * when — is something you compare across rows before approving anything.
+   * A rail would hide all of that behind a selection. What this tab shares
+   * with the others is the part that helps: it loads itself, and the states
+   * are counted on chips.
+   */
+  var UPLOAD_FILTERS = [
+    { key: "review", label: "Ready to review", test: function (u) { return u.status === "clean"; } },
+    { key: "scanning", label: "Scanning", test: function (u) { return u.status === "scanning" || u.status === "uploaded"; } },
+    { key: "infected", label: "Failed the scan", test: function (u) { return u.status === "infected"; } },
+    { key: "all", label: "Everything", test: function () { return true; } }
+  ];
+  var uploadsFilter = "all";
+
+  function renderUploadsChips() {
+    var all = state.uploads || [];
+    $("uploadsChips").innerHTML = UPLOAD_FILTERS.map(function (f) {
+      var n = all.filter(f.test).length;
+      var cls = "lw-chip" + (f.key === uploadsFilter ? " on" : "") +
+        ((f.key === "review" || f.key === "infected") && n ? " alert" : "");
+      return '<button class="' + cls + '" data-uploads-filter="' + f.key + '"' + (n ? "" : " disabled") + '>' +
+        esc(f.label) + ' <b>' + n + '</b></button>';
+    }).join("");
+  }
+
   function renderUploads() {
+    renderUploadsChips();
     if (!state.uploads || !state.uploads.length) {
       $("uploadsTableWrap").innerHTML = '<div class="empty">No uploads yet.</div>';
       return;
     }
+    var filter = UPLOAD_FILTERS.filter(function (f) { return f.key === uploadsFilter; })[0] || UPLOAD_FILTERS[3];
+    var rows = (state.uploads || []).filter(filter.test);
+    if (!rows.length) {
+      $("uploadsTableWrap").innerHTML = '<div class="empty">Nothing in that state.</div>';
+      return;
+    }
     var html = '<table><thead><tr>' +
       '<th>File</th><th>From</th><th>Size</th><th>Status</th><th>Uploaded</th><th></th></tr></thead><tbody>';
-    state.uploads.forEach(function (u) {
+    rows.forEach(function (u) {
       var statusLabel = UPLOAD_STATUS_LABEL[u.status] || u.status;
       var statusClass = u.status === "infected" ? "s-revoked" : (u.status === "clean" ? "s-active" : "");
       var actions = "";
@@ -1478,6 +1552,13 @@
 
   $("refreshUploads").addEventListener("click", loadUploads);
 
+  $("uploadsChips").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-uploads-filter]");
+    if (!btn || btn.disabled) return;
+    uploadsFilter = btn.getAttribute("data-uploads-filter");
+    renderUploads();
+  });
+
   $("connect").addEventListener("click", function () {
     state.base = $("base").value.trim().replace(/\/+$/, "");
     state.key = $("key").value.trim();
@@ -1490,7 +1571,6 @@
       // Review, Browse, Film series and Current decisions are all inside
       // libraryCard now — one workspace rather than five stacked cards.
       $("candidatesCard").style.display = "";
-      $("queueCard").style.display = "";
       $("createCard").style.display = "";
       $("listCard").style.display = "";
       $("usersCard").style.display = "";
@@ -3509,39 +3589,193 @@
    * ================================================================ */
   var candidatesById = {};
 
-  $("loadCandidates").addEventListener("click", function () {
-    clearMsg();
-    var btn = $("loadCandidates");
-    btn.disabled = true;
-    btn.textContent = "Loading…";
-    api("/api/admin/worker/candidates").then(function (data) {
-      var candidates = data.candidates || [];
-      candidatesById = {};
-      candidates.forEach(function (c) { candidatesById[c.id] = c; });
-      renderCandidates(candidates);
-    }).catch(function (e) { show("err", e.message); })
-      .then(function () { btn.disabled = false; btn.textContent = "Load candidates"; });
-  });
+  /* ================================================================
+   * Worker workspace
+   *
+   * "Needs conversion" and "Conversion queue" were two cards, each
+   * behind its own Load button, listing the same subject at two points
+   * in its life. They are one rail now, with the state on a chip.
+   * ================================================================ */
+  var wk = { candidates: [], jobs: [], loaded: false, loading: false, filter: "needs", selected: null };
 
-  function renderCandidates(candidates) {
-    var el = $("candidatesBody");
-    if (!candidates.length) {
-      el.innerHTML = '<div class="muted">Everything in the library plays directly in a browser.</div>';
+  /** A queued/running/failed job for a path, if there is one. */
+  function wkJobForPath(path) {
+    for (var i = 0; i < wk.jobs.length; i++) {
+      if (wk.jobs[i].source_path === path) return wk.jobs[i];
+    }
+    return null;
+  }
+
+  function wkRows() {
+    var rows = [];
+    wk.candidates.forEach(function (c) {
+      var job = wkJobForPath(c.path);
+      rows.push({
+        kind: "candidate",
+        id: c.id,
+        name: c.name,
+        year: c.year,
+        path: c.path,
+        quality: c.quality,
+        item: c,
+        status: job ? job.status : "needs",
+        progress: job ? job.progress : null
+      });
+    });
+    // A job whose file is no longer a candidate (already converted, or the
+    // source moved) still belongs on the list — otherwise finishing a
+    // conversion makes the row vanish with no trace of what happened.
+    wk.jobs.forEach(function (j) {
+      var known = rows.some(function (r) { return r.path === j.source_path; });
+      if (known) return;
+      rows.push({
+        kind: "job",
+        id: "job:" + j.id,
+        name: j.title,
+        year: null,
+        path: j.source_path,
+        quality: null,
+        item: null,
+        status: j.status,
+        progress: j.progress
+      });
+    });
+    return rows;
+  }
+
+  var WK_FILTERS = [
+    { key: "needs", label: "Needs conversion", test: function (r) { return r.status === "needs"; } },
+    { key: "running", label: "Converting", test: function (r) { return r.status === "running" || r.status === "paused"; } },
+    { key: "queued", label: "Queued", test: function (r) { return r.status === "queued" || r.status === "pending"; } },
+    { key: "failed", label: "Failed", test: function (r) { return r.status === "failed" || r.status === "error"; } },
+    { key: "done", label: "Done", test: function (r) { return r.status === "done" || r.status === "complete"; } },
+    { key: "all", label: "Everything", test: function () { return true; } }
+  ];
+
+  function wkVisible() {
+    var q = ($("wkSearch").value || "").trim().toLowerCase();
+    var f = WK_FILTERS.filter(function (x) { return x.key === wk.filter; })[0] || WK_FILTERS[0];
+    return wkRows().filter(function (r) {
+      if (!f.test(r)) return false;
+      if (!q) return true;
+      return r.name.toLowerCase().indexOf(q) !== -1 || (r.path || "").toLowerCase().indexOf(q) !== -1;
+    }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+  }
+
+  function wkStateDot(r) {
+    if (r.status === "failed" || r.status === "error") return "danger";
+    if (r.status === "running" || r.status === "paused") return "accent";
+    if (r.status === "done" || r.status === "complete") return "";
+    return "warn";
+  }
+
+  function wkRenderChips() {
+    var rows = wkRows();
+    $("wkChips").innerHTML = WK_FILTERS.map(function (f) {
+      var n = rows.filter(f.test).length;
+      var cls = "lw-chip" + (f.key === wk.filter ? " on" : "") +
+        ((f.key === "needs" || f.key === "failed") && n ? " alert" : "");
+      return '<button class="' + cls + '" data-wk-filter="' + f.key + '"' + (n ? "" : " disabled") + '>' +
+        esc(f.label) + ' <b>' + n + '</b></button>';
+    }).join("");
+  }
+
+  function wkRenderRail() {
+    var rows = wkVisible();
+    var el = $("wkRail");
+    if (!rows.length) {
+      el.innerHTML = '<div class="empty" style="padding:20px">Nothing here.</div>';
       return;
     }
-    var html = "";
-    candidates.forEach(function (it) {
-      html += '<div class="wk-item" data-item-id="' + it.id + '">' +
-        '<div class="wk-name">' + esc(it.name) + (it.year ? " (" + it.year + ")" : "") +
-        '<span class="wk-path">' + esc(shortPath(it.path)) + '</span></div>' +
-        (it.quality ? '<span class="wk-quality">' + esc(it.quality) + '</span>' : "") +
-        '<div class="rv-item-actions">' +
-        folderLinkHtml(it) +
-        '<button class="ghost" data-action="transform" data-item-id="' + it.id + '">Transform</button>' +
-        '</div></div>';
-    });
-    el.innerHTML = html;
+    el.innerHTML = rows.map(function (r) {
+      var sub = r.status === "running" || r.status === "paused"
+        ? r.status + " " + (r.progress || 0) + "%"
+        : (r.status === "needs" ? (r.quality || "would transcode") : r.status);
+      return '<div class="lw-rail-item' + (wk.selected === r.id ? " sel" : "") + '" data-wk-row="' + esc(r.id) + '">' +
+        '<span class="lw-dot ' + wkStateDot(r) + '"></span>' +
+        '<span class="lw-rail-name">' + esc(r.name) +
+          '<span class="lw-rail-sub">' + esc(sub) + '</span>' +
+        '</span></div>';
+    }).join("");
   }
+
+  function wkRenderPane() {
+    var el = $("wkPane");
+    if (!wk.selected) { el.innerHTML = '<div class="lw-pane-empty">Pick a file on the left.</div>'; return; }
+    var rows = wkRows();
+    var r = rows.filter(function (x) { return x.id === wk.selected; })[0];
+    if (!r) { el.innerHTML = '<div class="lw-pane-empty">That file is no longer listed.</div>'; return; }
+
+    var actions = "";
+    if (r.status === "needs" && r.item) {
+      actions = '<button data-action="transform" data-item-id="' + esc(r.id) + '">Queue for conversion</button>';
+    } else if (r.status === "running" || r.status === "paused") {
+      actions = '<span class="muted" style="font-size:12px">Converting — ' + (r.progress || 0) + '% done. ' +
+        'The worker reports progress as it goes.</span>';
+    } else if (r.status === "failed" || r.status === "error") {
+      actions = '<span class="muted" style="font-size:12px">This one failed. The worker log has the reason.</span>';
+    } else {
+      actions = '<span class="muted" style="font-size:12px">Nothing to do for this one.</span>';
+    }
+
+    el.innerHTML = '<div class="lw-head">' +
+        '<div class="lw-head-text">' +
+          '<div class="lw-title">' + esc(r.name) + (r.year ? ' <span class="muted">(' + r.year + ')</span>' : "") + '</div>' +
+          '<div class="lw-sub">' + esc(r.quality ? r.quality + " · " + r.status : r.status) + '</div>' +
+          '<div class="lw-path">' + esc(r.path || "") + '</div>' +
+          '<div class="lw-acts">' + actions +
+            (r.item ? folderLinkHtml(r.item) : "") +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="rv-panel-slot" data-panel-for="' + esc(r.id) + '"></div>';
+  }
+
+  function wkRender() { wkRenderChips(); wkRenderRail(); wkRenderPane(); }
+
+  function wkLoad(force) {
+    if (wk.loading) return Promise.resolve();
+    if (wk.loaded && !force) return Promise.resolve();
+    wk.loading = true;
+    $("wkRail").innerHTML = '<div class="empty" style="padding:20px">Loading…</div>';
+    // Both lists in parallel: they are one picture and waiting for them in
+    // series just made the tab slower to become useful.
+    return Promise.all([
+      api("/api/admin/worker/candidates").catch(function () { return { candidates: [] }; }),
+      api("/api/admin/worker/jobs").catch(function () { return { jobs: [] }; })
+    ]).then(function (results) {
+      wk.candidates = results[0].candidates || [];
+      wk.jobs = results[1].jobs || [];
+      wk.candidates.forEach(function (c) { candidatesById[c.id] = c; review.itemsById[c.id] = c; });
+      wk.loaded = true;
+      wkRender();
+    }).then(function () { wk.loading = false; }, function (e) {
+      wk.loading = false;
+      show("err", e.message);
+    });
+  }
+
+  $("wkSearch").addEventListener("input", wkRenderRail);
+
+  $("wkChips").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-wk-filter]");
+    if (!btn || btn.disabled) return;
+    wk.filter = btn.getAttribute("data-wk-filter");
+    wkRenderChips();
+    wkRenderRail();
+  });
+
+  $("wkRail").addEventListener("click", function (e) {
+    var row = e.target.closest("[data-wk-row]");
+    if (!row) return;
+    wk.selected = row.getAttribute("data-wk-row");
+    wkRenderRail();
+    wkRenderPane();
+  });
+
+
+  // The rail loads both lists itself — see wkLoad().
+
 
   function transformCandidate(itemId, btn) {
     var it = candidatesById[itemId];
@@ -3562,28 +3796,14 @@
   }
 
   function loadQueue() {
+    // Feeds the rail: the queue is no longer a separate list of its own.
     return api("/api/admin/worker/jobs").then(function (data) {
-      renderQueue(data.jobs || []);
+      wk.jobs = data.jobs || [];
+      if (wk.loaded) wkRender();
     }).catch(function () { /* quiet — secondary panel */ });
   }
   $("loadQueue").addEventListener("click", function () { clearMsg(); loadQueue(); });
 
-  function renderQueue(jobs) {
-    var el = $("queueBody");
-    if (!jobs.length) {
-      el.innerHTML = '<div class="cur-empty">Nothing queued yet.</div>';
-      return;
-    }
-    var html = "";
-    jobs.forEach(function (j) {
-      html += '<div class="cur-row"><div class="cur-name">' + esc(j.title) +
-        '<span class="cur-path">' + esc(j.source_path) + '</span></div>' +
-        '<span class="wk-status status-' + esc(j.status) + '">' +
-        (j.status === "running" || j.status === "paused" ? j.status + " " + j.progress + "%" : j.status) +
-        '</span></div>';
-    });
-    el.innerHTML = html;
-  }
 
   $("refresh").addEventListener("click", function () { clearMsg(); load(); });
   $("filter").addEventListener("change", render);
