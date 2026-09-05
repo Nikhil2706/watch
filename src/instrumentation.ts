@@ -32,7 +32,6 @@ export async function register(): Promise<void> {
   // Browse first — without this, that's exactly what happens after every
   // restart once the previous warm-up's 12-hour cache entry has lapsed.
   void warmBrowseCache();
-  void warmAdminLibraryCache();
 
   void startAutoScrapeLoop();
   void startLibraryNotifyLoop();
@@ -200,26 +199,21 @@ async function warmBrowseCache(): Promise<void> {
   }
 }
 
-/**
- * The admin library listing, fetched once in the background at boot.
+/*
+ * There is deliberately NO warm-up here for admin-library-cache.ts, and it is
+ * worth saying why so nobody adds one back.
  *
- * The curator console's Library tab now loads itself on arrival rather than
- * behind three "Load" buttons, and that listing is the expensive shape — it
- * carries MediaSources so the workspace can flag files with no subtitles and
- * compare duplicate copies, which measures around 16 seconds against the real
- * library. Paying it here, before anyone is waiting, means the tab opens
- * against a warm cache instead. Failure is fine: the console falls back to
- * fetching it itself, exactly as it did before.
+ * It was tried: warm the expensive admin listing at boot so the console's
+ * Library tab opens instantly. The log said it warmed, and the route still
+ * took twelve seconds — this file runs in a different module instance from
+ * the route handlers, so the two hold separate copies of that module's
+ * in-memory cache. All it bought was a full-library pull on every boot that
+ * nothing ever read.
+ *
+ * The cache serves stale entries while refreshing behind them instead, so
+ * only the first request after a restart waits, and every one after it is
+ * immediate (measured: 12s, then 0.17s).
  */
-async function warmAdminLibraryCache(): Promise<void> {
-  try {
-    const { getAdminMovies } = await import("./lib/admin-library-cache");
-    await getAdminMovies();
-    console.log("[boot] admin library cache warm");
-  } catch (error) {
-    console.error("[boot] admin library cache warm-up failed (the console will fetch it on demand):", error);
-  }
-}
 
 async function runStartupScan(): Promise<void> {
   try {
