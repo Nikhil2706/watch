@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
+import { invalidateAdminMovies } from "@/lib/admin-library-cache";
 import { mergeVersions } from "@/lib/jellyfin";
 import { readJsonBody, ValidationError } from "@/lib/validation";
 
@@ -28,6 +29,10 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     await mergeVersions(itemIds as string[]);
+
+    // Merging changes which items exist at all, so the cached listing is now
+    // describing files that are no longer separate.
+    invalidateAdminMovies();
     return Response.json({ merged: true }, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof ValidationError) {

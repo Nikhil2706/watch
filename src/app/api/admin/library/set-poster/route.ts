@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
+import { invalidateAdminMovies } from "@/lib/admin-library-cache";
 import { setItemImage } from "@/lib/jellyfin";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
@@ -27,6 +28,13 @@ export async function POST(request: Request): Promise<Response> {
     if (!imageUrl) throw new ValidationError("imageUrl is required.");
 
     await setItemImage(itemId, imageUrl);
+
+    /*
+     * A new poster means a new ImageTags.Primary, and the thumbnail URLs the
+     * console renders are signed against the tag. Serving the cached listing
+     * would hand back the old tag, so the poster would appear unchanged.
+     */
+    invalidateAdminMovies();
     return Response.json({ ok: true }, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof ValidationError) {

@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
+import { invalidateAdminMovies } from "@/lib/admin-library-cache";
 import { applyOmdbEpisodeMetadata, clearItemBackdrop, setItemImage } from "@/lib/jellyfin";
 import { getGroupSeriesId, markMetadataConfirmed } from "@/lib/library-curation";
 import { fetchOmdbEpisode } from "@/lib/omdb-episodes";
@@ -59,6 +60,14 @@ export async function POST(request: Request): Promise<Response> {
       imdbRating: found.imdbRating,
       imdbId: found.imdbId,
     });
+    /*
+     * The title, synopsis and poster just changed in Jellyfin, so the cached
+     * admin listing now describes the OLD episode. Without this the console
+     * keeps showing the wrong name after a successful fetch — the change looks
+     * like it did not take.
+     */
+    invalidateAdminMovies();
+
     if (path) markMetadataConfirmed(path);
 
     let posterSet = false;
