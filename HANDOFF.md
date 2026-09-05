@@ -1,159 +1,179 @@
 # Session handoff — jellyfin-gate
 
-Written 2026-08-21, end of a very long session that started from the
-previous handoff (2026-08-20) and ran through a real hardware incident.
-Paste this whole file into a new chat to resume. Most durable lessons are
-ALSO saved as persistent memory (auto-loads in a new chat regardless) —
-this file covers exact in-flight state.
+Written 2026-09-05, end of a long session of user-led testing: the user
+exercised the site and the curator console feature by feature, reported what
+was wrong, and the fixes were batched and deployed together. Paste this whole
+file into a new chat to resume. The durable lessons are also saved as
+persistent memory (auto-loads in a new chat regardless) — this file covers
+exact in-flight state.
 
 ---
 
 ## READ THIS FIRST — three things that matter immediately
 
-1. **This machine has a real, unresolved hardware problem** on its primary
-   drive (Disk 0, "Matrix 512GB" SATA SSD — where Windows, Docker, WSL2,
-   and this whole project live). Repeated kernel crashes (bugcheck
-   `0x154` UNEXPECTED_STORE_EXCEPTION, a couple of `0x7a`
-   KERNEL_DATA_INPAGE_ERROR) going back to at least July 6, sharply
-   accelerating — 3+ crashes in one day by the end of this session. Full
-   diagnosis is in this session's own chat transcript; short version: I/O
-   retries and read errors on Disk 0, an actual I/O failure mid-`docker
-   compose build` tonight, and Docker Desktop's own socket files
-   (reparse points under `%LOCALAPPDATA%\Docker\run\` and
-   `%LOCALAPPDATA%\docker-secrets-engine\`) getting corrupted badly enough
-   that even `Remove-Item -Force` couldn't delete them — only renaming the
-   *parent folder* worked, same recovery trick as the earlier containerd
-   corruption incident. **As of this handoff, the user has NOT yet run the
-   Dell F12 hardware diagnostic or reseated the SATA cable** — both still
-   recommended before trusting this machine under sustained write load
-   again. If Docker/a build acts up in the new session, check `docker ps`
-   responsiveness and Windows System event log (`Get-WinEvent -FilterHashtable
-   @{LogName='System'; Id=41,1001}`) before assuming it's a code problem —
-   it very well might not be.
+1. **The boot SSD is failing, and it got worse today.** Bugcheck `0x154`
+   UNEXPECTED_STORE_EXCEPTION — a failed read from Windows' memory-compression
+   store. Previously one crash every few days (30 Aug, 2 Sep); **three on
+   5 Sep** (07:35, 09:41, 13:12). The 13:12 one happened while a Docker image
+   rebuild ran *and* the console was in use at the same time.
+   - Never rebuild while the site or console is being used. That combination
+     is what crashed it.
+   - `Get-PhysicalDisk` still says "Healthy" — worthless here. The reliability
+     counter shows 3 read errors, 5,646 power-on hours.
+   - No `chkdsk /r`, no vhdx compact, until the drive is imaged.
+   - Every crash so far has left the SQLite database intact
+     (`PRAGMA integrity_check` = ok). That is luck, not design.
 
-2. **A full backup exists at `E:\jellyfin-gate-backup-2026-08-21\`**,
-   updated at the end of this session: the whole repo (minus
-   `node_modules`/`.next`, both regenerable), `docker-watchdog\`, a
-   VACUUM-INTO'd (guaranteed-consistent, integrity-checked) snapshot of
-   the live database, and this project's Claude memory + full session
-   transcripts. If C: fails entirely, everything needed to rebuild this
-   site from scratch is on E:.
+2. **A crash mid-deploy leaves a half-created container.** Symptom: site 502,
+   `docker ps -a` shows `<hash>_jellyfin-gate` as *Created* and the real one
+   *Exited (255)*. Recovery:
+   ```
+   docker rm -f <hash>_jellyfin-gate
+   docker compose --env-file .env --env-file .env.wsl-paths up -d --no-deps gate
+   ```
 
-3. **The `JellyfinGateWatchdog` Scheduled Task is still DISABLED** (user's
-   explicit call, from before this session started) — nothing auto-restarts
-   Docker if it goes down. The upload scanner's Scheduled Task
-   (`JellyfinGateUploadScanner`) is registered but ALSO currently disabled —
-   it had a real bug (fixed this session, see below) and still needs a real
-   EICAR-file test before being trusted and turned back on.
+3. **curator.html needs no deploy.** It is a local `file://` page, not in the
+   image, not served by Next.js. Console-only changes = save the file and
+   reload the browser tab. Check `git diff --name-only` before rebuilding; if
+   nothing under `src/`, `next.config.ts`, `package.json`, `Dockerfile` or
+   `middleware.ts` changed, do not rebuild. This matters because rebuilds are
+   the heaviest write load on a dying drive.
 
-## What's deployed and live right now
+---
 
-Everything below shipped tonight — `docker compose build && up -d`
-succeeded, schema migrated cleanly straight from v30 to v33, all
-containers healthy. This is real, running code, not a pending PR.
+## How this is deployed
 
-- **Mobile player gestures** (`src/components/media/Player.tsx`,
-  `globals.css`): tap reveals a center play/pause button instead of the
-  whole video pausing on any touch; double-tap the left/right thirds
-  seeks ±10s with a brief flash. Touch-only via `(hover: none) and
-  (pointer: coarse)`. `clickToFullscreen` also turned off (traded away
-  since it collided with the new double-tap-to-seek zones) — desktop
-  still has the explicit fullscreen button.
-- **Readable URLs** (`src/lib/slugs.ts`): `/item/the-matrix-1999-<id>`
-  and `/watch/...` instead of a bare Jellyfin UUID, across every page
-  that links to a film. Old bare-UUID links still resolve — the id is
-  always just the trailing 32 hex characters either way.
-- **TV completion notifications**: `runTvNotifyTick()` in
-  `src/lib/library-notify.ts` — `new_show`/`new_episodes` notification
-  kinds, same "seed without notifying on first run" pattern as the
-  existing movie tick.
-- **Watch party** (`src/lib/party.ts`, `src/lib/party-identity.ts`,
-  `scripts/party-server.mts`, `src/components/party/*`,
-  `src/app/party/*`, `src/app/api/party/*`): rooms, instant or scheduled;
-  per-person guest links with QR codes for no-signup chat participants
-  (tracked, not anonymous — that was the actual ask); chat; playback sync
-  (creator-only by default, grantable via the participant list). Ships as
-  its own container (`jellyfin-gate-party`, listening internally on
-  `:4001`) — **not reachable from outside yet**, see gaps below.
-- **Scheduled rollout** (`src/lib/rollout.ts`) — covers BOTH TV shows
-  (`library_groups`) and film series (`film_series`), one schema/tick
-  shared by both subject types. Curator UI is in `curator.html`'s Library
-  tab: a rollout panel on each TV group's manage view, plus a whole new
-  "Film series" card (didn't exist before this session at all) for
-  managing series rollouts. `addToGroup()`/`/api/admin/library/group-add`
-  is new too — lets a curator add more episodes to an *already-grouped*
-  show, which the old "Group checked as one" flow couldn't do.
-- **Season-grouped collection pages**
-  (`src/app/collection/[id]/page.tsx`): The West Wing (and any 150+
-  episode show) now renders as one horizontally-scrolling `Row` per
-  season instead of one giant flat grid. Returning to the page
-  auto-scrolls (smooth) to whichever episode you're mid-way through, or
-  the next unwatched one if you finished the last — one
-  `scrollIntoView` call on the target poster's own link handles both the
-  vertical (which season) and horizontal (which tile) positioning at
-  once. Falls back to the old flat grid for a non-episodic multi-part
-  group (no season numbers at all, e.g. "Out 1").
-- Small but real fixes along the way: the upload scanner script
-  (`scripts/windows/upload-scanner.ps1`) had a genuine Windows PowerShell
-  5.1 parser bug — an em dash mixed with a `$(...)` subexpression in a
-  string desyncs its brace-matching and throws confusing, unrelated
-  parse errors. Fixed (ASCII-only now, with a comment explaining why) and
-  re-registered the Scheduled Task with `-WindowStyle Hidden` (missing
-  before — the terminal-flashing-every-5-minutes the user saw was this).
-  A stray backtick in a SQL comment inside `schema.ts`'s giant template
-  literal silently truncated the whole file, caught by `tsc`, not
-  eyeballing — same trap already committed to memory this session.
+Docker CE **inside the Ubuntu WSL distro** (not Docker Desktop, which still
+has a 31.9 GB disk on C: doing nothing — see "Open items").
 
-## What's NOT done — resume here
+```
+cd /mnt/c/Users/Dell/Downloads/jellyfin-gate
+docker compose --env-file .env --env-file .env.wsl-paths build gate
+docker compose --env-file .env --env-file .env.wsl-paths up -d --no-deps gate
+```
 
-- **Watch party has no edge routing.** `docker-compose.yml`'s `party`
-  service has no `ports:` and nothing proxies `/ws/party` to it — the
-  frontend will try to connect and fail until either a cloudflared
-  ingress rule or an equivalent reverse-proxy rule is added. Given the
-  tunnel-architecture-drift memory (prod actually runs on a **native
-  Windows Cloudflared service**, not the docker `tunnel` container the
-  README describes), that routing almost certainly needs to be added to
-  the native service's own config, not the docker-compose `tunnel`
-  service (which is stopped anyway — see below).
-- **True fullscreen doesn't show the watch-party chat panel.** Documented
-  as a known gap in `globals.css`'s own comment — fullscreening the
-  player still only promotes `.player-stage`, not a wrapper containing
-  both it and `.party-chat`.
-- **Film series rollout reveals fire no notification.** TV reveals
-  naturally produce one because the existing tick re-checks
-  confirmed-and-visible status; a film series' films are typically
-  already-owned long before their slot opens, so there's no "just became
-  visible" moment to hang a notification off. Documented as a follow-up
-  in `rollout.ts`'s own comment, not implemented.
-- **Upload scanner EICAR test still not done.** Script is fixed and the
-  Scheduled Task is registered correctly (hidden window, 5-min interval)
-  but left **disabled** per the user's own call. Test with a real EICAR
-  file before trusting it, per `scripts/windows/README.md`.
-- **`jellyfin-gate-tunnel` (the Docker container) is stopped**, again —
-  empty credentials dir, would just crash-loop. Native Windows
-  Cloudflared service is what actually serves production. A plain
-  `docker compose up -d` WILL try to restart this container again (it's
-  not scaled/profiled out in the compose file) — `docker compose stop
-  tunnel` afterward if that happens.
-- **Nothing has been committed to git.** 50 changed files, entirely
-  uncommitted, as of this handoff — everything above exists only as a
-  live Docker deployment and the E: backup, not in git history yet.
+`--no-deps` is deliberate: Jellyfin takes minutes to load its database, and
+restarting it is what turned a WSL restart into a long outage this morning.
 
-## Where things live
+Boot is handled by `jellyfin-gate.service` → `/usr/local/bin/jellyfin-gate-up.sh`,
+which waits for the USB media disk before bringing things up. **That script had
+been failing silently for eight days** — it named the retired `party` service,
+so compose exited 1 and started nothing (the containers only came up because
+of `restart: unless-stopped`). Fixed 5 Sep; backup at `.bak-20260905`.
 
-- Memory files: `C:\Users\Dell\.claude\projects\C--Users-Dell-Downloads\memory\`
-  — `MEMORY.md` is the index, read it first in the new chat.
-- E: backup: `E:\jellyfin-gate-backup-2026-08-21\` — repo,
-  `docker-watchdog\`, a verified live-DB snapshot
-  (`database\jellyfin-gate-backup.db`), and this project's full Claude
-  memory + session transcripts (`claude-project-files\`).
-- Docker data backup from the *previous* incident (2026-08-20, still
-  sitting there, not yet cleaned up): `D:\docker_data_backup_2026-08-20.vhdx`.
-- Watchdog: `C:\Users\Dell\docker-watchdog\` — **disabled**, see above.
-- `.env` has real secrets (`ADMIN_API_KEY`, `JELLYFIN_API_KEY`,
-  `OMDB_API_KEY`) — never commit it; it's backed up on E: now too, treat
-  that copy with the same care.
-- Fork/PR: branch `platform-additions` on `Nikhil2706/watch`, PR open
-  against `abhigyanverma/watch` at
-  https://github.com/abhigyanverma/watch/pull/1 — NOT yet updated with
-  tonight's work, since nothing's committed.
+### Verifying without deploying
+
+Everything below runs against the existing image — no rebuild, no writes:
+
+```
+# TypeScript
+docker run --rm --user 0 --entrypoint node \
+  -v /mnt/c/Users/Dell/Downloads/jellyfin-gate:/src -w /src jellyfin-gate-gate \
+  node_modules/typescript/bin/tsc --noEmit --incremental false
+
+# Tests (35 of them)
+docker run --rm --user 0 --entrypoint node ... jellyfin-gate-gate \
+  --test --experimental-strip-types src/lib/*.test.ts
+```
+
+Two console checks worth keeping (they each caught a real bug this session):
+
+- **`check-curator.sh`** — parses every inline `<script>` in curator.html with
+  `new Function`. Catches syntax breakage a diff will not show you.
+- **`check-ids.py`** — proves every `$("id")` the script reaches for exists in
+  the markup. It found two dangling references left by deleted cards, each of
+  which would have thrown at load and broken the **entire** console.
+
+And the technique that found the rest: copy curator.html to `/tmp`, append a
+harness that stubs `window.fetch` with canned data, serve **that copy only**
+(never the repo directory — `.env` lives there), and drive it in a browser. No
+admin key is ever typed into a field.
+
+---
+
+## What shipped today (13 commits, all deployed)
+
+**Bugs the user found by using it:**
+
+- **Watch-party chat and guest-link rows were unusable** — one global rule,
+  `form button[type="submit"] { width: 100% }`, made the button eat the row.
+- **Every PATCH the console makes was blocked** before leaving the browser:
+  `Access-Control-Allow-Methods` omitted PATCH. That is why neither Langlois
+  mode nor parental control could be toggled for anyone — and why accolade
+  trivia edits and builder renames had silently never worked.
+- **Library posters could never have loaded in the console.** `/jf/` images
+  authenticate on a session cookie and the console is a `file://` page, so
+  cookies are never sent. Now served from a signed thumbnail route.
+- **Admin search took 10–20 seconds** to return a few hundred bytes: it asked
+  Jellyfin for `MediaSources` (every subtitle track of every film) on each
+  keystroke. 4.1 MB/13 s with it, 0.9 MB/0.4 s without. Now 2.5 s cold,
+  0.03 s warm.
+- **Two episode-naming shapes matched nothing**: `03x02` (43 of E.R.'s files)
+  and `s01e01e02` doubles. Neither could be identified in bulk at all.
+- **"Changes that didn't take"** — they had taken; the cache added earlier the
+  same day was serving the old listing. Three routes changed Jellyfin state
+  without invalidating.
+
+**Redesigns:**
+
+- **Library tab** rebuilt as one workspace: rail to find, pane to do, chips
+  that carry counts. Replaced five stacked cards, three of which needed their
+  own button pressed. Shows are one row; duplicates compare side by side with
+  resolution/size/subtitle count.
+- **Accolades tab** rebuilt the same way. The finding that shaped it: nine
+  sources had scraped 3,324 articles into 187,799 trivia candidates across 330
+  films, and **zero had ever been chosen** — because the tab opened on a search
+  box. Candidates are now ranked by readability and capped, with a "Surprise
+  me" entry point.
+- **Worker** got the same shape. **Uploads** and **People** deliberately kept
+  their tables (every column is read *across* rows) and gained counted chips.
+  **Health** and **Notify** were left alone on purpose.
+
+**Features:** episodes-vs-parts wording from OMDb's `Type` (with a curator
+override), revoke-a-person's-access (suspend + sign out everywhere), curator
+notes on picks shown on the film page and a new "Picked for you" section,
+person-bio expansion, missing-episode markers, pop-out watch-party chat with a
+phone QR.
+
+**Config:** `PUBLIC_URL` moved from `watch2.` to `watch.abhigyanverma.com`.
+The watchdog outside the repo had the old host hardcoded — that one mattered,
+because it decides whether the machine is having an outage and its recovery
+ladder ends at a reboot.
+
+---
+
+## Open items
+
+- **Test the backdrop question.** Does re-mapping a film via Search leave the
+  *previous* film's backdrop on its page? `backdropUrl()` reads
+  `BackdropImageTags` before the poster, and this was observed for real on the
+  episode-fetch path. A defensive `clearItemBackdrop()` now runs after
+  apply-match either way. See memory note `jellyfin-gate-backdrop-remap-check`.
+- **E.R. re-fetch.** 44 files that previously could not parse now can. Open the
+  show's settings and run "Fetch all from OMDb" — it skips the 260 already
+  done. Watch for OMDb numbering drift on a 15-season show.
+- **Viewing metrics are parked**, not cancelled — pending the user talking to
+  the friends who use the library, on privacy grounds. Full plan artifact
+  linked in memory.
+- **~33 GB reclaimable**: Docker Desktop's `docker_data.vhdx` (31.9 GB, dead
+  since the 2026-08-27 migration) and the retired `jellyfin-gate-party` image.
+  Planned, **not** done — image the drive first.
+- **Console latency is fine.** All 15 admin endpoints measured ≤0.4 s warm.
+  Two apparent outliers were first-hit route compilation, not real.
+
+---
+
+## Traps hit this session (all now in memory)
+
+- A literal backtick in a **SQL comment** inside `schema.ts`'s big template
+  string truncates it. Caught by tsc.
+- Writing JS into curator.html through a shell heredoc silently ate one level
+  of backslash, turning `\n` inside a `confirm()` string into a real newline
+  and breaking the whole script block.
+- `.env` is gitignored; **`.env.bak-*` was not.** A backup made before editing
+  was swept into a commit by `git add -A`. Caught before any push; the file is
+  now at `C:\Users\Dell\jellyfin-gate-backups\` and `.gitignore` covers the
+  pattern. Keep secret backups outside the repo in the first place.
+- `applyRestrictedPolicy()` hardcoded `IsDisabled: false`, so any policy write
+  would have silently un-suspended a revoked account. It now takes `suspended`
+  as a **required** argument — forgetting it is a compile error.
