@@ -627,6 +627,7 @@
             <option value="needs">Needs you first</option>
             <option value="name">Title A–Z</option>
           </select>
+          <button class="ghost" id="lwSelectAll">Select all shown</button>
           <button class="ghost" id="lwScan">Scan folder</button>
           <span class="muted" id="lwScanAge"></span>
         </div>
@@ -2165,6 +2166,9 @@
   function lwRenderBulk() {
     var ids = Object.keys(lw.checked).filter(function (k) { return lw.checked[k]; });
     var el = $("lwBulk");
+    var visible = lwVisibleRows().filter(function (r) { return r.kind === "film"; });
+    var allOn = visible.length > 0 && visible.every(function (r) { return lw.checked[r.id]; });
+    $("lwSelectAll").textContent = allOn ? "Clear selection" : "Select all shown";
     if (ids.length < 2) { el.style.display = "none"; el.innerHTML = ""; return; }
     el.style.display = "";
     el.innerHTML = '<strong>' + ids.length + ' selected</strong>' +
@@ -2434,6 +2438,20 @@
     }
     var row = e.target.closest("[data-lw-row]");
     if (row) lwSelect(row.getAttribute("data-lw-row"));
+  });
+
+  /*
+   * Grouping a long-running series means several hundred files at once —
+   * E.R. is 310 — so ticking them by hand is not a real option. Filter or
+   * search the rail down to the show, then take everything showing.
+   */
+  $("lwSelectAll").addEventListener("click", function () {
+    var rows = lwVisibleRows().filter(function (r) { return r.kind === "film"; });
+    if (!rows.length) { show("err", "Nothing to select."); return; }
+    var allOn = rows.every(function (r) { return lw.checked[r.id]; });
+    rows.forEach(function (r) { lw.checked[r.id] = !allOn; });
+    lwRenderRail();
+    lwRenderBulk();
   });
 
   $("lwScan").addEventListener("click", function () {

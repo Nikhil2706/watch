@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomBytes } from "node:crypto";
 
-import { getDb, asRows } from "./db";
+import { asRows, getDb, transaction } from "./db";
 
 /**
  * The library review dashboard's decisions — what to hide, what to group —
@@ -100,11 +100,21 @@ export function getGroup(groupId: string): GroupEntry | null {
 export function createGroup(name: string, paths: string[]): string {
   const groupId = randomBytes(8).toString("base64url");
   const now = Date.now();
-  const stmt = getDb().prepare(
-    "INSERT INTO library_groups (path, group_id, group_name, created_at) VALUES (?, ?, ?, ?)",
-  );
-  for (const path of paths) stmt.run(path, groupId, name, now);
-  return groupId;
+
+  /*
+   * One transaction, not one commit per file. Grouping a long-running series
+   * is a single click over several hundred paths — E.R. is 310 — and left
+   * unwrapped that is 310 separate committed writes. It is also all-or-nothing
+   * now: a half-created group is not a state anything else here knows how to
+   * read.
+   */
+  return transaction((db) => {
+    const stmt = db.prepare(
+      "INSERT INTO library_groups (path, group_id, group_name, created_at) VALUES (?, ?, ?, ?)",
+    );
+    for (const path of paths) stmt.run(path, groupId, name, now);
+    return groupId;
+  });
 }
 
 /**
