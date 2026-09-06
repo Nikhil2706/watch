@@ -198,6 +198,11 @@
   .sf-pick select, .sf-pick input { font-size: 12.5px; padding: 5px 9px; }
   .sf-pick input { flex: 1 1 200px; }
 
+  .sf-block { border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2);
+    padding: 11px 13px; }
+  .sf-suggest { width: auto; font-size: 12px; padding: 5px 10px; }
+  .sf-x { width: auto; padding: 0 4px; font-size: 11px; line-height: 1.4; margin-left: 2px; }
+
   /* --- Header -------------------------------------------------------- */
   .top {
     display: flex; align-items: center; gap: 12px;
@@ -649,7 +654,6 @@
   <nav class="tabs" id="tabNav" style="display:none">
     <button class="tab-btn" data-tab="library">Library</button>
     <button class="tab-btn" data-tab="dupes">Duplicates</button>
-    <button class="tab-btn" data-tab="features">Features</button>
     <button class="tab-btn" data-tab="worker">Worker</button>
     <button class="tab-btn" data-tab="accolades">Accolades</button>
     <button class="tab-btn" data-tab="health">Health</button>
@@ -690,6 +694,7 @@
           </select>
           <button class="ghost" id="lwSelectAll">Select all shown</button>
           <button class="ghost" id="lwScan">Scan folder</button>
+          <button class="ghost" id="lwSuggestFeatures">Suggest special features</button>
           <span class="muted" id="lwScanAge"></span>
         </div>
 
@@ -801,42 +806,6 @@
       <div id="dfGroups"></div>
     </div>
 
-  </div>
-
-  <!-- ============================== Features tab ============================== -->
-  <div class="tab-panel" id="tab-features" data-tab="features">
-
-    <!-- ============================================================
-         Special features: making-ofs, documentaries about a director,
-         retrospectives on an actor. Marking one hides it from Browse,
-         Home and Picks; mapping it decides whose page it appears on.
-
-         The guesser proposes and never applies. A wrong guess takes a
-         real film out of the library and buries it in another film's
-         extras, which is a far worse outcome than confirming a right
-         one, so everything here waits for a yes.
-         ============================================================ -->
-
-    <div class="card">
-      <div class="row" style="align-items:center">
-        <div style="flex:0 0 auto"><button id="sfGuess">Suggest special features</button></div>
-        <div style="flex:0 0 auto"><button id="sfReload" class="ghost">Reload</button></div>
-        <div style="flex:1 1 auto"></div>
-        <div style="flex:0 0 auto"><span class="lw-chip" id="sfCount">—</span></div>
-      </div>
-      <div class="note" id="sfScanNote">
-        Scans titles for “making of”, “behind the scenes”, deleted scenes and the like,
-        then tries to work out what each one is about. Nothing is applied until you say so.
-      </div>
-    </div>
-
-    <div id="sfGuessWrap" style="display:none">
-      <div class="lw-section">Suggestions</div>
-      <div id="sfGuessList"></div>
-    </div>
-
-    <div class="lw-section">Marked as special features</div>
-    <div id="sfList"><div class="lw-pane-empty">Not loaded yet.</div></div>
   </div>
 
   <!-- ============================== Worker tab ============================== -->
@@ -1286,7 +1255,6 @@
     // it used to open on a search box, so the material was invisible.
     if (name === "accolades" && state.key) { accLoad(false); acLoadBuilder(); }
     if (name === "worker" && state.key) wkLoad(false);
-    if (name === "features" && state.key) sfLoad();
     if (name === "uploads" && state.key && !state.uploads) loadUploads();
   }
   document.querySelectorAll(".tab-btn").forEach(function (b) {
@@ -2274,6 +2242,9 @@
     { key: "nosubs", label: "No subtitles", alert: false, test: function (r) { return r.isMissingSubtitles; } },
     { key: "shows", label: "Shows", alert: false, test: function (r) { return r.kind === "show"; } },
     { key: "hidden", label: "Hidden", alert: false, test: function (r) { return r.isExcluded; } },
+    // Next to Hidden on purpose: both answer "not in the library as a film",
+    // one by removing it and one by saying it belongs to something else.
+    { key: "special", label: "Special features", alert: false, test: function (r) { return r.isSpecialFeature; } },
     { key: "all", label: "Everything", alert: false, test: function () { return true; } }
   ];
 
@@ -2352,7 +2323,11 @@
         isThinMetadata: it.isThinMetadata,
         isMissingSubtitles: it.isMissingSubtitles,
         isWhitelisted: it.isWhitelisted,
-        isExcluded: it.isExcluded
+        isExcluded: it.isExcluded,
+        // Filled in by sfApplyToRows once the marks and any suggestions are
+        // loaded; rebuilding rows must not drop them.
+        isSpecialFeature: false,
+        featureGuess: null
       });
     });
 
@@ -2555,6 +2530,7 @@
           '<div style="margin-top:8px;font-size:12px">' + lwLinks(it) + '</div>' +
         '</div>' +
       '</div>' +
+      sfPaneHtml(it) +
       '<div class="rv-panel-slot" data-panel-for="' + esc(it.id) + '"></div>' +
       (row.isDuplicate ? lwDuplicateHtml(row) : "");
   }
@@ -2616,6 +2592,9 @@
     $("lwRail").innerHTML = '<div class="empty" style="padding:20px">Loading…</div>';
     return api("/api/admin/library/browse").then(function (data) {
       lw.items = data.items || [];
+      // Merged onto the rows below, so nothing else in the workspace has to
+      // know this feature exists.
+      void sfLoad();
       lw.lastScanAt = data.lastScanAt || null;
       lw.loaded = true;
       lwBuildRows();
@@ -2748,6 +2727,8 @@
     lwRenderRail();
     lwRenderBulk();
   });
+
+  $("lwSuggestFeatures").addEventListener("click", function () { sfRunGuess(this); });
 
   $("lwScan").addEventListener("click", function () {
     var btn = $("lwScan");
@@ -3290,7 +3271,47 @@
     var itemId = btn.getAttribute("data-item-id");
     var groupEl = btn.closest(".rv-group");
 
-    if (action === "search") openSearchPanel(itemId);
+    if (action === "sf-mark") sfPost({ action: "mark", itemId: itemId, title: lwNameFor(itemId) });
+    else if (action === "sf-unmark") {
+      if (confirm("Show this in the library again? Its mappings are dropped."))
+        sfPost({ action: "unmark", itemId: itemId });
+    }
+    else if (action === "sf-map") {
+      sfPost({
+        action: "map", itemId: itemId, title: lwNameFor(itemId),
+        kind: btn.getAttribute("data-sf-kind"),
+        targetId: btn.getAttribute("data-sf-target"),
+        targetLabel: btn.getAttribute("data-sf-label")
+      });
+    }
+    else if (action === "sf-unmap") {
+      sfPost({
+        action: "unmap", itemId: itemId,
+        kind: btn.getAttribute("data-sf-kind"),
+        targetId: btn.getAttribute("data-sf-target")
+      });
+    }
+    else if (action === "sf-dismiss") {
+      // Only for this session. Persisting a "no" would need its own table and
+      // its own way to change your mind; re-running the scan is cheap.
+      delete sfState.guesses[itemId];
+      sfApplyToRows();
+      lwRender();
+    }
+    else if (action === "sf-add") {
+      var picked = document.querySelector('[data-sf-input="' + itemId + '"]');
+      var kindPick = document.querySelector('[data-sf-kindpick="' + itemId + '"]');
+      var dl = document.getElementById("sfdl-" + itemId);
+      var match = dl ? Array.prototype.filter.call(dl.children, function (o) {
+        return o.value === picked.value;
+      })[0] : null;
+      if (!match) show("err", "Pick something from the list.");
+      else sfPost({
+        action: "map", itemId: itemId, title: lwNameFor(itemId),
+        kind: kindPick.value, targetId: match.getAttribute("data-id"), targetLabel: match.value
+      });
+    }
+    else if (action === "search") openSearchPanel(itemId);
     else if (action === "manual") openManualPanel(itemId);
     else if (action === "exclude") excludeItem(itemId);
     else if (action === "whitelist") whitelistItem(itemId);
@@ -5364,14 +5385,18 @@
   });
 
   /* ================================================================
-   * Special features
+   * Special features — part of the Library workspace, not a tab of their own.
    *
-   * Marking hides a title from Browse/Home/Picks; mapping decides whose
-   * page it turns up on. The guesser only ever proposes — a wrong guess
-   * takes a real film out of the library and hides it in another film's
-   * extras, so nothing here writes without a click.
+   * "Hide from the site" and "special feature" are the same question asked
+   * twice: does this belong in the library as a film? One answer removes it,
+   * the other says it belongs to something else. So they sit together in the
+   * pane, where an item's other placement decisions already live.
+   *
+   * Nothing here keeps its own list or its own notion of needing attention.
+   * An unconfirmed suggestion is exactly what "Needs you" already means, so it
+   * flows into that chip instead of a second queue beside it.
    * ================================================================ */
-  var sfState = { features: [], guesses: [], targets: null, dismissed: {} };
+  var sfState = { features: {}, guesses: {}, targets: null };
 
   var SF_KINDS = [
     { kind: "film", label: "Film", list: "films" },
@@ -5380,17 +5405,40 @@
     { kind: "actor", label: "Actor", list: "actors" }
   ];
 
+  function sfKindLabel(kind) {
+    var found = SF_KINDS.filter(function (k) { return k.kind === kind; })[0];
+    return found ? found.label : kind;
+  }
+
+  /* Loaded with the library listing and merged onto its rows, so the chips,
+     the rail and the sort need no idea this feature exists. */
   function sfLoad() {
     return api("/api/admin/special-features").then(function (data) {
-      sfState.features = data.features || [];
-      sfRender();
-    }).catch(function (e) {
-      $("sfList").innerHTML = '<div class="lw-pane-empty">' + esc(e.message) + "</div>";
+      sfState.features = {};
+      (data.features || []).forEach(function (f) { sfState.features[f.itemId] = f; });
+      sfApplyToRows();
+      // This resolves after the rail has already drawn — it is fired off
+      // alongside the listing, not awaited — so without re-rendering here the
+      // chips read zero until something else happened to redraw them.
+      if (lw.loaded) lwRender();
+    }).catch(function () {
+      // A library that loads without this is still a usable library.
     });
   }
 
-  // Fetched once and reused: it is every film, group, director and actor in
-  // the library, which is a big list and does not change mid-session.
+  function sfApplyToRows() {
+    (lw.rows || []).forEach(function (r) {
+      var feature = sfState.features[r.id];
+      var guess = sfState.guesses[r.id];
+      r.isSpecialFeature = Boolean(feature);
+      r.featureGuess = feature ? null : guess || null;
+      // Both of these genuinely want a person: an unconfirmed suggestion, and
+      // a feature that is hidden but appears nowhere.
+      if (r.featureGuess) r.needsDecision = true;
+      if (feature && feature.targets.length === 0) r.needsDecision = true;
+    });
+  }
+
   function sfLoadTargets() {
     if (sfState.targets) return Promise.resolve(sfState.targets);
     return api("/api/admin/special-features/targets").then(function (data) {
@@ -5399,265 +5447,130 @@
     });
   }
 
-  $("sfReload").addEventListener("click", function () { sfLoad(); });
+  /* Rendered under the ordinary actions, and silent unless there is something
+     to say — most of the library is neither a feature nor a suggestion. */
+  function sfPaneHtml(it) {
+    var feature = sfState.features[it.id];
+    var guess = sfState.guesses[it.id];
+    if (!feature && !guess) return "";
 
-  $("sfGuess").addEventListener("click", function () {
-    var btn = $("sfGuess");
+    var out = '<div class="lw-section">Special feature</div><div class="sf-block">';
+
+    if (!feature) {
+      out += '<div class="sf-why">Looks like one — ' + esc(guess.reasons.join(" \u00b7 ")) +
+        ' <span class="sf-conf">' + guess.confidence + '% sure</span></div>';
+      if (guess.targets.length) {
+        out += '<div class="sf-why" style="margin-top:8px">Show it on:</div><div class="sf-targets">';
+        guess.targets.forEach(function (t) {
+          out += '<button class="ghost sf-suggest" data-action="sf-map" data-item-id="' + esc(it.id) +
+            '" data-sf-kind="' + esc(t.kind) + '" data-sf-target="' + esc(t.targetId) +
+            '" data-sf-label="' + esc(t.targetLabel) + '" title="' + esc(t.reason) + '">' +
+            '<span class="sf-kind">' + esc(sfKindLabel(t.kind)) + '</span> ' + esc(t.targetLabel) +
+            '</button>';
+        });
+        out += '</div>';
+      }
+      out += '<div class="lw-acts">' +
+        '<button class="ghost" data-action="sf-mark" data-item-id="' + esc(it.id) + '">Hide it, decide later</button>' +
+        '<button class="ghost" data-action="sf-dismiss" data-item-id="' + esc(it.id) + '">Not a special feature</button>' +
+        '</div></div>';
+      return out;
+    }
+
+    if (feature.targets.length) {
+      out += '<div class="sf-why">Appears on:</div><div class="sf-targets">';
+      feature.targets.forEach(function (t) {
+        out += '<span class="sf-target"><span class="sf-kind">' + esc(sfKindLabel(t.kind)) + '</span> <b>' +
+          esc(t.targetLabel || t.targetId) + '</b>' +
+          '<button class="ghost sf-x" data-action="sf-unmap" data-item-id="' + esc(it.id) +
+          '" data-sf-kind="' + esc(t.kind) + '" data-sf-target="' + esc(t.targetId) +
+          '" title="Stop showing it there">\u2715</button></span>';
+      });
+      out += '</div>';
+    } else {
+      out += '<div class="sf-why">Hidden from the library, but it does not appear anywhere yet.</div>';
+    }
+
+    out += '<div class="sf-pick">' +
+      '<select data-sf-kindpick="' + esc(it.id) + '">' +
+      SF_KINDS.map(function (k) { return '<option value="' + k.kind + '">' + k.label + '</option>'; }).join("") +
+      '</select>' +
+      '<input list="sfdl-' + esc(it.id) + '" data-sf-input="' + esc(it.id) + '" placeholder="Also show it on\u2026">' +
+      '<datalist id="sfdl-' + esc(it.id) + '"></datalist>' +
+      '<button class="ghost" data-action="sf-add" data-item-id="' + esc(it.id) + '">Add</button>' +
+      '</div>';
+
+    out += '<div class="lw-acts"><button class="danger" data-action="sf-unmark" data-item-id="' +
+      esc(it.id) + '">Put back in the library</button></div></div>';
+    return out;
+  }
+
+  /* The film list is the whole library, so this is a datalist rather than a
+     select: scrolling six hundred titles is hopeless, typing three letters is
+     not. Filled on demand because it is every film, group and person there is. */
+  function sfFillDatalist(itemId) {
+    var kindEl = document.querySelector('[data-sf-kindpick="' + itemId + '"]');
+    var datalist = document.getElementById("sfdl-" + itemId);
+    if (!kindEl || !datalist) return;
+    sfLoadTargets().then(function (targets) {
+      var key = SF_KINDS.filter(function (k) { return k.kind === kindEl.value; })[0].list;
+      datalist.textContent = "";
+      (targets[key] || []).forEach(function (t) {
+        var opt = document.createElement("option");
+        opt.value = t.label;
+        opt.setAttribute("data-id", t.id);
+        datalist.appendChild(opt);
+      });
+    }).catch(function (e) { show("err", e.message); });
+  }
+
+  function lwNameFor(itemId) {
+    var row = (lw.rows || []).filter(function (r) { return r.id === itemId; })[0];
+    return row ? row.name : null;
+  }
+
+  // focusin, not focus: focus does not bubble, and the picker is rebuilt on
+  // every pane render so there is nothing stable to bind to directly.
+  document.body.addEventListener("focusin", function (e) {
+    var input = e.target.closest("[data-sf-input]");
+    if (input) sfFillDatalist(input.getAttribute("data-sf-input"));
+  });
+
+  document.body.addEventListener("change", function (e) {
+    var kind = e.target.closest("[data-sf-kindpick]");
+    if (kind) sfFillDatalist(kind.getAttribute("data-sf-kindpick"));
+  });
+
+  function sfPost(body) {
+    return api("/api/admin/special-features", { method: "POST", body: body }).then(function (data) {
+      sfState.features = {};
+      (data.features || []).forEach(function (f) { sfState.features[f.itemId] = f; });
+      // A confirmed suggestion is no longer a suggestion.
+      if (body.action === "map" || body.action === "mark") delete sfState.guesses[body.itemId];
+      sfApplyToRows();
+      lwRender();
+    }).catch(function (e) { show("err", e.message); });
+  }
+
+  function sfRunGuess(btn) {
     btn.disabled = true;
-    btn.textContent = "Looking…";
-    api("/api/admin/special-features/guess").then(function (data) {
-      sfState.guesses = data.guesses || [];
-      $("sfScanNote").textContent =
-        "Looked at " + data.scanned + " titles. " + sfState.guesses.length +
-        " look like special features. " + data.alreadyMarked + " already marked.";
-      sfRenderGuesses();
+    var previous = btn.textContent;
+    btn.textContent = "Looking\u2026";
+    return api("/api/admin/special-features/guess").then(function (data) {
+      sfState.guesses = {};
+      (data.guesses || []).forEach(function (g) { sfState.guesses[g.itemId] = g; });
+      sfApplyToRows();
+      lwRender();
+      var n = (data.guesses || []).length;
+      show("ok", n
+        ? n + " possible special feature" + (n === 1 ? "" : "s") + " \u2014 they are under \u201cNeeds you\u201d."
+        : "Nothing in the library looks like a special feature.");
     }).catch(function (e) {
       show("err", e.message);
     }).then(function () {
       btn.disabled = false;
-      btn.textContent = "Suggest special features";
+      btn.textContent = previous;
     });
-  });
-
-  function sfRenderGuesses() {
-    var host = $("sfGuessList");
-    var pending = sfState.guesses.filter(function (g) { return !sfState.dismissed[g.itemId]; });
-    $("sfGuessWrap").style.display = pending.length ? "" : "none";
-    host.textContent = "";
-
-    pending.forEach(function (g) {
-      var card = document.createElement("div");
-      card.className = "sf-item";
-
-      var head = document.createElement("div");
-      head.className = "sf-head";
-      var name = document.createElement("span");
-      name.className = "sf-name";
-      name.textContent = g.title;
-      var conf = document.createElement("span");
-      conf.className = "sf-conf" + (g.confidence >= 60 ? " high" : "");
-      conf.textContent = g.confidence + "% sure";
-      head.appendChild(name);
-      head.appendChild(conf);
-      card.appendChild(head);
-
-      var why = document.createElement("div");
-      why.className = "sf-why";
-      why.textContent = g.reasons.join(" · ");
-      card.appendChild(why);
-
-      // Each proposed target is its own button: confirming is one click, and
-      // a feature can be mapped several ways by clicking more than one.
-      if (g.targets.length) {
-        var targets = document.createElement("div");
-        targets.className = "sf-targets";
-        g.targets.forEach(function (t) {
-          var btn = document.createElement("button");
-          btn.className = "ghost";
-          btn.style.width = "auto";
-          btn.style.fontSize = "12px";
-          btn.style.padding = "5px 10px";
-          btn.innerHTML = '<span class="sf-kind">' + esc(t.kind) + "</span> " + esc(t.targetLabel);
-          btn.title = t.reason;
-          btn.addEventListener("click", function () {
-            sfMap(g.itemId, g.title, t.kind, t.targetId, t.targetLabel, btn);
-          });
-          targets.appendChild(btn);
-        });
-        card.appendChild(targets);
-      } else {
-        var none = document.createElement("div");
-        none.className = "sf-why";
-        none.textContent = "Could not work out what this is about — mark it, then map it below.";
-        card.appendChild(none);
-      }
-
-      var acts = document.createElement("div");
-      acts.className = "sf-acts";
-
-      var markOnly = document.createElement("button");
-      markOnly.className = "ghost";
-      markOnly.textContent = "Hide from library only";
-      markOnly.addEventListener("click", function () {
-        sfPost({ action: "mark", itemId: g.itemId, title: g.title }, function () {
-          sfState.dismissed[g.itemId] = true;
-          sfRenderGuesses();
-        });
-      });
-
-      var skip = document.createElement("button");
-      skip.className = "ghost";
-      skip.textContent = "Not a special feature";
-      skip.title = "Leaves it in the library. It may be suggested again next time you scan.";
-      skip.addEventListener("click", function () {
-        sfState.dismissed[g.itemId] = true;
-        sfRenderGuesses();
-      });
-
-      acts.appendChild(markOnly);
-      acts.appendChild(skip);
-      card.appendChild(acts);
-      host.appendChild(card);
-    });
-  }
-
-  function sfMap(itemId, title, kind, targetId, targetLabel, btn) {
-    if (btn) btn.disabled = true;
-    sfPost(
-      { action: "map", itemId: itemId, title: title, kind: kind, targetId: targetId, targetLabel: targetLabel },
-      function () {
-        sfState.dismissed[itemId] = true;
-        sfRenderGuesses();
-        show("ok", "“" + title + "” now shows on " + targetLabel + ".");
-      },
-      function () { if (btn) btn.disabled = false; }
-    );
-  }
-
-  function sfPost(body, onOk, onErr) {
-    return api("/api/admin/special-features", { method: "POST", body: body })
-      .then(function (data) {
-        sfState.features = data.features || sfState.features;
-        sfRender();
-        if (onOk) onOk();
-      })
-      .catch(function (e) {
-        show("err", e.message);
-        if (onErr) onErr();
-      });
-  }
-
-  function sfRender() {
-    var host = $("sfList");
-    host.textContent = "";
-    $("sfCount").textContent = sfState.features.length + " marked";
-
-    if (!sfState.features.length) {
-      host.innerHTML = '<div class="lw-pane-empty">Nothing marked yet.</div>';
-      return;
-    }
-
-    sfState.features.forEach(function (f) {
-      var card = document.createElement("div");
-      card.className = "sf-item";
-
-      var head = document.createElement("div");
-      head.className = "sf-head";
-      var name = document.createElement("span");
-      name.className = "sf-name";
-      name.textContent = f.title || f.itemId;
-      head.appendChild(name);
-      if (!f.targets.length) {
-        var warn = document.createElement("span");
-        warn.className = "sf-conf";
-        warn.textContent = "hidden, not mapped";
-        head.appendChild(warn);
-      }
-      card.appendChild(head);
-
-      if (f.targets.length) {
-        var list = document.createElement("div");
-        list.className = "sf-targets";
-        f.targets.forEach(function (t) {
-          var chip = document.createElement("span");
-          chip.className = "sf-target";
-          chip.innerHTML = '<span class="sf-kind">' + esc(t.kind) + "</span> <b>" +
-            esc(t.targetLabel || t.targetId) + "</b>";
-          var x = document.createElement("button");
-          x.className = "ghost";
-          x.style.width = "auto";
-          x.style.padding = "1px 6px";
-          x.style.fontSize = "11px";
-          x.textContent = "✕";
-          x.title = "Stop showing it there";
-          x.addEventListener("click", function () {
-            sfPost({ action: "unmap", itemId: f.itemId, kind: t.kind, targetId: t.targetId });
-          });
-          chip.appendChild(x);
-          list.appendChild(chip);
-        });
-        card.appendChild(list);
-      }
-
-      card.appendChild(sfPicker(f));
-
-      var acts = document.createElement("div");
-      acts.className = "sf-acts";
-      var un = document.createElement("button");
-      un.className = "danger";
-      un.textContent = "Put back in the library";
-      un.addEventListener("click", function () {
-        if (!confirm("Show “" + (f.title || f.itemId) + "” in Browse again? Its mappings are dropped.")) return;
-        sfPost({ action: "unmark", itemId: f.itemId });
-      });
-      acts.appendChild(un);
-      card.appendChild(acts);
-
-      host.appendChild(card);
-    });
-  }
-
-  /* A kind selector plus a datalist of everything of that kind. A datalist
-     rather than a <select> because the film list is the whole library and
-     scrolling it is hopeless; typing three letters is not. */
-  function sfPicker(feature) {
-    var wrap = document.createElement("div");
-    wrap.className = "sf-pick";
-
-    var kind = document.createElement("select");
-    SF_KINDS.forEach(function (k) {
-      var opt = document.createElement("option");
-      opt.value = k.kind;
-      opt.textContent = k.label;
-      kind.appendChild(opt);
-    });
-
-    var listId = "sfdl-" + feature.itemId;
-    var input = document.createElement("input");
-    input.setAttribute("list", listId);
-    input.placeholder = "Also show it on…";
-    var datalist = document.createElement("datalist");
-    datalist.id = listId;
-
-    function fill() {
-      sfLoadTargets().then(function (targets) {
-        var key = SF_KINDS.filter(function (k) { return k.kind === kind.value; })[0].list;
-        datalist.textContent = "";
-        (targets[key] || []).forEach(function (t) {
-          var opt = document.createElement("option");
-          opt.value = t.label;
-          opt.setAttribute("data-id", t.id);
-          datalist.appendChild(opt);
-        });
-      }).catch(function (e) { show("err", e.message); });
-    }
-    kind.addEventListener("change", fill);
-    input.addEventListener("focus", fill);
-
-    var add = document.createElement("button");
-    add.className = "ghost";
-    add.style.width = "auto";
-    add.textContent = "Add";
-    add.addEventListener("click", function () {
-      var chosen = Array.prototype.filter.call(datalist.children, function (o) {
-        return o.value === input.value;
-      })[0];
-      if (!chosen) { show("err", "Pick something from the list."); return; }
-      sfPost({
-        action: "map",
-        itemId: feature.itemId,
-        title: feature.title,
-        kind: kind.value,
-        targetId: chosen.getAttribute("data-id"),
-        targetLabel: chosen.value
-      }, function () { input.value = ""; });
-    });
-
-    wrap.appendChild(kind);
-    wrap.appendChild(input);
-    wrap.appendChild(datalist);
-    wrap.appendChild(add);
-    return wrap;
   }
 
   // Restore a same-session key so a refresh does not mean retyping it.
