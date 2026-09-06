@@ -38,4 +38,13 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Downloads (see MainActivity's DownloadListener). From API 29 the
+         DownloadManager writes to the public Downloads folder without any
+         permission at all; this is only for the API 23-28 range that minSdk
+         still admits, which is why it is capped. MainActivity falls back to
+         app-private storage if it is missing, so a download never just fails. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 </manifest>

@@ -55,13 +55,15 @@ The APK lands at `android/app/build/outputs/apk/debug/app-debug.apk`.
 installable by sideload without a Play account. Two consequences worth
 knowing before handing one to somebody:
 
-- The keystore lives in the container's `~/.android`. It is **not**
-  persisted, so a later rebuild is signed by a different key and Android
-  will refuse to install it over the top — your friend has to uninstall
-  first. If updates-in-place start mattering, generate a real keystore, keep
-  it **outside this repo** (see the `.env.bak` incident in the root
-  `PROJECT_KNOWLEDGE.md`) and wire a `signingConfig` into
-  `android/app/build.gradle`.
+- The keystore is generated fresh by whatever machine builds — a GitHub
+  runner is thrown away after every job, so **every build is signed by a
+  different key**. Android refuses to install an APK over one signed by a
+  different key, so each new build means uninstall-then-install, and the
+  app's data (just the session cookie) goes with it. Bumping `versionCode`
+  does not change that. The fix, when updates-in-place start mattering, is a
+  real keystore held as a GitHub Actions secret and a `signingConfig` in
+  `android/app/build.gradle` — keep the keystore **outside this repo** (see
+  the `.env.bak` incident in the root `PROJECT_KNOWLEDGE.md`).
 - Debug builds carry `android:debuggable="true"`. Fine among friends, not
   something to put on a store listing.
 
@@ -79,6 +81,24 @@ WebView, so web changes need no rebuild. Only these need one:
 - The theme in `android/app/src/main/res/values/`. The shell was on
   Capacitor's default **Light** theme with a white adaptive-icon background,
   which flashed white on every launch of a very dark app.
+
+## Downloads
+
+The site's "Download film" button is a plain link to a
+`Content-Disposition: attachment` response, and an Android WebView **drops
+those on the floor** unless a `DownloadListener` is registered — no error,
+nothing on screen. `MainActivity` registers one and hands the URL to the
+system `DownloadManager`.
+
+The part that is easy to get wrong: `DownloadManager` fetches from a
+different process and so carries none of the WebView's cookies. Those routes
+authenticate on `jfg_session`, so the header has to be copied across
+explicitly. Without it every download succeeds and produces an unplayable
+file, because what actually got saved is the login page.
+
+Whether a given account may download at all is still the server's call —
+`applyRestrictedPolicy()` controls `EnableContentDownloading`, so parental
+control applies here exactly as it does on the web.
 
 ## Still not done
 
