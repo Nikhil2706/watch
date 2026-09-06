@@ -52,6 +52,10 @@ function capacitorBridge(): OfflineBridge | null {
       // rewrites it onto its own scheme.
       return window.Capacitor?.convertFileSrc ? window.Capacitor.convertFileSrc(path) : path;
     },
+    async readText(itemId, file) {
+      const result = (await plugin.readText!({ itemId, file })) as { text?: string | null };
+      return result?.text ?? null;
+    },
   };
 }
 
@@ -73,6 +77,9 @@ function tauriBridge(): OfflineBridge | null {
     },
     async localUrl(itemId, file) {
       return (await invoke("offline_local_url", { itemId, file })) as string | null;
+    },
+    async readText(itemId, file) {
+      return (await invoke("offline_read_text", { itemId, file })) as string | null;
     },
   };
 }
@@ -121,5 +128,43 @@ export async function startOfflineDownload(itemId: string): Promise<OfflineManif
   }
   const manifest = (await response.json()) as OfflineManifest;
   await bridge.start(manifest);
+  // Starting a download is somebody saying they expect to be offline. That is
+  // the moment to make sure the screen they will need survives without a
+  // network — not the moment they open it, by which time it is too late.
+  void prepareForOffline();
   return manifest;
+}
+
+/**
+ * Makes the offline shell durable. Both halves matter for the stated target of
+ * a week away from a network:
+ *
+ *  - Cache Storage is evictable under storage pressure, and the eviction
+ *    heuristics do not know that this origin is the only way to reach a film
+ *    already sitting on the disk. persist() asks to be exempt; in an installed
+ *    app it is normally granted without a prompt.
+ *  - Precaching only happens at install, so a worker installed before this
+ *    feature existed has no downloads screen cached. Asking it to warm now
+ *    re-runs that list against the live network while there still is one.
+ *
+ * Both are best effort by design: a browser that refuses either should still
+ * download the film.
+ */
+export async function prepareForOffline(): Promise<void> {
+  try {
+    if (typeof navigator !== "undefined" && navigator.storage?.persist) {
+      if (!(await navigator.storage.persisted?.())) {
+        await navigator.storage.persist();
+      }
+    }
+  } catch {
+    // Not supported, or refused. Downloads still work.
+  }
+
+  try {
+    const registration = await navigator.serviceWorker?.ready;
+    registration?.active?.postMessage({ type: "warm" });
+  } catch {
+    // No service worker (plain browser, or registration failed).
+  }
 }

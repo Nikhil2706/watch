@@ -67,7 +67,27 @@ export interface OfflineBundle {
  * therefore has to attach cookies from its own store when fetching these
  * URLs — the WebView already holds them.
  */
+/**
+ * The contract version a shell implements.
+ *
+ * The site and the shells ship on different cadences — the web deploys, the
+ * APK updates whenever someone accepts it — so an offline-cached page can be
+ * arbitrarily older or newer than the shell hosting it. This is how they find
+ * out, and the rule that follows is:
+ *
+ *   PLAYBACK OF AN EXISTING BUNDLE IS NEVER VERSION-GATED.
+ *
+ * Someone on a train with a downloaded film must be able to watch it whatever
+ * the version numbers say. Management — starting new downloads, deleting —
+ * may degrade with a visible "update the app" notice, because those need a
+ * network anyway, so being told to update is actionable. Additions to this
+ * interface must therefore be additive only.
+ */
+export const OFFLINE_BRIDGE_VERSION = 1;
+
 export interface OfflineBridge {
+  /** What this shell implements. Absent on a shell older than versioning. */
+  version?: number;
   /** Begin fetching a bundle. Returns immediately; watch progress via list(). */
   start(manifest: OfflineManifest): Promise<void>;
   /** Everything stored on this device, including in-flight downloads. */
@@ -80,4 +100,18 @@ export interface OfflineBridge {
    * (Capacitor's convertFileSrc, Tauri's asset protocol).
    */
   localUrl(itemId: string, file: string): Promise<string | null>;
+
+  /**
+   * Reads a stored text file — in practice a subtitle — as a string.
+   *
+   * This exists because of a trap that would otherwise ship as "the film
+   * plays offline but has no subtitles". Those local URLs are a different
+   * ORIGIN from the page (Capacitor serves them over its own scheme, Tauri
+   * over the asset protocol), and while <video> does not care about that,
+   * <track> is CORS-restricted and silently loads nothing. Reading the VTT
+   * through the bridge and turning it into a blob: URL sidesteps it — blob
+   * URLs are same-origin. Subtitles are tens of kilobytes, so the round trip
+   * costs nothing.
+   */
+  readText(itemId: string, file: string): Promise<string | null>;
 }

@@ -4126,3 +4126,32 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
   line-height: 1.5;
 }
 .party-degraded-banner strong { display: block; margin-bottom: 2px; }
+
+/* --- Offline downloads ---------------------------------------------- */
+/* The downloads screen is the one page that renders with no network at all
+   (the service worker precaches it), so everything here is plain CSS with no
+   dependency on anything fetched at runtime. */
+.dl-page { padding-top: 18px; }
+.dl-heading { font-family: var(--font-serif, ui-serif, Georgia, serif); font-weight: 600; margin: 0 0 6px; }
+
+.dl-list { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.dl-row {
+  display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  padding: 13px 15px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface);
+}
+.dl-meta { flex: 1 1 240px; min-width: 0; }
+.dl-title { font-weight: 600; font-size: 15px; }
+.dl-year { color: var(--muted); font-weight: 400; }
+.dl-sub { color: var(--muted); font-size: 12.5px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.dl-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.dl-actions .btn { width: auto; font-size: 13px; padding: 6px 13px; }
+
+.dl-bar { height: 4px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 8px; }
+.dl-bar i { display: block; height: 100%; background: var(--accent); transition: width 0.4s; }
+
+.dl-player { display: flex; flex-direction: column; gap: 12px; }
+.dl-player .btn { align-self: flex-start; width: auto; }
+
+/* Sits next to the Keep offline button on the item page. */
+.offline-note { color: var(--muted); font-size: 12.5px; align-self: center; }

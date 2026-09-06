@@ -10,6 +10,7 @@ import { CommunitySection } from "@/components/media/CommunitySection";
 import { CuratorPicks } from "@/components/media/CuratorPicks";
 import { ListButtons } from "@/components/media/ListButtons";
 import { RatingsRow } from "@/components/media/RatingsRow";
+import { OfflineButton } from "@/components/offline/OfflineButton";
 import { getCuratorNote } from "@/lib/notifications";
 import { getRatingSummary } from "@/lib/community";
 import { getCachedContentWarning, toDisplaySignals } from "@/lib/content-warnings";
@@ -193,6 +194,10 @@ export default async function ItemPage({
                 ⬇ Download film
               </a>
             ) : null}
+            {/* Renders only inside an app shell that can store files; a plain
+                browser sees nothing. Not Langlois-gated — that grant is about
+                exporting the original file, this is a sandboxed copy. */}
+            <OfflineButton itemId={item.Id} title={item.Name} />
             <StartPartyButton jellyfinId={item.Id} />
           </div>
         </div>

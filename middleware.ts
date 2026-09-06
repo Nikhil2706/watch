@@ -104,10 +104,24 @@ export const config = {
      *   _next/*, favicon — framework assets
      *   manifest.json, sw.js, icon-*.png, apple-touch-icon.png, favicon-32.png
      *                    — PWA assets, must be fetchable while logged out
+     *   downloads        — see below
      *
      * login is deliberately NOT in this exclusion list (see the comment
      * above) — the function's own first branch handles it.
+     *
+     * Why /downloads is excluded, which looks wrong at first glance:
+     *
+     * The service worker precaches it, because it is the one page that has to
+     * render with no network. cache.addAll() rejects on a REDIRECTED response
+     * and is all-or-nothing, so if this path 302'd to /login for a logged-out
+     * visitor the whole install would fail and the app would have no service
+     * worker at all — a far bigger failure than the one the redirect prevents.
+     *
+     * Nothing leaks by allowing it. The page fetches nothing server-side; it
+     * is a shell around a client component that lists files already sitting on
+     * that device. Offline there is no way to check a session anyway, and the
+     * films were put there by whoever was logged in at the time.
      */
-    "/((?!api/|jf/|invite/|party/|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|icon-maskable-512.png|apple-touch-icon.png|favicon-32.png).*)",
+    "/((?!api/|jf/|invite/|party/|downloads|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|icon-maskable-512.png|apple-touch-icon.png|favicon-32.png).*)",
   ],
 };
