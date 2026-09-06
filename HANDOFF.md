@@ -147,36 +147,32 @@ ladder ends at a reboot.
 
 ---
 
-## The repo is AHEAD of what is running (as of this handoff)
+## The repo and production are ALIGNED (deployed 2026-09-06)
 
-A merge on 2026-09-05 brought in eight commits from another line of work on
-this same branch — subtitle-cache keying, the watched badge on TV shows, upload
-name collisions, the scrapers' library index, accolade ranking, bounds on the
-screen registry and party send, and **parental control on downloads and
-subtitle fetches**, which is the one worth deploying promptly.
+This section used to say the repo was ahead of what was running. It no longer
+is. Gate and worker were rebuilt from the merged tree and recreated on
+2026-09-06 — the worker had been eight days stale and shares `src/lib`, so it
+needed it as much as the gate did.
 
-None of that is live. The running container was built from `669544b`, before
-the merge. To ship it:
-
-```
-docker compose --env-file .env --env-file .env.wsl-paths build gate
-docker compose --env-file .env --env-file .env.wsl-paths up -d --no-deps gate
-```
-
-**The merge reconciled a migration collision, so watch the first boot.** Both
-lines had used `SCHEMA_VERSION = 38`: this one for the group-kind column (then
-39 for user suspension, 40 for curator notes), the other for re-keying
+The migration collision the merge reconciled came out as predicted. Both lines
+had used `SCHEMA_VERSION = 38`: this one for the group-kind column (then 39 for
+user suspension, 40 for curator notes), the other for re-keying
 `subtitle_availability_cache` on `(imdb_id, language)`. The merged file is
-**41**, and both sets of migrations are kept. Every one is guarded by a live
-`columnExists`/`tableExists` check rather than by its number, so order does not
-matter — but the number had to advance past 40, which the live database already
-records, or the set would never replay and the other branch's work would never
-run here. After deploying, confirm:
+**41**, both sets kept, each guarded by a live `columnExists`/`tableExists`
+check rather than by its number. Verified after the deploy:
 
 ```
-PRAGMA user_version;                                  -- expect 41
-PRAGMA table_info(subtitle_availability_cache);       -- expect a `language` column
+PRAGMA user_version;                             -- 40 before, 41 after
+PRAGMA table_info(subtitle_availability_cache);  -- gained its `language` column
+PRAGMA integrity_check;                          -- ok
 ```
+
+**Parental control on downloads and subtitle fetches (`fdfbc3b`) is live**, and
+was the item in that batch worth shipping promptly.
+
+There is no image-level rollback for that deploy: the previous gate and worker
+images were superseded during the build rather than retagged, so going back
+means rebuilding from `669544b`.
 
 ---
 
@@ -239,10 +235,8 @@ secret can arrive inside a file whose name looks innocent.
 - **~33 GB reclaimable**: Docker Desktop's `docker_data.vhdx` (31.9 GB, dead
   since the 2026-08-27 migration) and the retired `jellyfin-gate-party` image.
   Planned, **not** done — image the drive first.
-- **The undeployed parental-control fix.** `fdfbc3b` (stop downloads and
-  subtitle fetches bypassing parental control) came in with the merge and is
-  **not running**. It is the one item in that batch worth shipping promptly
-  rather than waiting for the next change to carry it.
+- ~~The undeployed parental-control fix~~ — **deployed 2026-09-06**. `fdfbc3b`
+  (stop downloads and subtitle fetches bypassing parental control) is live.
 - **Console latency is fine.** All 15 admin endpoints measured ≤0.4 s warm.
   Two apparent outliers were first-hit route compilation, not real.
 

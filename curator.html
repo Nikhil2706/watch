@@ -4967,18 +4967,6 @@
     });
   }
 
-  // Identical to fmtBytes() as of the de-duplication above, and now redundant.
-  // It was written separate because the file's fmtBytes() then rounded to
-  // GB/MB, which is useless for picking between near-identical copies — that
-  // is no longer true, since the coarse one is what got deleted. Kept only to
-  // hold this change to the fmtBytes bug; fold it into fmtBytes and drop it.
-  function dfBytes(n) {
-    if (!n && n !== 0) return "—";
-    var u = ["B", "KB", "MB", "GB", "TB"], i = 0;
-    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-    return n.toFixed(i === 0 ? 0 : 1) + " " + u[i];
-  }
-
   function dfDuration(sec) {
     if (!sec) return "—";
     var s = Math.round(sec), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
@@ -5130,7 +5118,7 @@
     [["groups", dfState.groups.length, true],
      ["files", files, false],
      ["with a partial clip", clipGroups, false],
-     ["reclaimable", dfBytes(reclaimable), true]].forEach(function (c) {
+     ["reclaimable", fmtBytes(reclaimable), true]].forEach(function (c) {
       var el = document.createElement("span");
       el.className = "lw-chip" + (c[2] ? " on" : "");
       var b = document.createElement("b");
@@ -5220,7 +5208,7 @@
     fact(item.similarity.toFixed(1) + "% match", "sim");
     // Size carries no "best" badge on purpose: the engine's flag for it means
     // SMALLEST, which is the opposite of what to keep. See dfPickKeeper.
-    fact(dfBytes(item.size) + (item.isSmallestSize ? " (smallest)" : ""));
+    fact(fmtBytes(item.size) + (item.isSmallestSize ? " (smallest)" : ""));
     fact(dfDuration(item.durationSeconds), item.isLongestDuration ? "best" : "");
     if (item.frameSize) fact(item.frameSize);
     if (item.format) fact(item.format);
@@ -5268,7 +5256,7 @@
     });
     var n = dfSelectedPaths().length;
     $("dfSelCount").textContent = n + " selected";
-    $("dfSelSize").textContent = n ? "(" + dfBytes(size) + ")" : "";
+    $("dfSelSize").textContent = n ? "(" + fmtBytes(size) + ")" : "";
     $("dfDelete").disabled = !n;
   }
 
