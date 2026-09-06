@@ -9,8 +9,10 @@ const sharp = require("sharp");
 const fs = require("fs");
 const path = require("path");
 
-const BRAND = "/brand";
-const OUT = "/app/assets";
+// Defaults are the container mount points used by build-apk.sh; CI checks the
+// repo out somewhere else and passes real paths instead.
+const BRAND = process.env.BRAND_DIR || "/brand";
+const OUT = process.env.OUT_DIR || "/app/assets";
 const BG = "#06070a";              // --bg, the site's ground
 const ICON = 1024;                 // what @capacitor/assets wants
 const SPLASH = 2732;

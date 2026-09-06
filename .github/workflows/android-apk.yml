@@ -1,0 +1,92 @@
+# Builds the sideloadable Watch APK on GitHub's runners.
+#
+# Why here and not on the server: the toolchain is a JDK plus ~2.5GB of
+# Android SDK, and downloading it on the host is what took the WSL distro's
+# filesystem down on 2026-09-06 - every binary started returning EIO and the
+# site served 502 until the VM was recycled. That machine's boot SSD is
+# failing (see PROJECT_KNOWLEDGE.md), so the build lives somewhere with a
+# disk we don't care about. apps/mobile/build-apk.sh still does the same
+# thing locally if you ever want it.
+#
+# Grab the APK from the run's Artifacts section. It is debug-signed, which
+# is what makes it installable by sideload - see apps/mobile/README.md for
+# what that means for updates.
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [platform-additions]
+    paths:
+      - "apps/mobile/**"
+      - "brand/**"
+      - ".github/workflows/android-apk.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # AGP 8.7.2 (android/build.gradle) supports 17-21.
+          java-version: "21"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Match android/variables.gradle rather than trusting whatever the
+      # runner image happens to ship this month.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+
+      - name: Icons and splash from brand/
+        working-directory: apps/mobile
+        env:
+          BRAND_DIR: ${{ github.workspace }}/brand
+          OUT_DIR: ${{ github.workspace }}/apps/mobile/assets
+        run: |
+          npm ci
+          npm install --no-save sharp @capacitor/assets
+          node make-assets.js
+          npx --yes @capacitor/assets generate --android \
+            --iconBackgroundColor '#06070a' \
+            --iconBackgroundColorDark '#06070a' \
+            --splashBackgroundColor '#06070a' \
+            --splashBackgroundColorDark '#06070a'
+          npx cap sync android
+
+      - name: Confirm the APK will point at the live site
+        working-directory: apps/mobile
+        run: |
+          url=$(node -p "require('./android/app/src/main/assets/capacitor.config.json').server.url")
+          echo "server.url = $url"
+          # The canonical host moved off watch2. on 2026-09-05; an APK built
+          # against the old one is the kind of thing you only notice on
+          # someone else's phone.
+          test "$url" = "https://watch.abhigyanverma.com"
+
+      - name: assembleDebug
+        working-directory: apps/mobile/android
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: What did we build
+        working-directory: apps/mobile
+        run: |
+          apk=android/app/build/outputs/apk/debug/app-debug.apk
+          ls -la "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" \
+            | grep -E "^package|^application-label|^launchable-activity|sdkVersion|targetSdkVersion"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: watch-debug-apk
+          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
