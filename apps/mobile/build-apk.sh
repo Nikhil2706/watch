@@ -53,7 +53,7 @@ docker run --rm \
   -v watch-gradle-home:/gradle \
   -e GRADLE_USER_HOME=/gradle \
   -w /app watch-android-build \
-  ./gradlew --no-daemon assembleDebug
+  sh ./gradlew --no-daemon assembleDebug
 
 APK="$MOBILE/android/app/build/outputs/apk/debug/app-debug.apk"
 echo
