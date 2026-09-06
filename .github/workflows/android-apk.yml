@@ -73,20 +73,53 @@ jobs:
           # someone else's phone.
           test "$url" = "https://watch.abhigyanverma.com"
 
-      - name: assembleDebug
+      # Written outside the workspace so it can never be picked up by a build
+      # step or, worse, committed. Runners are destroyed after the job.
+      - name: Materialise the signing keystore
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KS_B64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set - the APK would be" \
+                 "signed with a throwaway debug key and could not update an" \
+                 "installed app. Refusing to build."
+            exit 1
+          fi
+          printf '%s' "$KS_B64" | base64 -d > "$RUNNER_TEMP/watch-release.jks"
+          test -s "$RUNNER_TEMP/watch-release.jks"
+
+      - name: assembleRelease
         working-directory: apps/mobile/android
-        run: ./gradlew --no-daemon assembleDebug
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/watch-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon assembleRelease
 
       - name: What did we build
         working-directory: apps/mobile
         run: |
-          apk=android/app/build/outputs/apk/debug/app-debug.apk
+          apk=android/app/build/outputs/apk/release/app-release.apk
           ls -la "$apk"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" \
-            | grep -E "^package|^application-label|^launchable-activity|sdkVersion|targetSdkVersion"
+            | grep -E "^package|^application-label:|^launchable-activity|sdkVersion|targetSdkVersion"
+          # Prove it is signed by the real key and not a debug one. apksigner
+          # prints the certificate; a debug cert is CN=Android Debug.
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$apk" \
+            | grep -E "Signer #1 certificate (DN|SHA-256)"
+          if "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$apk" \
+               | grep -q "CN=Android Debug"; then
+            echo "::error::APK is debug-signed - it will not update installed copies."
+            exit 1
+          fi
+
+      - name: Clean up the keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/watch-release.jks"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: watch-debug-apk
-          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          name: watch-release-apk
+          path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error

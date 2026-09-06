@@ -1,5 +1,11 @@
 apply plugin: 'com.android.application'
 
+// Script scope, not inside android { }: the assembleRelease guard at the bottom
+// of this file needs to see them too, and a def inside that closure would not
+// be visible there.
+def ksPath = System.getenv("ANDROID_KEYSTORE_PATH")
+def hasKeystore = ksPath != null && !ksPath.isEmpty() && file(ksPath).exists()
+
 android {
     namespace "com.abhigyanverma.watch"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,8 +13,8 @@ android {
         applicationId "com.abhigyanverma.watch"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "1.1"
+        versionCode 3
+        versionName "1.2"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +22,54 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Release signing. The key IS the app's identity: Android will only install
+    // an update over an existing app when both are signed by the same one, so
+    // this has to be a real keystore that outlives any single build. It is
+    // never in this repo (which is public) - CI materialises it from the
+    // ANDROID_KEYSTORE_BASE64 secret, and the original lives in
+    // C:\Users\Dell\jellyfin-gate-backups.
+    //
+    // When the env vars are absent - anyone's fresh clone - the block is simply
+    // not defined and `assembleDebug` still works. Only `assembleRelease` needs
+    // them, and it fails loudly below rather than quietly emitting an unsigned
+    // APK that no phone will install.
+    signingConfigs {
+        if (hasKeystore) {
+            release {
+                storeFile file(ksPath)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+                // v1 as well as v2/v3: minSdk is 23, and v2 only became
+                // mandatory-capable from 24, so without v1 the app will not
+                // install on Android 6.
+                enableV1Signing true
+                enableV2Signing true
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasKeystore) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+}
+
+// Fail the build rather than hand back something unusable.
+tasks.whenTaskAdded { task ->
+    if (task.name == 'assembleRelease' && !hasKeystore) {
+        task.doFirst {
+            throw new GradleException(
+                "assembleRelease needs the signing keystore. Set ANDROID_KEYSTORE_PATH, " +
+                "ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD. " +
+                "CI does this from repository secrets; locally the keystore is in " +
+                "C:\\Users\\Dell\\jellyfin-gate-backups. An unsigned release APK " +
+                "will not install on any phone.")
         }
     }
 }

@@ -25,3 +25,13 @@ tsconfig.tsbuildinfo
 # .NET build output (dupefinder/) — same reasoning as node_modules/ above.
 dupefinder/**/bin/
 dupefinder/**/obj/
+
+# Android signing material. The real keystore lives in
+# C:\Users\Dell\jellyfin-gate-backups and in GitHub Actions secrets, never
+# here — this repo is public, and whoever holds this key can ship an update
+# that installs silently over the real app. Patterns rather than a filename
+# because the mistake to catch is the one nobody meant to make (see the
+# .env.bak-* incident above).
+*.jks
+*.keystore
+keystore.properties
