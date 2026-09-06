@@ -17,8 +17,12 @@ interface CapacitorGlobal {
 }
 
 interface TauriGlobal {
-  core?: { invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
+  core?: {
+    invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+    convertFileSrc?: (path: string) => string;
+  };
   invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+  convertFileSrc?: (path: string) => string;
 }
 
 declare global {
@@ -76,7 +80,13 @@ function tauriBridge(): OfflineBridge | null {
       await invoke("offline_remove", { itemId });
     },
     async localUrl(itemId, file) {
-      return (await invoke("offline_local_url", { itemId, file })) as string | null;
+      const path = (await invoke("offline_local_url", { itemId, file })) as string | null;
+      if (!path) return null;
+      // Rust hands back a plain filesystem path; only the webview knows the
+      // asset scheme that makes it loadable. A raw path in a src attribute
+      // loads nothing, silently.
+      const convert = tauri?.core?.convertFileSrc ?? tauri?.convertFileSrc;
+      return convert ? convert(path) : path;
     },
     async readText(itemId, file) {
       return (await invoke("offline_read_text", { itemId, file })) as string | null;

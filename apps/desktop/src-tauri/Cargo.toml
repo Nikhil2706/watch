@@ -26,3 +26,16 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Offline downloads (src/offline.rs).
+#
+# reqwest carries default features on purpose: on Windows that means the
+# platform TLS stack (schannel), so this builds on a plain windows-latest
+# runner with no OpenSSL to install. "stream" is what allows writing a
+# multi-gigabyte film to disk as it arrives instead of buffering it in memory.
+reqwest = { version = "0.12", features = ["stream"] }
+# StreamExt, for consuming reqwest's bytes_stream().
+futures-util = "0.3"
+# Resolving site-relative manifest URLs, and parsing them for the cookie
+# lookup. Tauri already depends on this; declared so it is not an accident.
+url = "2"
+
