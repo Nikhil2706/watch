@@ -178,6 +178,26 @@
     .df-frames img, .df-frames .df-ph { width: 84px; height: 48px; }
   }
 
+  /* ---- Special features --------------------------------------------- */
+  .sf-item { border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+    padding: 12px 14px; margin-bottom: 10px; }
+  .sf-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .sf-name { font-weight: 600; font-size: 14.5px; }
+  .sf-conf { font-size: 11px; padding: 2px 7px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .sf-conf.high { border-color: rgba(91,209,139,.4); background: rgba(91,209,139,.1); color: #bff3d5; }
+  .sf-why { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .sf-targets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+  .sf-target { display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+    padding: 4px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); }
+  .sf-target b { font-weight: 600; }
+  .sf-kind { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--dead); }
+  .sf-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .sf-acts button { width: auto; font-size: 12px; padding: 5px 11px; }
+  .sf-pick { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 9px; }
+  .sf-pick select, .sf-pick input { font-size: 12.5px; padding: 5px 9px; }
+  .sf-pick input { flex: 1 1 200px; }
+
   /* --- Header -------------------------------------------------------- */
   .top {
     display: flex; align-items: center; gap: 12px;
@@ -629,6 +649,7 @@
   <nav class="tabs" id="tabNav" style="display:none">
     <button class="tab-btn" data-tab="library">Library</button>
     <button class="tab-btn" data-tab="dupes">Duplicates</button>
+    <button class="tab-btn" data-tab="features">Features</button>
     <button class="tab-btn" data-tab="worker">Worker</button>
     <button class="tab-btn" data-tab="accolades">Accolades</button>
     <button class="tab-btn" data-tab="health">Health</button>
@@ -780,6 +801,42 @@
       <div id="dfGroups"></div>
     </div>
 
+  </div>
+
+  <!-- ============================== Features tab ============================== -->
+  <div class="tab-panel" id="tab-features" data-tab="features">
+
+    <!-- ============================================================
+         Special features: making-ofs, documentaries about a director,
+         retrospectives on an actor. Marking one hides it from Browse,
+         Home and Picks; mapping it decides whose page it appears on.
+
+         The guesser proposes and never applies. A wrong guess takes a
+         real film out of the library and buries it in another film's
+         extras, which is a far worse outcome than confirming a right
+         one, so everything here waits for a yes.
+         ============================================================ -->
+
+    <div class="card">
+      <div class="row" style="align-items:center">
+        <div style="flex:0 0 auto"><button id="sfGuess">Suggest special features</button></div>
+        <div style="flex:0 0 auto"><button id="sfReload" class="ghost">Reload</button></div>
+        <div style="flex:1 1 auto"></div>
+        <div style="flex:0 0 auto"><span class="lw-chip" id="sfCount">—</span></div>
+      </div>
+      <div class="note" id="sfScanNote">
+        Scans titles for “making of”, “behind the scenes”, deleted scenes and the like,
+        then tries to work out what each one is about. Nothing is applied until you say so.
+      </div>
+    </div>
+
+    <div id="sfGuessWrap" style="display:none">
+      <div class="lw-section">Suggestions</div>
+      <div id="sfGuessList"></div>
+    </div>
+
+    <div class="lw-section">Marked as special features</div>
+    <div id="sfList"><div class="lw-pane-empty">Not loaded yet.</div></div>
   </div>
 
   <!-- ============================== Worker tab ============================== -->
@@ -1229,6 +1286,7 @@
     // it used to open on a search box, so the material was invisible.
     if (name === "accolades" && state.key) { accLoad(false); acLoadBuilder(); }
     if (name === "worker" && state.key) wkLoad(false);
+    if (name === "features" && state.key) sfLoad();
     if (name === "uploads" && state.key && !state.uploads) loadUploads();
   }
   document.querySelectorAll(".tab-btn").forEach(function (b) {
@@ -5304,6 +5362,303 @@
       dfLoadGroups();
     }).catch(function (err) { show("err", err.message); });
   });
+
+  /* ================================================================
+   * Special features
+   *
+   * Marking hides a title from Browse/Home/Picks; mapping decides whose
+   * page it turns up on. The guesser only ever proposes — a wrong guess
+   * takes a real film out of the library and hides it in another film's
+   * extras, so nothing here writes without a click.
+   * ================================================================ */
+  var sfState = { features: [], guesses: [], targets: null, dismissed: {} };
+
+  var SF_KINDS = [
+    { kind: "film", label: "Film", list: "films" },
+    { kind: "franchise", label: "Franchise", list: "franchises" },
+    { kind: "director", label: "Director", list: "directors" },
+    { kind: "actor", label: "Actor", list: "actors" }
+  ];
+
+  function sfLoad() {
+    return api("/api/admin/special-features").then(function (data) {
+      sfState.features = data.features || [];
+      sfRender();
+    }).catch(function (e) {
+      $("sfList").innerHTML = '<div class="lw-pane-empty">' + esc(e.message) + "</div>";
+    });
+  }
+
+  // Fetched once and reused: it is every film, group, director and actor in
+  // the library, which is a big list and does not change mid-session.
+  function sfLoadTargets() {
+    if (sfState.targets) return Promise.resolve(sfState.targets);
+    return api("/api/admin/special-features/targets").then(function (data) {
+      sfState.targets = data;
+      return data;
+    });
+  }
+
+  $("sfReload").addEventListener("click", function () { sfLoad(); });
+
+  $("sfGuess").addEventListener("click", function () {
+    var btn = $("sfGuess");
+    btn.disabled = true;
+    btn.textContent = "Looking…";
+    api("/api/admin/special-features/guess").then(function (data) {
+      sfState.guesses = data.guesses || [];
+      $("sfScanNote").textContent =
+        "Looked at " + data.scanned + " titles. " + sfState.guesses.length +
+        " look like special features. " + data.alreadyMarked + " already marked.";
+      sfRenderGuesses();
+    }).catch(function (e) {
+      show("err", e.message);
+    }).then(function () {
+      btn.disabled = false;
+      btn.textContent = "Suggest special features";
+    });
+  });
+
+  function sfRenderGuesses() {
+    var host = $("sfGuessList");
+    var pending = sfState.guesses.filter(function (g) { return !sfState.dismissed[g.itemId]; });
+    $("sfGuessWrap").style.display = pending.length ? "" : "none";
+    host.textContent = "";
+
+    pending.forEach(function (g) {
+      var card = document.createElement("div");
+      card.className = "sf-item";
+
+      var head = document.createElement("div");
+      head.className = "sf-head";
+      var name = document.createElement("span");
+      name.className = "sf-name";
+      name.textContent = g.title;
+      var conf = document.createElement("span");
+      conf.className = "sf-conf" + (g.confidence >= 60 ? " high" : "");
+      conf.textContent = g.confidence + "% sure";
+      head.appendChild(name);
+      head.appendChild(conf);
+      card.appendChild(head);
+
+      var why = document.createElement("div");
+      why.className = "sf-why";
+      why.textContent = g.reasons.join(" · ");
+      card.appendChild(why);
+
+      // Each proposed target is its own button: confirming is one click, and
+      // a feature can be mapped several ways by clicking more than one.
+      if (g.targets.length) {
+        var targets = document.createElement("div");
+        targets.className = "sf-targets";
+        g.targets.forEach(function (t) {
+          var btn = document.createElement("button");
+          btn.className = "ghost";
+          btn.style.width = "auto";
+          btn.style.fontSize = "12px";
+          btn.style.padding = "5px 10px";
+          btn.innerHTML = '<span class="sf-kind">' + esc(t.kind) + "</span> " + esc(t.targetLabel);
+          btn.title = t.reason;
+          btn.addEventListener("click", function () {
+            sfMap(g.itemId, g.title, t.kind, t.targetId, t.targetLabel, btn);
+          });
+          targets.appendChild(btn);
+        });
+        card.appendChild(targets);
+      } else {
+        var none = document.createElement("div");
+        none.className = "sf-why";
+        none.textContent = "Could not work out what this is about — mark it, then map it below.";
+        card.appendChild(none);
+      }
+
+      var acts = document.createElement("div");
+      acts.className = "sf-acts";
+
+      var markOnly = document.createElement("button");
+      markOnly.className = "ghost";
+      markOnly.textContent = "Hide from library only";
+      markOnly.addEventListener("click", function () {
+        sfPost({ action: "mark", itemId: g.itemId, title: g.title }, function () {
+          sfState.dismissed[g.itemId] = true;
+          sfRenderGuesses();
+        });
+      });
+
+      var skip = document.createElement("button");
+      skip.className = "ghost";
+      skip.textContent = "Not a special feature";
+      skip.title = "Leaves it in the library. It may be suggested again next time you scan.";
+      skip.addEventListener("click", function () {
+        sfState.dismissed[g.itemId] = true;
+        sfRenderGuesses();
+      });
+
+      acts.appendChild(markOnly);
+      acts.appendChild(skip);
+      card.appendChild(acts);
+      host.appendChild(card);
+    });
+  }
+
+  function sfMap(itemId, title, kind, targetId, targetLabel, btn) {
+    if (btn) btn.disabled = true;
+    sfPost(
+      { action: "map", itemId: itemId, title: title, kind: kind, targetId: targetId, targetLabel: targetLabel },
+      function () {
+        sfState.dismissed[itemId] = true;
+        sfRenderGuesses();
+        show("ok", "“" + title + "” now shows on " + targetLabel + ".");
+      },
+      function () { if (btn) btn.disabled = false; }
+    );
+  }
+
+  function sfPost(body, onOk, onErr) {
+    return api("/api/admin/special-features", { method: "POST", body: body })
+      .then(function (data) {
+        sfState.features = data.features || sfState.features;
+        sfRender();
+        if (onOk) onOk();
+      })
+      .catch(function (e) {
+        show("err", e.message);
+        if (onErr) onErr();
+      });
+  }
+
+  function sfRender() {
+    var host = $("sfList");
+    host.textContent = "";
+    $("sfCount").textContent = sfState.features.length + " marked";
+
+    if (!sfState.features.length) {
+      host.innerHTML = '<div class="lw-pane-empty">Nothing marked yet.</div>';
+      return;
+    }
+
+    sfState.features.forEach(function (f) {
+      var card = document.createElement("div");
+      card.className = "sf-item";
+
+      var head = document.createElement("div");
+      head.className = "sf-head";
+      var name = document.createElement("span");
+      name.className = "sf-name";
+      name.textContent = f.title || f.itemId;
+      head.appendChild(name);
+      if (!f.targets.length) {
+        var warn = document.createElement("span");
+        warn.className = "sf-conf";
+        warn.textContent = "hidden, not mapped";
+        head.appendChild(warn);
+      }
+      card.appendChild(head);
+
+      if (f.targets.length) {
+        var list = document.createElement("div");
+        list.className = "sf-targets";
+        f.targets.forEach(function (t) {
+          var chip = document.createElement("span");
+          chip.className = "sf-target";
+          chip.innerHTML = '<span class="sf-kind">' + esc(t.kind) + "</span> <b>" +
+            esc(t.targetLabel || t.targetId) + "</b>";
+          var x = document.createElement("button");
+          x.className = "ghost";
+          x.style.width = "auto";
+          x.style.padding = "1px 6px";
+          x.style.fontSize = "11px";
+          x.textContent = "✕";
+          x.title = "Stop showing it there";
+          x.addEventListener("click", function () {
+            sfPost({ action: "unmap", itemId: f.itemId, kind: t.kind, targetId: t.targetId });
+          });
+          chip.appendChild(x);
+          list.appendChild(chip);
+        });
+        card.appendChild(list);
+      }
+
+      card.appendChild(sfPicker(f));
+
+      var acts = document.createElement("div");
+      acts.className = "sf-acts";
+      var un = document.createElement("button");
+      un.className = "danger";
+      un.textContent = "Put back in the library";
+      un.addEventListener("click", function () {
+        if (!confirm("Show “" + (f.title || f.itemId) + "” in Browse again? Its mappings are dropped.")) return;
+        sfPost({ action: "unmark", itemId: f.itemId });
+      });
+      acts.appendChild(un);
+      card.appendChild(acts);
+
+      host.appendChild(card);
+    });
+  }
+
+  /* A kind selector plus a datalist of everything of that kind. A datalist
+     rather than a <select> because the film list is the whole library and
+     scrolling it is hopeless; typing three letters is not. */
+  function sfPicker(feature) {
+    var wrap = document.createElement("div");
+    wrap.className = "sf-pick";
+
+    var kind = document.createElement("select");
+    SF_KINDS.forEach(function (k) {
+      var opt = document.createElement("option");
+      opt.value = k.kind;
+      opt.textContent = k.label;
+      kind.appendChild(opt);
+    });
+
+    var listId = "sfdl-" + feature.itemId;
+    var input = document.createElement("input");
+    input.setAttribute("list", listId);
+    input.placeholder = "Also show it on…";
+    var datalist = document.createElement("datalist");
+    datalist.id = listId;
+
+    function fill() {
+      sfLoadTargets().then(function (targets) {
+        var key = SF_KINDS.filter(function (k) { return k.kind === kind.value; })[0].list;
+        datalist.textContent = "";
+        (targets[key] || []).forEach(function (t) {
+          var opt = document.createElement("option");
+          opt.value = t.label;
+          opt.setAttribute("data-id", t.id);
+          datalist.appendChild(opt);
+        });
+      }).catch(function (e) { show("err", e.message); });
+    }
+    kind.addEventListener("change", fill);
+    input.addEventListener("focus", fill);
+
+    var add = document.createElement("button");
+    add.className = "ghost";
+    add.style.width = "auto";
+    add.textContent = "Add";
+    add.addEventListener("click", function () {
+      var chosen = Array.prototype.filter.call(datalist.children, function (o) {
+        return o.value === input.value;
+      })[0];
+      if (!chosen) { show("err", "Pick something from the list."); return; }
+      sfPost({
+        action: "map",
+        itemId: feature.itemId,
+        title: feature.title,
+        kind: kind.value,
+        targetId: chosen.getAttribute("data-id"),
+        targetLabel: chosen.value
+      }, function () { input.value = ""; });
+    });
+
+    wrap.appendChild(kind);
+    wrap.appendChild(input);
+    wrap.appendChild(datalist);
+    wrap.appendChild(add);
+    return wrap;
+  }
 
   // Restore a same-session key so a refresh does not mean retyping it.
   try {
