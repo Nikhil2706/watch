@@ -8,20 +8,22 @@
 // the title bar and taskbar were still showing the wrong logo. Regenerating
 // here at build time means brand/ stays the single source and this cannot
 // drift again.
-const sharp = require("sharp");
-const fs = require("fs");
-const path = require("path");
+//
+// ES module syntax, not require(): this package.json sets "type": "module"
+// (apps/mobile's does not, which is why its equivalent script differs).
+import sharp from "sharp";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SRC = process.env.BRAND_ICON || path.join(__dirname, "..", "..", "brand", "icon.svg");
-const OUT = path.join(__dirname, "icon-1024.png");
+const here = path.dirname(fileURLToPath(import.meta.url));
+const SRC = process.env.BRAND_ICON || path.join(here, "..", "..", "brand", "icon.svg");
+const OUT = path.join(here, "icon-1024.png");
 
 // density: rasterise large before resizing, or the gradients in the mark band.
-sharp(fs.readFileSync(SRC), { density: 1024 })
+await sharp(fs.readFileSync(SRC), { density: 1024 })
   .resize(1024, 1024)
   .png({ compressionLevel: 9 })
-  .toFile(OUT)
-  .then(() => console.log("wrote", OUT))
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  });
+  .toFile(OUT);
+
+console.log("wrote", OUT);
