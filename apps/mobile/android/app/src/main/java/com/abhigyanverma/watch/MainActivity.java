@@ -76,6 +76,12 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // BEFORE super.onCreate(): Capacitor builds its plugin registry during
+        // that call, so a plugin registered afterwards is simply not there and
+        // window.Capacitor.Plugins.Offline comes back undefined — which the web
+        // layer reads as "this shell cannot store files" and hides the feature.
+        registerPlugin(OfflinePlugin.class);
+
         super.onCreate(savedInstanceState);
 
         announceTelevisionToTheSite();
