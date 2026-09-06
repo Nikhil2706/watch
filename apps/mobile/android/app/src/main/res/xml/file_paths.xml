@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Capacitor's defaults. Left alone: they belong to the plugin layer, and
+         this app not currently using them is not a reason to remove them. -->
     <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
+
+    <!-- Added for self-update (UpdateChecker). The downloaded APK has to be
+         handed to the package installer as a content:// URI - since API 24 a
+         file:// one throws FileUriExposedException - and this is the folder it
+         lands in, getExternalFilesDir(DIRECTORY_DOWNLOADS). -->
+    <external-files-path name="app-updates" path="Download/" />
 </paths>

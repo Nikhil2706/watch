@@ -112,6 +112,38 @@ Whether a given account may download at all is still the server's call —
 `applyRestrictedPolicy()` controls `EnableContentDownloading`, so parental
 control applies here exactly as it does on the web.
 
+## Updating the app
+
+There is no store, so the app updates itself. Each CI build on
+`platform-additions` publishes a GitHub release tagged `app-v<versionName>`
+carrying two assets — the APK and a `latest.json` descriptor. On launch the
+app fetches
+`https://github.com/Nikhil2706/watch/releases/latest/download/latest.json`,
+compares `versionCode` with its own, and offers the update if it is behind.
+GitHub keeps that `/releases/latest/download/` path pointing at the newest
+release, so there is no API call, no token and no rate limit to worry about.
+
+Accepting downloads the APK and hands it to the system installer. To ship a
+new version: bump `versionCode` **and** `versionName` in
+`android/app/build.gradle`, and push.
+
+Three Android facts this rests on, each of which would otherwise be found
+out the hard way:
+
+- The installer replaces an app only when the new APK is signed with the
+  **same key** — so this feature only works at all because of the release
+  keystore above. Under the old per-build debug keys it was impossible.
+- An APK cannot be handed to the installer as a `file://` URI since API 24;
+  it goes through the FileProvider already declared in the manifest, as a
+  `content://` URI with read permission granted.
+- From API 26 "install unknown apps" is granted **per app**, so the first
+  update sends the user to that settings screen. Nothing here can install
+  silently — the system's confirmation always appears, and that is by
+  design, not a gap. A truly silent install needs device-owner privileges.
+
+The check fails silently when offline or when GitHub is unreachable; a
+failed update check is never the user's problem.
+
 ## Still not done
 
 - **No release signing** — see above.

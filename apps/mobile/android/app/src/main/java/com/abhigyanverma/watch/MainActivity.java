@@ -34,6 +34,10 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // Sideloaded, so no store pushes updates. Fire-and-forget on a
+        // background thread; it stays silent unless there is something newer.
+        UpdateChecker.checkInBackground(this);
+
         this.bridge.getWebView().setDownloadListener(
             (url, userAgent, contentDisposition, mimeType, contentLength) -> {
                 try {

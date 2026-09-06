@@ -47,4 +47,13 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+
+    <!-- Self-update (see UpdateChecker). There is no store to do this for us,
+         so the app fetches its own APK and hands it to the system installer.
+         Play restricts this permission heavily; that is irrelevant here and
+         would be the thing to revisit if this app ever went to a store.
+         It does NOT permit a silent install - the system's own confirmation
+         screen always appears, and the user must additionally allow
+         "install unknown apps" for this app on API 26+. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 </manifest>

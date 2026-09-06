@@ -22,8 +22,10 @@ on:
       - "brand/**"
       - ".github/workflows/android-apk.yml"
 
+# contents: write so the build can publish the release the app updates itself
+# from (see apps/mobile UpdateChecker).
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -123,3 +125,49 @@ jobs:
           name: watch-release-apk
           path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+
+      # What the installed app checks against. GitHub keeps
+      # /releases/latest/download/<asset> pointing at the newest release, so the
+      # app needs no API call, no token and no rate limit - just two fixed URLs.
+      - name: Publish the release the app updates from
+        if: github.ref == 'refs/heads/platform-additions'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd apps/mobile
+          code=$(grep -oP 'versionCode\s+\K[0-9]+' android/app/build.gradle)
+          name=$(grep -oP 'versionName\s+"\K[^"]+' android/app/build.gradle)
+          echo "publishing versionCode=$code versionName=$name"
+
+          cp android/app/build/outputs/apk/release/app-release.apk \
+             "$RUNNER_TEMP/watch-release.apk"
+          cat > "$RUNNER_TEMP/latest.json" <<JSON
+          {
+            "versionCode": $code,
+            "versionName": "$name",
+            "apk": "https://github.com/${{ github.repository }}/releases/latest/download/watch-release.apk"
+          }
+          JSON
+
+          tag="app-v$name"
+          # Re-runnable: replace the release for this version rather than failing.
+          gh release delete "$tag" --repo "${{ github.repository }}" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$tag" \
+            --repo "${{ github.repository }}" \
+            --title "Watch $name" \
+            --notes "Sideload build. Installs over any earlier v1.2+ copy; older debug-signed installs must be removed first." \
+            "$RUNNER_TEMP/watch-release.apk" \
+            "$RUNNER_TEMP/latest.json"
+
+      - name: Confirm the update descriptor is reachable
+        if: github.ref == 'refs/heads/platform-additions'
+        run: |
+          url="https://github.com/${{ github.repository }}/releases/latest/download/latest.json"
+          for i in 1 2 3 4 5; do
+            body=$(curl -fsSL "$url" 2>/dev/null) && break
+            sleep 5
+          done
+          echo "$body"
+          # The app is useless if this 404s, so fail the build rather than ship
+          # an update path nobody can reach.
+          echo "$body" | grep -q '"versionCode"'
