@@ -1,11 +1,16 @@
 package com.abhigyanverma.watch;
 
 import android.app.DownloadManager;
+import android.app.UiModeManager;
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.webkit.CookieManager;
 import android.webkit.URLUtil;
+import android.webkit.WebSettings;
 import android.widget.Toast;
 
 import com.getcapacitor.BridgeActivity;
@@ -30,9 +35,50 @@ import com.getcapacitor.BridgeActivity;
  */
 public class MainActivity extends BridgeActivity {
 
+    /**
+     * The site already has a full TV mode — ten-foot CSS, D-pad roving focus,
+     * an on-screen keyboard and pairing-code login (src/components/tv,
+     * src/lib/tv). It turns it on by matching the user agent against patterns
+     * like "androidtv" and "aft*", or by a watch_tv cookie.
+     *
+     * The catch: Android System WebView on a TV box does NOT advertise itself
+     * as a television. Its user agent is an ordinary Android Chrome one, so
+     * every one of those patterns misses and the TV would get the phone layout
+     * — unreadable at three metres and unnavigable without a touchscreen.
+     *
+     * So the shell says what the WebView will not. One word appended to the
+     * user agent, only on an actual television, and the site's own existing
+     * detection does the rest. Nothing here reimplements any of it.
+     */
+    private void announceTelevisionToTheSite() {
+        if (!isTelevision()) return;
+
+        WebSettings settings = this.bridge.getWebView().getSettings();
+        String ua = settings.getUserAgentString();
+        if (ua == null || ua.contains("AndroidTV")) return;
+
+        settings.setUserAgentString(ua + " AndroidTV");
+        // Capacitor has already begun loading the start URL by the time
+        // onCreate runs, so the first request went out with the unmodified
+        // agent. Reloading is the cheap, reliable fix — one extra request at
+        // launch, on TVs only, in exchange for never rendering the phone
+        // layout on a television.
+        this.bridge.getWebView().reload();
+    }
+
+    private boolean isTelevision() {
+        if (getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK)) return true;
+        // Older or unusual boxes may not declare leanback; the ui mode is the
+        // other half of the answer and costs nothing to check.
+        UiModeManager ui = (UiModeManager) getSystemService(Context.UI_MODE_SERVICE);
+        return ui != null && ui.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION;
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        announceTelevisionToTheSite();
 
         // Sideloaded, so no store pushes updates. Fire-and-forget on a
         // background thread; it stays silent unless there is something newer.
