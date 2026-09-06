@@ -14,7 +14,8 @@ import { getGroupKind, getGroupSeriesId, partsUnitFor } from "@/lib/library-cura
 import { getCuratorNote } from "@/lib/notifications";
 import { getMemberships } from "@/lib/lists";
 import { episodeGaps } from "@/lib/episode-gaps";
-import { getCollection, type CollectionItem } from "@/lib/media";
+import { getCollection, getSpecialFeaturesForGroup, type CollectionItem } from "@/lib/media";
+import { SpecialFeaturesRow } from "@/components/media/SpecialFeaturesRow";
 import { pendingRolloutCount } from "@/lib/rollout";
 
 /**
@@ -60,6 +61,11 @@ export default async function CollectionPage({
   const { id } = await params;
   const collection = await getCollection(session, id);
   if (!collection) notFound();
+
+  // This page IS the franchise page — a franchise is a library group whose
+  // kind is "movie", the same structure a television series uses. So a
+  // feature mapped to a franchise surfaces here without a second concept.
+  const specialFeatures = await getSpecialFeaturesForGroup(session, id).catch(() => []);
 
   const lists = getMemberships(
     session.userId,
@@ -226,6 +232,8 @@ export default async function CollectionPage({
           ))}
         </div>
       )}
+
+      <SpecialFeaturesRow features={specialFeatures} />
 
       {seriesImdbId ? (
         <div className="detail-body" style={{ marginTop: 28 }}>

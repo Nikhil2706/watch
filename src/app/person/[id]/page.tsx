@@ -5,7 +5,14 @@ import { AppBar } from "@/components/AppBar";
 import { PosterCard } from "@/components/media/PosterCard";
 import { currentSession } from "@/lib/current-user";
 import { getMemberships } from "@/lib/lists";
-import { collapseEpisodeGroups, getItemsByPerson, getPerson, personPhotoUrl } from "@/lib/media";
+import {
+  collapseEpisodeGroups,
+  getItemsByPerson,
+  getPerson,
+  getSpecialFeaturesForPerson,
+  personPhotoUrl,
+} from "@/lib/media";
+import { SpecialFeaturesRow } from "@/components/media/SpecialFeaturesRow";
 
 export const dynamic = "force-dynamic";
 
@@ -24,9 +31,13 @@ export default async function PersonPage({
   if (!session) redirect("/login");
 
   const { id } = await params;
-  const [person, items] = await Promise.all([
+  const [person, items, specialFeatures] = await Promise.all([
     getPerson(session, id),
     getItemsByPerson(session, id),
+    // A documentary about this person belongs here as much as on each of
+    // their films — arguably more, since this is the page somebody opens
+    // wanting to know about them rather than about one film.
+    getSpecialFeaturesForPerson(session, id).catch(() => []),
   ]);
 
   if (!person) notFound();
@@ -45,6 +56,8 @@ export default async function PersonPage({
   return (
     <>
       <AppBar username={session.username} langloisMode={session.langloisMode} />
+
+      <SpecialFeaturesRow features={specialFeatures} />
 
       <section className="person-head">
         <div className="person-photo">

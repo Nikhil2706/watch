@@ -592,6 +592,52 @@ export async function getSpecialFeaturesForFilm(
     // A film's own page should not list itself as its own special feature,
     // which is otherwise possible by mapping a feature to itself.
     .filter((id) => id !== film.Id);
+  return fetchFeatureItems(session, ids);
+}
+
+/**
+ * Everything mapped to one person, for their own page.
+ *
+ * A documentary about Ridley Scott belongs on Ridley Scott's page as much as
+ * on each of his films — arguably more, since that is the page somebody
+ * arrives at wanting to know about him rather than about one film.
+ *
+ * Both credit kinds are asked for with the same id: Jellyfin gives a person
+ * one id whether they directed or acted, and a viewer on that page does not
+ * care which column the mapping was filed under.
+ */
+export async function getSpecialFeaturesForPerson(
+  session: ResolvedSession,
+  personId: string,
+): Promise<{ item: MediaItem; targets: SpecialFeatureTarget[] }[]> {
+  const ids = getFeatureIdsForFilm({
+    directorIds: [personId],
+    actorIds: [personId],
+  }).filter((id) => id !== personId);
+  return fetchFeatureItems(session, ids);
+}
+
+/** Everything mapped to a franchise, for that collection's page. */
+export async function getSpecialFeaturesForGroup(
+  session: ResolvedSession,
+  groupId: string,
+): Promise<{ item: MediaItem; targets: SpecialFeatureTarget[] }[]> {
+  return fetchFeatureItems(session, getFeatureIdsForFilm({ groupIds: [groupId] }));
+}
+
+/**
+ * Fetches the marked items themselves.
+ *
+ * Deliberately NOT through filterVisible: these are marked precisely so they
+ * never appear in a list, so the filter that hides them would return nothing
+ * every time. Parental control is applied explicitly instead — being a
+ * special feature says where something belongs, not that it may bypass a
+ * content rule.
+ */
+async function fetchFeatureItems(
+  session: ResolvedSession,
+  ids: string[],
+): Promise<{ item: MediaItem; targets: SpecialFeatureTarget[] }[]> {
   if (ids.length === 0) return [];
 
   const [token, device] = creds(session);
