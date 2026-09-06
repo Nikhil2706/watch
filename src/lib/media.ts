@@ -17,6 +17,12 @@ import {
   partsUnitFor,
 } from "./library-curation";
 import { isRestrictedContent } from "./parental-control";
+import {
+  getFeatureIdsForFilm,
+  getSpecialFeatureIdSet,
+  getTargetsForFeatures,
+  type SpecialFeatureTarget,
+} from "./special-features";
 import { getRatings, type Ratings } from "./ratings";
 import { getHiddenRolloutImdbSet, getHiddenRolloutPathSet } from "./rollout";
 import { stripCredentials } from "./strip-credentials";
@@ -129,7 +135,7 @@ function hasNoMetadata(item: MediaItem): boolean {
 function filterVisible(
   items: MediaItem[],
   session: ResolvedSession,
-  options: { requireMetadata?: boolean } = {},
+  options: { requireMetadata?: boolean; includeSpecialFeatures?: boolean } = {},
 ): MediaItem[] {
   // `requireMetadata: false` drops ONLY the thin-metadata rule — see
   // getCollection(), where grouping is itself the curatorial answer to the
@@ -140,7 +146,14 @@ function filterVisible(
   const whitelisted = getWhitelistedPathSet();
   const rolloutHiddenPaths = getHiddenRolloutPathSet();
   const rolloutHiddenImdb = getHiddenRolloutImdbSet();
+  // Special features are hidden from discovery but are not hidden items: they
+  // keep their own page and stay playable, and they still belong in Continue
+  // Watching, which is why this is an option rather than a blanket rule. A
+  // half-watched making-of should carry on where you left it like anything
+  // else — it just should not be sitting in Browse next to the films.
+  const specialFeatures = options.includeSpecialFeatures ? null : getSpecialFeatureIdSet();
   return items.filter((item) => {
+    if (specialFeatures?.has(item.Id)) return false;
     if (item.Path && excluded.has(item.Path)) return false;
     if (requireMetadata && hasNoMetadata(item) && !(item.Path && whitelisted.has(item.Path))) return false;
     if (item.Path && rolloutHiddenPaths.has(item.Path)) return false;
@@ -165,7 +178,9 @@ export async function getResume(session: ResolvedSession): Promise<MediaItem[]> 
     fields: LIST_FIELDS,
     enableImageTypes: "Primary,Backdrop,Thumb",
   });
-  return filterVisible(data?.Items ?? [], session);
+  // The one row a special feature is allowed into: if you started a making-of
+  // and stopped halfway, it should be waiting here like anything else.
+  return filterVisible(data?.Items ?? [], session, { includeSpecialFeatures: true });
 }
 
 export async function getLatest(session: ResolvedSession): Promise<MediaItem[]> {
@@ -544,6 +559,59 @@ export async function getGenres(session: ResolvedSession): Promise<string[]> {
  * either — it should read as "not in your library" until a curator clears
  * it, same as everywhere else.
  */
+/**
+ * The special features that belong on one film's page.
+ *
+ * Gathers from every direction at once, because that is how the page reads:
+ * the making-of mapped to this film, the documentary mapped to its franchise,
+ * the profile of its director, the retrospective on one of its leads. Ordered
+ * most-specific-first by getFeatureIdsForFilm.
+ *
+ * Fetched WITHOUT filterVisible, deliberately. These items are marked special
+ * precisely so they never appear in a list, so passing them back through the
+ * filter that hides them would return nothing every time. Parental control is
+ * applied explicitly instead — being a special feature is a statement about
+ * where something belongs, not permission to bypass a content rule.
+ */
+export async function getSpecialFeaturesForFilm(
+  session: ResolvedSession,
+  film: MediaItem,
+): Promise<{ item: MediaItem; targets: SpecialFeatureTarget[] }[]> {
+  const groupIds: string[] = [];
+  if (film.Path) {
+    const group = getGroupedPathMap().get(film.Path);
+    if (group) groupIds.push(group.groupId);
+  }
+
+  const directorIds = (film.People ?? [])
+    .filter((p) => p.Type === "Director")
+    .map((p) => p.Id);
+  const actorIds = (film.People ?? []).filter((p) => p.Type === "Actor").map((p) => p.Id);
+
+  const ids = getFeatureIdsForFilm({ itemId: film.Id, groupIds, directorIds, actorIds })
+    // A film's own page should not list itself as its own special feature,
+    // which is otherwise possible by mapping a feature to itself.
+    .filter((id) => id !== film.Id);
+  if (ids.length === 0) return [];
+
+  const [token, device] = creds(session);
+  const result = await userFetch<{ Items: MediaItem[] }>(token, device, "/Items", {
+    userId: session.jellyfinUserId,
+    ids: ids.join(","),
+    fields: LIST_FIELDS,
+    enableImageTypes: "Primary,Backdrop,Thumb",
+  }).catch(() => null);
+
+  const found = new Map((result?.Items ?? []).map((item) => [item.Id, item]));
+  const targets = getTargetsForFeatures(ids);
+
+  return ids
+    .map((id) => found.get(id))
+    .filter((item): item is MediaItem => Boolean(item))
+    .filter((item) => !(session.parentalControl && isRestrictedContent(item)))
+    .map((item) => ({ item, targets: targets.get(item.Id) ?? [] }));
+}
+
 export async function getItemsByImdbIds(
   session: ResolvedSession,
   imdbIds: string[],

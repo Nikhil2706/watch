@@ -30,7 +30,7 @@
  * runVersionedMigrations() will not replay the set at all. The live database
  * is already at 40, so the other branch's v38 work would never have run here.
  */
-export const SCHEMA_VERSION = 41;
+export const SCHEMA_VERSION = 42;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -417,6 +417,51 @@ CREATE TABLE IF NOT EXISTS library_groups (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_library_groups_group ON library_groups(group_id);
+
+-- Special features: a making-of, a documentary about a director, a
+-- retrospective on an actor. Library items in their own right, but they are
+-- ABOUT something else rather than being the thing you sat down to watch, and
+-- listing them next to real films makes browse read like a DVD extras menu.
+--
+-- Being in this table is what hides an item from discovery. The mapping is
+-- separate (special_feature_targets) because the two happen at different
+-- times: everything gets marked in one pass, and worked out afterwards. An
+-- unmapped feature is a legitimate state - hidden, and waiting in the console
+-- for somebody to say what it belongs to.
+CREATE TABLE IF NOT EXISTS special_features (
+  jellyfin_item_id TEXT PRIMARY KEY,
+  title            TEXT,
+  note             TEXT,
+  created_at       INTEGER NOT NULL
+) STRICT;
+
+-- Where a special feature should appear. One row per place, so a making-of
+-- can hang off both its film and its director, and a film page can gather
+-- features from several directions at once.
+--
+-- kind is one of: film, franchise, director, actor.
+--   film      target_id is a Jellyfin item id
+--   franchise target_id is a library_groups group_id - a franchise here IS a
+--             group, rather than a second grouping concept nobody maintains
+--   director  target_id is a Jellyfin person id
+--   actor     target_id is a Jellyfin person id
+--
+-- target_label is denormalised on purpose: it is what the console lists, and
+-- a person or group that later disappears should still show what the mapping
+-- was rather than a bare id nobody can read.
+CREATE TABLE IF NOT EXISTS special_feature_targets (
+  jellyfin_item_id TEXT NOT NULL,
+  kind             TEXT NOT NULL,
+  target_id        TEXT NOT NULL,
+  target_label     TEXT,
+  created_at       INTEGER NOT NULL,
+  PRIMARY KEY (jellyfin_item_id, kind, target_id)
+) STRICT;
+
+-- The hot path: a film page asks "what features point at this id", once per
+-- kind, so the lookup is by (kind, target_id) rather than by feature.
+CREATE INDEX IF NOT EXISTS idx_special_feature_targets_lookup
+  ON special_feature_targets(kind, target_id);
 
 -- A group's synopsis, separate from library_groups so a rename never risks
 -- the overview text (group_name is denormalised onto every member row;

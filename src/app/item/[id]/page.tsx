@@ -10,6 +10,7 @@ import { CommunitySection } from "@/components/media/CommunitySection";
 import { CuratorPicks } from "@/components/media/CuratorPicks";
 import { ListButtons } from "@/components/media/ListButtons";
 import { RatingsRow } from "@/components/media/RatingsRow";
+import { SpecialFeaturesRow } from "@/components/media/SpecialFeaturesRow";
 import { OfflineButton } from "@/components/offline/OfflineButton";
 import { getCuratorNote } from "@/lib/notifications";
 import { getRatingSummary } from "@/lib/community";
@@ -31,6 +32,7 @@ import {
   getItem,
   getItemsByImdbIds,
   getSimilar,
+  getSpecialFeaturesForFilm,
   qualityLabel,
   resumeSeconds,
 } from "@/lib/media";
@@ -53,12 +55,17 @@ export default async function ItemPage({
   const item = await getItem(session, id);
   if (!item) notFound();
 
-  const [similar, ratings, episodeContext] = await Promise.all([
+  const [similar, ratings, episodeContext, specialFeatures] = await Promise.all([
     getSimilar(session, id).catch(() => []),
     // The IMDb id comes from Jellyfin, so no title matching is needed.
     getRatings(item.ProviderIds?.Imdb).catch(() => null),
     // Null for anything that isn't a grouped episode.
     getEpisodeContext(session, item).catch(() => null),
+    // Making-ofs and documentaries mapped to this film, its franchise, its
+    // director or its cast. Empty for almost every title, so it costs one
+    // local lookup and only reaches Jellyfin when something is actually
+    // mapped.
+    getSpecialFeaturesForFilm(session, item).catch(() => []),
   ]);
   // Once every episode in a group shares the same OMDb Genres/People, they
   // become each other's best "similar" match by Jellyfin's own metric — so
@@ -284,6 +291,8 @@ export default async function ItemPage({
 
         <AccoladesSection blurb={blurb} trivia={trivia} />
       </div>
+
+      <SpecialFeaturesRow features={specialFeatures} />
 
       <CastRow people={cast} />
       {directors.length > 0 ? (
