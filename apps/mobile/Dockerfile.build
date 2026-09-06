@@ -1,0 +1,42 @@
+# ---------------------------------------------------------------------------
+# Android build toolchain for the Watch shell.
+#
+# This machine has no JDK, no Android SDK and no Gradle, and deliberately
+# isn't getting them: the same reasoning as everything else here, which is
+# that a container is reproducible and leaves nothing behind on a boot drive
+# that is failing. The Capacitor scaffolding itself was done the same way,
+# via `docker run node:22-alpine`.
+#
+# JDK 21 because the project is on Android Gradle Plugin 8.7.2 (see
+# android/build.gradle), which supports 17-21; 21 is the current LTS.
+#
+# Build it, then see the "Building the APK" section of README.md for how to
+# actually produce one - the Gradle cache belongs in a named volume, or
+# every build re-downloads Gradle itself plus every dependency.
+# ---------------------------------------------------------------------------
+FROM eclipse-temurin:21-jdk
+
+ENV ANDROID_HOME=/sdk \
+    ANDROID_SDK_ROOT=/sdk \
+    DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends unzip curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Pinned rather than "latest" so a rebuild six months from now produces the
+# same toolchain as the APK your friend already has.
+ARG CMDLINE_TOOLS=commandlinetools-linux-11076708_latest.zip
+RUN mkdir -p /sdk/cmdline-tools \
+ && curl -sSLo /tmp/tools.zip "https://dl.google.com/android/repository/${CMDLINE_TOOLS}" \
+ && unzip -q /tmp/tools.zip -d /sdk/cmdline-tools \
+ && mv /sdk/cmdline-tools/cmdline-tools /sdk/cmdline-tools/latest \
+ && rm /tmp/tools.zip
+
+ENV PATH="${PATH}:/sdk/cmdline-tools/latest/bin:/sdk/platform-tools"
+
+# compileSdk/targetSdk 35 and build-tools 35.0.0 to match android/variables.gradle.
+RUN yes | sdkmanager --licenses > /dev/null \
+ && sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" > /dev/null
+
+WORKDIR /app

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The site's own palette, so the native shell and the page it loads agree.
+  Values are copied from the web app's CSS custom properties (bg, warm,
+  accent) - see brand/README.md in the repo root, which is the source of
+  truth for the mark and its colours. Their CSS names are written without
+  the leading double hyphen throughout this file, because an XML comment
+  may not contain one.
+
+  This matters more than it looks. In remote-URL mode there is a moment
+  between the activity opening and the WebView painting the real page, and
+  whatever is behind it shows through. Left on the Capacitor defaults that
+  moment is white, which on a dark app reads as a flash every single launch.
+-->
+<resources>
+    <!-- bg: the page ground. -->
+    <color name="brandBackground">#06070A</color>
+    <!-- warm: the aperture. Brand colour, never a pressable thing. -->
+    <color name="brandWarm">#FFD9A0</color>
+    <!-- accent: interaction blue. Deliberately NOT used on the mark. -->
+    <color name="brandAccent">#5B8DEF</color>
+
+    <!-- Capacitor's own android library supplies these names; overriding
+         them here is what actually re-themes the shell. -->
+    <color name="colorPrimary">#06070A</color>
+    <color name="colorPrimaryDark">#06070A</color>
+    <color name="colorAccent">#5B8DEF</color>
+</resources>

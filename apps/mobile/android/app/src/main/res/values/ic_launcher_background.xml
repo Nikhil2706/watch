@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  The adaptive icon's background layer. Was #FFFFFF, which put the warm mark
+  on a white disc - the one ground brand/README.md says the full mark must
+  never sit on ("on a light ground use mark-solid.svg; the full mark's halo
+  turns to smear"). Same ground as the app itself instead.
+-->
 <resources>
-    <color name="ic_launcher_background">#FFFFFF</color>
+    <color name="ic_launcher_background">#06070A</color>
 </resources>

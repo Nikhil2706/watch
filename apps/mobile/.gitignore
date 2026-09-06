@@ -1,1 +1,18 @@
 node_modules/
+
+# Icon/splash SOURCES, regenerated from ../../brand by make-assets.js. The
+# generated Android resources under android/app/src/main/res ARE committed -
+# a fresh clone should build the right-looking app without needing the node
+# step first - but these 1024/2732px intermediates are pure derivation.
+#
+# Anchored with a leading slash: unanchored, this also matched
+# android/app/src/main/assets/, which is where Capacitor bakes the config
+# that decides which URL the app actually loads.
+/assets/
+
+# Gradle build output, including the APK itself.
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+

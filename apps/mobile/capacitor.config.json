@@ -3,7 +3,7 @@
   "appName": "Watch",
   "webDir": "www",
   "server": {
-    "url": "https://watch2.abhigyanverma.com",
+    "url": "https://watch.abhigyanverma.com",
     "androidScheme": "https"
   }
 }
