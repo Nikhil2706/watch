@@ -1,8 +1,11 @@
 [package]
 name = "watch-desktop"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+# The version the installer and the About box show comes from
+# tauri.conf.json, not from here; keep them in step anyway so a `cargo`
+# invocation does not report something different.
+version = "1.0.0"
+description = "Desktop shell for the Watch film library"
+authors = ["abhigyanverma"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
