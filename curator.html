@@ -201,6 +201,12 @@
   .sf-block { border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2);
     padding: 11px 13px; }
   .sf-suggest { width: auto; font-size: 12px; padding: 5px 10px; }
+  .sf-onfilm { padding: 7px 0; border-bottom: 1px solid rgba(35, 41, 53, 0.6); }
+  .sf-onfilm:last-child { border-bottom: 0; padding-bottom: 0; }
+  .sf-onfilm .sf-name { font-size: 13.5px; margin-bottom: 5px; }
+  /* Dashed: this one is not attached to this film, it arrives through
+     something broader, and removing it reaches further than this page. */
+  .sf-target.sf-inherited { border-style: dashed; }
   .sf-x { width: auto; padding: 0 4px; font-size: 11px; line-height: 1.4; margin-left: 2px; }
 
   /* --- Header -------------------------------------------------------- */
@@ -2520,6 +2526,9 @@
 
   function lwRenderFilmPane(row) {
     var it = row.item;
+    // Kicked off on render and patched in when it lands; a film with nothing
+    // mapped to it shows nothing at all.
+    if (!sfState.features[it.id]) void sfLoadOnFilm(it.id);
     return '<div class="lw-head">' +
         lwThumbHtml(it.posterUrl, "lw-poster") +
         '<div class="lw-head-text">' +
@@ -2531,6 +2540,7 @@
         '</div>' +
       '</div>' +
       sfPaneHtml(it) +
+      sfOnFilmHtml(it.id) +
       '<div class="rv-panel-slot" data-panel-for="' + esc(it.id) + '"></div>' +
       (row.isDuplicate ? lwDuplicateHtml(row) : "");
   }
@@ -3271,7 +3281,17 @@
     var itemId = btn.getAttribute("data-item-id");
     var groupEl = btn.closest(".rv-group");
 
-    if (action === "sf-mark") sfPost({ action: "mark", itemId: itemId, title: lwNameFor(itemId) });
+    if (action === "sf-unlink") {
+      var scope = btn.getAttribute("data-sf-scope");
+      if (confirm("Stop showing this special feature on " + scope + "?")) {
+        sfPost({
+          action: "unmap", itemId: itemId,
+          kind: btn.getAttribute("data-sf-kind"),
+          targetId: btn.getAttribute("data-sf-target")
+        });
+      }
+    }
+    else if (action === "sf-mark") sfPost({ action: "mark", itemId: itemId, title: lwNameFor(itemId) });
     else if (action === "sf-unmark") {
       if (confirm("Show this in the library again? Its mappings are dropped."))
         sfPost({ action: "unmark", itemId: itemId });
@@ -5396,7 +5416,7 @@
    * An unconfirmed suggestion is exactly what "Needs you" already means, so it
    * flows into that chip instead of a second queue beside it.
    * ================================================================ */
-  var sfState = { features: {}, guesses: {}, targets: null };
+  var sfState = { features: {}, guesses: {}, targets: null, onFilm: {} };
 
   var SF_KINDS = [
     { kind: "film", label: "Film", list: "films" },
@@ -5541,12 +5561,64 @@
     if (kind) sfFillDatalist(kind.getAttribute("data-sf-kindpick"));
   });
 
+  /* What shows on THIS film's page. Fetched rather than worked out here,
+     so the console cannot quietly disagree with the site about what a viewer
+     sees — the endpoint runs the same gathering the film page does. */
+  function sfLoadOnFilm(itemId) {
+    if (sfState.onFilm[itemId]) return Promise.resolve(sfState.onFilm[itemId]);
+    return api("/api/admin/special-features/for-item?itemId=" + encodeURIComponent(itemId))
+      .then(function (data) {
+        sfState.onFilm[itemId] = data.features || [];
+        var slot = document.querySelector('[data-sf-onfilm="' + itemId + '"]');
+        if (slot) slot.outerHTML = sfOnFilmHtml(itemId);
+        return sfState.onFilm[itemId];
+      })
+      .catch(function () {
+        sfState.onFilm[itemId] = [];
+        return [];
+      });
+  }
+
+  function sfOnFilmHtml(itemId) {
+    var list = sfState.onFilm[itemId];
+    // Not fetched yet: leave a slot for sfLoadOnFilm to replace, rather than
+    // blocking the pane on a request most films do not need.
+    if (!list) return '<span data-sf-onfilm="' + esc(itemId) + '"></span>';
+    if (!list.length) return '<span data-sf-onfilm="' + esc(itemId) + '"></span>';
+
+    var out = '<span data-sf-onfilm="' + esc(itemId) + '">' +
+      '<div class="lw-section">Special features on this page</div><div class="sf-block">';
+    list.forEach(function (f) {
+      out += '<div class="sf-onfilm">' +
+        '<div class="sf-name">' + esc(f.title) + '</div>' +
+        '<div class="sf-targets">';
+      f.via.forEach(function (v) {
+        // An inherited link says how far removing it reaches. "Unlink" on a
+        // director mapping takes it off every one of that director's films,
+        // which is not what the word suggests on its own.
+        out += '<span class="sf-target' + (v.direct ? "" : " sf-inherited") + '">' +
+          '<span class="sf-kind">' + esc(sfKindLabel(v.kind)) + '</span> <b>' +
+          esc(v.targetLabel || v.targetId) + '</b>' +
+          '<button class="ghost sf-x" data-action="sf-unlink" data-item-id="' + esc(f.itemId) +
+          '" data-sf-kind="' + esc(v.kind) + '" data-sf-target="' + esc(v.targetId) +
+          '" data-sf-scope="' + esc(v.scope) + '" data-sf-parent="' + esc(itemId) +
+          '" title="Remove from ' + esc(v.scope) + '">\u2715</button></span>';
+      });
+      out += "</div></div>";
+    });
+    out += "</div></span>";
+    return out;
+  }
+
   function sfPost(body) {
     return api("/api/admin/special-features", { method: "POST", body: body }).then(function (data) {
       sfState.features = {};
       (data.features || []).forEach(function (f) { sfState.features[f.itemId] = f; });
       // A confirmed suggestion is no longer a suggestion.
       if (body.action === "map" || body.action === "mark") delete sfState.guesses[body.itemId];
+      // Any mapping change can alter what appears on some other film's page,
+      // and there is no cheap way to know which — so they all get re-asked.
+      sfState.onFilm = {};
       sfApplyToRows();
       lwRender();
     }).catch(function (e) { show("err", e.message); });

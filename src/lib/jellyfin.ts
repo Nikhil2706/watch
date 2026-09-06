@@ -716,6 +716,8 @@ export interface AdminMovieListItem {
   // lightweight Person sub-objects (see AdminPersonCredit below) — these
   // are two different DTO shapes, not a Fields= gate.
   ImageTags?: { Primary?: string };
+  /** Only present when getAdminMovie is asked for it — see withPeople. */
+  People?: AdminPersonCredit[];
   MediaSources?: Array<{
     Container?: string;
     /** Bytes on disk. Returned with MediaSources; only ever read to compare two copies of the same film. */
@@ -807,12 +809,16 @@ export async function listAllMoviesAdmin(
  */
 export async function getAdminMovie(
   itemId: string,
-  options: { withMediaSources?: boolean } = {},
+  options: { withMediaSources?: boolean; withPeople?: boolean } = {},
 ): Promise<AdminMovieListItem | null> {
-  const { withMediaSources = true } = options;
-  const fields = withMediaSources
-    ? "Overview,ProviderIds,Path,ProductionYear,MediaSources"
-    : "Overview,ProviderIds,Path,ProductionYear";
+  const { withMediaSources = true, withPeople = false } = options;
+  // withPeople is off by default because People is the expensive field on this
+  // endpoint and almost nothing needs it — the special-features panel does,
+  // to work out which director/actor mappings reach this film.
+  const fields =
+    (withMediaSources
+      ? "Overview,ProviderIds,Path,ProductionYear,MediaSources"
+      : "Overview,ProviderIds,Path,ProductionYear") + (withPeople ? ",People" : "");
 
   const data = await jellyfinFetch<{ Items: AdminMovieListItem[] }>(
     `/Items?Ids=${encodeURIComponent(itemId)}&IncludeItemTypes=Movie&Recursive=true&Fields=${fields}`,
