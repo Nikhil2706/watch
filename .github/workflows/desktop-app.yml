@@ -49,10 +49,22 @@ jobs:
           # scaffold was still on the old one. Same guard as the Android build.
           test "$url" = "https://watch.abhigyanverma.com"
 
-      - name: Build
+      # Regenerated every build so the app icon cannot drift from brand/ again —
+      # the committed ones were the old blue-W placeholder and were nine days
+      # older than the real mark.
+      - name: App icon from brand/
+        shell: bash
         working-directory: apps/desktop
         run: |
           npm ci
+          npm install --no-save sharp
+          node make-icon.js
+          npm run tauri -- icon icon-1024.png
+
+      - name: Build
+        shell: bash
+        working-directory: apps/desktop
+        run: |
           # npm run, not npx: this pins the build to the @tauri-apps/cli in
           # package-lock.json rather than whatever npx decides to fetch.
           npm run tauri -- build

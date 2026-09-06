@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Rendered from ../../brand/icon.svg by make-icon.js at build time, then
+# expanded by `tauri icon`. Not a source file.
+icon-1024.png
