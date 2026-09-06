@@ -2,6 +2,7 @@ import { createReadStream, statSync } from "node:fs";
 import { basename } from "node:path";
 import { Readable } from "node:stream";
 
+import { parseRange } from "@/lib/http-range";
 import { getItem } from "@/lib/media";
 import { getSessionFromRequest } from "@/lib/session";
 import { DownloadSourceError, getDownloadJob, queueDownload } from "@/lib/downloads";
@@ -98,29 +99,21 @@ export async function GET(
     "Cache-Control": "private, no-store",
   });
 
-  const range = request.headers.get("range");
-  if (!range) {
+  const wanted = parseRange(request.headers.get("range"), size);
+
+  if (wanted.kind === "unsatisfiable") {
+    return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+  }
+
+  if (wanted.kind === "full") {
     headers.set("Content-Length", String(size));
     const stream = createReadStream(job.output_path);
     return new Response(Readable.toWeb(stream) as ReadableStream, { status: 200, headers });
   }
 
-  const match = /^bytes=(\d*)-(\d*)$/.exec(range);
-  if (!match) {
-    return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
-  }
-  const startStr = match[1];
-  const endStr = match[2];
-  const start = startStr ? Number.parseInt(startStr, 10) : size - Number.parseInt(endStr!, 10);
-  const end = endStr && startStr ? Number.parseInt(endStr, 10) : size - 1;
-
-  if (Number.isNaN(start) || Number.isNaN(end) || start > end || start < 0 || end >= size) {
-    return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
-  }
-
-  headers.set("Content-Range", `bytes ${start}-${end}/${size}`);
-  headers.set("Content-Length", String(end - start + 1));
-  const stream = createReadStream(job.output_path, { start, end });
+  headers.set("Content-Range", `bytes ${wanted.start}-${wanted.end}/${size}`);
+  headers.set("Content-Length", String(wanted.end - wanted.start + 1));
+  const stream = createReadStream(job.output_path, { start: wanted.start, end: wanted.end });
   return new Response(Readable.toWeb(stream) as ReadableStream, { status: 206, headers });
 }
 
