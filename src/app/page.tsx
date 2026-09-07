@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { AppBar } from "@/components/AppBar";
 import { Hero } from "@/components/media/Hero";
+import { PickButton } from "@/components/media/PickButton";
 import { ProcessingRow } from "@/components/media/ProcessingRow";
 import { Row } from "@/components/media/Row";
 import { PartyBanner } from "@/components/party/PartyBanner";
@@ -97,6 +98,9 @@ export default async function HomePage() {
       <AppBar username={session.username} langloisMode={session.langloisMode} />
       <PartyBanner live={liveParties} upcoming={upcomingParties} />
       <Hero item={featured} imdb={featuredRatings?.imdb} />
+      <div className="pick-entry">
+        <PickButton />
+      </div>
       <Row title="Continue watching" items={resume} lists={lists} />
       <Row
         title="Recently added"

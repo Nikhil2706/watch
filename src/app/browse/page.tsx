@@ -1,3 +1,4 @@
+import { PickButton } from "@/components/media/PickButton";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -263,7 +264,10 @@ export default async function BrowsePage({
           ) : null}
 
           {sorted.length === 0 ? (
-            <div className="empty">No films match this filter.</div>
+            <div className="empty">
+              <p>No films match this filter.</p>
+              <PickButton label="Choose something for me" className="btn ghost" />
+            </div>
           ) : (
             <div className="grid">
               {sorted.map((m) =>
