@@ -1,6 +1,9 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { matchTitle } from "@/lib/scraping/match";
-import { upsertCuratorAccoladeEntry } from "@/lib/scraping/curator-accolades";
+import {
+  insertCuratorAccoladeEntry,
+  upsertCuratorAccoladeEntry,
+} from "@/lib/scraping/curator-accolades";
 import { optionalInt, optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -34,19 +37,41 @@ export async function POST(
     const explicitImdbId = optionalString(body, "imdb_id");
     const blurbText = optionalString(body, "blurb_text");
 
-    if (slot === undefined) throw new ValidationError("slot is required.");
+    const insertAtPosition = optionalInt(body, "insert_at");
+
+    if (slot === undefined && insertAtPosition === undefined) {
+      throw new ValidationError("slot or insert_at is required.");
+    }
     if (!title || !title.trim()) throw new ValidationError("title is required.");
 
     const imdbId = explicitImdbId ?? (await matchTitle(title, year)).imdbId;
 
-    const entry = upsertCuratorAccoladeEntry({
-      accoladeId: id,
-      slot,
-      imdbId,
-      rawTitle: title.trim(),
-      rawYear: year,
-      blurbText,
-    });
+    /*
+     * Two different acts, deliberately kept apart.
+     *
+     * `slot` REPLACES whatever holds that rank — editing the film at number
+     * three. `insert_at` pushes everything at or below that rank down — a new
+     * film ENTERING at number three, which is what a living year-end list does
+     * as the year goes on.
+     */
+    const entry =
+      insertAtPosition !== undefined
+        ? insertCuratorAccoladeEntry({
+            accoladeId: id,
+            position: insertAtPosition,
+            imdbId,
+            rawTitle: title.trim(),
+            rawYear: year,
+            blurbText,
+          })
+        : upsertCuratorAccoladeEntry({
+            accoladeId: id,
+            slot: slot!,
+            imdbId,
+            rawTitle: title.trim(),
+            rawYear: year,
+            blurbText,
+          });
 
     return Response.json({ ok: true, entry }, { status: 201, headers: NO_STORE });
   } catch (error) {

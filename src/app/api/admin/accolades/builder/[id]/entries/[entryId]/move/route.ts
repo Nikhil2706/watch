@@ -1,13 +1,24 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { moveCuratorAccoladeEntry } from "@/lib/scraping/curator-accolades";
-import { readJsonBody, ValidationError } from "@/lib/validation";
+import {
+  moveCuratorAccoladeEntry,
+  moveCuratorAccoladeEntryTo,
+} from "@/lib/scraping/curator-accolades";
+import { optionalInt, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const NO_STORE = { "Cache-Control": "no-store" } as const;
 
-/** POST /api/admin/accolades/builder/{id}/entries/{entryId}/move  { direction: "up" | "down" } */
+/**
+ * POST /api/admin/accolades/builder/{id}/entries/{entryId}/move
+ *   { direction: "up" | "down" }  — nudge past a neighbour
+ *   { position: 0-based rank }    — move straight to a rank
+ *
+ * Both, because they are different gestures: the arrows are the fastest way to
+ * nudge one row, and a position is the only sane way to say "this is now
+ * number one" from the bottom of a long list.
+ */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string; entryId: string }> },
@@ -18,12 +29,17 @@ export async function POST(
 
   try {
     const body = await readJsonBody(request);
+    const position = optionalInt(body, "position");
     const direction = body.direction;
-    if (direction !== "up" && direction !== "down") {
-      throw new ValidationError('direction must be "up" or "down".');
+
+    if (position === undefined && direction !== "up" && direction !== "down") {
+      throw new ValidationError('Pass a position, or a direction of "up" or "down".');
     }
 
-    const moved = moveCuratorAccoladeEntry(id, entryId, direction);
+    const moved =
+      position !== undefined
+        ? moveCuratorAccoladeEntryTo(id, entryId, position)
+        : moveCuratorAccoladeEntry(id, entryId, direction as "up" | "down");
     if (!moved) {
       return Response.json(
         { error: "not_found", message: "Already at that end of the list, or no such slot." },

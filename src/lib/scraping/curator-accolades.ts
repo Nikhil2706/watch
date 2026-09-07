@@ -1,7 +1,8 @@
 import "server-only";
 
 import { generateId } from "../crypto";
-import { asRow, asRows, getDb } from "../db";
+import { insertAt, moveByOne, moveTo, removeFrom, slotChanges } from "../accolade-order";
+import { asRow, asRows, getDb, transaction } from "../db";
 import { sanitizeRichText } from "./rich-text";
 
 /**
@@ -109,30 +110,138 @@ export function upsertCuratorAccoladeEntry(input: {
   };
 }
 
-export function deleteCuratorAccoladeEntry(id: string): boolean {
-  const result = getDb().prepare("DELETE FROM curator_accolade_entries WHERE id = ?").run(id);
-  return Number(result.changes) > 0;
+/**
+ * Applies an ordering to the stored slots, writing only what moved.
+ *
+ * Every reordering operation funnels through here so the dense zero-based
+ * invariant has exactly one place it can be broken.
+ */
+function applyOrder(accoladeId: string, orderedIds: string[]): void {
+  const current = new Map(
+    asRows<{ id: string; slot: number }>(
+      getDb()
+        .prepare("SELECT id, slot FROM curator_accolade_entries WHERE accolade_id = ?")
+        .all(accoladeId),
+    ).map((r) => [r.id, r.slot]),
+  );
+
+  const changes = slotChanges(orderedIds, current);
+  if (changes.length === 0) return;
+
+  transaction((db) => {
+    // Two passes through a negative staging range. Nothing constrains slot to
+    // be unique, but a single pass can still transiently put two entries on the
+    // same slot, and anything reading mid-write would see a duplicate rank.
+    for (const c of changes) {
+      db.prepare("UPDATE curator_accolade_entries SET slot = ? WHERE id = ?").run(-1 - c.slot, c.id);
+    }
+    for (const c of changes) {
+      db.prepare("UPDATE curator_accolade_entries SET slot = ? WHERE id = ?").run(c.slot, c.id);
+    }
+    db.prepare("UPDATE curator_accolades SET updated_at = ? WHERE id = ?").run(Date.now(), accoladeId);
+  });
 }
 
-/** Swaps this slot's position with its neighbour — same reasoning as trivia's moveTriviaSelection: a pairwise swap never needs a renumbering pass. */
-export function moveCuratorAccoladeEntry(accoladeId: string, entryId: string, direction: "up" | "down"): boolean {
-  const rows = asRows<{ id: string; slot: number }>(
+function orderedIdsOf(accoladeId: string): string[] {
+  return asRows<{ id: string }>(
     getDb()
-      .prepare("SELECT id, slot FROM curator_accolade_entries WHERE accolade_id = ? ORDER BY slot ASC")
+      .prepare("SELECT id FROM curator_accolade_entries WHERE accolade_id = ? ORDER BY slot ASC")
       .all(accoladeId),
-  );
-  const idx = rows.findIndex((r) => r.id === entryId);
-  if (idx === -1) return false;
-  const swapIdx = direction === "up" ? idx - 1 : idx + 1;
-  if (swapIdx < 0 || swapIdx >= rows.length) return false;
+  ).map((r) => r.id);
+}
 
-  const a = rows[idx]!;
-  const b = rows[swapIdx]!;
-  const db = getDb();
-  db.prepare("UPDATE curator_accolade_entries SET slot = ? WHERE id = ?").run(b.slot, a.id);
-  db.prepare("UPDATE curator_accolade_entries SET slot = ? WHERE id = ?").run(a.slot, b.id);
-  db.prepare("UPDATE curator_accolades SET updated_at = ? WHERE id = ?").run(Date.now(), accoladeId);
+/**
+ * Removes an entry and closes the gap behind it.
+ *
+ * The gap-closing is the point. Slots used to be left holed, and the console
+ * derives the next slot from its row count — so deleting a middle entry and
+ * then adding one computed a slot that collided with the last entry, and
+ * upsert silently overwrote it. A list that loses a film every time you add
+ * one is not a list you can keep for a year.
+ */
+export function deleteCuratorAccoladeEntry(id: string): boolean {
+  const row = asRow<{ accolade_id: string }>(
+    getDb().prepare("SELECT accolade_id FROM curator_accolade_entries WHERE id = ?").get(id),
+  );
+  if (!row) return false;
+
+  const remaining = removeFrom(orderedIdsOf(row.accolade_id), id);
+  const result = getDb().prepare("DELETE FROM curator_accolade_entries WHERE id = ?").run(id);
+  if (Number(result.changes) === 0) return false;
+
+  applyOrder(row.accolade_id, remaining);
   return true;
+}
+
+/** Nudge one row past its neighbour — what the up/down arrows do. */
+export function moveCuratorAccoladeEntry(
+  accoladeId: string,
+  entryId: string,
+  direction: "up" | "down",
+): boolean {
+  const ids = orderedIdsOf(accoladeId);
+  if (!ids.includes(entryId)) return false;
+  applyOrder(accoladeId, moveByOne(ids, entryId, direction));
+  return true;
+}
+
+/**
+ * Move an entry to an absolute rank.
+ *
+ * A pairwise swap cannot say "this is now number one" in fewer than nine steps
+ * from the bottom of a ten-film list, which is the move a year-end list
+ * actually needs as the year turns.
+ */
+export function moveCuratorAccoladeEntryTo(
+  accoladeId: string,
+  entryId: string,
+  position: number,
+): boolean {
+  const ids = orderedIdsOf(accoladeId);
+  if (!ids.includes(entryId)) return false;
+  applyOrder(accoladeId, moveTo(ids, entryId, position));
+  return true;
+}
+
+/**
+ * Insert a new film at a rank, pushing everything at or below it down.
+ *
+ * Distinct from upsertCuratorAccoladeEntry(), which overwrites whatever holds
+ * that slot. Both are wanted: replacing the film at number three is a different
+ * act from a new film entering at number three.
+ */
+export function insertCuratorAccoladeEntry(input: {
+  accoladeId: string;
+  position: number;
+  imdbId: string | null;
+  rawTitle: string;
+  rawYear: number | null;
+  blurbText?: string | null;
+}): CuratorAccoladeEntry {
+  const ids = orderedIdsOf(input.accoladeId);
+  const clamped = Math.max(0, Math.min(Math.floor(input.position), ids.length));
+
+  // Appended at the end first, then moved into place, so the new row never
+  // shares a slot with an existing one even for an instant.
+  const entry = upsertCuratorAccoladeEntry({
+    accoladeId: input.accoladeId,
+    slot: ids.length,
+    imdbId: input.imdbId,
+    rawTitle: input.rawTitle,
+    rawYear: input.rawYear,
+    blurbText: input.blurbText,
+  });
+
+  applyOrder(input.accoladeId, insertAt([...ids, entry.id], entry.id, clamped));
+  return { ...entry, slot: clamped };
+}
+
+/**
+ * Repairs a list whose slots are not dense — from data written before removal
+ * closed the gap. Safe to call on a healthy list, where it writes nothing.
+ */
+export function normaliseCuratorAccoladeSlots(accoladeId: string): void {
+  applyOrder(accoladeId, orderedIdsOf(accoladeId));
 }
 
 export interface CuratorAccoladeMention extends CuratorAccoladeEntry {

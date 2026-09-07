@@ -478,6 +478,8 @@
   .ac-reader-body p { margin: 0 0 14px; }
   .ac-reader-body ::selection { background: rgba(91,141,239,.4); color: #fff; }
 
+  .ac-rank { flex: 0 0 auto; width: 30px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+  .ac-rank-to { flex: 0 0 auto; width: 46px; padding: 3px 5px; font-size: 12px; }
   .ac-builder-item { border-top: 1px solid var(--border); }
   .ac-builder-item:first-of-type { border-top: 0; }
   .ac-builder-item > summary { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; cursor: pointer; list-style: none; font-weight: 600; font-size: 14px; }
@@ -4864,6 +4866,20 @@
     }).catch(function (e) { show("err", e.message); });
   }
 
+  /* A new, unsaved row. It carries the POSITION it will enter at, so saving it
+     inserts rather than overwriting whatever currently holds that rank. */
+  function acBlankSlotRow(position) {
+    var row = document.createElement("div");
+    row.className = "ac-slot-row";
+    row.setAttribute("data-insert-at", String(position));
+    row.innerHTML = '<div class="ac-rank" title="Enters at this rank">#' + (position + 1) + '</div>' +
+      '<div class="ac-slot-main"><input class="ac-slot-title" placeholder="Search your library…">' +
+      '<textarea class="ac-slot-blurb" placeholder="Blurb (optional)"></textarea></div>' +
+      '<button class="ghost" data-ac-action="save-slot">Save</button>' +
+      '<button class="ghost" data-ac-action="delete-slot">✕</button>';
+    return row;
+  }
+
   function acRenderBuilder(accolades) {
     var el = $("acBuilderList");
     if (!accolades.length) { el.innerHTML = '<div class="muted" style="padding:10px 0">Nothing built yet — "New accolade" above to start one.</div>'; return; }
@@ -4876,16 +4892,20 @@
         '<div style="flex:0 0 auto"><button class="ghost small" data-ac-action="builder-rename">Rename</button></div>' +
         '<div style="flex:0 0 auto"><button class="ghost small" data-ac-action="builder-delete">Delete list</button></div></div>';
       a.entries.forEach(function (e, i) {
-        html += '<div class="ac-slot-row" data-entry-id="' + esc(e.id) + '" data-slot="' + e.slot + '">' +
+        html += '<div class="ac-slot-row" data-entry-id="' + esc(e.id) + '" data-slot="' + e.slot + '" data-index="' + i + '">' +
+          '<div class="ac-rank" title="Rank">#' + (i + 1) + '</div>' +
           '<div class="ac-slot-main"><input class="ac-slot-title" value="' + esc(e.raw_title) + '" placeholder="Search your library…">' +
           '<textarea class="ac-slot-blurb" placeholder="Blurb (optional)">' + (e.blurb_text ? esc(e.blurb_text) : "") + '</textarea>' +
           '<div class="muted">' + (e.imdb_id ? "Matched" : "Not yet in your library — will auto-link if it's ever added") + '</div></div>' +
+          '<input class="ac-rank-to" type="number" min="1" max="' + a.entries.length + '" placeholder="#" title="Move to this rank">' +
+          '<button class="ghost ac-order-btn" data-ac-action="rank-slot" title="Move to that rank">Go</button>' +
+          '<button class="ghost ac-order-btn" data-ac-action="insert-above" title="Insert a new film above this one">+</button>' +
           '<button class="ghost ac-order-btn" data-ac-action="move-slot" data-direction="up"' + (i === 0 ? " disabled" : "") + ' title="Move up">↑</button>' +
           '<button class="ghost ac-order-btn" data-ac-action="move-slot" data-direction="down"' + (i === a.entries.length - 1 ? " disabled" : "") + ' title="Move down">↓</button>' +
           '<button class="ghost" data-ac-action="save-slot">Save</button>' +
           '<button class="ghost" data-ac-action="delete-slot">✕</button></div>';
       });
-      html += '<div class="row" style="margin-top:10px"><div style="flex:0 0 auto"><button class="ghost small" data-ac-action="add-slot">Add slot</button></div></div>';
+      html += '<div class="row" style="margin-top:10px"><div style="flex:0 0 auto"><button class="ghost small" data-ac-action="add-slot">Add at the end</button></div></div>';
       html += '</div></details>';
     });
     el.innerHTML = html;
@@ -5173,9 +5193,18 @@
       var slotTitle = slotRow.querySelector(".ac-slot-title").value.trim();
       var slotBlurb = slotRow.querySelector(".ac-slot-blurb").value.trim();
       if (!slotTitle) { show("err", "Title required."); return; }
+      /* A row carrying data-insert-at is a NEW film entering the list at that
+         rank — everything at or below it shifts down. A row without it is an
+         existing rank being edited in place. Two different acts, and the old
+         code only had the second one, which is why a new entry overwrote
+         whatever already held that slot. */
+      var insertAt = slotRow.getAttribute("data-insert-at");
+      var slotBody = { title: slotTitle, blurb_text: slotBlurb || null };
+      if (insertAt !== null) { slotBody.insert_at = Number(insertAt); }
+      else { slotBody.slot = slotNum; }
       api("/api/admin/accolades/builder/" + encodeURIComponent(slotAccoladeId) + "/entries", {
         method: "POST",
-        body: { slot: slotNum, title: slotTitle, blurb_text: slotBlurb || null },
+        body: slotBody,
       }).then(function () { show("ok", "Saved."); acLoadBuilder(); }).catch(function (err) { show("err", err.message); });
     } else if (action === "move-slot") {
       var moveRow = btn.closest(".ac-slot-row");
@@ -5196,15 +5225,28 @@
         .then(function () { show("ok", "Removed."); acLoadBuilder(); }).catch(function (err) { show("err", err.message); });
     } else if (action === "add-slot") {
       var addDetails = btn.closest(".ac-builder-item");
-      var nextSlot = addDetails.querySelectorAll(".ac-slot-row").length;
-      var newRow = document.createElement("div");
-      newRow.className = "ac-slot-row";
-      newRow.setAttribute("data-slot", String(nextSlot));
-      newRow.innerHTML = '<div class="ac-slot-main"><input class="ac-slot-title" placeholder="Search your library…">' +
-        '<textarea class="ac-slot-blurb" placeholder="Blurb (optional)"></textarea></div>' +
-        '<button class="ghost" data-ac-action="save-slot">Save</button>' +
-        '<button class="ghost" data-ac-action="delete-slot">✕</button>';
-      addDetails.querySelector(".ac-builder-editor").insertBefore(newRow, btn.closest(".row"));
+      /* Appended by POSITION, not by a slot number computed from the row
+         count. That computation was the bug: after a deletion left a hole the
+         count collided with an existing slot and upsert overwrote it. */
+      var endPos = addDetails.querySelectorAll(".ac-slot-row").length;
+      addDetails.querySelector(".ac-builder-editor")
+        .insertBefore(acBlankSlotRow(endPos), btn.closest(".row"));
+    } else if (action === "insert-above") {
+      var insDetails = btn.closest(".ac-builder-item");
+      var insRow = btn.closest(".ac-slot-row");
+      var insPos = Number(insRow.getAttribute("data-index"));
+      insDetails.querySelector(".ac-builder-editor").insertBefore(acBlankSlotRow(insPos), insRow);
+    } else if (action === "rank-slot") {
+      var rankRow = btn.closest(".ac-slot-row");
+      var rankEntryId = rankRow.getAttribute("data-entry-id");
+      var rankDetails = btn.closest(".ac-builder-item");
+      var rankAccoladeId = rankDetails.getAttribute("data-accolade-id");
+      var wanted = Number(rankRow.querySelector(".ac-rank-to").value);
+      if (!rankEntryId) { show("err", "Save this row first."); return; }
+      if (!wanted || wanted < 1) { show("err", "Give it a rank."); return; }
+      api("/api/admin/accolades/builder/" + encodeURIComponent(rankAccoladeId) + "/entries/" + encodeURIComponent(rankEntryId) + "/move", {
+        method: "POST", body: { position: wanted - 1 },
+      }).then(function () { acLoadBuilder(); }).catch(function (err) { show("err", err.message); });
     } else if (action === "toggle-source") {
       api("/api/admin/accolades/sources/" + encodeURIComponent(btn.getAttribute("data-source-id")) + "/toggle", { method: "POST" })
         .then(function () { loadAcSources(); }).catch(function (err) { show("err", err.message); });
