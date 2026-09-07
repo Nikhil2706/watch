@@ -34,6 +34,9 @@ import { normaliseShowName, pickBestShowMatch } from "./tmdb-match";
 /** Calls per tick. Deliberately small — see above. */
 const DEFAULT_BUDGET = 40;
 
+/** Recorded as a link's tmdb_id to mean "asked TMDB, it has nothing". */
+const NO_MATCH = 0;
+
 export interface TmdbBackfillResult {
   callsUsed: number;
   showsLinked: number;
@@ -43,6 +46,8 @@ export interface TmdbBackfillResult {
   done: boolean;
   /** Groups deliberately left unlinked because no candidate was safe to act on. */
   unmatched: Array<{ group: string; files: number }>;
+  /** Films TMDB has nothing for, now remembered so they are not re-asked. */
+  noMatch: number;
   note?: string;
 }
 
@@ -92,6 +97,7 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
     failures: 0,
     done: false,
     unmatched: [],
+    noMatch: 0,
   };
 
   const spend = () => (result.callsUsed += 1);
@@ -187,16 +193,32 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
   }
 
   /* ---- then films -------------------------------------------------
-     One call each, so this is the long tail. Ordered by nothing in particular;
-     "already cached" is the cursor. */
+     One call each, so this is the long tail. "Already cached" is the cursor.
+
+     Two exclusions, both learned the hard way when a run spent 60 calls a tick
+     and fetched nothing:
+
+     1. Files that belong to a library group are EPISODES, not films. 628 of
+        this library's 1,164 "movies" are episodes, and asking TMDB to find a
+        film for each one is both pointless and the bulk of the work.
+     2. A film whose IMDb id resolves to nothing (or to a TV result) has to be
+        remembered as a miss. Without that it is re-asked on every tick,
+        forever, and the budget never reaches anything new. NO_MATCH is recorded
+        as a link so the next tick skips it. */
+  const groupedPaths = new Set(
+    asRows<{ path: string }>(getDb().prepare("SELECT path FROM library_groups").all()).map((r) => r.path),
+  );
+
   const movies = await getAdminMovies({ withMediaSources: false }).catch(() => []);
   let remaining = 0;
 
   for (const movie of movies) {
     const imdb = movie.ProviderIds?.Imdb;
     if (!imdb) continue;
+    if (movie.Path && groupedPaths.has(movie.Path)) continue;
 
     const existingLink = movie.Path ? getLink("path", movie.Path) : null;
+    if (existingLink && existingLink.tmdbId === NO_MATCH) continue;
     if (existingLink && getCached("movie", existingLink.tmdbId)) continue;
 
     remaining += 1;
@@ -207,7 +229,22 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
       if (!Number.isFinite(tmdbId) || tmdbId <= 0) {
         const found = await findByImdbId(imdb);
         spend();
-        if (!found || found.kind !== "movie") continue;
+        if (!found || found.kind !== "movie") {
+          if (movie.Path) {
+            putLink({
+              subjectType: "path",
+              subjectId: movie.Path,
+              tmdbKind: "movie",
+              tmdbId: NO_MATCH,
+              season: null,
+              episode: null,
+              resolvedBy: "none",
+            });
+          }
+          result.noMatch += 1;
+          remaining -= 1;
+          continue;
+        }
         tmdbId = found.id;
       }
       if (spent()) continue;
