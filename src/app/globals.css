@@ -381,6 +381,32 @@ button.secondary {
   padding: 0 20px 40px;
 }
 
+/* Episode stills are landscape (4:3 or 16:9), never 2:3. Cropping one into a
+   poster keeps ~37% of the frame width and upscales a 300px-wide still into a
+   480px-tall box, which is what made episode artwork look soft and arbitrarily
+   cropped. A wider card at 16:9 scales the same still *down* instead. */
+.poster--still {
+  width: 288px;
+}
+
+.poster--still .poster-art {
+  aspect-ratio: 16 / 9;
+}
+
+.grid--still {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+@media (max-width: 640px) {
+  .poster--still {
+    width: 232px;
+  }
+
+  .grid--still {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  }
+}
+
 .grid .poster {
   width: 100%;
 }

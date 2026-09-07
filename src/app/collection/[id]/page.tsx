@@ -14,7 +14,12 @@ import { getGroupKind, getGroupSeriesId, partsUnitFor } from "@/lib/library-cura
 import { getCuratorNote } from "@/lib/notifications";
 import { getMemberships } from "@/lib/lists";
 import { episodeGaps } from "@/lib/episode-gaps";
-import { getCollection, getSpecialFeaturesForGroup, type CollectionItem } from "@/lib/media";
+import {
+  getCollection,
+  getSpecialFeaturesForGroup,
+  prefersStillLayout,
+  type CollectionItem,
+} from "@/lib/media";
 import { SpecialFeaturesRow } from "@/components/media/SpecialFeaturesRow";
 import { pendingRolloutCount } from "@/lib/rollout";
 
@@ -104,6 +109,10 @@ export default async function CollectionPage({
   // episodic show) — grouping everything into one unlabelled "Extras" row
   // would be a worse presentation than the grid for that case, not a
   // better one.
+  // Episode artwork is landscape; a film's poster is not. Decided once for the
+  // whole group so the grid keeps one shape — see prefersStillLayout().
+  const stillGrid = prefersStillLayout(collection.items.map((ci) => ci.item));
+
   const seasons = new Map<number, CollectionItem[]>();
   const extras: CollectionItem[] = [];
   for (const it of collection.items) {
@@ -226,9 +235,15 @@ export default async function CollectionPage({
           ) : null}
         </>
       ) : (
-        <div className="grid">
+        <div className={stillGrid ? "grid grid--still" : "grid"}>
           {collection.items.map(({ item, label }) => (
-            <PosterCard key={item.Id} item={item} lists={lists.get(item.Id)} title={label ?? undefined} />
+            <PosterCard
+              key={item.Id}
+              item={item}
+              lists={lists.get(item.Id)}
+              title={label ?? undefined}
+              shape={stillGrid ? "still" : "poster"}
+            />
           ))}
         </div>
       )}

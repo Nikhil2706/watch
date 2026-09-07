@@ -1,6 +1,6 @@
 import { PosterCard } from "./PosterCard";
 import type { ListKind } from "@/lib/lists";
-import type { MediaItem } from "@/lib/media";
+import { prefersStillLayout, type MediaItem } from "@/lib/media";
 
 /**
  * A horizontally scrolling row of posters.
@@ -18,6 +18,7 @@ export function Row({
   itemPosters,
   itemPartsCounts,
   itemPartsUnits,
+  shape,
 }: {
   title: string;
   items: MediaItem[];
@@ -33,8 +34,17 @@ export function Row({
   itemPartsCounts?: Map<string, number>;
   /** item id -> wording for that count. Absent means "parts". */
   itemPartsUnits?: Map<string, "parts" | "episodes">;
+  /**
+   * Card geometry for the whole row. Left unset, the row measures its own
+   * artwork and lays out episode stills landscape — see prefersStillLayout().
+   * Pass it explicitly only to override that, e.g. a row of group tiles which
+   * carry a series poster rather than each item's own art.
+   */
+  shape?: "poster" | "still";
 }) {
   if (items.length === 0) return null;
+
+  const rowShape = shape ?? (prefersStillLayout(items) ? "still" : "poster");
 
   return (
     <section className="row" aria-label={title}>
@@ -50,6 +60,7 @@ export function Row({
             posterSrc={itemPosters?.get(item.Id)}
             partsCount={itemPartsCounts?.get(item.Id)}
             partsUnit={itemPartsUnits?.get(item.Id)}
+            shape={rowShape}
           />
         ))}
       </div>

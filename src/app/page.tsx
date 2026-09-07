@@ -104,6 +104,7 @@ export default async function HomePage() {
         lists={lists}
         itemHrefs={collapsedLatest.hrefs}
         itemPosters={collapsedLatest.posters}
+        shape="poster"
         itemPartsCounts={collapsedLatest.partsCounts}
         itemPartsUnits={collapsedLatest.partsUnits}
       />
@@ -115,6 +116,7 @@ export default async function HomePage() {
           lists={lists}
           itemHrefs={collapsed.hrefs}
           itemPosters={collapsed.posters}
+          shape="poster"
           itemPartsCounts={collapsed.partsCounts}
           itemPartsUnits={collapsed.partsUnits}
         />

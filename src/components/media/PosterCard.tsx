@@ -5,6 +5,7 @@ import {
   formatRuntime,
   posterUrl,
   progressPercent,
+  stillUrl,
   type MediaItem,
 } from "@/lib/media";
 import { itemHref } from "@/lib/slugs";
@@ -29,6 +30,7 @@ export function PosterCard({
   partsCount,
   partsUnit = "parts",
   title,
+  shape = "poster",
 }: {
   item: MediaItem;
   /** Which lists this item is already on, for the toggle initial state. */
@@ -45,14 +47,22 @@ export function PosterCard({
   partsUnit?: "parts" | "episodes";
   /** Overrides the displayed title — used for episode labels ("Episode 7: ..."), without touching item.Name. */
   title?: string;
+  /**
+   * Card geometry. "still" is the 16:9 shape an episode's artwork actually
+   * has; "poster" (the default) is the 2:3 a film's poster has. Set per row
+   * by prefersStillLayout(), not per card — see Row.
+   */
+  shape?: "poster" | "still";
 }) {
-  const src = posterSrc !== undefined ? posterSrc : posterUrl(item);
+  const still = shape === "still";
+  const src =
+    posterSrc !== undefined ? posterSrc : still ? stillUrl(item) : posterUrl(item);
   const progress = progressPercent(item);
   const watched = item.UserData?.Played === true;
   const runtime = formatRuntime(item.RunTimeTicks);
 
   return (
-    <div className="poster">
+    <div className={still ? "poster poster--still" : "poster"}>
       <Link href={href ?? itemHref(item.Id, item.Name, item.ProductionYear)} className="poster-link">
         <div className="poster-art">
           {src ? (

@@ -353,6 +353,7 @@ export default async function ItemPage({
             items={collapsedSimilar.items}
             itemHrefs={collapsedSimilar.hrefs}
             itemPosters={collapsedSimilar.posters}
+            shape="poster"
             itemPartsCounts={collapsedSimilar.partsCounts}
             itemPartsUnits={collapsedSimilar.partsUnits}
           />

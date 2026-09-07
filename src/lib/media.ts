@@ -55,6 +55,13 @@ export interface MediaItem {
   Genres?: string[];
   ImageTags?: Record<string, string>;
   BackdropImageTags?: string[];
+  /**
+   * Width/height of the Primary image, as Jellyfin measured it. Already in
+   * LIST_FIELDS — it has always been fetched and thrown away. A film's poster
+   * is ~0.67; an episode still is 1.33 (4:3) or 1.78 (16:9), and 54% of this
+   * library is episodes. See isWideArt().
+   */
+  PrimaryImageAspectRatio?: number;
   UserData?: {
     PlaybackPositionTicks?: number;
     PlayedPercentage?: number;
@@ -1009,6 +1016,30 @@ export function posterUrl(item: MediaItem, width = 320): string | null {
   const params = new URLSearchParams({
     fillWidth: String(width),
     fillHeight: String(Math.round(width * 1.5)),
+    quality: "90",
+    tag,
+  });
+  return `/jf/Items/${item.Id}/Images/Primary?${params.toString()}`;
+}
+
+export { isWideArt, prefersStillLayout } from "./art-shape";
+
+/**
+ * Landscape artwork URL, for an episode still.
+ *
+ * Asks for 16:9 explicitly. Jellyfin will not upscale past the source, so a
+ * 300x225 still (which is what TheTVDB supplies for older series — most of
+ * this library's episodes) comes back at its own size and the browser scales
+ * it *down* into the card. That is the whole point: the current poster-shaped
+ * card scales those same 300px stills *up* into a 320x480 box, which is why
+ * they look soft as well as badly cropped.
+ */
+export function stillUrl(item: MediaItem, width = 320): string | null {
+  const tag = item.ImageTags?.Primary;
+  if (!tag) return null;
+  const params = new URLSearchParams({
+    fillWidth: String(width),
+    fillHeight: String(Math.round((width * 9) / 16)),
     quality: "90",
     tag,
   });
