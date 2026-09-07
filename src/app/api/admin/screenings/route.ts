@@ -1,7 +1,7 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminMovies } from "@/lib/admin-library-cache";
 import { createScreening, listScreenings } from "@/lib/screening";
-import { currentSession } from "@/lib/current-user";
+import { asRow, getDb } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,8 +30,23 @@ export async function POST(request: Request): Promise<Response> {
   const denied = requireAdmin(request);
   if (denied) return denied;
 
-  const session = await currentSession();
-  if (!session) return Response.json({ error: "not signed in" }, { status: 401, headers: NO_STORE });
+  /*
+   * Attribution comes from the users table, not from a session.
+   *
+   * The console is a file:// page: it authenticates with the admin key header
+   * and its cookies never reach the site, so currentSession() is always null
+   * there. Requiring one would have made the Screening Room tab unable to
+   * create anything, from the only UI that has it.
+   *
+   * The oldest account is the curator's — this instance's owner, created before
+   * any invite existed.
+   */
+  const owner = asRow<{ id: string }>(
+    getDb().prepare("SELECT id FROM users ORDER BY created_at ASC LIMIT 1").get(),
+  );
+  if (!owner) {
+    return Response.json({ error: "no users yet" }, { status: 409, headers: NO_STORE });
+  }
 
   let body: {
     itemId?: string;
@@ -62,7 +77,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const { id, token } = createScreening({
-    createdByUserId: session.userId,
+    createdByUserId: owner.id,
     items: [
       {
         jellyfinItemId: movie.Id,
