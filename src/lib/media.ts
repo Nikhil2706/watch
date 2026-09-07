@@ -1,5 +1,10 @@
 import "server-only";
 
+import { hasNoMetadata } from "./has-metadata";
+import { cache } from "react";
+
+import { cached } from "./cache";
+import { imageUrl, personImageUrl } from "./image-url";
 import { parseEpisodeInfo } from "./episode-naming";
 import { userFetch, userPost } from "./jellyfin";
 import {
@@ -115,13 +120,29 @@ const LIST_FIELDS =
 const DETAIL_FIELDS =
   "Overview,Genres,ProductionYear,CommunityRating,OfficialRating,People,MediaSources,MediaStreams,Studios,Taglines,ProviderIds,Path";
 
+/**
+ * Per-request memos for the five local reads filterVisible() makes.
+ *
+ * Each of these runs a fresh query and builds a fresh Set on every call, and
+ * filterVisible() is called once per list — so the home page, which filters six
+ * lists, was issuing about thirty identical queries and discarding thirty
+ * identical Sets to render one page.
+ *
+ * React's cache() scopes the memo to the request, so a curator's edit is still
+ * visible on the very next page load — the property the short TTL below exists
+ * to protect. Outside a request scope React simply does not memoise, which is
+ * the correct degradation rather than a stale read.
+ */
+const excludedPaths = cache(getExcludedPathSet);
+const whitelistedPaths = cache(getWhitelistedPathSet);
+const rolloutHiddenPathsMemo = cache(getHiddenRolloutPathSet);
+const rolloutHiddenImdbMemo = cache(getHiddenRolloutImdbSet);
+const specialFeatureIdsMemo = cache(getSpecialFeatureIdSet);
+
 function creds(session: ResolvedSession) {
   return [session.jellyfinToken, session.jellyfinDeviceId] as const;
 }
 
-function hasNoMetadata(item: MediaItem): boolean {
-  return !item.Overview && !item.ProviderIds?.Tmdb && !item.ProviderIds?.Imdb;
-}
 
 /**
  * Drops anything the review dashboard excluded, anything with no fetched
@@ -149,16 +170,16 @@ function filterVisible(
   // open question that rule exists to flag. Exclusions, scheduled rollout and
   // parental control still apply; this is not a way to see hidden titles.
   const requireMetadata = options.requireMetadata ?? true;
-  const excluded = getExcludedPathSet();
-  const whitelisted = getWhitelistedPathSet();
-  const rolloutHiddenPaths = getHiddenRolloutPathSet();
-  const rolloutHiddenImdb = getHiddenRolloutImdbSet();
+  const excluded = excludedPaths();
+  const whitelisted = whitelistedPaths();
+  const rolloutHiddenPaths = rolloutHiddenPathsMemo();
+  const rolloutHiddenImdb = rolloutHiddenImdbMemo();
   // Special features are hidden from discovery but are not hidden items: they
   // keep their own page and stay playable, and they still belong in Continue
   // Watching, which is why this is an option rather than a blanket rule. A
   // half-watched making-of should carry on where you left it like anything
   // else — it just should not be sitting in Browse next to the films.
-  const specialFeatures = options.includeSpecialFeatures ? null : getSpecialFeatureIdSet();
+  const specialFeatures = options.includeSpecialFeatures ? null : specialFeatureIdsMemo();
   return items.filter((item) => {
     if (specialFeatures?.has(item.Id)) return false;
     if (item.Path && excluded.has(item.Path)) return false;
@@ -218,24 +239,18 @@ export async function getLatest(session: ResolvedSession): Promise<MediaItem[]> 
  * few seconds — well under what would be noticeable, and far shorter than
  * browse_people_cache's 12h TTL because this one carries per-user state.
  */
-const ALL_MOVIES_CACHE_TTL_MS = 20_000;
-
-interface AllMoviesCacheEntry {
-  data: MediaItem[];
-  expiresAt: number;
-}
-
-declare global {
-  // eslint-disable-next-line no-var
-  var __jellyfinGateAllMoviesCache: Map<string, AllMoviesCacheEntry> | undefined;
-}
-
-function allMoviesCache(): Map<string, AllMoviesCacheEntry> {
-  if (!globalThis.__jellyfinGateAllMoviesCache) {
-    globalThis.__jellyfinGateAllMoviesCache = new Map();
-  }
-  return globalThis.__jellyfinGateAllMoviesCache;
-}
+/**
+ * Fresh for a minute, then served stale while it refreshes behind the request.
+ *
+ * Was a flat 20s expiry, which meant the first request after any pause paid the
+ * full upstream cost — measured at 1.03s for this 1.3MB pull. The TTL was short
+ * because the payload carries per-user UserData and a mark-watched change going
+ * stale for minutes would be wrong; stale-while-revalidate keeps that property
+ * (a refresh starts the moment it is a minute old) without making anyone wait
+ * for it. See cache.ts.
+ */
+const ALL_MOVIES_TTL_MS = 60_000;
+const ALL_MOVIES_STALE_MS = 10 * 60_000;
 
 /**
  * The cached Jellyfin fetch behind getAllMovies(), WITHOUT filterVisible()
@@ -247,37 +262,36 @@ function allMoviesCache(): Map<string, AllMoviesCacheEntry> {
  * Filtering per call rather than per cache fill costs four SQLite reads a
  * call (already the documented budget for filterVisible) and means a
  * curator's exclude/whitelist edit takes effect immediately instead of after
- * the 20s TTL expires.
+ * the TTL expires.
  */
 async function fetchAllMoviesCached(
   session: ResolvedSession,
   options: { limit?: number; sortBy?: string; genre?: string } = {},
 ): Promise<MediaItem[]> {
   const cacheKey = `${session.jellyfinUserId}:${options.limit ?? 2000}:${options.sortBy ?? "SortName"}:${options.genre ?? ""}`;
-  const cache = allMoviesCache();
-  const cached = cache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.data;
-  }
-
-  const [token, device] = creds(session);
-  const data = await userFetch<ItemsResponse>(token, device, "/Items", {
-    userId: session.jellyfinUserId,
-    recursive: true,
-    includeItemTypes: "Movie",
-    sortBy: options.sortBy ?? "SortName",
-    sortOrder: "Ascending",
-    // Was 200. Silently truncated the library the moment it passed 200 titles
-    // — Browse showed "181 movies" while Jellyfin had 446. 2000 comfortably
-    // covers any library this app is realistically pointed at.
-    limit: options.limit ?? 2000,
-    genres: options.genre,
-    fields: LIST_FIELDS,
-    enableImageTypes: "Primary,Backdrop",
-  });
-  const result = data?.Items ?? [];
-  cache.set(cacheKey, { data: result, expiresAt: Date.now() + ALL_MOVIES_CACHE_TTL_MS });
-  return result;
+  return cached(
+    "all-movies",
+    cacheKey,
+    async () => {
+      const [token, device] = creds(session);
+      const data = await userFetch<ItemsResponse>(token, device, "/Items", {
+        userId: session.jellyfinUserId,
+        recursive: true,
+        includeItemTypes: "Movie",
+        sortBy: options.sortBy ?? "SortName",
+        sortOrder: "Ascending",
+        // Was 200. Silently truncated the library the moment it passed 200 titles
+        // — Browse showed "181 movies" while Jellyfin had 446. 2000 comfortably
+        // covers any library this app is realistically pointed at.
+        limit: options.limit ?? 2000,
+        genres: options.genre,
+        fields: LIST_FIELDS,
+        enableImageTypes: "Primary,Backdrop",
+      });
+      return data?.Items ?? [];
+    },
+    { ttlMs: ALL_MOVIES_TTL_MS, staleMs: ALL_MOVIES_STALE_MS },
+  );
 }
 
 export async function getAllMovies(
@@ -1011,15 +1025,10 @@ export async function getPlaybackPlan(
  * grid pulls dozens of posters at once.
  */
 export function posterUrl(item: MediaItem, width = 320): string | null {
-  const tag = item.ImageTags?.Primary;
-  if (!tag) return null;
-  const params = new URLSearchParams({
-    fillWidth: String(width),
-    fillHeight: String(Math.round(width * 1.5)),
-    quality: "90",
-    tag,
+  return imageUrl("Primary", item.Id, item.ImageTags?.Primary, {
+    width,
+    height: Math.round(width * 1.5),
   });
-  return `/jf/Items/${item.Id}/Images/Primary?${params.toString()}`;
 }
 
 export { isWideArt, prefersStillLayout } from "./art-shape";
@@ -1035,31 +1044,20 @@ export { isWideArt, prefersStillLayout } from "./art-shape";
  * they look soft as well as badly cropped.
  */
 export function stillUrl(item: MediaItem, width = 320): string | null {
-  const tag = item.ImageTags?.Primary;
-  if (!tag) return null;
-  const params = new URLSearchParams({
-    fillWidth: String(width),
-    fillHeight: String(Math.round((width * 9) / 16)),
-    quality: "90",
-    tag,
+  return imageUrl("Primary", item.Id, item.ImageTags?.Primary, {
+    width,
+    height: Math.round((width * 9) / 16),
   });
-  return `/jf/Items/${item.Id}/Images/Primary?${params.toString()}`;
 }
 
 export function backdropUrl(item: MediaItem, width = 1920): string | null {
-  const tag = item.BackdropImageTags?.[0];
-  if (tag) {
-    const params = new URLSearchParams({
-      fillWidth: String(width),
-      quality: "85",
-      tag,
-    });
-    return `/jf/Items/${item.Id}/Images/Backdrop/0?${params.toString()}`;
-  }
+  const backdrop = imageUrl("Backdrop", item.Id, item.BackdropImageTags?.[0], {
+    width,
+    quality: 85,
+  });
+  if (backdrop) return backdrop;
   // Fall back to the poster so a hero is never empty.
-  const primary = item.ImageTags?.Primary;
-  if (!primary) return null;
-  return `/jf/Items/${item.Id}/Images/Primary?fillWidth=${width}&quality=85&tag=${primary}`;
+  return imageUrl("Primary", item.Id, item.ImageTags?.Primary, { width, quality: 85 });
 }
 
 export function formatRuntime(ticks?: number): string | null {
@@ -1413,7 +1411,5 @@ export async function getItemsByPerson(
 
 /** Portrait URL for a person, routed through the proxy. */
 export function personPhotoUrl(person: Person, size = 300): string | null {
-  const tag = person.PrimaryImageTag ?? person.ImageTags?.Primary;
-  if (!tag) return null;
-  return `/jf/Items/${person.Id}/Images/Primary?fillWidth=${size}&fillHeight=${size}&quality=90&tag=${tag}`;
+  return personImageUrl(person.Id, person.PrimaryImageTag ?? person.ImageTags?.Primary, size);
 }

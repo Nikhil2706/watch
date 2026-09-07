@@ -1,5 +1,6 @@
 import "server-only";
 
+import { hasNoMetadata } from "./has-metadata";
 import { dirname } from "node:path";
 
 import { env } from "./env";
@@ -95,9 +96,6 @@ function toReviewItem(m: AdminMovieListItem): ReviewItem {
   };
 }
 
-function hasNoMetadata(m: AdminMovieListItem): boolean {
-  return !m.Overview && !m.ProviderIds?.Tmdb && !m.ProviderIds?.Imdb;
-}
 
 export async function buildLibraryReview(): Promise<{
   duplicates: DuplicateGroup[];

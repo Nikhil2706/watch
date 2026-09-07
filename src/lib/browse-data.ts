@@ -1,3 +1,4 @@
+import { personImageUrl } from "./image-url";
 import "server-only";
 
 import { decadeOf, type BrowseSort } from "./browse-filters";
@@ -314,7 +315,7 @@ function indexKnownPeople(allItems: MediaItem[]): Map<string, { id: string; phot
         // is already 2x for retina; the old 200 asked Jellyfin to generate
         // and cache a variant over 8x larger than anything on screen needs.
         photo: p.PrimaryImageTag
-          ? `/jf/Items/${p.Id}/Images/Primary?fillWidth=48&fillHeight=48&quality=90&tag=${p.PrimaryImageTag}`
+          ? personImageUrl(p.Id, p.PrimaryImageTag, 48)
           : null,
       });
     }

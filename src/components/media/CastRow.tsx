@@ -1,3 +1,4 @@
+import { personImageUrl } from "@/lib/image-url";
 import Link from "next/link";
 
 import type { MediaItem } from "@/lib/media";
@@ -30,7 +31,7 @@ export function CastRow({
       <div className="row-scroll">
         {people.slice(0, limit).map((person) => {
           const photo = person.PrimaryImageTag
-            ? `/jf/Items/${person.Id}/Images/Primary?fillWidth=160&fillHeight=160&quality=90&tag=${person.PrimaryImageTag}`
+            ? personImageUrl(person.Id, person.PrimaryImageTag, 160)
             : null;
           const initials = person.Name.split(/\s+/)
             .slice(0, 2)
