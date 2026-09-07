@@ -36,18 +36,39 @@ async function tmdbFetch<T>(path: string): Promise<T> {
   if (!env.tmdbReadAccessToken) {
     throw new TmdbError("TMDB_READ_ACCESS_TOKEN is not configured.", 0);
   }
-  let response: Response;
-  try {
-    response = await fetch(`${BASE_URL}${path}`, {
-      headers: {
-        Authorization: `Bearer ${env.tmdbReadAccessToken}`,
-        Accept: "application/json",
-      },
-      signal: AbortSignal.timeout(15_000),
-      cache: "no-store",
-    });
-  } catch (cause) {
-    throw new TmdbError(`Could not reach TMDB: ${cause instanceof Error ? cause.message : String(cause)}`, 0);
+  /*
+   * Retried, because reaching TMDB from this host is intermittently flaky:
+   * observed ECONNRESET on a first call twice in one sitting, with the very
+   * next attempt succeeding. A single shot turns that blip into "TMDB has
+   * nothing for this film", which is indistinguishable from a real answer and
+   * sends you looking in the wrong place.
+   *
+   * Only transport failures are retried. A 4xx is TMDB answering — retrying it
+   * would just be asking the same wrong question again, slower.
+   */
+  let response: Response | null = null;
+  let lastCause: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      response = await fetch(`${BASE_URL}${path}`, {
+        headers: {
+          Authorization: `Bearer ${env.tmdbReadAccessToken}`,
+          Accept: "application/json",
+        },
+        signal: AbortSignal.timeout(15_000),
+        cache: "no-store",
+      });
+      break;
+    } catch (cause) {
+      lastCause = cause;
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+  if (!response) {
+    throw new TmdbError(
+      `Could not reach TMDB after 3 attempts: ${lastCause instanceof Error ? lastCause.message : String(lastCause)}`,
+      0,
+    );
   }
   if (!response.ok) {
     throw new TmdbError(`TMDB ${path} failed with ${response.status}`, response.status);
