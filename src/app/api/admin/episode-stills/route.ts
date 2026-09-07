@@ -22,6 +22,7 @@ export async function GET(request: Request): Promise<Response> {
   return Response.json(
     {
       planned: plan.entries.length,
+      alreadyDone: plan.alreadyDone,
       skipped: plan.skipped,
       sample: plan.entries.slice(0, 12).map((e) => ({
         group: e.group,
@@ -39,7 +40,7 @@ export async function POST(request: Request): Promise<Response> {
   const denied = requireAdmin(request);
   if (denied) return denied;
 
-  let body: { groupId?: string; budget?: number } = {};
+  let body: { groupId?: string; budget?: number; force?: boolean } = {};
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -49,6 +50,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const result = await applyEpisodeStills({
       groupId: body.groupId,
+      force: body.force === true,
       budget: Number.isFinite(Number(body.budget)) && Number(body.budget) > 0 ? Number(body.budget) : undefined,
     });
     return Response.json({ ok: true, ...result }, { headers: NO_STORE });

@@ -4,7 +4,7 @@ import { getAdminMovies } from "./admin-library-cache";
 import { asRows, getDb } from "./db";
 import { parseEpisodeInfo } from "./episode-naming";
 import { setItemImage } from "./jellyfin";
-import { getCached, getLink, tmdbImage, type TmdbEpisode } from "./tmdb-store";
+import { getCached, getLink, putLink, tmdbImage, type TmdbEpisode } from "./tmdb-store";
 
 /**
  * Replaces episode artwork with TMDB's own still.
@@ -44,6 +44,8 @@ export interface StillPlanEntry {
 
 export interface StillPlan {
   entries: StillPlanEntry[];
+  /** Already carrying their TMDB still, so not re-applied. */
+  alreadyDone: number;
   skipped: {
     /** Group has no confident TMDB link, so nothing here is safe to touch. */
     unlinkedGroups: string[];
@@ -70,9 +72,10 @@ interface GroupRow {
  * every episode of a season, and it looks fine until you watch one. A plan you
  * can read first is the cheapest guard against that.
  */
-export function planEpisodeStills(options: { groupId?: string } = {}): StillPlan {
+export function planEpisodeStills(options: { groupId?: string; force?: boolean } = {}): StillPlan {
   const plan: StillPlan = {
     entries: [],
+    alreadyDone: 0,
     skipped: { unlinkedGroups: [], unparsed: 0, noEpisode: 0, noStill: 0 },
   };
 
@@ -112,6 +115,13 @@ export function planEpisodeStills(options: { groupId?: string } = {}): StillPlan
     };
 
     for (const path of group.paths) {
+      /* Applied stills are recorded, because the plan is otherwise stateless:
+         without this every run re-plans all 620 and a budgeted loop keeps
+         redoing the same first N forever, which is exactly what happened. */
+      if (!options.force && getLink("still", path)) {
+        plan.alreadyDone += 1;
+        continue;
+      }
       const parsed = parseEpisodeInfo(path);
       if (parsed.season == null || parsed.episode == null) {
         plan.skipped.unparsed += 1;
@@ -158,10 +168,10 @@ export interface StillApplyResult {
  * outage.
  */
 export async function applyEpisodeStills(
-  options: { groupId?: string; budget?: number } = {},
+  options: { groupId?: string; budget?: number; force?: boolean } = {},
 ): Promise<StillApplyResult> {
   const budget = options.budget ?? 100;
-  const plan = planEpisodeStills({ groupId: options.groupId });
+  const plan = planEpisodeStills({ groupId: options.groupId, force: options.force });
   const result: StillApplyResult = { applied: 0, failed: 0, unresolved: 0, planned: plan.entries.length };
 
   // Paths are the stable key here; Jellyfin item ids are what the API needs.
@@ -177,6 +187,15 @@ export async function applyEpisodeStills(
     }
     try {
       await setItemImage(itemId, entry.stillUrl);
+      putLink({
+        subjectType: "still",
+        subjectId: entry.path,
+        tmdbKind: "tv",
+        tmdbId: 0,
+        season: entry.season,
+        episode: entry.episode,
+        resolvedBy: "still",
+      });
       result.applied += 1;
     } catch {
       result.failed += 1;

@@ -244,7 +244,8 @@ export async function findByImdbId(imdbId: string): Promise<{ kind: "movie" | "t
  * ------------------------------------------------------------------ */
 
 export interface TmdbLink {
-  subjectType: "path" | "group";
+  /** "still" marks an episode file whose artwork has already been replaced. */
+  subjectType: "path" | "group" | "still";
   subjectId: string;
   tmdbKind: "movie" | "tv";
   tmdbId: number;
@@ -275,7 +276,7 @@ export function putLink(link: TmdbLink): void {
     );
 }
 
-export function getLink(subjectType: "path" | "group", subjectId: string): TmdbLink | null {
+export function getLink(subjectType: "path" | "group" | "still", subjectId: string): TmdbLink | null {
   const row = asRow<{
     subject_type: string;
     subject_id: string;
@@ -291,7 +292,7 @@ export function getLink(subjectType: "path" | "group", subjectId: string): TmdbL
   );
   if (!row) return null;
   return {
-    subjectType: row.subject_type as "path" | "group",
+    subjectType: row.subject_type as "path" | "group" | "still",
     subjectId: row.subject_id,
     tmdbKind: row.tmdb_kind as "movie" | "tv",
     tmdbId: row.tmdb_id,
