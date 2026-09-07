@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { env } from "@/lib/env";
 import { claimScreeningDevice, SCREENING_COOKIE } from "@/lib/screening";
 
 export const runtime = "nodejs";
@@ -27,23 +28,27 @@ export async function GET(
     ip: (request.headers.get("x-forwarded-for") ?? "").split(",")[0]?.trim() || null,
   });
 
-  const url = new URL(request.url);
+  // env.publicUrl throughout, never the request's own origin: behind the tunnel
+  // the gate sees http://0.0.0.0:3000, so a redirect built from the request
+  // would send the guest somewhere that does not exist outside this machine,
+  // and the cookie would lose its Secure flag on the way.
+  const origin = env.publicUrl;
 
   if (!result.ok) {
     // Never a 404 and never a login form. A login form shown to someone with no
     // account is the most confusing possible ending.
-    const to = new URL("/s/unavailable", url.origin);
+    const to = new URL("/s/unavailable", origin);
     to.searchParams.set("why", result.reason ?? "invalid");
     return NextResponse.redirect(to, 302);
   }
 
-  const response = NextResponse.redirect(new URL(`/s/${result.screeningId}`, url.origin), 302);
+  const response = NextResponse.redirect(new URL(`/s/${result.screeningId}`, origin), 302);
   response.cookies.set({
     name: SCREENING_COOKIE,
     value: result.sessionId!,
     httpOnly: true,
     sameSite: "lax",
-    secure: url.protocol === "https:",
+    secure: origin.startsWith("https:"),
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
   });

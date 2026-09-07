@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminMovies } from "@/lib/admin-library-cache";
 import { createScreening, listScreenings } from "@/lib/screening";
 import { asRow, getDb } from "@/lib/db";
+import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,9 +101,12 @@ export async function POST(request: Request): Promise<Response> {
     stampName: body.stampName,
   });
 
-  const origin = new URL(request.url).origin;
+  // env.publicUrl, not the request's own origin: behind the tunnel the gate
+  // sees http://0.0.0.0:3000, so deriving it from the request would hand the
+  // curator a link that cannot leave this machine. Same reason createInvite()
+  // uses it.
   return Response.json(
-    { id, url: `${origin}/screening/${token}`, title: movie.Name },
+    { id, url: `${env.publicUrl}/screening/${token}`, title: movie.Name },
     { headers: NO_STORE },
   );
 }
