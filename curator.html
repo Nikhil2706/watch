@@ -478,6 +478,10 @@
   .ac-reader-body p { margin: 0 0 14px; }
   .ac-reader-body ::selection { background: rgba(91,141,239,.4); color: #fff; }
 
+  .lw-chips-sub { margin-top: -4px; padding-bottom: 4px; align-items: center; }
+  .lw-chip-lead { color: var(--muted); font-size: 11.5px; margin-right: 2px; }
+  .lw-chip-sub { font-size: 11.5px; padding: 2px 9px; opacity: 0.9; }
+  .lw-chip-sub.on { opacity: 1; }
   .ac-rank { flex: 0 0 auto; width: 30px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
   .ac-rank-to { flex: 0 0 auto; width: 46px; padding: 3px 5px; font-size: 12px; }
   .ac-builder-item { border-top: 1px solid var(--border); }
@@ -694,6 +698,7 @@
       <!-- ---------------- Films & shows ---------------- -->
       <div id="lwFilms">
         <div class="lw-chips" id="lwChips"></div>
+        <div class="lw-chips lw-chips-sub" id="lwReasonChips"></div>
 
         <div class="lw-tools">
           <input type="text" id="lwSearch" placeholder="Search title or filename…" spellcheck="false">
@@ -2417,10 +2422,68 @@
     loaded: false,
     loading: false,
     filter: "needs",
+    /** Which reason inside "Needs you" is being looked at, or null for all of them. */
+    reason: null,
     selected: null,
     checked: {},
     lastScanAt: null,
   };
+
+  /*
+   * WHY a row wants attention, not just whether it does.
+   *
+   * needsDecision was a single boolean, so "Needs you" was an undifferentiated
+   * pile: a file with no metadata sat next to a duplicate sat next to an
+   * unconfirmed special-feature guess, and there was no way to say "just show
+   * me the metadata ones". These are the reasons behind that boolean, and the
+   * sub-chips under Needs you filter on them.
+   *
+   * Derived from the flags rather than stored, so it stays in step with
+   * whatever the server and sfApplyToRows() have just set.
+   */
+  var LW_REASONS = [
+    { key: "meta", label: "No metadata", test: function (r) { return r.isThinMetadata && !r.isWhitelisted; } },
+    { key: "dup", label: "Duplicate", test: function (r) { return r.isDuplicate; } },
+    { key: "guess", label: "Might be a special feature", test: function (r) { return Boolean(r.featureGuess); } },
+    { key: "unmapped", label: "Feature, not shown anywhere", test: function (r) {
+        var f = sfState.features[r.id];
+        return Boolean(f && f.targets && f.targets.length === 0);
+      } }
+  ];
+
+  function lwReasons(r) {
+    if (r.kind !== "film") return [];
+    return LW_REASONS.filter(function (x) { return x.test(r); });
+  }
+
+  /*
+   * Duplicates are a PAIR, not two problems.
+   *
+   * The rail used to list each copy as its own row, so one duplicated film read
+   * as two things needing attention and the count was double what it should be.
+   * The pane has always compared them side by side; this just makes the list
+   * agree with it. Keyed on the same lowercased title the pane groups by.
+   */
+  function lwDupKey(r) {
+    return r.kind === "film" && r.isDuplicate ? "dup:" + r.name.toLowerCase() : null;
+  }
+
+  function lwCollapseDuplicates(rows) {
+    var seen = {};
+    var out = [];
+    rows.forEach(function (r) {
+      var key = lwDupKey(r);
+      if (!key) { out.push(r); return; }
+      if (seen[key]) { seen[key].dupCount += 1; return; }
+      // A shallow clone so the rail can carry a count without the underlying
+      // row (and everything keyed on its id) changing shape.
+      var head = Object.create(r);
+      head.dupCount = 1;
+      seen[key] = head;
+      out.push(head);
+    });
+    return out;
+  }
 
   var LW_FILTERS = [
     { key: "needs", label: "Needs you", alert: true, test: function (r) { return r.needsDecision; } },
@@ -2568,6 +2631,17 @@
     var f = LW_FILTERS.filter(function (x) { return x.key === lw.filter; })[0] || LW_FILTERS[0];
     var rows = lw.rows.filter(function (r) { return f.test(r) && lwMatches(r, q); });
 
+    // Inside Needs you, narrow to one reason when one is picked.
+    if (lw.filter === "needs" && lw.reason) {
+      rows = rows.filter(function (r) {
+        return lwReasons(r).some(function (x) { return x.key === lw.reason; });
+      });
+    }
+
+    // One entry per duplicated title rather than one per copy — the pane
+    // already compares the copies side by side.
+    rows = lwCollapseDuplicates(rows);
+
     if ($("lwSort").value === "name") {
       rows.sort(function (a, b) { return a.name.localeCompare(b.name); });
     } else {
@@ -2579,9 +2653,38 @@
     return rows;
   }
 
+  /*
+   * The sub-row under Needs you: WHY each of those rows wants you.
+   *
+   * Only rendered inside Needs you, because a reason has no meaning next to
+   * "Everything". Counts are collapsed the same way the rail is, so a
+   * duplicated title counts once here too.
+   */
+  function lwRenderReasonChips() {
+    var el = $("lwReasonChips");
+    if (!el) return;
+    if (lw.filter !== "needs") { el.style.display = "none"; el.innerHTML = ""; return; }
+
+    var needing = lw.rows.filter(function (r) { return r.needsDecision; });
+    var parts = LW_REASONS.map(function (x) {
+      var n = lwCollapseDuplicates(needing.filter(x.test)).length;
+      if (!n) return "";
+      var cls = "lw-chip lw-chip-sub" + (lw.reason === x.key ? " on" : "");
+      return '<button class="' + cls + '" data-lw-filter="needs" data-lw-reason="' + x.key + '">' +
+        esc(x.label) + ' <b>' + n + '</b></button>';
+    }).filter(Boolean);
+
+    if (!parts.length) { el.style.display = "none"; el.innerHTML = ""; return; }
+    el.style.display = "";
+    el.innerHTML = '<span class="lw-chip-lead">because:</span>' + parts.join("");
+  }
+
   function lwRenderChips() {
+    lwRenderReasonChips();
     $("lwChips").innerHTML = LW_FILTERS.map(function (f) {
-      var n = lw.rows.filter(f.test).length;
+      // Counted after collapsing, so "Duplicates 6" means six duplicated
+      // titles rather than twelve files, and matches the rail beneath it.
+      var n = lwCollapseDuplicates(lw.rows.filter(f.test)).length;
       var cls = "lw-chip" + (f.key === lw.filter ? " on" : "") + (f.alert && n ? " alert" : "");
       return '<button class="' + cls + '" data-lw-filter="' + f.key + '"' + (n ? "" : " disabled") + '>' +
         esc(f.label) + ' <b>' + n + '</b></button>';
@@ -2605,7 +2708,20 @@
       return;
     }
     el.innerHTML = rows.map(function (r) {
-      var sub = r.kind === "show" ? r.members.length + " files" : (r.year ? String(r.year) : "");
+      var sub;
+      if (r.kind === "show") {
+        sub = r.members.length + " files";
+      } else if (r.dupCount > 1) {
+        // The pair reads as one thing to decide, which is what it is.
+        sub = r.dupCount + " copies" + (r.year ? " · " + r.year : "");
+      } else {
+        sub = r.year ? String(r.year) : "";
+      }
+      // In the undifferentiated Needs-you pile, say what each row wants.
+      if (lw.filter === "needs" && !lw.reason) {
+        var why = lwReasons(r).map(function (x) { return x.label; }).join(" · ");
+        if (why) sub = sub ? sub + " · " + why : why;
+      }
       return '<div class="lw-rail-item' + (lw.selected === r.id ? " sel" : "") + '" data-lw-row="' + esc(r.id) + '">' +
         (r.kind === "film"
           ? '<input type="checkbox" class="lw-rail-check" data-lw-check="' + esc(r.id) + '"' +
@@ -2655,6 +2771,18 @@
     out += '<button class="ghost" data-action="fetch-subtitles" data-item-id="' + esc(it.id) + '">Subtitles</button>';
     if (it.isThinMetadata && !it.isWhitelisted) {
       out += '<button class="ghost" data-action="whitelist" data-item-id="' + esc(it.id) + '">Show anyway</button>';
+    }
+    /*
+     * Marking something a special feature is a standing action on EVERY film,
+     * not one that appears only when the guesser happened to flag it. The
+     * guesser is deliberately reluctant — three proposals out of 1,159 titles —
+     * so making its opinion the only route to the button meant the other 1,156
+     * films could not be marked at all. sfPaneHtml() still renders the richer
+     * block underneath for anything already marked or suggested.
+     */
+    if (!sfState.features[it.id]) {
+      out += '<button class="ghost" data-action="sf-mark" data-item-id="' + esc(it.id) +
+        '" title="Hide it from Browse and keep it as an extra">Mark as special feature</button>';
     }
     out += it.isExcluded
       ? '<button class="ghost" data-action="unexclude" data-item-id="' + esc(it.id) + '">Put back on the site</button>'
@@ -2889,7 +3017,17 @@
   $("lwChips").addEventListener("click", function (e) {
     var btn = e.target.closest("[data-lw-filter]");
     if (!btn || btn.disabled) return;
-    lw.filter = btn.getAttribute("data-lw-filter");
+    var picked = btn.getAttribute("data-lw-filter");
+    if (btn.hasAttribute("data-lw-reason")) {
+      // Toggling: a second click on the active reason clears it, so getting
+      // back to the whole pile never means hunting for an "all" chip.
+      var rk = btn.getAttribute("data-lw-reason");
+      lw.reason = lw.reason === rk ? null : rk;
+    } else {
+      lw.filter = picked;
+      // A reason only means anything inside Needs you.
+      if (picked !== "needs") lw.reason = null;
+    }
     lwRenderChips();
     lwRenderRail();
   });
