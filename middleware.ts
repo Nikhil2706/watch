@@ -101,6 +101,12 @@ export const config = {
      *   jf/*             — returns 401 JSON; an XHR must not get an HTML redirect
      *   invite/*         — must be reachable while logged out
      *   party/*          — guest links must be reachable with no account at all
+     *   screening/*      — the token link, which exchanges itself for a cookie
+     *   s/*              — the screening room itself. A recipient has no account
+     *                      by design, so redirecting them to /login would make
+     *                      the whole feature look broken with the cause nowhere
+     *                      near the code that caused it. Both check their own
+     *                      auth via the screening cookie.
      *   _next/*, favicon — framework assets
      *   manifest.json, sw.js, icon-*.png, apple-touch-icon.png, favicon-32.png
      *                    — PWA assets, must be fetchable while logged out
@@ -122,6 +128,6 @@ export const config = {
      * that device. Offline there is no way to check a session anyway, and the
      * films were put there by whoever was logged in at the time.
      */
-    "/((?!api/|jf/|invite/|party/|downloads|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|icon-maskable-512.png|apple-touch-icon.png|favicon-32.png).*)",
+    "/((?!api/|jf/|invite/|party/|screening/|s/|downloads|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|icon-maskable-512.png|apple-touch-icon.png|favicon-32.png).*)",
   ],
 };

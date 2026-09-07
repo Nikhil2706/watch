@@ -30,7 +30,7 @@
  * runVersionedMigrations() will not replay the set at all. The live database
  * is already at 40, so the other branch's v38 work would never have run here.
  */
-export const SCHEMA_VERSION = 42;
+export const SCHEMA_VERSION = 43;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1040,4 +1040,69 @@ CREATE INDEX IF NOT EXISTS idx_rollout_slots_plan ON library_rollout_slots(plan_
 CREATE INDEX IF NOT EXISTS idx_rollout_slots_path ON library_rollout_slots(path);
 CREATE INDEX IF NOT EXISTS idx_rollout_slots_imdb ON library_rollout_slots(imdb_id);
 CREATE INDEX IF NOT EXISTS idx_rollout_slots_due ON library_rollout_slots(release_at) WHERE revealed_at IS NULL;
+
+-- v43: Screening Room. An expiring link that lets one person watch ONE film,
+-- with no account and no library. New tables only, so CREATE TABLE IF NOT
+-- EXISTS covers it and nothing belongs in runVersionedMigrations().
+CREATE TABLE IF NOT EXISTS screenings (
+  id                  TEXT PRIMARY KEY,
+  -- SHA-256 only, exactly like invites: the plaintext token exists in one
+  -- place for one moment, the response to the curator who created it.
+  token_hash          TEXT NOT NULL UNIQUE,
+  created_by_user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recipient_label     TEXT,
+  recipient_email     TEXT,
+  message             TEXT,
+  expires_at          INTEGER NOT NULL,
+  window_hours        INTEGER NOT NULL,
+  window_starts_on    TEXT NOT NULL,
+  window_started_at   INTEGER,
+  max_devices         INTEGER NOT NULL DEFAULT 2,
+  max_concurrent      INTEGER NOT NULL DEFAULT 1,
+  stamp_name          INTEGER NOT NULL DEFAULT 0,
+  device_attempts     INTEGER NOT NULL DEFAULT 0,
+  first_opened_at     INTEGER,
+  revoked_at          INTEGER,
+  created_at          INTEGER NOT NULL
+) STRICT;
+
+-- A table rather than a column: this library is full of films split across two
+-- files and shows grouped into series, so sending "a film" that is really part
+-- one of Fanny and Alexander would be a silently broken screening.
+-- item_path and imdb_id ride along because Jellyfin item ids are NOT stable
+-- across a library rebuild; resolve by id, fall back to path, then IMDb id.
+CREATE TABLE IF NOT EXISTS screening_items (
+  screening_id     TEXT NOT NULL REFERENCES screenings(id) ON DELETE CASCADE,
+  position         INTEGER NOT NULL,
+  jellyfin_item_id TEXT NOT NULL,
+  item_path        TEXT,
+  imdb_id          TEXT,
+  title            TEXT NOT NULL,
+  PRIMARY KEY (screening_id, position)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS screening_sessions (
+  id                 TEXT PRIMARY KEY,
+  screening_id       TEXT NOT NULL REFERENCES screenings(id) ON DELETE CASCADE,
+  jellyfin_device_id TEXT NOT NULL,
+  display_name       TEXT,
+  created_at         INTEGER NOT NULL,
+  last_seen_at       INTEGER NOT NULL,
+  user_agent         TEXT,
+  ip                 TEXT
+) STRICT;
+
+-- Screenings share one Jellyfin service account, so Jellyfin's own UserData
+-- would bleed one stranger's resume position into another's. Track it here
+-- instead, per screening session.
+CREATE TABLE IF NOT EXISTS screening_progress (
+  screening_session_id TEXT NOT NULL REFERENCES screening_sessions(id) ON DELETE CASCADE,
+  jellyfin_item_id     TEXT NOT NULL,
+  position_ticks       INTEGER NOT NULL DEFAULT 0,
+  updated_at           INTEGER NOT NULL,
+  PRIMARY KEY (screening_session_id, jellyfin_item_id)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_screenings_creator ON screenings(created_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_screening_sessions_screening ON screening_sessions(screening_id);
 `;

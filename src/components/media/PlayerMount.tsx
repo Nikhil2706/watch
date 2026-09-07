@@ -33,6 +33,7 @@ export interface PlayerMountProps {
   title: string;
   poster?: string | null;
   startSeconds: number;
+  screeningProgress?: boolean;
   transcodeReasons: string[];
   subtitles: PlayerSubtitle[];
   defaultSubtitleIndex: number | null;

@@ -309,6 +309,17 @@ export async function setUserPassword(
   });
 }
 
+/**
+ * Every Jellyfin account, as the API key sees them.
+ *
+ * Used only to find an administrator id for a screening guest's PlaybackInfo
+ * call — see screening-playback.ts. Nothing about that account's state is read
+ * back.
+ */
+export async function listJellyfinUsers(): Promise<JellyfinUser[]> {
+  return jellyfinFetch<JellyfinUser[]>("/Users", { token: env.jellyfinApiKey });
+}
+
 export async function getUser(userId: string): Promise<JellyfinUser> {
   return jellyfinFetch<JellyfinUser>(`/Users/${encodeURIComponent(userId)}`, {
     token: env.jellyfinApiKey,

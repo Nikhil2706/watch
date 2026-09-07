@@ -1,3 +1,10 @@
+import { isPermittedForScreening } from "@/lib/screening-scope";
+import {
+  SCREENING_COOKIE,
+  resolveScreeningSession,
+  screeningState,
+  touchScreeningSession,
+} from "@/lib/screening";
 import { env } from "@/lib/env";
 import { logEvent } from "@/lib/events";
 import { getSessionFromRequest, sessionCookie, touchSession } from "@/lib/session";
@@ -277,9 +284,56 @@ const METHODS_WITHOUT_BODY = new Set(["GET", "HEAD", "OPTIONS", "DELETE"]);
 /** Statuses that must not carry a body, per RFC 9110. */
 const BODYLESS_STATUSES = new Set([101, 204, 205, 304]);
 
+/**
+ * A screening identity: no member session, no Jellyfin account of its own.
+ *
+ * Deviation from DESIGN-screening-room.md worth knowing about. The design
+ * proposed a shared `_screening` Jellyfin account (option B). There is no
+ * key-value store in this schema to keep such an account's password in, and
+ * inventing one to hold a Jellyfin credential is worse than the alternative:
+ * so the API key is attached instead, and screening-scope.ts is the entire
+ * boundary.
+ *
+ * That is only safe because that boundary is an item-scoped ALLOW-list, not a
+ * deny-list. Every path it permits is inert even with an admin credential —
+ * one film's stream, one film's images, its playback plan, and playback
+ * reporting. None of them can enumerate or reach anything else. If anyone
+ * widens those rules, this trade stops holding. Read the banner in
+ * screening-scope.ts first.
+ *
+ * The design's other reason for option B — that creating a screening should be
+ * a pure SQLite write with no Jellyfin call that can fail halfway — holds here
+ * even more strongly, since no account is created at all. And sharing one
+ * account's UserData, which option B had to work around with its own progress
+ * table, simply never arises; screening_progress exists for the same reason
+ * regardless.
+ */
+async function screeningIdentity(
+  request: Request,
+): Promise<{ itemIds: string[]; deviceId: string; sessionId: string } | null> {
+  const cookie = request.headers.get("cookie") ?? "";
+  const match = new RegExp(`(?:^|;\s*)${SCREENING_COOKIE}=([^;]+)`).exec(cookie);
+  if (!match) return null;
+
+  const resolved = resolveScreeningSession(decodeURIComponent(match[1]!));
+  if (!resolved) return null;
+
+  // Checked per request, which is what lets a revoke kill a stream in progress
+  // within one HLS segment.
+  const state = screeningState(resolved);
+  if (state.state === "ended") return null;
+
+  return {
+    itemIds: resolved.items.map((i) => i.jellyfinItemId),
+    deviceId: resolved.jellyfinDeviceId,
+    sessionId: resolved.sessionId,
+  };
+}
+
 async function proxy(request: Request): Promise<Response> {
   const session = getSessionFromRequest(request);
-  if (!session) {
+  const screening = session ? null : await screeningIdentity(request);
+  if (!session && !screening) {
     return Response.json(
       { error: "unauthenticated", message: "Sign in to continue." },
       { status: 401, headers: { "Cache-Control": "no-store" } },
@@ -311,9 +365,22 @@ async function proxy(request: Request): Promise<Response> {
     );
   }
 
+  // A screening identity is default-deny: only the explicit allow-list, scoped
+  // to this screening's own item, ever passes. This check comes before the
+  // member deny-list because for a screening the deny-list is the WRONG shape —
+  // it assumes the Jellyfin account policy is the real boundary, and here there
+  // is no such policy to fall back on.
+  if (screening && !isPermittedForScreening(decodedPath, screening.itemIds)) {
+    console.warn(`[jf] screening ${screening.sessionId} refused ${request.method} /${decodedPath}`);
+    return Response.json(
+      { error: "forbidden", message: "Not part of this screening." },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   if (isDenied(decodedPath)) {
     console.warn(
-      `[jf] denied ${request.method} /${decodedPath} for user ${session.username}`,
+      `[jf] denied ${request.method} /${decodedPath} for user ${session?.username ?? "screening"}`,
     );
     return Response.json(
       { error: "forbidden", message: "This endpoint is not available through this server." },
@@ -327,7 +394,11 @@ async function proxy(request: Request): Promise<Response> {
   try {
     upstream = await fetch(target, {
       method: request.method,
-      headers: buildUpstreamHeaders(request, session.jellyfinToken, session.jellyfinDeviceId),
+      headers: buildUpstreamHeaders(
+        request,
+        session ? session.jellyfinToken : env.jellyfinApiKey,
+        session ? session.jellyfinDeviceId : screening!.deviceId,
+      ),
       body: METHODS_WITHOUT_BODY.has(request.method) ? undefined : request.body,
       // Required by the fetch spec when the body is a stream: tells undici we
       // will finish sending before reading the response.
@@ -353,7 +424,7 @@ async function proxy(request: Request): Promise<Response> {
       source: "jf_proxy",
       message: `Jellyfin unreachable for ${request.method} /${decodedPath}`,
       detail: { method: request.method, path: decodedPath, error: error instanceof Error ? error.message : String(error) },
-      username: session.username,
+      username: session?.username ?? "screening",
     });
     return Response.json(
       { error: "upstream_unavailable", message: "The media server is not responding." },
@@ -371,7 +442,7 @@ async function proxy(request: Request): Promise<Response> {
       source: "jellyfin",
       message: `Jellyfin returned ${upstream.status} for ${request.method} /${decodedPath}`,
       detail: { method: request.method, path: decodedPath, status: upstream.status },
-      username: session.username,
+      username: session?.username ?? "screening",
     });
   }
 
@@ -381,8 +452,13 @@ async function proxy(request: Request): Promise<Response> {
   // most of its lifetime, which keeps a seek-heavy playback session from
   // issuing a SQLite write per Range request.
   try {
-    if (touchSession(session)) {
+    if (session && touchSession(session)) {
       headers.append("Set-Cookie", sessionCookie(session.sessionId));
+    } else if (screening) {
+      // A screening session has no sliding cookie to renew — its lifetime is
+      // the viewing window, not an idle timer. Just record that it is alive,
+      // so the curator's list can say "last seen" without a play-by-play.
+      touchScreeningSession(screening.sessionId);
     }
   } catch (error) {
     console.warn("[jf] session renewal failed:", error);

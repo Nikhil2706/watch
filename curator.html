@@ -665,6 +665,7 @@
     <button class="tab-btn" data-tab="health">Health</button>
     <button class="tab-btn" data-tab="notify">Notify</button>
     <button class="tab-btn" data-tab="invites">Invites</button>
+    <button class="tab-btn" data-tab="screenings">Screening Room</button>
     <button class="tab-btn" data-tab="uploads">Uploads</button>
   </nav>
 
@@ -1216,6 +1217,68 @@
   </div>
 
   <!-- ============================== Uploads tab ============================== -->
+  <div class="tab-panel" id="tab-screenings" data-tab="screenings">
+
+    <div class="card">
+      <p class="hint">
+        An expiring link that lets one person watch one film, with no account and
+        no way to wander the library. The link is shown once and cannot be
+        recovered — only its hash is stored.
+      </p>
+      <div class="row">
+        <div>
+          <label for="scrFilm">Film</label>
+          <input id="scrFilm" placeholder="search the library" spellcheck="false" autocomplete="off">
+          <div id="scrResults" class="hint"></div>
+        </div>
+        <div class="narrow">
+          <label for="scrLabel">For</label>
+          <input id="scrLabel" placeholder="Ana" spellcheck="false">
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label for="scrMessage">Note (shown on the landing page)</label>
+          <input id="scrMessage" placeholder="why you are sending it" spellcheck="false">
+        </div>
+        <div class="narrow">
+          <label for="scrWindow">Window (hours)</label>
+          <input id="scrWindow" type="number" min="1" value="48">
+        </div>
+        <div class="narrow">
+          <label for="scrDays">Link dies unopened (days)</label>
+          <input id="scrDays" type="number" min="1" value="7">
+        </div>
+        <div class="narrow">
+          <label for="scrDevices">Max devices</label>
+          <input id="scrDevices" type="number" min="1" value="2">
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="narrow">
+          <label for="scrStartsOn">Clock starts</label>
+          <select id="scrStartsOn">
+            <option value="open">when they open it</option>
+            <option value="play">when they press play</option>
+          </select>
+        </div>
+        <div style="flex:0 0 auto;align-self:flex-end">
+          <button id="scrCreate" class="primary">Create screening</button>
+        </div>
+      </div>
+      <div id="scrCreated" class="hint"></div>
+      <p class="hint">
+        A screening deliberately ignores the discovery filters, so an excluded or
+        not-yet-released title can still be sent. That is not a bug.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Screenings</h2>
+      <div id="scrList" class="hint">Not loaded.</div>
+    </div>
+  </div>
+
   <div class="tab-panel" id="tab-uploads" data-tab="uploads">
     <div class="card" id="uploadsCard" style="display:none">
       <div class="row" style="margin-bottom:12px">
@@ -2062,6 +2125,122 @@
   $("logRefresh").addEventListener("click", loadEvents);
   $("logCategory").addEventListener("change", loadEvents);
   $("logSeverity").addEventListener("change", loadEvents);
+
+
+  /* ---- Screening Room ---------------------------------------------------
+     An expiring one-film link. The URL comes back exactly once, from the
+     creation response; it is not stored anywhere and cannot be re-shown. */
+
+  var scrChosen = null;
+  var scrLibrary = null;
+
+  /* The console ships the library whole and filters in the browser — there is
+     no search endpoint, and a personal-scale library is cheap enough to hold.
+     Same approach the Library tab already takes. */
+  function scrEnsureLibrary() {
+    if (scrLibrary) return Promise.resolve(scrLibrary);
+    return api("/api/admin/library/browse").then(function (data) {
+      scrLibrary = (data && data.items) || [];
+      return scrLibrary;
+    });
+  }
+
+  function scrSearch() {
+    var q = (document.getElementById("scrFilm").value || "").trim().toLowerCase();
+    var out = document.getElementById("scrResults");
+    if (q.length < 2) { out.textContent = ""; return; }
+    scrEnsureLibrary().then(function (items) {
+      var hits = items.filter(function (it) {
+        return (it.name || "").toLowerCase().indexOf(q) !== -1;
+      });
+      if (hits.length === 0) { out.textContent = "Nothing matched."; return; }
+      out.innerHTML = "";
+      hits.slice(0, 8).forEach(function (it) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "ghost";
+        b.style.margin = "3px 4px 0 0";
+        b.textContent = it.name + (it.year ? " (" + it.year + ")" : "");
+        b.addEventListener("click", function () {
+          scrChosen = it.id;
+          document.getElementById("scrFilm").value = it.name;
+          out.textContent = "Chosen: " + it.name;
+        });
+        out.appendChild(b);
+      });
+    }).catch(function (e) { out.textContent = e.message; });
+  }
+
+  function scrCreate() {
+    var out = document.getElementById("scrCreated");
+    if (!scrChosen) { out.textContent = "Pick a film first."; return; }
+    out.textContent = "Creating...";
+    api("/api/admin/screenings", {
+      method: "POST",
+      body: {
+        itemId: scrChosen,
+        recipientLabel: document.getElementById("scrLabel").value || null,
+        message: document.getElementById("scrMessage").value || null,
+        windowHours: Number(document.getElementById("scrWindow").value) || 48,
+        expiryDays: Number(document.getElementById("scrDays").value) || 7,
+        maxDevices: Number(document.getElementById("scrDevices").value) || 2,
+        windowStartsOn: document.getElementById("scrStartsOn").value
+      }
+    }).then(function (data) {
+      out.innerHTML = "";
+      var p = document.createElement("p");
+      p.textContent = "Copy this now — it is not shown again:";
+      var i = document.createElement("input");
+      i.readOnly = true;
+      i.value = data.url;
+      i.style.width = "100%";
+      i.addEventListener("focus", function () { i.select(); });
+      out.appendChild(p);
+      out.appendChild(i);
+      scrLoad();
+    }).catch(function (e) { out.textContent = e.message; });
+  }
+
+  function scrLoad() {
+    var out = document.getElementById("scrList");
+    out.textContent = "Loading...";
+    api("/api/admin/screenings").then(function (data) {
+      var rows = (data && data.screenings) || [];
+      if (rows.length === 0) { out.textContent = "No screenings yet."; return; }
+      out.innerHTML = "";
+      rows.forEach(function (r) {
+        var d = document.createElement("div");
+        d.style.padding = "8px 0";
+        d.style.borderBottom = "1px solid rgba(255,255,255,0.08)";
+        var who = r.recipientLabel || "unlabelled";
+        var state = r.revoked ? "withdrawn"
+          : (r.firstOpenedAt ? "opened" : "not opened yet");
+        var names = r.openedBy.length
+          ? " — opened by someone calling themselves " + r.openedBy.join(", ")
+          : "";
+        d.textContent = r.titles.join(" + ") + " · for " + who + " · " + state
+          + " · " + r.deviceCount + "/" + r.deviceAttempts + " devices" + names;
+        if (!r.revoked) {
+          var b = document.createElement("button");
+          b.type = "button";
+          b.className = "ghost";
+          b.style.marginLeft = "8px";
+          b.textContent = "Withdraw";
+          b.addEventListener("click", function () {
+            api("/api/admin/screenings/" + encodeURIComponent(r.id), { method: "DELETE" })
+              .then(scrLoad)
+              .catch(function (e) { out.textContent = e.message; });
+          });
+          d.appendChild(b);
+        }
+        out.appendChild(d);
+      });
+    }).catch(function (e) { out.textContent = e.message; });
+  }
+
+  document.getElementById("scrFilm").addEventListener("input", scrSearch);
+  document.getElementById("scrCreate").addEventListener("click", scrCreate);
+  document.querySelector('.tab-btn[data-tab="screenings"]').addEventListener("click", scrLoad);
 
   document.querySelector('.tab-btn[data-tab="health"]').addEventListener("click", function () {
     loadHealth();

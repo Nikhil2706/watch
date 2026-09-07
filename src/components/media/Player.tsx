@@ -136,6 +136,12 @@ interface PlayerProps {
   title: string;
   poster?: string | null;
   startSeconds: number;
+  /**
+   * Screening guests share one Jellyfin account, so Jellyfin's own UserData
+   * would hand the next guest this one's stopping point. When set, the position
+   * is mirrored into screening_progress, which is per screening session.
+   */
+  screeningProgress?: boolean;
   transcodeReasons: string[];
   subtitles: PlayerSubtitle[];
   defaultSubtitleIndex: number | null;
@@ -151,6 +157,7 @@ export function Player({
   title,
   poster,
   startSeconds,
+  screeningProgress = false,
   transcodeReasons,
   subtitles,
   defaultSubtitleIndex,
@@ -355,6 +362,21 @@ export function Player({
         }),
         keepalive,
       }).catch(() => {});
+
+      // A position, and only a position — deliberately not a timeline of plays,
+      // pauses and seeks. That distinction is what keeps a screening from
+      // becoming the parked viewing-metrics feature by the back door.
+      if (screeningProgress) {
+        void fetch("/api/screening/progress", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            itemId,
+            positionTicks: Math.round((instance?.currentTime ?? 0) * TICKS_PER_SECOND),
+          }),
+          keepalive,
+        }).catch(() => {});
+      }
     }
 
     const onPlay = () => {

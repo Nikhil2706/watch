@@ -37,6 +37,7 @@ export async function register(): Promise<void> {
   void startLibraryNotifyLoop();
   void startTvNotifyLoop();
   void startPartyScheduleLoop();
+  void startScreeningPurgeLoop();
   void startRolloutRevealLoop();
   void startKnownFilmsRefreshLoop();
 }
@@ -50,6 +51,8 @@ declare global {
   var __jellyfinGateTvNotifyTimer: ReturnType<typeof setInterval> | undefined;
   // eslint-disable-next-line no-var
   var __jellyfinGatePartyScheduleTimer: ReturnType<typeof setInterval> | undefined;
+  // eslint-disable-next-line no-var
+  var __jellyfinGateScreeningPurgeTimer: ReturnType<typeof setInterval> | undefined;
   // eslint-disable-next-line no-var
   var __jellyfinGateRolloutRevealTimer: ReturnType<typeof setInterval> | undefined;
   // eslint-disable-next-line no-var
@@ -128,6 +131,34 @@ async function startTvNotifyLoop(): Promise<void> {
  * episode arriving isn't, so a 10-minute lag here would actually be
  * noticeable to whoever's waiting for it.
  */
+/**
+ * Deletes screenings well past their end, once an hour.
+ *
+ * Without this the database slowly becomes a permanent record of who was sent
+ * what and when they opened it — which is precisely the thing the
+ * viewing-metrics decision was about. Sessions and progress cascade.
+ */
+async function startScreeningPurgeLoop(): Promise<void> {
+  if (globalThis.__jellyfinGateScreeningPurgeTimer) return;
+
+  try {
+    const { purgeOldScreenings } = await import("./lib/screening");
+    const tick = () => {
+      try {
+        const n = purgeOldScreenings();
+        if (n > 0) console.log(`[boot] purged ${n} expired screening(s)`);
+      } catch (error) {
+        console.error("[boot] screening purge failed:", error);
+      }
+    };
+    globalThis.__jellyfinGateScreeningPurgeTimer = setInterval(tick, 60 * 60 * 1000);
+    tick();
+    console.log("[boot] screening purge loop started");
+  } catch (error) {
+    console.error("[boot] screening purge loop failed to start:", error);
+  }
+}
+
 async function startPartyScheduleLoop(): Promise<void> {
   if (globalThis.__jellyfinGatePartyScheduleTimer) return;
 
