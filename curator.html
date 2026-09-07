@@ -705,6 +705,10 @@
           <select id="lwSort">
             <option value="needs">Needs you first</option>
             <option value="name">Title A–Z</option>
+            <option value="year">Newest film first</option>
+            <option value="yearold">Oldest film first</option>
+            <option value="size">Biggest file first</option>
+            <option value="res">Lowest resolution first</option>
           </select>
           <button class="ghost" id="lwSelectAll">Select all shown</button>
           <button class="ghost" id="lwScan">Scan folder</button>
@@ -2421,7 +2425,12 @@
     rows: [],
     loaded: false,
     loading: false,
-    filter: "needs",
+    /**
+     * Active facets, ANDed. Was a single key, so "shows with no subtitles" was
+     * simply not askable — you had to pick one and eyeball the rest.
+     * Empty means everything.
+     */
+    filters: ["needs"],
     /** Which reason inside "Needs you" is being looked at, or null for all of them. */
     reason: null,
     selected: null,
@@ -2497,6 +2506,13 @@
     { key: "special", label: "Special features", alert: false, test: function (r) { return r.isSpecialFeature; } },
     { key: "all", label: "Everything", alert: false, test: function () { return true; } }
   ];
+
+  /** The facet objects currently switched on. Empty means no narrowing at all. */
+  function lwActiveFilters() {
+    return LW_FILTERS.filter(function (f) {
+      return f.key !== "all" && lw.filters.indexOf(f.key) !== -1;
+    });
+  }
 
   function lwBytes(n) {
     if (!n && n !== 0) return null;
@@ -2628,11 +2644,13 @@
 
   function lwVisibleRows() {
     var q = ($("lwSearch").value || "").trim().toLowerCase();
-    var f = LW_FILTERS.filter(function (x) { return x.key === lw.filter; })[0] || LW_FILTERS[0];
-    var rows = lw.rows.filter(function (r) { return f.test(r) && lwMatches(r, q); });
+    var active = lwActiveFilters();
+    var rows = lw.rows.filter(function (r) {
+      return active.every(function (f) { return f.test(r); }) && lwMatches(r, q);
+    });
 
     // Inside Needs you, narrow to one reason when one is picked.
-    if (lw.filter === "needs" && lw.reason) {
+    if (lw.filters.indexOf("needs") !== -1 && lw.reason) {
       rows = rows.filter(function (r) {
         return lwReasons(r).some(function (x) { return x.key === lw.reason; });
       });
@@ -2642,8 +2660,35 @@
     // already compares the copies side by side.
     rows = lwCollapseDuplicates(rows);
 
-    if ($("lwSort").value === "name") {
+    /* A show is an aggregate of files, so it has no single year, size or
+       resolution. Rather than inventing one, shows keep their place by name at
+       the end of the file-shaped sorts. */
+    function num(r, pick) {
+      if (r.kind !== "film" || !r.item) return null;
+      var v = pick(r.item);
+      return (typeof v === "number" && isFinite(v)) ? v : null;
+    }
+    function by(pick, dir) {
+      return function (a, b) {
+        var x = num(a, pick), y = num(b, pick);
+        if (x === null && y === null) return a.name.localeCompare(b.name);
+        if (x === null) return 1;
+        if (y === null) return -1;
+        return x === y ? a.name.localeCompare(b.name) : (x - y) * dir;
+      };
+    }
+
+    var mode = $("lwSort").value;
+    if (mode === "name") {
       rows.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    } else if (mode === "year") {
+      rows.sort(by(function (i) { return i.year; }, -1));
+    } else if (mode === "yearold") {
+      rows.sort(by(function (i) { return i.year; }, 1));
+    } else if (mode === "size") {
+      rows.sort(by(function (i) { return i.sizeBytes; }, -1));
+    } else if (mode === "res") {
+      rows.sort(by(function (i) { return i.height; }, 1));
     } else {
       rows.sort(function (a, b) {
         if (a.needsDecision !== b.needsDecision) return a.needsDecision ? -1 : 1;
@@ -2663,7 +2708,7 @@
   function lwRenderReasonChips() {
     var el = $("lwReasonChips");
     if (!el) return;
-    if (lw.filter !== "needs") { el.style.display = "none"; el.innerHTML = ""; return; }
+    if (lw.filters.indexOf("needs") === -1) { el.style.display = "none"; el.innerHTML = ""; return; }
 
     var needing = lw.rows.filter(function (r) { return r.needsDecision; });
     var parts = LW_REASONS.map(function (x) {
@@ -2682,10 +2727,17 @@
   function lwRenderChips() {
     lwRenderReasonChips();
     $("lwChips").innerHTML = LW_FILTERS.map(function (f) {
-      // Counted after collapsing, so "Duplicates 6" means six duplicated
-      // titles rather than twelve files, and matches the rail beneath it.
-      var n = lwCollapseDuplicates(lw.rows.filter(f.test)).length;
-      var cls = "lw-chip" + (f.key === lw.filter ? " on" : "") + (f.alert && n ? " alert" : "");
+      /* Counted against the other active facets, so with "Shows" already on,
+         "No subtitles 3" means three shows with no subtitles — the number you
+         would actually get by clicking it. Collapsed the same way the rail is,
+         so a duplicated title counts once. */
+      var others = lwActiveFilters().filter(function (x) { return x.key !== f.key; });
+      var base = lw.rows.filter(function (r) {
+        return others.every(function (x) { return x.test(r); });
+      });
+      var n = lwCollapseDuplicates(f.key === "all" ? base : base.filter(f.test)).length;
+      var on = f.key === "all" ? lw.filters.length === 0 : lw.filters.indexOf(f.key) !== -1;
+      var cls = "lw-chip" + (on ? " on" : "") + (f.alert && n ? " alert" : "");
       return '<button class="' + cls + '" data-lw-filter="' + f.key + '"' + (n ? "" : " disabled") + '>' +
         esc(f.label) + ' <b>' + n + '</b></button>';
     }).join("");
@@ -2718,7 +2770,7 @@
         sub = r.year ? String(r.year) : "";
       }
       // In the undifferentiated Needs-you pile, say what each row wants.
-      if (lw.filter === "needs" && !lw.reason) {
+      if (lw.filters.indexOf("needs") !== -1 && !lw.reason) {
         var why = lwReasons(r).map(function (x) { return x.label; }).join(" · ");
         if (why) sub = sub ? sub + " · " + why : why;
       }
@@ -2747,6 +2799,12 @@
     el.innerHTML = '<strong>' + ids.length + ' selected</strong>' +
       '<button class="ghost" data-lw-action="group-new">Group as one show</button>' +
       '<button class="ghost" data-lw-action="group-add">Add to an existing show</button>' +
+      /* The three single-film actions people were doing one row at a time.
+         Hiding a run of no-metadata files was the worst of them: the filter
+         hands you thirty rows and there was no way to act on them together. */
+      '<button class="ghost" data-lw-action="bulk-hide">Hide from the site</button>' +
+      '<button class="ghost" data-lw-action="bulk-whitelist">Show anyway</button>' +
+      '<button class="ghost" data-lw-action="bulk-subs">Fetch subtitles</button>' +
       '<button class="ghost" data-lw-action="clear-checks">Clear</button>';
   }
 
@@ -2848,6 +2906,7 @@
           '<div style="margin-top:8px;font-size:12px">' + lwLinks(it) + '</div>' +
         '</div>' +
       '</div>' +
+      fsPaneHtml(it) +
       sfPaneHtml(it) +
       sfOnFilmHtml(it.id) +
       '<div class="rv-panel-slot" data-panel-for="' + esc(it.id) + '"></div>' +
@@ -2880,6 +2939,8 @@
   }
 
   function lwRenderPane() {
+    // Painted after the HTML lands, so the select exists to be filled.
+    setTimeout(fsFillPicker, 0);
     var el = $("lwPane");
     if (!lw.selected) {
       el.innerHTML = '<div class="lw-pane-empty">Pick something on the left.</div>';
@@ -3024,9 +3085,15 @@
       var rk = btn.getAttribute("data-lw-reason");
       lw.reason = lw.reason === rk ? null : rk;
     } else {
-      lw.filter = picked;
-      // A reason only means anything inside Needs you.
-      if (picked !== "needs") lw.reason = null;
+      if (picked === "all") {
+        // "Everything" is the way back to no narrowing at all.
+        lw.filters = [];
+      } else {
+        var at = lw.filters.indexOf(picked);
+        if (at === -1) lw.filters.push(picked); else lw.filters.splice(at, 1);
+      }
+      // A reason only means anything while Needs you is one of the facets.
+      if (lw.filters.indexOf("needs") === -1) lw.reason = null;
     }
     lwRenderChips();
     lwRenderRail();
@@ -3097,6 +3164,57 @@
     if (action === "select-member") { lwSelect(target); return; }
     if (action === "manage-group") { toggleGroupManage(target); return; }
     if (action === "clear-checks") { lw.checked = {}; lwRenderRail(); lwRenderBulk(); return; }
+
+    if (action === "bulk-hide" || action === "bulk-whitelist" || action === "bulk-subs") {
+      var picked = Object.keys(lw.checked).filter(function (k) { return lw.checked[k]; });
+      if (!picked.length) return;
+      /* exclude and whitelist are keyed on the FILE PATH, not the item id —
+         the curation layer is path-keyed throughout because Jellyfin ids do not
+         survive a library rebuild. Only fetch-subtitles takes an id. Getting
+         this wrong fails quietly per file, so the body is built per action. */
+      var spec = {
+        "bulk-hide": {
+          path: "/api/admin/library/exclude", verb: "Hide",
+          body: function (row) { return row.item.path ? { path: row.item.path } : null; },
+          patch: { isExcluded: true, needsDecision: false }
+        },
+        "bulk-whitelist": {
+          path: "/api/admin/library/whitelist", verb: "Show anyway on",
+          body: function (row) { return row.item.path ? { path: row.item.path } : null; },
+          patch: { isWhitelisted: true, needsDecision: false }
+        },
+        "bulk-subs": {
+          path: "/api/admin/library/fetch-subtitles", verb: "Fetch subtitles for",
+          body: function (row) { return { itemId: row.item.id }; },
+          patch: null
+        }
+      }[action];
+      if (!confirm(spec.verb + " " + picked.length + " selected file" + (picked.length === 1 ? "" : "s") + "?")) return;
+
+      btn.disabled = true;
+      var bulkDone = 0, bulkFailed = 0;
+      /* One at a time, not Promise.all: these hit Jellyfin and OpenSubtitles,
+         and thirty at once on this box is how a tidy-up becomes an outage.
+         Slower and dull is the right trade. */
+      (function step(i) {
+        if (i >= picked.length) {
+          btn.disabled = false;
+          show(bulkFailed ? "err" : "ok",
+            bulkDone + " done" + (bulkFailed ? ", " + bulkFailed + " failed" : "") + ".");
+          lw.checked = {};
+          lwRender();
+          return;
+        }
+        var row = lwRowById(picked[i]);
+        var payload = row && row.item ? spec.body(row) : null;
+        if (!payload) { bulkFailed++; step(i + 1); return; }
+        api(spec.path, { method: "POST", body: payload })
+          .then(function () { bulkDone++; if (spec.patch) lwPatchItem(picked[i], spec.patch); })
+          .catch(function () { bulkFailed++; })
+          .then(function () { step(i + 1); });
+      })(0);
+      return;
+    }
 
     if (action === "keep-this") {
       var keeper = lwRowById(target);
@@ -3629,6 +3747,55 @@
         kind: btn.getAttribute("data-sf-kind"),
         targetId: btn.getAttribute("data-sf-target")
       });
+    }
+    else if (action === "fs-remove") {
+      var fsSeries = btn.getAttribute("data-fs-series");
+      var fsEntry = btn.getAttribute("data-fs-entry");
+      api("/api/admin/library/film-series/" + encodeURIComponent(fsSeries) + "/entries/" + encodeURIComponent(fsEntry),
+        { method: "DELETE" })
+        .then(function () { fsInvalidate(itemId); show("ok", "Removed from that franchise."); lwRenderPane(); })
+        .catch(function (e) { show("err", e.message); });
+    }
+    else if (action === "fs-add") {
+      var pick = document.querySelector('[data-fs-pick="' + itemId + '"]');
+      var seriesId = pick && pick.value;
+      if (!seriesId) { show("err", "Pick a franchise first."); return; }
+      var row = lwRowById(itemId);
+      api("/api/admin/library/film-series/" + encodeURIComponent(seriesId) + "/entries", {
+        method: "POST",
+        body: { title: lwNameFor(itemId), year: row && row.item ? row.item.year : null,
+                imdb_id: row && row.item ? row.item.imdbId : null }
+      }).then(function () { fsInvalidate(itemId); show("ok", "Added."); lwRenderPane(); })
+        .catch(function (e) { show("err", e.message); });
+    }
+    else if (action === "fs-new") {
+      var newName = prompt("Name for this franchise?", lwNameFor(itemId));
+      if (!newName || !newName.trim()) return;
+      var nrow = lwRowById(itemId);
+      api("/api/admin/library/film-series", { method: "POST", body: { name: newName.trim() } })
+        .then(function (d) {
+          return api("/api/admin/library/film-series/" + encodeURIComponent(d.series.id) + "/entries", {
+            method: "POST",
+            body: { title: lwNameFor(itemId), year: nrow && nrow.item ? nrow.item.year : null,
+                    imdb_id: nrow && nrow.item ? nrow.item.imdbId : null }
+          });
+        })
+        .then(function () { fsInvalidate(itemId); show("ok", "Franchise created."); lwRenderPane(); })
+        .catch(function (e) { show("err", e.message); });
+    }
+    else if (action === "fs-tmdb") {
+      btn.disabled = true;
+      var was = btn.textContent;
+      btn.textContent = "Asking TMDB…";
+      api("/api/admin/library/film-series/for-film", { method: "POST", body: { itemId: itemId } })
+        .then(function (d) {
+          if (!d.ok) { show("err", d.reason || "TMDB had nothing."); return; }
+          show("ok", d.name + " — " + d.entries + " films, " + d.matched + " matched to IMDb ids.");
+          fsInvalidate(itemId);
+          lwRenderPane();
+        })
+        .catch(function (e) { show("err", e.message); })
+        .then(function () { btn.disabled = false; btn.textContent = was; });
     }
     else if (action === "sf-dismiss") {
       // Only for this session. Persisting a "no" would need its own table and
@@ -5824,6 +5991,90 @@
       sfState.targets = data;
       return data;
     });
+  }
+
+  /* ---- Franchise membership, on the film itself ---------------------
+     The Franchises tab answers "what is in this franchise". This answers the
+     question you actually have while looking at a film: what is this one part
+     of, and let me change it here rather than going somewhere else. Same
+     load-on-render-and-patch-in shape as the special-features block below. */
+
+  var fsState = { byFilm: {}, all: null };
+
+  function fsLoadOnFilm(imdbId, itemId) {
+    if (!imdbId) return;
+    if (fsState.byFilm[itemId]) return;
+    fsState.byFilm[itemId] = { loading: true, series: [] };
+    api("/api/admin/library/film-series/for-film?imdbId=" + encodeURIComponent(imdbId))
+      .then(function (d) {
+        fsState.byFilm[itemId] = { loading: false, series: d.series || [] };
+        lwRenderPane();
+      })
+      .catch(function () {
+        fsState.byFilm[itemId] = { loading: false, series: [] };
+      });
+  }
+
+  function fsInvalidate(itemId) {
+    delete fsState.byFilm[itemId];
+    fsState.all = null;
+  }
+
+  function fsPaneHtml(it) {
+    if (!it.imdbId) {
+      return '<div class="lw-section">Franchise</div>' +
+        '<div class="muted" style="padding:4px 0 8px">Identify this film first — franchise membership is keyed on its IMDb id.</div>';
+    }
+    var st = fsState.byFilm[it.id];
+    if (!st) { void fsLoadOnFilm(it.imdbId, it.id); return '<div class="lw-section">Franchise</div><div class="muted">Checking…</div>'; }
+    if (st.loading) return '<div class="lw-section">Franchise</div><div class="muted">Checking…</div>';
+
+    var out = '<div class="lw-section">Franchise</div><div class="sf-block">';
+    if (st.series.length) {
+      out += '<div class="sf-targets">' + st.series.map(function (m) {
+        return '<span class="fs-chip">' + esc(m.seriesName) +
+          ' <span class="muted">#' + (m.position + 1) + '</span>' +
+          '<button class="ghost sf-x" data-action="fs-remove" data-item-id="' + esc(it.id) +
+          '" data-fs-series="' + esc(m.seriesId) + '" data-fs-entry="' + esc(m.entryId) +
+          '" title="Take it out of this franchise">x</button></span>';
+      }).join("") + '</div>';
+    } else {
+      out += '<div class="sf-why">Not in any franchise.</div>';
+    }
+
+    out += '<div class="row" style="margin-top:8px">' +
+      '<div><select data-fs-pick="' + esc(it.id) + '"><option value="">Add to an existing franchise…</option></select></div>' +
+      '<div style="flex:0 0 auto"><button class="ghost" data-action="fs-add" data-item-id="' + esc(it.id) + '">Add</button></div>' +
+      '</div>';
+
+    out += '<div class="lw-acts" style="margin-top:8px">' +
+      '<button class="ghost" data-action="fs-tmdb" data-item-id="' + esc(it.id) +
+      '" title="Ask TMDB which collection this belongs to and build it">Find franchise from TMDB</button>' +
+      '<button class="ghost" data-action="fs-new" data-item-id="' + esc(it.id) + '">New franchise from this film</button>' +
+      '</div>';
+
+    out += '</div>';
+    return out;
+  }
+
+  /* Filled after render because the option list is shared across every film and
+     is worth fetching once, not once per selection. */
+  function fsFillPicker() {
+    var sel = document.querySelector("[data-fs-pick]");
+    if (!sel) return;
+    function paint(list) {
+      var current = sel.value;
+      sel.innerHTML = '<option value="">Add to an existing franchise…</option>' +
+        list.map(function (x) {
+          return '<option value="' + esc(x.id) + '">' + esc(x.name) + '</option>';
+        }).join("");
+      sel.value = current;
+    }
+    if (fsState.all) { paint(fsState.all); return; }
+    api("/api/admin/library/film-series").then(function (d) {
+      fsState.all = (d.series || []).slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
+      paint(fsState.all);
+    }).catch(function () { /* the other two buttons still work */ });
   }
 
   /* Rendered under the ordinary actions, and silent unless there is something

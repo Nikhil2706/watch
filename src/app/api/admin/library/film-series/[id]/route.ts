@@ -1,7 +1,7 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminMovies } from "@/lib/admin-library-cache";
 import { getRolloutPlan, listRolloutSlots, reconcileSeriesSlots } from "@/lib/rollout";
-import { getSeriesById } from "@/lib/scraping/film-series";
+import { deleteSeries, getSeriesById } from "@/lib/scraping/film-series";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,4 +62,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     },
     { headers: NO_STORE },
   );
+}
+
+/** DELETE /api/admin/library/film-series/{id} — removes the franchise; entries cascade. */
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+  const { id } = await params;
+  const removed = deleteSeries(id);
+  if (!removed) {
+    return Response.json({ error: "not_found", message: "No such franchise." }, { status: 404, headers: NO_STORE });
+  }
+  return Response.json({ ok: true }, { headers: NO_STORE });
 }

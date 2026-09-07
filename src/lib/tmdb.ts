@@ -191,3 +191,61 @@ export async function getMoviePosters(tmdbId: number): Promise<TmdbPoster[]> {
       voteAverage: p.vote_average,
     }));
 }
+
+/* ------------------------------------------------------------------ *
+ * Collections (franchises)
+ * ------------------------------------------------------------------ */
+
+export interface TmdbCollectionRef {
+  id: number;
+  name: string;
+}
+
+export interface TmdbCollectionPart {
+  title: string;
+  year: number | null;
+  imdbId: string | null;
+}
+
+/**
+ * Which franchise TMDB thinks this film belongs to, if any.
+ *
+ * This is the field OMDb simply does not have — its response carries no
+ * franchise or collection concept at all, which is why franchise membership
+ * could never come from the same place the ratings do. TMDB puts it on the
+ * ordinary movie record.
+ */
+export async function getMovieCollection(tmdbId: number): Promise<TmdbCollectionRef | null> {
+  const movie = await tmdbFetch<{ belongs_to_collection: TmdbCollectionRef | null }>(`/movie/${tmdbId}`);
+  return movie.belongs_to_collection ?? null;
+}
+
+/**
+ * Every film in a TMDB collection, oldest first.
+ *
+ * external_ids is asked for per part because the collection endpoint returns
+ * TMDB ids only, and everything downstream here is keyed on IMDb ids — the
+ * same key film_series_entries, user_ratings and article_film_links all use.
+ */
+export async function getCollectionParts(collectionId: number): Promise<TmdbCollectionPart[]> {
+  const data = await tmdbFetch<{
+    parts: Array<{ id: number; title: string; release_date: string | null }>;
+  }>(`/collection/${collectionId}`);
+
+  const parts = (data.parts ?? []).slice().sort((a, b) => (a.release_date ?? "").localeCompare(b.release_date ?? ""));
+
+  const out: TmdbCollectionPart[] = [];
+  for (const p of parts) {
+    let imdbId: string | null = null;
+    try {
+      const ext = await tmdbFetch<{ imdb_id: string | null }>(`/movie/${p.id}/external_ids`);
+      imdbId = ext.imdb_id || null;
+    } catch {
+      // A part with no resolvable IMDb id is still worth listing by title —
+      // "declared but not matched" is a real state everywhere else here too.
+    }
+    const year = p.release_date ? Number(p.release_date.slice(0, 4)) : null;
+    out.push({ title: p.title, year: Number.isFinite(year) ? year : null, imdbId });
+  }
+  return out;
+}
