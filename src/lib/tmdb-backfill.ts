@@ -11,8 +11,9 @@ import {
   getCached,
   getLink,
   putLink,
-  searchShow,
+  searchShows,
 } from "./tmdb-store";
+import { normaliseShowName, pickBestShowMatch } from "./tmdb-match";
 
 /**
  * Fills the TMDB store, a bounded batch at a time.
@@ -40,6 +41,8 @@ export interface TmdbBackfillResult {
   moviesFetched: number;
   failures: number;
   done: boolean;
+  /** Groups deliberately left unlinked because no candidate was safe to act on. */
+  unmatched: Array<{ group: string; files: number }>;
   note?: string;
 }
 
@@ -88,6 +91,7 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
     moviesFetched: 0,
     failures: 0,
     done: false,
+    unmatched: [],
   };
 
   const spend = () => (result.callsUsed += 1);
@@ -100,17 +104,52 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
   for (const group of libraryGroups()) {
     if (spent()) return result;
 
+    const fileCount = groupPaths(group.group_id).length;
+
     let link = getLink("group", group.group_id);
     if (!link) {
       try {
-        const found = await searchShow(group.group_name);
+        const results = await searchShows(group.group_name);
         spend();
-        if (!found) continue;
+
+        /* Only candidates whose name matches exactly once normalised are worth
+           spending a detail call on — and only a detail call reveals the
+           episode count that tmdb-match needs to judge the fit. Capped at three
+           so a generic title cannot turn one group into twenty requests. */
+        const wanted = normaliseShowName(group.group_name);
+        const plausible = results.filter((r) => normaliseShowName(r.name) === wanted).slice(0, 3);
+
+        const candidates = [];
+        for (const p of plausible) {
+          if (spent()) break;
+          try {
+            const show = await fetchShow(p.id);
+            spend();
+            const payload = show.payload as { number_of_episodes?: number };
+            candidates.push({
+              id: p.id,
+              name: p.name,
+              episodeCount: payload.number_of_episodes ?? null,
+              firstAirYear: p.year,
+            });
+          } catch {
+            result.failures += 1;
+          }
+        }
+
+        const best = pickBestShowMatch(candidates, { name: group.group_name, fileCount });
+        if (!best) {
+          // Left unlinked on purpose. A wrong link stamps another show's stills
+          // across every episode; an unlinked group is one manual step.
+          result.unmatched.push({ group: group.group_name, files: fileCount });
+          continue;
+        }
+
         link = {
           subjectType: "group",
           subjectId: group.group_id,
           tmdbKind: "tv",
-          tmdbId: found.id,
+          tmdbId: best.candidate.id,
           season: null,
           episode: null,
           resolvedBy: "search",

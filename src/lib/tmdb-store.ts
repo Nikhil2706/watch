@@ -206,12 +206,26 @@ export async function fetchSeason(tmdbId: number, season: number, force = false)
   return payload.episodes ?? [];
 }
 
-export async function searchShow(name: string): Promise<{ id: number; name: string; year: string | null } | null> {
+/**
+ * Search results, plural and unranked.
+ *
+ * Returning the first result was how E.R. got linked to Trauma: Life in the
+ * E.R. The caller ranks these with tmdb-match.ts, which needs to see the field
+ * rather than be handed a decision. Note /search/tv does NOT include episode
+ * counts, so the caller has to fetch the detail of a candidate it is serious
+ * about before it can judge the fit.
+ */
+export async function searchShows(
+  name: string,
+): Promise<Array<{ id: number; name: string; year: number | null }>> {
   const data = await fetchJson<{ results?: Array<{ id: number; name: string; first_air_date?: string }> }>(
     `/search/tv?query=${encodeURIComponent(name)}`,
   );
-  const first = (data.results ?? [])[0];
-  return first ? { id: first.id, name: first.name, year: first.first_air_date?.slice(0, 4) ?? null } : null;
+  return (data.results ?? []).map((r) => ({
+    id: r.id,
+    name: r.name,
+    year: r.first_air_date ? Number(r.first_air_date.slice(0, 4)) : null,
+  }));
 }
 
 export async function findByImdbId(imdbId: string): Promise<{ kind: "movie" | "tv"; id: number } | null> {
