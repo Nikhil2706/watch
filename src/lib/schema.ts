@@ -30,7 +30,7 @@
  * runVersionedMigrations() will not replay the set at all. The live database
  * is already at 40, so the other branch's v38 work would never have run here.
  */
-export const SCHEMA_VERSION = 43;
+export const SCHEMA_VERSION = 44;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1105,4 +1105,48 @@ CREATE TABLE IF NOT EXISTS screening_progress (
 
 CREATE INDEX IF NOT EXISTS idx_screenings_creator ON screenings(created_by_user_id);
 CREATE INDEX IF NOT EXISTS idx_screening_sessions_screening ON screening_sessions(screening_id);
+
+-- v44: TMDB, fetched once and kept.
+--
+-- payload is the raw JSON response. That is deliberate: the point of this
+-- table is that a new use of TMDB data costs a SQL read rather than another
+-- round trip, and this host reaches TMDB badly enough (repeated ECONNRESET,
+-- one call in thirty failing outright) that re-fetching for each new idea is
+-- not something to design around. Extracted columns exist only for joining.
+--
+-- season and episode use -1 rather than NULL so the primary key actually
+-- constrains: NULLs are not equal to each other in SQLite, so a NULL-bearing
+-- key would happily store the same row twice.
+CREATE TABLE IF NOT EXISTS tmdb_cache (
+  kind       TEXT NOT NULL,    -- movie | tv | season | collection
+  tmdb_id    INTEGER NOT NULL,
+  season     INTEGER NOT NULL DEFAULT -1,
+  episode    INTEGER NOT NULL DEFAULT -1,
+  imdb_id    TEXT,
+  payload    TEXT NOT NULL,
+  fetched_at INTEGER NOT NULL,
+  PRIMARY KEY (kind, tmdb_id, season, episode)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_tmdb_cache_imdb ON tmdb_cache(imdb_id);
+CREATE INDEX IF NOT EXISTS idx_tmdb_cache_stale ON tmdb_cache(fetched_at);
+
+-- What a thing in this library IS, over in TMDB.
+--
+-- Keyed on path for a file and on group_id for a show, matching the curation
+-- layer everywhere else here: Jellyfin item ids do not survive a library
+-- rebuild and paths do.
+CREATE TABLE IF NOT EXISTS tmdb_links (
+  subject_type TEXT NOT NULL,   -- path | group
+  subject_id   TEXT NOT NULL,
+  tmdb_kind    TEXT NOT NULL,   -- movie | tv
+  tmdb_id      INTEGER NOT NULL,
+  season       INTEGER,         -- set for an episode file
+  episode      INTEGER,
+  resolved_by  TEXT NOT NULL,   -- imdb | search | manual
+  linked_at    INTEGER NOT NULL,
+  PRIMARY KEY (subject_type, subject_id)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_tmdb_links_tmdb ON tmdb_links(tmdb_kind, tmdb_id);
 `;
