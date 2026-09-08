@@ -247,13 +247,12 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
         }
         tmdbId = found.id;
       }
-      if (spent()) continue;
 
-      await fetchMovie(tmdbId);
-      spend();
-      result.moviesFetched += 1;
-      remaining -= 1;
-
+      /* Bank the resolution BEFORE fetching.
+         Resolving an IMDb id to a TMDB one costs a call, and a tick that then
+         hit its budget used to discard that answer and pay for it again next
+         time — so a small budget could spend everything and record nothing.
+         The link is a fact worth keeping on its own; the payload can follow. */
       if (movie.Path) {
         putLink({
           subjectType: "path",
@@ -265,6 +264,13 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
           resolvedBy: movie.ProviderIds?.Tmdb ? "tmdb-id" : "imdb",
         });
       }
+
+      if (spent()) continue;
+
+      await fetchMovie(tmdbId);
+      spend();
+      result.moviesFetched += 1;
+      remaining -= 1;
     } catch {
       result.failures += 1;
     }
