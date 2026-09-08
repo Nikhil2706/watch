@@ -88,6 +88,63 @@ function seasonsPresent(groupId: string): number[] {
   return [...seasons].sort((a, b) => a - b);
 }
 
+export interface TmdbRefreshResult {
+  callsUsed: number;
+  refreshed: number;
+  failures: number;
+  remaining: number;
+}
+
+/**
+ * Re-fetch entries older than maxAgeDays.
+ *
+ * A cached film is a snapshot, and TMDB moves underneath it: artwork is added,
+ * overviews get rewritten, a collection appears where there was none. Nothing
+ * invalidated this store until now, which is fine for a week and wrong for a
+ * year.
+ *
+ * Oldest first, budgeted, and it re-fetches in place — a refresh that fails
+ * leaves the previous payload alone rather than emptying the row, so a bad
+ * night on this connection degrades to "slightly stale" instead of "gone".
+ */
+export async function runTmdbRefreshTick(
+  maxAgeDays = 7,
+  budget = DEFAULT_BUDGET,
+): Promise<TmdbRefreshResult> {
+  const result: TmdbRefreshResult = { callsUsed: 0, refreshed: 0, failures: 0, remaining: 0 };
+  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+
+  const stale = asRows<{ kind: string; tmdb_id: number; season: number }>(
+    getDb()
+      .prepare(
+        `SELECT kind, tmdb_id, season FROM tmdb_cache
+          WHERE fetched_at < ? AND kind IN ('movie', 'tv', 'season')
+          ORDER BY fetched_at ASC`,
+      )
+      .all(cutoff),
+  );
+
+  result.remaining = stale.length;
+
+  for (const row of stale) {
+    if (result.callsUsed >= budget) break;
+    try {
+      if (row.kind === "movie") await fetchMovie(row.tmdb_id, true);
+      else if (row.kind === "tv") await fetchShow(row.tmdb_id, true);
+      else await fetchSeason(row.tmdb_id, row.season, true);
+      result.callsUsed += 1;
+      result.refreshed += 1;
+      result.remaining -= 1;
+    } catch {
+      // Left as it was. A stale payload beats no payload.
+      result.callsUsed += 1;
+      result.failures += 1;
+    }
+  }
+
+  return result;
+}
+
 export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<TmdbBackfillResult> {
   const result: TmdbBackfillResult = {
     callsUsed: 0,

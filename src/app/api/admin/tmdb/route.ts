@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { runTmdbBackfillTick } from "@/lib/tmdb-backfill";
+import { runTmdbBackfillTick, runTmdbRefreshTick } from "@/lib/tmdb-backfill";
 import { fetchShow, putLink, searchShows, tmdbStoreStats } from "@/lib/tmdb-store";
 
 export const runtime = "nodejs";
