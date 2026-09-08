@@ -482,6 +482,8 @@
   .lw-chip-lead { color: var(--muted); font-size: 11.5px; margin-right: 2px; }
   .lw-chip-sub { font-size: 11.5px; padding: 2px 9px; opacity: 0.9; }
   .lw-chip-sub.on { opacity: 1; }
+  .poster-pick-grid.wide { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+  .poster-pick-grid.wide .poster-pick-tile img { aspect-ratio: 16 / 9; object-fit: contain; background: #0d1117; }
   .ac-rank { flex: 0 0 auto; width: 30px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
   .ac-rank-to { flex: 0 0 auto; width: 46px; padding: 3px 5px; font-size: 12px; }
   .ac-builder-item { border-top: 1px solid var(--border); }
@@ -3532,28 +3534,24 @@
       .catch(function (e) { show("err", e.message); if (btn) { btn.disabled = false; btn.textContent = "Show anyway"; } });
   }
 
+  /* Artwork held per item so switching between Poster / Backdrop / Logo is
+     instant — the whole set arrives in one response. */
+  var artState = {};
+
   function openPosterPanel(itemId) {
     var slot = document.querySelector('.rv-panel-slot[data-panel-for="' + itemId + '"]');
     if (!slot) return;
-    slot.innerHTML = '<div class="rv-inline-panel"><div class="muted" style="padding:10px 0">Loading posters from TMDB…</div></div>';
+    slot.innerHTML = '<div class="rv-inline-panel"><div class="muted" style="padding:10px 0">Loading artwork…</div></div>';
     api("/api/admin/library/poster-options?itemId=" + encodeURIComponent(itemId))
       .then(function (data) {
-        var posters = data.posters || [];
-        if (!posters.length) {
-          slot.innerHTML = '<div class="rv-inline-panel"><div class="muted" style="padding:10px 0">No TMDB posters found for this title.</div>' +
-            '<button class="ghost" data-action="close-panel" data-item-id="' + itemId + '">Close</button></div>';
-          return;
-        }
-        var html = '<div class="rv-inline-panel"><div class="poster-pick-grid">' +
-          posters.slice(0, 24).map(function (p) {
-            return '<div class="poster-pick-tile" data-action="apply-poster" data-item-id="' + itemId +
-              '" data-image-url="' + esc(p.fullUrl) + '">' +
-              '<img src="' + esc(p.thumbUrl) + '" alt="" loading="lazy">' +
-              '<div class="poster-pick-sub">' + (p.language ? p.language : "no lang") + ' · ★ ' + p.voteAverage.toFixed(1) + '</div>' +
-              '</div>';
-          }).join("") +
-          '</div><button class="ghost" data-action="close-panel" data-item-id="' + itemId + '" style="margin-top:10px">Close</button></div>';
-        slot.innerHTML = html;
+        artState[itemId] = {
+          poster: data.posters || [],
+          backdrop: data.backdrops || [],
+          logo: data.logos || [],
+          source: data.source || "live",
+          kind: "poster"
+        };
+        renderArtPanel(itemId);
       })
       .catch(function (e) {
         slot.innerHTML = '<div class="rv-inline-panel"><div class="err">' + esc(e.message) + '</div>' +
@@ -3561,12 +3559,58 @@
       });
   }
 
-  function applyPoster(itemId, imageUrl, tile) {
+  var ART_KINDS = [["poster", "Poster"], ["backdrop", "Backdrop"], ["logo", "Title logo"]];
+
+  function renderArtPanel(itemId) {
+    var slot = document.querySelector('.rv-panel-slot[data-panel-for="' + itemId + '"]');
+    var st = artState[itemId];
+    if (!slot || !st) return;
+
+    var tabs = ART_KINDS.map(function (k) {
+      var n = (st[k[0]] || []).length;
+      var cls = "lw-chip lw-chip-sub" + (st.kind === k[0] ? " on" : "");
+      return '<button class="' + cls + '" data-action="art-kind" data-item-id="' + esc(itemId) +
+        '" data-art-kind="' + k[0] + '"' + (n ? "" : " disabled") + '>' + k[1] + ' <b>' + n + '</b></button>';
+    }).join("");
+
+    var list = st[st.kind] || [];
+    var grid = list.length
+      ? '<div class="poster-pick-grid' + (st.kind === "poster" ? "" : " wide") + '">' +
+        list.slice(0, 30).map(function (p) {
+          return '<div class="poster-pick-tile" data-action="apply-poster" data-item-id="' + esc(itemId) +
+            '" data-art-kind="' + esc(st.kind) + '" data-image-url="' + esc(p.fullUrl) + '">' +
+            '<img src="' + esc(p.thumbUrl) + '" alt="" loading="lazy">' +
+            '<div class="poster-pick-sub">' + (p.language ? esc(p.language) : "no text") +
+            ' · ' + p.width + '×' + p.height + ' · ★ ' + (p.voteAverage || 0).toFixed(1) + '</div>' +
+            '</div>';
+        }).join("") + '</div>'
+      : '<div class="muted" style="padding:10px 0">TMDB has none of these for this title.</div>';
+
+    /* Saying where it came from matters: "from the library store" means the
+       grid is complete and instant, while "asked TMDB just now" means this film
+       is not cached yet and the list is whatever one live call returned. */
+    var note = st.source === "cache"
+      ? '<span class="muted" style="font-size:11.5px">from the local TMDB store</span>'
+      : '<span class="muted" style="font-size:11.5px">asked TMDB live — this film is not in the store yet, so only posters are offered</span>';
+
+    slot.innerHTML = '<div class="rv-inline-panel">' +
+      '<div class="lw-chips lw-chips-sub" style="margin-bottom:8px">' + tabs + ' ' + note + '</div>' +
+      grid +
+      '<button class="ghost" data-action="close-panel" data-item-id="' + esc(itemId) + '" style="margin-top:10px">Close</button>' +
+      '</div>';
+  }
+
+  function applyPoster(itemId, imageUrl, tile, kind) {
+    kind = kind || "poster";
     if (tile) tile.style.opacity = "0.5";
-    api("/api/admin/library/set-poster", { method: "POST", body: { itemId: itemId, imageUrl: imageUrl } })
+    api("/api/admin/library/set-poster", {
+      method: "POST",
+      body: { itemId: itemId, imageUrl: imageUrl, kind: kind }
+    })
       .then(function () {
-        show("ok", "Poster updated.");
-        markRowDone(itemId, "Poster changed");
+        var label = kind === "backdrop" ? "Backdrop" : kind === "logo" ? "Title logo" : "Poster";
+        show("ok", label + " updated.");
+        markRowDone(itemId, label + " changed");
         closePanel(itemId);
       })
       .catch(function (e) {
@@ -3832,7 +3876,12 @@
     else if (action === "unexclude") unexcludeBrowseItem(itemId);
     else if (action === "fetch-subtitles") fetchSubtitles(itemId, btn);
     else if (action === "poster") openPosterPanel(itemId);
-    else if (action === "apply-poster") applyPoster(itemId, btn.getAttribute("data-image-url"), btn);
+    else if (action === "art-kind") {
+      if (artState[itemId]) { artState[itemId].kind = btn.getAttribute("data-art-kind"); renderArtPanel(itemId); }
+    }
+    else if (action === "apply-poster") {
+      applyPoster(itemId, btn.getAttribute("data-image-url"), btn, btn.getAttribute("data-art-kind") || "poster");
+    }
     else if (action === "toggle-folder") {
       var body = groupEl.querySelector(".rv-folder-body");
       body.style.display = body.style.display === "none" ? "" : "none";

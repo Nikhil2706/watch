@@ -683,8 +683,17 @@ export async function applyOmdbEpisodeMetadata(itemId: string, patch: OmdbEpisod
  * this app never proxies or stores the image bytes itself. Used to replace
  * a mis-matched episode's poster with the real one from OMDb.
  */
-export async function setItemImage(itemId: string, imageUrl: string): Promise<void> {
-  const params = new URLSearchParams({ type: "Primary", imageUrl });
+export async function setItemImage(
+  itemId: string,
+  imageUrl: string,
+  /**
+   * Which slot to fill. Primary is the poster (or an episode's still); Backdrop
+   * is the hero image; Logo is the transparent title treatment. Defaults to
+   * Primary, which is every existing caller.
+   */
+  type: "Primary" | "Backdrop" | "Logo" = "Primary",
+): Promise<void> {
+  const params = new URLSearchParams({ type, imageUrl });
   await jellyfinFetch<void>(`/Items/${encodeURIComponent(itemId)}/RemoteImages/Download?${params.toString()}`, {
     method: "POST",
     token: env.jellyfinApiKey,

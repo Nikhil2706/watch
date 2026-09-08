@@ -27,7 +27,13 @@ export async function POST(request: Request): Promise<Response> {
     if (!itemId) throw new ValidationError("itemId is required.");
     if (!imageUrl) throw new ValidationError("imageUrl is required.");
 
-    await setItemImage(itemId, imageUrl);
+    /* Which slot the chosen image fills. Primary is the poster, and stays the
+       default so every existing caller is unaffected; backdrop and logo are the
+       two the picker can now offer, because the store caches them too. */
+    const kind = optionalString(body, "kind") ?? "poster";
+    const type = kind === "backdrop" ? "Backdrop" : kind === "logo" ? "Logo" : "Primary";
+
+    await setItemImage(itemId, imageUrl, type);
 
     /*
      * A new poster means a new ImageTags.Primary, and the thumbnail URLs the
