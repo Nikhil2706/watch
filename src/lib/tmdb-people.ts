@@ -224,6 +224,24 @@ export function ingestAllFromCache(): IngestResult {
   return { subjects, credits, skippedNoPayload, episodePeople };
 }
 
+/**
+ * Drop everything TMDB believes about one file.
+ *
+ * Called when a film is re-identified: the link points at the previous film's
+ * TMDB entry, and so does every credit derived from it, so the page would keep
+ * showing the wrong crew and the wrong recommendations under a corrected
+ * title. Deleting rather than repointing lets the next backfill tick resolve
+ * it from the item's own (now correct) IMDb id, which is one fewer id for
+ * anyone to get wrong by hand.
+ */
+export function forgetTmdbForPath(path: string): void {
+  transaction((db) => {
+    db.prepare("DELETE FROM tmdb_links WHERE subject_type = 'path' AND subject_id = ?").run(path);
+    db.prepare("DELETE FROM tmdb_credits WHERE subject_type = 'path' AND subject_id = ?").run(path);
+    return null;
+  });
+}
+
 /** Everyone credited on one library subject, cast first and then by bucket. */
 export function creditsForSubject(
   subjectType: "path" | "group",

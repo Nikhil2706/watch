@@ -112,6 +112,31 @@ export function invalidateAdminMovies(): void {
  * minute. That is a better outcome than an editing action reporting failure
  * because a follow-up read did.
  */
+/**
+ * Forget one item, so the next read fetches it rather than trusting a copy.
+ *
+ * refreshAdminMovie() above re-reads immediately, which is right for a title
+ * or a poster the caller just wrote. It is WRONG after a re-identification:
+ * Jellyfin applies a remote match asynchronously, so an immediate re-read
+ * returns the pre-refresh row and then caches it as though it were the new
+ * truth. That is not theoretical — it made the TMDB backfill re-link
+ * [Rec] 2 to The Descent: Part 2 three times in a row, because
+ * runTmdbBackfillTick() reads this listing for ProviderIds, and only a process
+ * restart cleared it.
+ *
+ * Dropping the row instead costs one narrow re-fetch on the next read, by
+ * which point Jellyfin has settled.
+ */
+export function forgetAdminMovie(itemId: string): void {
+  for (const entry of cache.values()) {
+    const index = entry.items.findIndex((item) => item.Id === itemId);
+    if (index !== -1) entry.items.splice(index, 1);
+    // The listing is now short by one, so make the next caller rebuild it
+    // rather than hand out a set that is missing a film.
+    entry.fetchedAt = 0;
+  }
+}
+
 export async function refreshAdminMovie(itemId: string): Promise<void> {
   for (const [key, entry] of cache) {
     const index = entry.items.findIndex((item) => item.Id === itemId);

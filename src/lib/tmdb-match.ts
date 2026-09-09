@@ -31,6 +31,11 @@ export interface ShowCandidate {
   name: string;
   episodeCount: number | null;
   firstAirYear: number | null;
+  /**
+   * Every other name TMDB knows this show by, when the caller has fetched
+   * them. Absent for a bare search result, which does not carry them.
+   */
+  alternativeNames?: readonly string[];
 }
 
 export interface ShowMatch {
@@ -102,6 +107,15 @@ export function scoreShowCandidate(
   if (a === b) {
     nameScore = NAME_EXACT;
     nameWhy = "exact name";
+  } else if ((candidate.alternativeNames ?? []).some((n) => normaliseShowName(n) === a)) {
+    // An EXACT match against one of TMDB's own alternative titles, which is
+    // what a translated group needs: "Atti Degli Apostoli" is exactly what
+    // TMDB lists *Acts of the Apostles* as in Italy. This is deliberately
+    // scored the same as an exact primary-name match and NOT as a prefix —
+    // the rule being kept is "exact, or it cannot authorise acting", and an
+    // alternative title is still exact. The count fit still has to agree.
+    nameScore = NAME_EXACT;
+    nameWhy = "exact match on an alternative title";
   } else if (b.startsWith(a + " ") || a.startsWith(b + " ")) {
     // "The Curse" vs "The Curse of Oak Island" lands here, and NAME_PREFIX is
     // deliberately small so the episode count has to rescue it.

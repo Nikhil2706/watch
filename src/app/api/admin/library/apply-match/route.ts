@@ -1,7 +1,8 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { refreshAdminMovie } from "@/lib/admin-library-cache";
+import { forgetAdminMovie } from "@/lib/admin-library-cache";
 import { applyRemoteSearchMatch, clearItemBackdrop, type RemoteSearchResult } from "@/lib/jellyfin";
 import { markMetadataConfirmed } from "@/lib/library-curation";
+import { forgetTmdbForPath } from "@/lib/tmdb-people";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -34,8 +35,11 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     await applyRemoteSearchMatch(itemId, candidate as RemoteSearchResult);
-    // The title just changed; the cached listing still has the wrong one.
-    await refreshAdminMovie(itemId);
+    // Forget it rather than re-read it. Jellyfin applies a remote match
+    // asynchronously, so re-reading now returns the OLD row and caches it as
+    // the new truth — which is how a corrected film kept getting re-linked to
+    // the previous film's TMDB id until the process was restarted.
+    forgetAdminMovie(itemId);
 
     /*
      * Drop any backdrop the previous (wrong) match left behind.
@@ -55,7 +59,13 @@ export async function POST(request: Request): Promise<Response> {
       console.warn(`[admin/library/apply-match] backdrop clear failed for ${itemId}:`, error);
     }
 
-    if (path) markMetadataConfirmed(path);
+    if (path) {
+      markMetadataConfirmed(path);
+      // The TMDB link still points at the film this one was mistaken for, and
+      // so does every credit built from it. Drop both; the next backfill tick
+      // re-resolves from the corrected IMDb id.
+      forgetTmdbForPath(path);
+    }
     return Response.json({ applied: true }, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof ValidationError) {

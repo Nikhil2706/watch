@@ -272,11 +272,14 @@ export default async function ItemPage({
               </span>
             ) : null}
           </div>
-          {/* Episodes in a group share the show's OMDb blurb, so every hour of
-              a series says the same thing about the series. TMDB has a
-              synopsis for this episode. */}
-          {episode?.overview || item.Overview ? (
-            <p>{episode?.overview || item.Overview}</p>
+          {/* Three sources, most specific first. Episodes in a group share the
+              show's OMDb blurb, so every hour of a series otherwise says the
+              same thing about the series; TMDB has one for this episode. For a
+              film, TMDB's overview is consistently present and better written
+              than whatever scraper won inside Jellyfin — but Jellyfin's is
+              kept as the fallback, since 11 films are cached with none. */}
+          {episode?.overview || film?.overview || item.Overview ? (
+            <p>{episode?.overview || film?.overview || item.Overview}</p>
           ) : null}
           {curatorNote ? <CuratorNote note={curatorNote} /> : null}
           <div className="btn-row">

@@ -20,10 +20,17 @@ import { isCacheableImagePath } from "./tmdb-shape";
  */
 
 /** TMDB renditions this cache will serve. Anything else is a caller bug. */
-const ALLOWED_SIZES = new Set(["w45", "w185", "h632", "w300", "w342"]);
+const ALLOWED_SIZES = new Set([
+  // Profiles
+  "w45", "w185", "h632",
+  // Stills and posters
+  "w300", "w342", "w780",
+  // Logos and backdrops
+  "w500", "w1280",
+]);
 
-/** Roughly 4x a w185 headshot. A profile this large means something is wrong. */
-const MAX_BYTES = 512 * 1024;
+/** A w1280 backdrop runs to a few hundred KB; past this something is wrong. */
+const MAX_BYTES = 3 * 1024 * 1024;
 
 export interface CachedImage {
   bytes: Uint8Array;

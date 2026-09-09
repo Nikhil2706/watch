@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getCached, getLink, tmdbImage } from "./tmdb-store";
+import { getCached, getLink } from "./tmdb-store";
 import { CREW_JOBS, bucketForJob, type CrewBucket, type ShapedCredit } from "./tmdb-shape";
 import { getGroupedPathMap } from "./library-curation";
 
@@ -131,12 +131,28 @@ interface RawMovie {
  * Projection
  * ------------------------------------------------------------------ */
 
+/**
+ * A same-origin URL for a TMDB image, for anything a browser will load.
+ *
+ * NOT tmdbImage(), which returns image.tmdb.org and must keep doing so — the
+ * episode-still applier and the console's artwork picker both need the real
+ * upstream URL to fetch from. This is the browser-facing form: it goes through
+ * /api/tmdb-image, which caches the bytes and keeps the promise every other
+ * image on this site keeps, that the viewer's browser makes no third-party
+ * request. Hotlinking would hand TMDB each viewer's IP and, via the Referer,
+ * the film they are reading about.
+ */
+function proxied(path: string | null | undefined, size: string): string | null {
+  if (!path) return null;
+  return `/api/tmdb-image?path=${encodeURIComponent(path)}&size=${encodeURIComponent(size)}`;
+}
+
 function person(p: RawPerson, roleField: "character" | "job"): CreditPerson {
   return {
     tmdbId: p.id,
     name: p.name,
     role: (roleField === "character" ? p.character : p.job) ?? "",
-    profileUrl: tmdbImage(p.profile_path ?? null, "w185"),
+    profileUrl: proxied(p.profile_path ?? null, "w185"),
     order: p.order ?? 999,
   };
 }
@@ -177,7 +193,7 @@ function related(list: RawRelated[] | undefined, limit: number): RelatedFilm[] {
     tmdbId: r.id,
     title: r.title ?? r.name ?? "",
     year: r.release_date ? Number(r.release_date.slice(0, 4)) || null : null,
-    posterUrl: tmdbImage(r.poster_path ?? null, "w185"),
+    posterUrl: proxied(r.poster_path ?? null, "w185"),
     voteAverage: r.vote_average ?? 0,
   }));
 }
@@ -200,7 +216,7 @@ function trailer(videos: RawMovie["videos"]): string | null {
 /** Highest-rated image of a kind. Logos prefer a textless or English one. */
 function bestImage(list: RawImage[] | undefined, size: string): string | null {
   const sorted = (list ?? []).slice().sort((a, b) => (b.vote_average ?? 0) - (a.vote_average ?? 0));
-  return sorted.length ? tmdbImage(sorted[0]!.file_path, size) : null;
+  return sorted.length ? proxied(sorted[0]!.file_path, size) : null;
 }
 
 export function projectFilm(payload: unknown, tmdbId: number): FilmView | null {
@@ -358,7 +374,7 @@ export function projectShow(payload: unknown, tmdbId: number): ShowView | null {
     // The show's own backdrop first; its images list second. Either is 16:9,
     // which the poster this page currently uses is not.
     backdropUrl: s.backdrop_path
-      ? tmdbImage(s.backdrop_path, "w1280")
+      ? proxied(s.backdrop_path, "w1280")
       : bestImage(s.images?.backdrops, "w1280"),
     voteAverage: typeof s.vote_average === "number" ? s.vote_average : null,
   };
@@ -464,7 +480,7 @@ export function episodeViewByPath(path: string | null | undefined): EpisodeView 
     overview: raw.overview?.trim() || null,
     airDate: raw.air_date ?? null,
     runtimeMinutes: raw.runtime ?? null,
-    stillUrl: tmdbImage(raw.still_path ?? null, "w780"),
+    stillUrl: proxied(raw.still_path ?? null, "w780"),
     voteAverage: typeof raw.vote_average === "number" ? raw.vote_average : null,
     crew: (raw.crew ?? []).filter((c) => c.job && named.has(c.job)).map((c) => person(c, "job")),
     guests: (raw.guest_stars ?? []).slice(0, 8).map((c) => person(c, "character")),
@@ -589,7 +605,7 @@ export function seasonViewsByGroup(groupId: string | null | undefined): Map<numb
       seasonNumber: s.season_number,
       name: s.name ?? `Season ${s.season_number}`,
       overview: s.overview?.trim() || null,
-      posterUrl: tmdbImage(s.poster_path ?? null, "w342"),
+      posterUrl: proxied(s.poster_path ?? null, "w342"),
       episodeCount: s.episode_count ?? null,
       airYear: s.air_date ? s.air_date.slice(0, 4) : null,
     });

@@ -135,3 +135,65 @@ test("the reason is stated, so an unlinked group can be explained", () => {
   assert.match(m.why, /308 files vs 75 episodes/);
   assert.equal(m.confident, false);
 });
+
+/* ------------------------------------------------------------------ *
+ * Alternative titles
+ *
+ * The accepted cost documented above this rule was that a group whose name is
+ * a translation never auto-links. TMDB knows those names; these pin down that
+ * using them does not loosen the rule that mattered.
+ * ------------------------------------------------------------------ */
+
+test("an exact match on an alternative title is as good as the primary name", () => {
+  const match = scoreShowCandidate(
+    {
+      id: 1,
+      name: "Acts of the Apostles",
+      episodeCount: 5,
+      firstAirYear: 1969,
+      alternativeNames: ["Atti degli Apostoli", "Die Apostelgeschichte"],
+    },
+    { name: "Atti Degli Apostoli", fileCount: 5 },
+  );
+  assert.equal(match.confident, true);
+  assert.match(match.why, /alternative title/);
+});
+
+test("an alternative title still cannot rescue a bad episode count", () => {
+  const match = scoreShowCandidate(
+    {
+      id: 1,
+      name: "Acts of the Apostles",
+      episodeCount: 200,
+      firstAirYear: 1969,
+      alternativeNames: ["Atti degli Apostoli"],
+    },
+    { name: "Atti Degli Apostoli", fileCount: 5 },
+  );
+  // Exact name, wildly wrong size: the count fit is the other half of the
+  // guard and an alternative title does not get to skip it.
+  assert.equal(match.confident, false);
+});
+
+/** The E.R. disaster must stay impossible however many names are supplied. */
+test("an alternative title that is merely similar authorises nothing", () => {
+  const match = scoreShowCandidate(
+    {
+      id: 1,
+      name: "Trauma: Life in the E.R.",
+      episodeCount: 75,
+      firstAirYear: 1997,
+      alternativeNames: ["Trauma - Life in the ER", "Life in the E.R."],
+    },
+    { name: "ER", fileCount: 308 },
+  );
+  assert.equal(match.confident, false);
+});
+
+test("a candidate with no alternative titles behaves exactly as before", () => {
+  const withNone = scoreShowCandidate(
+    { id: 1, name: "The Curse of Oak Island", episodeCount: 258, firstAirYear: 2014 },
+    { name: "The Curse", fileCount: 10 },
+  );
+  assert.equal(withNone.confident, false);
+});

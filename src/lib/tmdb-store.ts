@@ -171,7 +171,7 @@ export async function fetchShow(tmdbId: number, force = false): Promise<CachedTm
     if (hit) return hit;
   }
   const payload = await fetchJson<{ external_ids?: { imdb_id?: string } }>(
-    `/tv/${tmdbId}?append_to_response=external_ids,credits,keywords,images&include_image_language=en,null`,
+    `/tv/${tmdbId}?append_to_response=external_ids,credits,keywords,images,alternative_titles&include_image_language=en,null`,
   );
   const imdbId = payload.external_ids?.imdb_id ?? null;
   putCached("tv", tmdbId, payload, { imdbId });

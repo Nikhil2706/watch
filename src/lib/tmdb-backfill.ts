@@ -192,12 +192,22 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
           try {
             const show = await fetchShow(p.id);
             spend();
-            const payload = show.payload as { number_of_episodes?: number };
+            const payload = show.payload as {
+              number_of_episodes?: number;
+              alternative_titles?: { results?: Array<{ title?: string }> };
+            };
             candidates.push({
               id: p.id,
               name: p.name,
               episodeCount: payload.number_of_episodes ?? null,
               firstAirYear: p.year,
+              // The detail fetch already happened for this candidate, so the
+              // alternative titles are free — and they are what lets a group
+              // whose name is a translation link itself instead of waiting for
+              // somebody to do it by hand.
+              alternativeNames: (payload.alternative_titles?.results ?? [])
+                .map((t) => t.title)
+                .filter((t): t is string => Boolean(t)),
             });
           } catch {
             result.failures += 1;
