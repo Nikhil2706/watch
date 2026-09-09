@@ -15,6 +15,15 @@ name: Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      dev_server_url:
+        description: >-
+          Build a DEV apk pointing at this dev server instead of the live site,
+          e.g. http://192.168.1.20:3000. Leave empty for a normal release build.
+          A dev build installs beside the real app (id .dev), is debug-signed,
+          and never publishes a release.
+        required: false
+        default: ""
   push:
     branches: [platform-additions]
     paths:
@@ -65,7 +74,27 @@ jobs:
             --splashBackgroundColorDark '#06070a'
           npx cap sync android
 
+      # Rewritten AFTER cap sync so it lands in the packaged assets, and only
+      # ever for a manually-triggered dev build. cleartext is required because
+      # a dev server on a LAN is plain http, and Android blocks that by default.
+      - name: Point this build at the dev server
+        if: inputs.dev_server_url != ''
+        working-directory: apps/mobile
+        env:
+          DEV_URL: ${{ inputs.dev_server_url }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const p = "android/app/src/main/assets/capacitor.config.json";
+            const c = JSON.parse(fs.readFileSync(p, "utf8"));
+            c.server = { url: process.env.DEV_URL, cleartext: true, androidScheme: "http" };
+            fs.writeFileSync(p, JSON.stringify(c, null, 2));
+            console.log("dev build will load", c.server.url);
+          '
+
+
       - name: Confirm the APK will point at the live site
+        if: inputs.dev_server_url == ''
         working-directory: apps/mobile
         run: |
           url=$(node -p "require('./android/app/src/main/assets/capacitor.config.json').server.url")
@@ -75,9 +104,34 @@ jobs:
           # someone else's phone.
           test "$url" = "https://watch.abhigyanverma.com"
 
+      # The dev path stops here: a debug-signed APK with a different
+      # application id, uploaded as a workflow artifact and never published as
+      # a release. It cannot update, or be mistaken for, the real app.
+      - name: assembleDebug (dev build)
+        if: inputs.dev_server_url != ''
+        working-directory: apps/mobile/android
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: What did we build (dev)
+        if: inputs.dev_server_url != ''
+        working-directory: apps/mobile
+        run: |
+          apk=android/app/build/outputs/apk/debug/app-debug.apk
+          ls -la "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | grep -E "^package"
+          echo "points at: ${{ inputs.dev_server_url }}"
+
+      - uses: actions/upload-artifact@v4
+        if: inputs.dev_server_url != ''
+        with:
+          name: watch-dev-apk
+          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+
       # Written outside the workspace so it can never be picked up by a build
       # step or, worse, committed. Runners are destroyed after the job.
       - name: Materialise the signing keystore
+        if: inputs.dev_server_url == ''
         env:
           KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
@@ -91,6 +145,7 @@ jobs:
           test -s "$RUNNER_TEMP/watch-release.jks"
 
       - name: assembleRelease
+        if: inputs.dev_server_url == ''
         working-directory: apps/mobile/android
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/watch-release.jks
@@ -100,6 +155,7 @@ jobs:
         run: ./gradlew --no-daemon assembleRelease
 
       - name: What did we build
+        if: inputs.dev_server_url == ''
         working-directory: apps/mobile
         run: |
           apk=android/app/build/outputs/apk/release/app-release.apk
@@ -121,6 +177,7 @@ jobs:
         run: rm -f "$RUNNER_TEMP/watch-release.jks"
 
       - uses: actions/upload-artifact@v4
+        if: inputs.dev_server_url == ''
         with:
           name: watch-release-apk
           path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
@@ -130,7 +187,7 @@ jobs:
       # /releases/latest/download/<asset> pointing at the newest release, so the
       # app needs no API call, no token and no rate limit - just two fixed URLs.
       - name: Publish the release the app updates from
-        if: github.ref == 'refs/heads/platform-additions'
+        if: github.ref == 'refs/heads/platform-additions' && inputs.dev_server_url == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -160,7 +217,7 @@ jobs:
             "$RUNNER_TEMP/latest.json"
 
       - name: Confirm the update descriptor is reachable
-        if: github.ref == 'refs/heads/platform-additions'
+        if: github.ref == 'refs/heads/platform-additions' && inputs.dev_server_url == ''
         run: |
           url="https://github.com/${{ github.repository }}/releases/latest/download/latest.json"
           for i in 1 2 3 4 5; do

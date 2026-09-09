@@ -57,6 +57,18 @@ android {
                 signingConfig signingConfigs.release
             }
         }
+        // The dev build points at a laptop running `npm run dev` instead of the
+        // live site (see the dev_server_url input on the Android APK workflow).
+        //
+        // A different application id on purpose: it installs BESIDE the real
+        // app rather than replacing it, so a day of development cannot leave
+        // somebody holding a phone whose Watch app points at a laptop that is
+        // now switched off. Debug-signed, so it can never update the release
+        // one even by accident.
+        debug {
+            applicationIdSuffix ".dev"
+            versionNameSuffix "-dev"
+        }
     }
 }
 
