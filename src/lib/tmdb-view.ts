@@ -2,6 +2,7 @@ import "server-only";
 
 import { getCached, getLink, tmdbImage } from "./tmdb-store";
 import { CREW_JOBS, bucketForJob, type CrewBucket, type ShapedCredit } from "./tmdb-shape";
+import { getGroupedPathMap } from "./library-curation";
 
 /**
  * The projection layer: raw TMDB payload in, view models out.
@@ -414,11 +415,38 @@ interface RawEpisode {
  * payload lists consulting producers and co-producers by the handful, and on a
  * card they say nothing about who made it.
  */
+/**
+ * Which TMDB episode a file is, which takes three reads rather than one.
+ *
+ * The obvious guess — that a path link carries the season and episode — is
+ * wrong, and quietly so: a path link is `movie` with both fields null, because
+ * every episode is a Movie item in this library. The position is recorded on
+ * the `still` link written when the artwork was applied, and that row carries
+ * `tmdb_id = 0` because it identifies a file rather than a show. The show's id
+ * only exists on the group link. So: still link for the position, the grouped
+ * path map for which show, and the group link for its TMDB id.
+ *
+ * Returns null for the ~60 files with no still link (19 unparsed names, 3
+ * numbering mismatches, 39 episodes TMDB has no still for), which correctly
+ * fall back to the filename-parsed label.
+ */
+function episodeLocator(path: string): { tmdbId: number; season: number; episode: number } | null {
+  const still = getLink("still", path);
+  if (!still || still.season === null || still.episode === null) return null;
+
+  const group = getGroupedPathMap().get(path);
+  if (!group) return null;
+
+  const showLink = getLink("group", group.groupId);
+  if (!showLink || showLink.tmdbKind !== "tv" || showLink.tmdbId <= 0) return null;
+
+  return { tmdbId: showLink.tmdbId, season: still.season, episode: still.episode };
+}
+
 export function episodeViewByPath(path: string | null | undefined): EpisodeView | null {
   if (!path) return null;
-  const link = getLink("path", path);
-  if (!link || link.tmdbKind !== "tv" || link.tmdbId <= 0) return null;
-  if (link.season === null || link.episode === null) return null;
+  const link = episodeLocator(path);
+  if (!link) return null;
 
   const cached = getCached<{ episodes?: RawEpisode[] }>("season", link.tmdbId, link.season);
   if (!cached) return null;
@@ -469,4 +497,102 @@ export function episodeViewByPath(path: string | null | undefined): EpisodeView 
       ),
     ],
   };
+}
+
+/** The bit of an episode a tile in a season row can show. */
+export interface EpisodeTile {
+  seasonNumber: number;
+  episodeNumber: number;
+  name: string;
+  airDate: string | null;
+  voteAverage: number | null;
+}
+
+/**
+ * Episode titles for a whole row at once.
+ *
+ * The film page learned an episode's real name; the season row a viewer
+ * actually browses from did not, and still labelled every tile with the
+ * filename stem it parsed. This closes that, in one pass over the season
+ * payloads rather than one lookup per tile.
+ */
+export function episodeTilesForPaths(paths: string[]): Map<string, EpisodeTile> {
+  const out = new Map<string, EpisodeTile>();
+  if (paths.length === 0) return out;
+
+  // One cached season payload serves every episode of that season, so read
+  // each at most once however many tiles are asking.
+  const seasons = new Map<string, RawEpisode[]>();
+  const seasonFor = (tmdbId: number, season: number): RawEpisode[] => {
+    const key = `${tmdbId}:${season}`;
+    const hit = seasons.get(key);
+    if (hit) return hit;
+    const cached = getCached<{ episodes?: RawEpisode[] }>("season", tmdbId, season);
+    const episodes = cached?.payload.episodes ?? [];
+    seasons.set(key, episodes);
+    return episodes;
+  };
+
+  for (const path of paths) {
+    const link = episodeLocator(path);
+    if (!link) continue;
+    const raw = seasonFor(link.tmdbId, link.season).find(
+      (e) => e.episode_number === link.episode,
+    );
+    if (!raw?.name) continue;
+    out.set(path, {
+      seasonNumber: link.season,
+      episodeNumber: link.episode,
+      name: raw.name,
+      airDate: raw.air_date ?? null,
+      voteAverage: typeof raw.vote_average === "number" ? raw.vote_average : null,
+    });
+  }
+  return out;
+}
+
+export interface SeasonView {
+  seasonNumber: number;
+  name: string;
+  overview: string | null;
+  posterUrl: string | null;
+  episodeCount: number | null;
+  airYear: string | null;
+}
+
+interface RawSeasonSummary {
+  season_number?: number;
+  name?: string;
+  overview?: string;
+  poster_path?: string | null;
+  episode_count?: number;
+  air_date?: string | null;
+}
+
+/**
+ * What TMDB knows about each season of a show, keyed by season number.
+ *
+ * From the show payload's own seasons array rather than the per-season
+ * payloads: it carries the poster, the overview and the true episode count
+ * without needing a season to have been fetched at all.
+ */
+export function seasonViewsByGroup(groupId: string | null | undefined): Map<number, SeasonView> {
+  const out = new Map<number, SeasonView>();
+  if (!groupId) return out;
+  const link = getLink("group", groupId);
+  if (!link || link.tmdbKind !== "tv" || link.tmdbId <= 0) return out;
+
+  const cached = getCached<{ seasons?: RawSeasonSummary[] }>("tv", link.tmdbId);
+  for (const s of cached?.payload.seasons ?? []) {
+    if (typeof s.season_number !== "number") continue;
+    out.set(s.season_number, {
+      seasonNumber: s.season_number,
+      name: s.name ?? `Season ${s.season_number}`,
+      overview: s.overview?.trim() || null,
+      posterUrl: tmdbImage(s.poster_path ?? null, "w342"),
+      episodeCount: s.episode_count ?? null,
+      airYear: s.air_date ? s.air_date.slice(0, 4) : null,
+    });
+  }
+  return out;
 }

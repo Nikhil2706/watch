@@ -47,6 +47,14 @@ import { extractJellyfinId, itemHref, watchHref } from "@/lib/slugs";
 
 export const dynamic = "force-dynamic";
 
+/** "$14.2M" — approximate on purpose; TMDB's figures are not audited. */
+function money(value: number): string {
+  if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`;
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `$${Math.round(value / 1_000)}K`;
+  return `$${value}`;
+}
+
 export default async function ItemPage({
   params,
 }: {
@@ -330,7 +338,15 @@ export default async function ItemPage({
           </div>
         ) : null}
 
-        <RatingsRow ratings={ratings} community={item.CommunityRating} accolade={accolade} usRating={usRating} />
+        {/* For an episode, TMDB's score for THIS episode rather than whatever
+            the file inherited — the difference between "the show is good" and
+            "this hour is good", which is the whole point of per-episode data. */}
+        <RatingsRow
+          ratings={ratings}
+          community={episode?.voteAverage ?? item.CommunityRating}
+          accolade={accolade}
+          usRating={usRating}
+        />
 
         {/* Shown to everyone, not just parental-control accounts — this is
             informational (helping someone decide), separate from the filter
@@ -469,6 +485,19 @@ export default async function ItemPage({
       {/* Last, small, and not in cards. A film club cares what the film is,
           not what container it happens to be in — but the information is still
           worth having when a playback problem needs explaining. */}
+      {/* Known for 46% of the library, so this is absent more often than not.
+          A quiet line beside the file detail, not a panel. */}
+      {film?.budget || film?.revenue ? (
+        <p className="file-line">
+          {[
+            film.budget ? `Budget ${money(film.budget)}` : null,
+            film.revenue ? `Box office ${money(film.revenue)}` : null,
+          ]
+            .filter(Boolean)
+            .join("  ·  ")}
+        </p>
+      ) : null}
+
       <p className="file-line">
         {[
           source?.Container ? source.Container.toUpperCase() : null,

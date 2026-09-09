@@ -24,7 +24,7 @@ import { SpecialFeaturesRow } from "@/components/media/SpecialFeaturesRow";
 import { CreditsRow } from "@/components/media/CreditsRow";
 import { mergeCredits } from "@/lib/credit-cards";
 import { creditsForSubject } from "@/lib/tmdb-people";
-import { showViewByGroup } from "@/lib/tmdb-view";
+import { episodeTilesForPaths, seasonViewsByGroup, showViewByGroup } from "@/lib/tmdb-view";
 import { pendingRolloutCount } from "@/lib/rollout";
 
 /**
@@ -104,6 +104,14 @@ export default async function CollectionPage({
   // subject here is the group id rather than any one episode's path.
   const showCredits = creditsForSubject("group", id);
   const { cast: showCast, crew: showCrew } = mergeCredits([], showCredits);
+
+  // The real episode titles, for the row a viewer actually browses from. The
+  // film page learned these; this row was still labelling every tile with the
+  // filename stem it parsed.
+  const episodeTiles = episodeTilesForPaths(
+    collection.items.map((ci) => ci.item.Path).filter((p): p is string => Boolean(p)),
+  );
+  const seasonViews = seasonViewsByGroup(id);
 
   // Comments/ratings key off the SHOW's own IMDb id, same as getRatings()
   // already does inside getCollection() — not any one episode's. Absent
@@ -253,13 +261,46 @@ export default async function CollectionPage({
              * did something clever. Naming the missing episode answers it.
              */
             const missing = episodeGaps(seasonItems.map((it) => it.episode));
+            const sv = seasonViews.get(n);
             return (
               <div key={n}>
+                {/* The season's own poster and blurb, where TMDB has them. Says
+                    how many episodes the season really has next to how many are
+                    here, which is the question a gap in the numbering raises. */}
+                {sv && (sv.posterUrl || sv.overview) ? (
+                  <div className="season-head">
+                    {sv.posterUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img className="season-poster" src={sv.posterUrl} alt="" loading="lazy" />
+                    ) : null}
+                    <div className="season-head-body">
+                      <p className="season-meta">
+                        {[
+                          sv.airYear,
+                          sv.episodeCount
+                            ? `${seasonItems.length} of ${sv.episodeCount} episodes here`
+                            : `${seasonItems.length} here`,
+                        ]
+                          .filter(Boolean)
+                          .join("  ·  ")}
+                      </p>
+                      {sv.overview ? <p className="season-overview">{sv.overview}</p> : null}
+                    </div>
+                  </div>
+                ) : null}
                 <Row
-                  title={`Season ${n}`}
+                  title={sv?.name ?? `Season ${n}`}
                   items={seasonItems.map((it) => it.item)}
                   lists={lists}
-                  itemTitles={new Map(seasonItems.filter((it) => it.label).map((it) => [it.item.Id, it.label as string]))}
+                  itemTitles={
+                    new Map(
+                      seasonItems.flatMap((it) => {
+                        const tile = it.item.Path ? episodeTiles.get(it.item.Path) : undefined;
+                        const title = tile?.name ?? it.label;
+                        return title ? [[it.item.Id, title] as [string, string]] : [];
+                      }),
+                    )
+                  }
                 />
                 {missing.length > 0 ? (
                   <p className="season-gap" role="note">

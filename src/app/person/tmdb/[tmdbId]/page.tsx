@@ -10,6 +10,17 @@ import { initialsOf } from "@/lib/credit-cards";
 
 export const dynamic = "force-dynamic";
 
+/** How a stored department reads as a section heading on this page. */
+const DEPARTMENT_HEADINGS: Record<string, string> = {
+  cast: "Acted in",
+  directors: "Directed",
+  writers: "Wrote",
+  cinematographers: "Shot",
+  editors: "Edited",
+  composers: "Scored",
+  productionDesigners: "Designed",
+};
+
 /**
  * Everything in the library one TMDB person worked on.
  *
@@ -57,6 +68,25 @@ export default async function TmdbPersonPage({
     collapsed.items.map((i) => i.Id),
   );
 
+  // Split by department rather than one flat grid. Someone who shot four films
+  // here and directed one is not doing the same job twice, and a single run of
+  // posters cannot say which is which.
+  const byPath = new Map(collapsed.items.map((i) => [i.Path ?? "", i]));
+  const sections = new Map<string, MediaItem[]>();
+  for (const c of credits) {
+    if (c.subjectType !== "path") continue;
+    const found = byPath.get(c.subjectId);
+    if (!found) continue;
+    const label = DEPARTMENT_HEADINGS[c.department] ?? "Other";
+    const bucket = sections.get(label);
+    if (bucket) {
+      if (!bucket.some((i) => i.Id === found.Id)) bucket.push(found);
+    } else {
+      sections.set(label, [found]);
+    }
+  }
+  const ordered = [...sections.entries()].sort((a, b) => b[1].length - a[1].length);
+
   // What they are known for here, most-credited job first — a person who edited
   // nine films and shot one should read as an editor.
   const jobCounts = new Map<string, number>();
@@ -90,20 +120,28 @@ export default async function TmdbPersonPage({
         </div>
       </section>
 
-      {collapsed.items.length > 0 ? (
-        <div className="grid">
-          {collapsed.items.map((mediaItem) => (
-            <PosterCard
-              key={mediaItem.Id}
-              item={mediaItem}
-              lists={lists.get(mediaItem.Id)}
-              href={collapsed.hrefs.get(mediaItem.Id)}
-              posterSrc={collapsed.posters.get(mediaItem.Id)}
-              partsCount={collapsed.partsCounts.get(mediaItem.Id)}
-              partsUnit={collapsed.partsUnits.get(mediaItem.Id)}
-            />
-          ))}
-        </div>
+      {ordered.length > 0 ? (
+        ordered.map(([heading, filmsForDept]) => (
+          <section key={heading} className="row" aria-label={heading}>
+            <h2>
+              {heading}
+              <span className="row-count"> {filmsForDept.length}</span>
+            </h2>
+            <div className="grid">
+              {filmsForDept.map((mediaItem) => (
+                <PosterCard
+                  key={mediaItem.Id}
+                  item={mediaItem}
+                  lists={lists.get(mediaItem.Id)}
+                  href={collapsed.hrefs.get(mediaItem.Id)}
+                  posterSrc={collapsed.posters.get(mediaItem.Id)}
+                  partsCount={collapsed.partsCounts.get(mediaItem.Id)}
+                  partsUnit={collapsed.partsUnits.get(mediaItem.Id)}
+                />
+              ))}
+            </div>
+          </section>
+        ))
       ) : (
         <p className="page-sub" style={{ padding: "0 20px" }}>
           Their credits here are all on titles that are no longer in the library.
