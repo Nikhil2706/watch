@@ -670,6 +670,7 @@
     <button class="tab-btn" data-tab="dupes">Duplicates</button>
     <button class="tab-btn" data-tab="worker">Worker</button>
     <button class="tab-btn" data-tab="accolades">Accolades</button>
+    <button class="tab-btn" data-tab="tmdb">TMDB</button>
     <button class="tab-btn" data-tab="health">Health</button>
     <button class="tab-btn" data-tab="notify">Notify</button>
     <button class="tab-btn" data-tab="invites">Invites</button>
@@ -1036,6 +1037,57 @@
   </div>
 
   <!-- ============================== Health tab ============================== -->
+  <div class="tab-panel" id="tab-tmdb" data-tab="tmdb">
+    <div class="card">
+      <div class="row" style="align-items:center">
+        <div style="flex:1">
+          <div class="card-title">The TMDB store</div>
+          <div class="note" style="margin-top:2px">
+            Cast, full crew, keywords, stills, logos and recommendations — none of which OMDb carries.
+            Fetched once and kept, so a new use of this data costs a SQL read rather than 400 requests
+            over a link that drops one in thirty.
+          </div>
+        </div>
+        <div style="flex:0 0 auto"><button id="tmdbRefresh" class="ghost">Refresh</button></div>
+      </div>
+      <div class="health-grid" id="tmdbStats" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Fill the store</div>
+      <div class="note" style="margin-top:2px">
+        Bounded and repeatable rather than one long run: TMDB imposes no daily quota, but this host's
+        link to it fails often enough that a full pass would spend minutes failing. Press again to
+        continue — the store itself is the cursor, so nothing is redone.
+      </div>
+      <div class="row" style="margin-top:10px; align-items:center">
+        <button id="tmdbTick" class="primary">Run one pass</button>
+        <button id="tmdbPeople" class="ghost">Rebuild people &amp; credits</button>
+        <div class="note" style="flex:1">
+          Rebuilding people reads only what is already cached — no network at all — and is safe to
+          press twice.
+        </div>
+      </div>
+      <div id="tmdbTickOut" class="note" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="align-items:center">
+        <div style="flex:1">
+          <div class="card-title">Identification audit</div>
+          <div class="note" style="margin-top:2px">
+            Every film ranked by how much its identification disagrees with TMDB, using alternative
+            titles. This is what finds the mis-matches nobody has tripped over yet — the reason it
+            exists is that <code>[Rec] 2</code> spent months identified as <i>The Descent: Part 2</i>
+            and was found by eye.
+          </div>
+        </div>
+        <div style="flex:0 0 auto"><button id="tmdbAudit" class="ghost">Run audit</button></div>
+      </div>
+      <div id="tmdbAuditOut" style="margin-top:12px"></div>
+    </div>
+  </div>
+
   <div class="tab-panel" id="tab-health" data-tab="health">
     <div class="card">
       <div class="row" style="align-items:center">
@@ -2254,6 +2306,116 @@
   document.getElementById("scrFilm").addEventListener("input", scrSearch);
   document.getElementById("scrCreate").addEventListener("click", scrCreate);
   document.querySelector('.tab-btn[data-tab="screenings"]').addEventListener("click", scrLoad);
+
+  /* ---------------------------------------------------------------- *
+   * TMDB tab
+   *
+   * Reads endpoints that already exist: GET/POST /api/admin/tmdb for the
+   * store, GET/POST /api/admin/people for the credit tables, and GET
+   * /api/admin/match-audit for the identification ranking. No new backend.
+   * ---------------------------------------------------------------- */
+
+  function tmdbStat(label, value, note) {
+    return '<div class="health-card">' +
+      '<div class="hc-label">' + esc(label) + "</div>" +
+      '<div class="hc-value">' + esc(String(value)) + "</div>" +
+      (note ? '<div class="hc-sub">' + esc(note) + "</div>" : "") +
+      "</div>";
+  }
+
+  function tmdbLoadStats() {
+    var el = $("tmdbStats");
+    el.innerHTML = '<div class="muted" style="font-size:13px">Reading…</div>';
+    Promise.all([
+      api("/api/admin/tmdb").catch(function () { return null; }),
+      api("/api/admin/people").catch(function () { return null; })
+    ]).then(function (r) {
+      var store = r[0] || {};
+      var people = r[1] || {};
+      var cache = people.photoCache || {};
+      var html = "";
+      if (store.movies != null) html += tmdbStat("Films cached", store.movies);
+      if (store.shows != null) html += tmdbStat("Shows", store.shows);
+      if (store.seasons != null) html += tmdbStat("Seasons", store.seasons);
+      html += tmdbStat("People", people.people != null ? people.people : "—");
+      html += tmdbStat("Credits", people.credits != null ? people.credits : "—");
+      html += tmdbStat(
+        "Photos cached",
+        cache.count != null ? cache.count : "—",
+        cache.megabytes != null ? cache.megabytes + " MB, filled as pages are viewed" : ""
+      );
+      el.innerHTML = html || '<div class="muted" style="font-size:13px">Nothing to report.</div>';
+    });
+  }
+
+  function tmdbRunTick() {
+    var out = $("tmdbTickOut");
+    out.textContent = "Running one pass…";
+    api("/api/admin/tmdb", { method: "POST", body: { budget: 40 } }).then(function (d) {
+      out.textContent =
+        "Fetched " + (d.moviesFetched || 0) + " films, " + (d.seasonsFetched || 0) + " seasons, " +
+        "linked " + (d.showsLinked || 0) + " shows, " + (d.failures || 0) + " failures" +
+        (d.creditsIngested ? ", " + d.creditsIngested + " credits rebuilt" : "") +
+        (d.done ? " — everything with an IMDb id is cached." : " — press again to continue.");
+      tmdbLoadStats();
+    }).catch(function (e) {
+      out.textContent = "Failed: " + (e && e.message ? e.message : String(e));
+    });
+  }
+
+  function tmdbRunPeople() {
+    var out = $("tmdbTickOut");
+    out.textContent = "Rebuilding from what is already cached…";
+    api("/api/admin/people", { method: "POST" }).then(function (d) {
+      out.textContent =
+        "Read " + (d.subjects || 0) + " titles, wrote " + (d.credits || 0) + " credits" +
+        (d.episodePeople ? " and " + d.episodePeople + " people from season payloads" : "") + ".";
+      tmdbLoadStats();
+    }).catch(function (e) {
+      out.textContent = "Failed: " + (e && e.message ? e.message : String(e));
+    });
+  }
+
+  function tmdbRunAudit() {
+    var el = $("tmdbAuditOut");
+    el.innerHTML = '<div class="muted" style="font-size:13px">Comparing every film against TMDB…</div>';
+    api("/api/admin/match-audit").then(function (d) {
+      var findings = d.findings || [];
+      var head =
+        '<div class="note" style="margin-bottom:10px">' +
+        esc(d.audited + " audited · " + d.suspect + " suspect · " + d.check + " worth a look · " +
+            d.uncached + " not cached, so not judged") + "</div>";
+      if (!findings.length) {
+        el.innerHTML = head + '<div class="muted" style="font-size:13px">Nothing disagrees.</div>';
+        return;
+      }
+      el.innerHTML = head + findings.map(function (f) {
+        var bad = f.verdict === "suspect";
+        return '<div class="card" style="margin:0 0 8px;padding:12px 14px' +
+          (bad ? ";border-color:rgba(239,91,107,.4)" : "") + '">' +
+          '<div style="font-weight:600;font-size:13.5px">' + esc(f.libraryTitle || "") +
+          ' <span class="muted" style="font-weight:400">(' + esc(String(f.libraryYear || "?")) + ')</span>' +
+          (bad ? ' <span style="color:#ef5b6b;font-size:11px;letter-spacing:.06em">SUSPECT</span>' : "") +
+          "</div>" +
+          '<div class="muted" style="font-size:12.5px;margin-top:3px">TMDB: ' +
+          esc(f.tmdbTitle || "—") + " (" + esc(String(f.tmdbYear || "?")) + ")</div>" +
+          '<div class="muted" style="font-size:12px;margin-top:2px;font-family:ui-monospace,monospace">' +
+          esc(f.filename || "") + "</div>" +
+          '<div style="font-size:12.5px;margin-top:5px">' + esc(f.why || "") + "</div>" +
+          "</div>";
+      }).join("");
+    }).catch(function (e) {
+      el.innerHTML = '<div class="muted" style="font-size:13px">Failed: ' +
+        esc(e && e.message ? e.message : String(e)) + "</div>";
+    });
+  }
+
+  $("tmdbRefresh").addEventListener("click", tmdbLoadStats);
+  $("tmdbTick").addEventListener("click", tmdbRunTick);
+  $("tmdbPeople").addEventListener("click", tmdbRunPeople);
+  $("tmdbAudit").addEventListener("click", tmdbRunAudit);
+  document.querySelector('.tab-btn[data-tab="tmdb"]').addEventListener("click", tmdbLoadStats);
+
 
   document.querySelector('.tab-btn[data-tab="health"]').addEventListener("click", function () {
     loadHealth();
