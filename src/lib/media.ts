@@ -710,6 +710,42 @@ export async function getItemsByImdbIds(
   }
 }
 
+/**
+ * Items by their file path, batched the same way as getItemsByImdbIds above.
+ *
+ * Path rather than IMDb id because the TMDB credit tables are path-keyed:
+ * Jellyfin item ids do not survive a library rebuild, and an episode file has
+ * no IMDb id of its own at all. One request for the whole set, then a local
+ * filter — the same shape, and for the same reason, as the batched lookup
+ * above: Jellyfin's per-item filters are a silent no-op often enough that
+ * fetching once and matching here is the only reliable form.
+ */
+export async function getItemsByPaths(
+  session: ResolvedSession,
+  paths: string[],
+): Promise<Map<string, MediaItem>> {
+  const wanted = new Set(paths);
+  if (wanted.size === 0) return new Map();
+
+  const [token, device] = creds(session);
+  try {
+    const result = await userFetch<{ Items: MediaItem[] }>(token, device, "/Items", {
+      userId: session.jellyfinUserId,
+      includeItemTypes: "Movie",
+      recursive: true,
+      fields: "ProviderIds,ProductionYear,ImageTags,OfficialRating,Path",
+    });
+    const visible = filterVisible(result.Items, session);
+    const map = new Map<string, MediaItem>();
+    for (const item of visible) {
+      if (item.Path && wanted.has(item.Path)) map.set(item.Path, item);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
 export async function getItem(
   session: ResolvedSession,
   itemId: string,

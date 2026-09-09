@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Weekly: refresh the oldest slice of the TMDB cache, then back the stack up to E:.
+# Weekly: refresh the oldest slice of the TMDB cache and pick up new library items.
 #
 # Installed at /usr/local/bin/jellyfin-gate-weekly.sh, driven by
 # /etc/cron.d/jellyfin-gate-weekly — the same shape as wsl-mem-reclaim.
@@ -75,12 +75,9 @@ R=$(curl -sS --max-time 280 -X POST "$BASE/api/admin/episode-stills" \
     -d '{"budget":100}' 2>/dev/null)
 log "episode stills: $R"
 
-# --- 4. back it all up to E: ------------------------------------------------
-# Last, so the backup captures the state the refresh just produced.
-if bash "$REPO/scripts/backup-to-e.sh" >> "$LOG" 2>&1; then
-  log "backup ok"
-else
-  log "BACKUP FAILED — the drive on C: is failing, so this matters"
-fi
+# The backup used to be step 4 here and is now its own daily job — see
+# scripts/backup-cron.sh. It does not belong behind these guards: skipping a
+# TMDB refresh because someone is watching is sensible, skipping a backup for
+# the same reason is how a month passes without one.
 
 log "=== weekly maintenance done ==="

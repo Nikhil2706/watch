@@ -4392,3 +4392,135 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
   .screening-card { flex-direction: column; }
   .screening-poster { width: 148px; }
 }
+
+/* ---------------------------------------------------------------- *
+ * TMDB additions to the hero
+ *
+ * Three elements, each optional, because coverage is partial and measured:
+ * a title logo (67% of the library), a tagline (57%), and the original title
+ * where it differs from the English one. Every one of them renders nothing
+ * when TMDB has nothing, so the hero is unchanged for the rest.
+ * ---------------------------------------------------------------- */
+
+/* Stands in for the h1, which stays in the document as .sr-only so the page
+   keeps a heading. Capped on both axes: TMDB logos vary wildly in aspect and
+   an unconstrained one can be twice the height of the title it replaces. */
+.hero-logo {
+  display: block;
+  max-width: min(300px, 72%);
+  max-height: 88px;
+  margin: 0 0 10px;
+  object-fit: contain;
+}
+
+/* Serif and amber, matching the accolade cell rather than the body text: a
+   tagline is marketing copy, not a fact about the film, and should not read
+   with the same authority as the synopsis under it. */
+.tagline {
+  margin: 0 0 10px;
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  font-size: 1.05rem;
+  font-style: italic;
+  color: #e3c99e;
+}
+
+/* Sits in the meta line beside year and runtime, so a film is findable by the
+   name it was released under. */
+.orig-title {
+  font-style: italic;
+}
+
+/* ---------------------------------------------------------------- *
+ * Special features
+ *
+ * This row shipped with NO CSS at all — every sf-* class was unstyled, so it
+ * rendered as a bulleted <ul> of unsized 220px images. Nothing to do with
+ * TMDB; it has been like this since the row was written.
+ * ---------------------------------------------------------------- */
+
+.sf-section {
+  margin: 0 0 30px;
+  padding: 0 20px;
+  max-width: 900px;
+}
+
+.sf-heading {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.sf-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(304px, 1fr));
+  gap: 10px;
+}
+
+.sf-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.sf-card:hover {
+  border-color: var(--accent);
+}
+
+.sf-link {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.sf-art {
+  width: 72px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  display: block;
+  background: var(--surface-2);
+}
+
+.sf-art-empty {
+  align-self: stretch;
+  min-height: 104px;
+}
+
+.sf-body {
+  padding: 10px 12px 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sf-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.sf-meta {
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+/* Amber, because "why is this here" is a curator-set mapping rather than
+   metadata — the same light every other curator-authored surface uses. */
+.sf-why {
+  margin-top: auto;
+  padding-top: 6px;
+  font-size: 0.68rem;
+  color: var(--warm);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+@media (max-width: 700px) {
+  .sf-section {
+    padding: 0 14px;
+  }
+}

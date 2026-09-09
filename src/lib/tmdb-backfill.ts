@@ -13,6 +13,7 @@ import {
   putLink,
   searchShows,
 } from "./tmdb-store";
+import { ingestAllFromCache } from "./tmdb-people";
 import { normaliseShowName, pickBestShowMatch } from "./tmdb-match";
 
 /**
@@ -48,6 +49,8 @@ export interface TmdbBackfillResult {
   unmatched: Array<{ group: string; files: number }>;
   /** Films TMDB has nothing for, now remembered so they are not re-asked. */
   noMatch: number;
+  /** Credit rows rebuilt from whatever this tick cached. */
+  creditsIngested: number;
   note?: string;
 }
 
@@ -155,6 +158,7 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
     done: false,
     unmatched: [],
     noMatch: 0,
+    creditsIngested: 0,
   };
 
   const spend = () => (result.callsUsed += 1);
@@ -331,6 +335,19 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
     } catch {
       result.failures += 1;
     }
+  }
+
+  // Turn whatever is now cached into people and credits. Local only: it reads
+  // the payloads this tick just stored and rewrites the credit rows from them,
+  // so a newly cached film has a Crew row without waiting for a separate pass
+  // anybody has to remember to run. Idempotent, which is what makes it safe to
+  // do on every tick rather than tracking which subjects are new.
+  try {
+    result.creditsIngested = ingestAllFromCache().credits;
+  } catch (error) {
+    // A failure here must not fail the tick: the cache is the valuable part
+    // and this is a derived view of it that the next tick will rebuild.
+    console.error("[tmdb] credit ingest after backfill failed:", error);
   }
 
   result.done = remaining === 0;

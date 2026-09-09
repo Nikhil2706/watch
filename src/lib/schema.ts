@@ -30,7 +30,7 @@
  * runVersionedMigrations() will not replay the set at all. The live database
  * is already at 40, so the other branch's v38 work would never have run here.
  */
-export const SCHEMA_VERSION = 44;
+export const SCHEMA_VERSION = 45;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1149,4 +1149,67 @@ CREATE TABLE IF NOT EXISTS tmdb_links (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_tmdb_links_tmdb ON tmdb_links(tmdb_kind, tmdb_id);
+
+-- People, as records rather than fields inside a cached blob.
+--
+-- Jellyfin holds ZERO people of type DirectorOfPhotography, Editor, Composer
+-- or ProductionDesign across all 1,181 items -- only Director, Actor, Writer
+-- and Producer. So a cinematographer has no Jellyfin person row to hang a
+-- photo or a page on, and CastRow's href of /person/{jellyfin id} has nothing
+-- to point at. These three tables are that missing home.
+--
+-- Keyed on the TMDB person id, which is stable and global. Deliberately NOT on
+-- a Jellyfin person id, which does not survive a library rebuild -- the same
+-- reasoning that made tmdb_links key on path rather than item id.
+CREATE TABLE IF NOT EXISTS tmdb_people (
+  tmdb_id      INTEGER PRIMARY KEY,
+  name         TEXT NOT NULL,
+  profile_path TEXT,             -- TMDB's own path; NULL when they have no photo
+  updated_at   INTEGER NOT NULL
+) STRICT;
+
+-- What in THIS library a person is credited on, and for what.
+--
+-- subject_type/subject_id match tmdb_links exactly (path for a file, group for
+-- a show), so "everything here this person worked on" is one indexed read
+-- instead of parsing 390 cached payloads on every person page. That parse is
+-- precisely the cost the projection layer exists to avoid.
+--
+-- The primary key includes job because one person genuinely holds two on the
+-- same film -- Clouzot directed and co-wrote The Wages of Fear, and Pablo
+-- Rosso shot [REC] while also appearing in it.
+CREATE TABLE IF NOT EXISTS tmdb_credits (
+  tmdb_person_id INTEGER NOT NULL,
+  subject_type   TEXT NOT NULL,   -- path | group
+  subject_id     TEXT NOT NULL,
+  department     TEXT NOT NULL,   -- cast | directors | writers | cinematographers | composers | editors | productionDesigners
+  job            TEXT NOT NULL,   -- the crew job, or the character name for cast
+  ord            INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (tmdb_person_id, subject_type, subject_id, department, job)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_tmdb_credits_subject ON tmdb_credits(subject_type, subject_id);
+
+-- The photo bytes themselves.
+--
+-- In the database rather than on the data volume for three reasons: they ride
+-- the existing daily backup with no change to it, a row can never drift apart
+-- from the image it names, and undoing the whole thing is one DELETE. At w185
+-- a headshot is around 12 KB, so the realistic ceiling here is tens of
+-- megabytes against a 181 MB database that already carries 27 MB of payload.
+--
+-- Filled lazily, never by a backfill loop: a miss fetches once, stores, and
+-- serves; a failure 404s and the card falls back to initials, which it already
+-- does for every person Jellyfin has no photo for. That matters because the
+-- two budgeted loops written for TMDB both had the same bug -- spending the
+-- budget without recording progress -- and a cache with no loop cannot.
+CREATE TABLE IF NOT EXISTS tmdb_images (
+  path         TEXT NOT NULL,    -- TMDB file_path, e.g. /8MTHVfhHBgXrqTNHs.jpg
+  size         TEXT NOT NULL,    -- the rendition asked for: w185, w300, ...
+  bytes        BLOB NOT NULL,
+  content_type TEXT NOT NULL,
+  byte_len     INTEGER NOT NULL,
+  fetched_at   INTEGER NOT NULL,
+  PRIMARY KEY (path, size)
+) STRICT;
 `;

@@ -21,6 +21,10 @@ import {
   type CollectionItem,
 } from "@/lib/media";
 import { SpecialFeaturesRow } from "@/components/media/SpecialFeaturesRow";
+import { CreditsRow } from "@/components/media/CreditsRow";
+import { mergeCredits } from "@/lib/credit-cards";
+import { creditsForSubject } from "@/lib/tmdb-people";
+import { showViewByGroup } from "@/lib/tmdb-view";
 import { pendingRolloutCount } from "@/lib/rollout";
 
 /**
@@ -91,6 +95,16 @@ export default async function CollectionPage({
   const creators = collection.director.length > 0 ? collection.director : collection.writer;
   const creatorsLabel = collection.director.length > 0 ? "Directed by" : "Created by";
 
+  // Everything TMDB knows about the show itself. Null until the group has been
+  // linked, which is the same condition collection.ratings already lives under.
+  const show = showViewByGroup(id);
+
+  // The show page has never had face rows — cast and crew are two comma
+  // separated text lines below. Groups are credited as a whole, so the
+  // subject here is the group id rather than any one episode's path.
+  const showCredits = creditsForSubject("group", id);
+  const { cast: showCast, crew: showCrew } = mergeCredits([], showCredits);
+
   // Comments/ratings key off the SHOW's own IMDb id, same as getRatings()
   // already does inside getCollection() — not any one episode's. Absent
   // until the group has been linked to a real series (curator dashboard's
@@ -133,17 +147,40 @@ export default async function CollectionPage({
 
       {/* The real series poster, once the admin has linked one — otherwise
           a plain text header rather than guessing at a background. */}
-      {collection.posterSrc ? (
+      {show?.backdropUrl || collection.posterSrc ? (
         <section className="hero">
+          {/* TMDB's backdrop where there is one. The fallback is the series
+              POSTER, which is 2:3 — under background-size:cover a portrait
+              image in a wide box is cropped to a strip of its middle and blown
+              up, which is what this hero has looked like until now. */}
           <div
             className="hero-bg"
-            style={{ backgroundImage: `url("${collection.posterSrc}")` }}
+            style={{ backgroundImage: `url("${show?.backdropUrl ?? collection.posterSrc}")` }}
             aria-hidden="true"
           />
           <div className="hero-content">
-            <h1>{collection.Name}</h1>
+            {show?.logoUrl ? (
+              <>
+                <h1 className="sr-only">{collection.Name}</h1>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="hero-logo" src={show.logoUrl} alt={collection.Name} />
+              </>
+            ) : (
+              <h1>{collection.Name}</h1>
+            )}
+            {show?.tagline ? <p className="tagline">{show.tagline}</p> : null}
             <div className="meta">
               <span>{partsLabel}</span>
+              {/* How much of the show exists, next to how much of it is here. */}
+              {show?.seasonCount ? (
+                <span>
+                  {show.seasonCount} season{show.seasonCount === 1 ? "" : "s"}
+                  {show.episodeCount ? ` · ${show.episodeCount} in total` : ""}
+                </span>
+              ) : null}
+              {show?.years ? <span>{show.years}</span> : null}
+              {show?.status ? <span className="chip">{show.status}</span> : null}
+              {show?.networks.length ? <span>{show.networks.join(", ")}</span> : null}
               {pendingCount > 0 ? <span className="chip">+{pendingCount} more releasing soon</span> : null}
               {collection.ratings?.imdb ? (
                 <span className="meta-rating">
@@ -152,7 +189,9 @@ export default async function CollectionPage({
                 </span>
               ) : null}
             </div>
-            {collection.Overview ? <p>{collection.Overview}</p> : null}
+            {collection.Overview || show?.overview ? (
+              <p>{collection.Overview || show?.overview}</p>
+            ) : null}
             {curatorNote ? <CuratorNote note={curatorNote} /> : null}
           </div>
         </section>
@@ -180,19 +219,25 @@ export default async function CollectionPage({
 
         <RatingsRow ratings={collection.ratings} usRating={usRating} />
 
-        {collection.actors.length > 0 ? (
+        {/* These two text lines are what this page had instead of face rows.
+            They stay as the fallback for any group TMDB has no credits for —
+            OMDb still supplies them from the show's own entry. */}
+        {showCast.length === 0 && collection.actors.length > 0 ? (
           <div className="subtitle-line">
             <span className="subtitle-label">Starring</span>
             <span>{collection.actors.join(", ")}</span>
           </div>
         ) : null}
-        {creators.length > 0 ? (
+        {showCrew.length === 0 && creators.length > 0 ? (
           <div className="subtitle-line">
             <span className="subtitle-label">{creatorsLabel}</span>
             <span>{creators.join(", ")}</span>
           </div>
         ) : null}
       </div>
+
+      <CreditsRow people={showCast} heading="Cast" />
+      <CreditsRow people={showCrew} heading="Crew" limit={14} />
 
       {collection.items.length === 0 ? (
         <div className="empty">Nothing in this collection.</div>

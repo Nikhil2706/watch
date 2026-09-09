@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { AppBar } from "@/components/AppBar";
 import { CuratorNote } from "@/components/media/CuratorNote";
 import { AccoladesSection } from "@/components/media/AccoladesSection";
-import { CastRow } from "@/components/media/CastRow";
+import { CreditsRow } from "@/components/media/CreditsRow";
 import { FetchSubtitlesButton } from "@/components/media/FetchSubtitlesButton";
 import { CommunitySection } from "@/components/media/CommunitySection";
 import { CuratorPicks } from "@/components/media/CuratorPicks";
@@ -18,6 +18,11 @@ import { getCachedContentWarning, toDisplaySignals } from "@/lib/content-warning
 import { curationsForItem } from "@/lib/curations";
 import { getMemberships } from "@/lib/lists";
 import { getRatings } from "@/lib/ratings";
+import { mergeCredits } from "@/lib/credit-cards";
+import { rankSimilar } from "@/lib/similar-rank";
+import { creditsForSubject } from "@/lib/tmdb-people";
+import { suggestionsForPath } from "@/lib/tmdb-similar";
+import { episodeViewByPath, filmViewByPath } from "@/lib/tmdb-view";
 import { resolveAccolade, resolveBlurb } from "@/lib/scraping/resolve";
 import { resolveTriviaForFilm } from "@/lib/scraping/trivia";
 import { listSubtitles } from "@/lib/subtitles";
@@ -123,19 +128,75 @@ export default async function ItemPage({
 
   const source = item.MediaSources?.[0];
   const audio = source?.MediaStreams?.filter((s) => s.Type === "Audio") ?? [];
-  const directors = (item.People ?? []).filter((p) => p.Type === "Director");
-  const cast = (item.People ?? []).filter((p) => p.Type === "Actor").slice(0, 20);
-  const writers = (item.People ?? []).filter((p) => p.Type === "Writer");
-  const producers = (item.People ?? []).filter((p) => p.Type === "Producer");
-  // Confirmed against the real library (627 movies): OMDb, the metadata
-  // source this app's backfill uses, never supplies these two credit
-  // types at all — every item.People entry is Actor/Director/Writer/
-  // Producer only. Filtered for anyway rather than left out: if the
-  // metadata source ever changes, or a specific title's data happens to
-  // carry them, these rows appear automatically with no further code
-  // change — CastRow already renders nothing for an empty list.
-  const cinematographers = (item.People ?? []).filter((p) => p.Type === "DirectorOfPhotography");
-  const editors = (item.People ?? []).filter((p) => p.Type === "Editor");
+  // The file's own path, which is what every TMDB table here is keyed on —
+  // Jellyfin item ids do not survive a library rebuild and paths do. It comes
+  // from the item, not the media source, and DETAIL_FIELDS already asks for it.
+  const filePath = item.Path ?? null;
+
+  // Jellyfin knows the cast, and Director/Writer/Producer. It holds ZERO
+  // people of type DirectorOfPhotography, Editor, Composer or ProductionDesign
+  // across all 1,181 items, which is why the Cinematography and Editing rows
+  // written here originally have always rendered empty. TMDB has those for 368
+  // titles; mergeCredits puts both sources in one Cast row and one Crew row.
+  const tmdbCredits = filePath ? creditsForSubject("path", filePath) : [];
+
+  // Title logo, tagline, original title and trailer, all from the projection
+  // layer rather than the raw payload. Null for anything not cached, and every
+  // use below is optional — coverage is 67% / 57% / partial / 75%.
+  const film = filePath ? filmViewByPath(filePath) : null;
+
+  // An episode file links to the SHOW, so filmViewByPath returns nothing for
+  // one; this reads its own row out of the cached season payload instead. That
+  // payload already carries each episode's crew and guest stars, so naming who
+  // directed this particular hour costs no request.
+  const episode = filePath ? episodeViewByPath(filePath) : null;
+
+  // An episode folds its own crew and guest stars into the same two rows a
+  // film gets. Jellyfin's people come first either way, so anyone it already
+  // knows keeps their person page and their portrait.
+  const { cast, crew } = mergeCredits(item.People ?? [], [
+    ...tmdbCredits,
+    ...(episode?.credits ?? []),
+  ]);
+
+  // TMDB's recommendations, intersected with what is owned. Measured across
+  // 401 films: median 0, mean 0.6, and 57% of films get nothing at all — so
+  // this cannot BE the row, and is used to rank and label Jellyfin's instead.
+  // See similar-rank.ts.
+  const suggestions = filePath ? suggestionsForPath(filePath) : null;
+
+  // TMDB agreeing with Jellyfin about a pairing is independent evidence that
+  // the pairing is real, so those move to the front of the row and say so.
+  // Nothing is removed and the row never gets shorter — on the 57% of films
+  // where TMDB has nothing owned to offer, this is exactly the old ordering.
+  const jellyfinSimilar = collapsedSimilar.items.map((i) => ({
+    ...i,
+    imdbId: i.ProviderIds?.Imdb ?? null,
+  }));
+  // Owned films TMDB suggests that Jellyfin's own /Similar did not return.
+  // Mean 0.6 per film, so this usually adds nothing — but when it does, the
+  // alternative was silently dropping a title that is sitting on the disk.
+  const alreadyListed = new Set(
+    jellyfinSimilar.map((i) => i.imdbId).filter((id): id is string => id !== null),
+  );
+  const extraImdbIds = [...(suggestions?.endorsedImdbIds ?? [])].filter(
+    (imdb) => !alreadyListed.has(imdb),
+  );
+  const extraItems = extraImdbIds.length
+    ? Array.from((await getItemsByImdbIds(session, extraImdbIds)).values(), (i) => ({
+        ...i,
+        imdbId: i.ProviderIds?.Imdb ?? null,
+      })).filter((i) => i.Id !== item.Id)
+    : [];
+
+  const rankedSimilar = rankSimilar(
+    jellyfinSimilar,
+    suggestions?.endorsedImdbIds ?? new Set<string>(),
+    extraItems,
+  );
+  const similarBadges = new Map(
+    [...rankedSimilar.endorsed].map((itemId) => [itemId, "Also on TMDB"]),
+  );
 
   return (
     <div className="detail">
@@ -150,7 +211,22 @@ export default async function ItemPage({
           />
         ) : null}
         <div className="hero-content">
-          <h1>{item.Name}</h1>
+          {/* TMDB has a title logo for 67% of the library. Where there is one it
+              stands in for the heading; where there is not, the heading is
+              unchanged. The h1 stays in the document either way, visually
+              hidden, so the page keeps its heading for a screen reader. */}
+          {film?.logoUrl ? (
+            <>
+              <h1 className="sr-only">{item.Name}</h1>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img className="hero-logo" src={film.logoUrl} alt={item.Name} />
+            </>
+          ) : (
+            // An episode's item name is derived from its filename, so it reads
+            // "The West Wing S05E01". TMDB has the title the episode was given.
+            <h1>{episode?.name || item.Name}</h1>
+          )}
+          {film?.tagline ? <p className="tagline">{film.tagline}</p> : null}
           <div className="meta">
             {item.ProductionYear ? <span>{item.ProductionYear}</span> : null}
             {runtime ? <span>{runtime}</span> : null}
@@ -167,8 +243,33 @@ export default async function ItemPage({
             ) : item.CommunityRating ? (
               <span>★ {item.CommunityRating.toFixed(1)}</span>
             ) : null}
+            {/* Only ever set when it differs from the title, so this is "Ran"
+                beside 乱 rather than "Memento" beside "Memento". */}
+            {film?.originalTitle ? (
+              <span className="orig-title">{film.originalTitle}</span>
+            ) : null}
+            {episode ? (
+              <span>
+                Season {episode.seasonNumber}, Episode {episode.episodeNumber}
+              </span>
+            ) : null}
+            {episode?.airDate ? (
+              <span>
+                {new Date(`${episode.airDate}T00:00:00Z`).toLocaleDateString("en-GB", {
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                  timeZone: "UTC",
+                })}
+              </span>
+            ) : null}
           </div>
-          {item.Overview ? <p>{item.Overview}</p> : null}
+          {/* Episodes in a group share the show's OMDb blurb, so every hour of
+              a series says the same thing about the series. TMDB has a
+              synopsis for this episode. */}
+          {episode?.overview || item.Overview ? (
+            <p>{episode?.overview || item.Overview}</p>
+          ) : null}
           {curatorNote ? <CuratorNote note={curatorNote} /> : null}
           <div className="btn-row">
             <ListButtons
@@ -206,6 +307,14 @@ export default async function ItemPage({
                 exporting the original file, this is a sandboxed copy. */}
             <OfflineButton itemId={item.Id} title={item.Name} />
             <StartPartyButton jellyfinId={item.Id} />
+            {/* 75% of the library has one. Opens on YouTube rather than
+                embedding: an embed would load Google's player into a page that
+                otherwise makes no third-party request. */}
+            {film?.trailerUrl ? (
+              <a className="btn ghost" href={film.trailerUrl} target="_blank" rel="noopener noreferrer">
+                ▶ Trailer
+              </a>
+            ) : null}
           </div>
         </div>
       </section>
@@ -294,16 +403,12 @@ export default async function ItemPage({
 
       <SpecialFeaturesRow features={specialFeatures} />
 
-      <CastRow people={cast} />
-      {directors.length > 0 ? (
-        <CastRow people={directors} heading="Directed by" limit={4} />
-      ) : null}
-      {writers.length > 0 ? <CastRow people={writers} heading="Written by" limit={6} /> : null}
-      {cinematographers.length > 0 ? (
-        <CastRow people={cinematographers} heading="Cinematography" limit={4} />
-      ) : null}
-      {editors.length > 0 ? <CastRow people={editors} heading="Edited by" limit={4} /> : null}
-      {producers.length > 0 ? <CastRow people={producers} heading="Produced by" limit={8} /> : null}
+      {/* Two rows, not five. Directed by / Written by / Cinematography /
+          Edited by / Produced by were separate rails, three of them a single
+          card wide, and TMDB's crew would have made it seven. The department
+          moves onto the card instead, beside where a character already sits. */}
+      <CreditsRow people={cast} heading="Cast" />
+      <CreditsRow people={crew} heading="Crew" limit={14} />
 
       {episodeContext && episodeContext.future.length > 0 ? (
         <div style={{ marginTop: 28 }}>
@@ -346,16 +451,17 @@ export default async function ItemPage({
         </div>
       ) : null}
 
-      {collapsedSimilar.items.length > 0 ? (
+      {rankedSimilar.items.length > 0 ? (
         <div style={{ marginTop: 28 }}>
           <Row
             title="More like this"
-            items={collapsedSimilar.items}
+            items={rankedSimilar.items}
             itemHrefs={collapsedSimilar.hrefs}
             itemPosters={collapsedSimilar.posters}
             shape="poster"
             itemPartsCounts={collapsedSimilar.partsCounts}
             itemPartsUnits={collapsedSimilar.partsUnits}
+            itemBadges={similarBadges}
           />
         </div>
       ) : null}

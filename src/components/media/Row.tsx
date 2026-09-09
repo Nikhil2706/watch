@@ -18,6 +18,7 @@ export function Row({
   itemPosters,
   itemPartsCounts,
   itemPartsUnits,
+  itemBadges,
   shape,
 }: {
   title: string;
@@ -34,6 +35,8 @@ export function Row({
   itemPartsCounts?: Map<string, number>;
   /** item id -> wording for that count. Absent means "parts". */
   itemPartsUnits?: Map<string, "parts" | "episodes">;
+  /** item id -> a short label on the card, e.g. naming which source picked it. */
+  itemBadges?: Map<string, string>;
   /**
    * Card geometry for the whole row. Left unset, the row measures its own
    * artwork and lays out episode stills landscape — see prefersStillLayout().
@@ -60,6 +63,7 @@ export function Row({
             posterSrc={itemPosters?.get(item.Id)}
             partsCount={itemPartsCounts?.get(item.Id)}
             partsUnit={itemPartsUnits?.get(item.Id)}
+            badge={itemBadges?.get(item.Id)}
             shape={rowShape}
           />
         ))}
