@@ -1086,6 +1086,61 @@
       </div>
       <div id="tmdbAuditOut" style="margin-top:12px"></div>
     </div>
+
+    <div class="card">
+      <div class="row" style="align-items:center">
+        <div style="flex:1">
+          <div class="card-title">How old the store is</div>
+          <div class="note" style="margin-top:2px">
+            A cached payload is a snapshot. The weekly job is meant to refresh anything over a week old, but
+            until the next deploy the gate ignores that request, so the oldest entries date from the first fill.
+            Refresh one when you know it changed upstream (new artwork, a corrected credit), or everything past
+            a month at once.
+          </div>
+        </div>
+        <div style="flex:0 0 auto">
+          <select id="tmdbAgeKind">
+            <option value="movie">Films</option>
+            <option value="tv">Shows</option>
+            <option value="season">Seasons</option>
+            <option value="person">People</option>
+          </select>
+          <button id="tmdbAgeLoad" class="ghost">Show oldest</button>
+          <button id="tmdbAgeOldest" class="ghost">Refresh anything over 30 days</button>
+        </div>
+      </div>
+      <div id="tmdbAgeOut" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="align-items:center">
+        <div style="flex:1">
+          <div class="card-title">Shows and their links</div>
+          <div class="note" style="margin-top:2px">
+            The backfill links a group only on an exact name and a plausible episode count, because a wrong link
+            stamps another show's stills across every episode. Whatever it left alone is listed first. Search shows
+            TMDB's candidates with their episode counts; linking is by hand and asks before it does anything.
+          </div>
+        </div>
+        <div style="flex:0 0 auto"><button id="tmdbGroupsLoad" class="ghost">Load</button></div>
+      </div>
+      <div id="tmdbGroupsOut" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="align-items:center">
+        <div style="flex:1">
+          <div class="card-title">Episodes without TMDB's still</div>
+          <div class="note" style="margin-top:2px">
+            Why each one was skipped, file by file: no episode number in its name, an episode TMDB does not
+            have (usually a special shifting the numbering), or an episode TMDB has without a still.
+            A plan only &mdash; this touches nothing.
+          </div>
+        </div>
+        <div style="flex:0 0 auto"><button id="tmdbStillsLoad" class="ghost">Load</button></div>
+      </div>
+      <div id="tmdbStillsOut" style="margin-top:12px"></div>
+    </div>
   </div>
 
   <div class="tab-panel" id="tab-health" data-tab="health">
@@ -2312,7 +2367,8 @@
    *
    * Reads endpoints that already exist: GET/POST /api/admin/tmdb for the
    * store, GET/POST /api/admin/people for the credit tables, and GET
-   * /api/admin/match-audit for the identification ranking. No new backend.
+   * /api/admin/match-audit for the identification ranking. The age, links and
+   * stills cards further down read three endpoints added 2026-09-10.
    * ---------------------------------------------------------------- */
 
   function tmdbStat(label, value, note) {
@@ -2337,6 +2393,11 @@
       if (store.movies != null) html += tmdbStat("Films cached", store.movies);
       if (store.shows != null) html += tmdbStat("Shows", store.shows);
       if (store.seasons != null) html += tmdbStat("Seasons", store.seasons);
+      if (store.oldestFetch) {
+        html += tmdbStat("Oldest entry",
+          tmdbAge(Math.floor((Date.now() - store.oldestFetch) / 86400000)),
+          "since it was fetched");
+      }
       html += tmdbStat("People", people.people != null ? people.people : "—");
       html += tmdbStat("Credits", people.credits != null ? people.credits : "—");
       html += tmdbStat(
@@ -2409,6 +2470,281 @@
         esc(e && e.message ? e.message : String(e)) + "</div>";
     });
   }
+
+  /* ---------------------------------------------------------------- *
+   * Age, links and stills (added 2026-09-10)
+   *
+   * These read /api/admin/tmdb/entries, /api/admin/tmdb/groups and
+   * /api/admin/episode-stills?detail=1. This file is local and goes live the
+   * moment it is saved; the endpoints ship with the gate's next build. Until
+   * then the gate answers 404 with an HTML page, which api() would print
+   * verbatim, so tmdbApi() says what is actually going on instead.
+   * ---------------------------------------------------------------- */
+
+  var TMDB_PENDING = "This arrives with the next deploy — the gate does not have this endpoint yet.";
+
+  function tmdbApi(path, opts) {
+    opts = opts || {};
+    var init = { method: opts.method || "GET", headers: { "X-Admin-Key": state.key } };
+    if (opts.body) {
+      init.headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(opts.body);
+    }
+    return fetch(state.base + path, init).then(function (res) {
+      if (res.status === 404) throw new Error(TMDB_PENDING);
+      return res.text().then(function (txt) {
+        var data = null;
+        try { data = txt ? JSON.parse(txt) : null; } catch (e) { /* non-JSON */ }
+        if (!res.ok) {
+          var why = (data && (data.message || data.error)) || ("HTTP " + res.status);
+          if (res.status === 401) why = "Rejected — check the admin key.";
+          throw new Error(why);
+        }
+        return data;
+      });
+    });
+  }
+
+  function tmdbMuted(text) {
+    return '<div class="muted" style="font-size:13px">' + esc(text) + "</div>";
+  }
+
+  function tmdbNote(text) {
+    return '<div class="note" style="margin-bottom:8px">' + esc(text) + "</div>";
+  }
+
+  function tmdbErr(e) {
+    return e && e.message ? e.message : String(e);
+  }
+
+  function tmdbAge(days) {
+    if (days == null || isNaN(days)) return "—";
+    if (days < 1) return "today";
+    return days === 1 ? "1 day" : days + " days";
+  }
+
+  function tmdbSe(x) {
+    return "S" + String(x.season).padStart(2, "0") + "E" + String(x.episode).padStart(2, "0");
+  }
+
+  function tmdbBase(p) {
+    var parts = String(p).split(/[\\/]/);
+    return parts[parts.length - 1] || String(p);
+  }
+
+  /* -- How old the store is ---------------------------------------- */
+
+  function tmdbLoadAges() {
+    var el = $("tmdbAgeOut");
+    var kind = $("tmdbAgeKind").value;
+    el.innerHTML = tmdbMuted("Reading…");
+    tmdbApi("/api/admin/tmdb/entries?kind=" + encodeURIComponent(kind) + "&limit=40").then(function (d) {
+      var rows = d.entries || [];
+      var head = tmdbNote(d.total + " cached · the " + rows.length + " oldest, oldest first");
+      if (!rows.length) { el.innerHTML = head; return; }
+      el.innerHTML = head + rows.map(function (r) {
+        return '<div class="row" style="align-items:center;padding:6px 0;border-top:1px solid var(--border)">' +
+          '<div style="flex:1;min-width:0;font-size:13px">' + esc(r.title || ("#" + r.tmdbId)) + "</div>" +
+          '<div class="muted tmdb-age" style="flex:0 0 80px;font-size:12px;text-align:right">' +
+          esc(tmdbAge(r.ageDays)) + "</div>" +
+          '<div style="flex:0 0 auto"><button class="ghost" data-tmdb-refresh="1"' +
+          ' data-kind="' + esc(kind) + '" data-id="' + esc(String(r.tmdbId)) + '"' +
+          ' data-season="' + (r.season == null ? "" : esc(String(r.season))) + '">Refresh</button></div>' +
+          "</div>";
+      }).join("");
+    }).catch(function (e) { el.innerHTML = tmdbMuted(tmdbErr(e)); });
+  }
+
+  function tmdbRefreshOne(b) {
+    var body = { kind: b.getAttribute("data-kind"), tmdbId: Number(b.getAttribute("data-id")) };
+    var season = b.getAttribute("data-season");
+    if (season !== "") body.season = Number(season);
+    b.disabled = true;
+    b.textContent = "Refreshing…";
+    tmdbApi("/api/admin/tmdb/entries", { method: "POST", body: body }).then(function () {
+      b.textContent = "Done";
+      var age = b.closest(".row").querySelector(".tmdb-age");
+      if (age) age.textContent = "today";
+    }).catch(function (e) {
+      b.disabled = false;
+      b.textContent = "Retry";
+      b.title = tmdbErr(e);
+    });
+  }
+
+  function tmdbRefreshOldest() {
+    var out = $("tmdbAgeOut");
+    out.innerHTML = tmdbMuted("Refreshing anything fetched more than 30 days ago…");
+    tmdbApi("/api/admin/tmdb/entries", { method: "POST", body: { oldest: true, maxAgeDays: 30 } }).then(function (d) {
+      out.innerHTML = tmdbNote(
+        "Refreshed " + (d.refreshed || 0) + ", " + (d.failures || 0) + " failed, " +
+        (d.remaining || 0) + " still over 30 days" + (d.remaining > 0 ? " — press again to continue." : "."));
+      tmdbLoadStats();
+    }).catch(function (e) { out.innerHTML = tmdbMuted(tmdbErr(e)); });
+  }
+
+  /* -- Shows and their links --------------------------------------- */
+
+  function tmdbGroupRow(g) {
+    var status = g.link
+      ? "Linked to " + esc(g.link.name || ("#" + g.link.tmdbId)) +
+        ' <span class="muted">· ' + esc(g.link.resolvedBy || "") + "</span>"
+      : g.kind === "movie"
+        ? '<span class="muted">A film in parts — correctly not linked to a show</span>'
+        : '<span style="color:#e0a050">Not linked</span>';
+    return '<div class="tmdb-group" data-group="' + esc(g.groupId) + '" data-name="' + esc(g.name) +
+      '" data-files="' + esc(String(g.files)) + '" style="padding:8px 0;border-top:1px solid var(--border)">' +
+      '<div class="row" style="align-items:center">' +
+      '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13.5px">' + esc(g.name) +
+      ' <span class="muted" style="font-weight:400">' + esc(g.files + (g.files === 1 ? " file" : " files")) +
+      "</span></div>" +
+      '<div style="font-size:12.5px;margin-top:2px">' + status + "</div></div>" +
+      '<div style="flex:0 0 auto"><input class="tmdb-q" value="' + esc(g.name) +
+      '" spellcheck="false" style="width:190px"> ' +
+      '<button class="ghost" data-act="search">Search TMDB</button></div>' +
+      "</div>" +
+      '<div class="tmdb-cands"></div>' +
+      "</div>";
+  }
+
+  function tmdbLoadGroups() {
+    var el = $("tmdbGroupsOut");
+    el.innerHTML = tmdbMuted("Reading…");
+    tmdbApi("/api/admin/tmdb/groups").then(function (d) {
+      var groups = d.groups || [];
+      var linked = groups.filter(function (g) { return g.link; }).length;
+      var films = groups.filter(function (g) { return !g.link && g.kind === "movie"; }).length;
+      el.innerHTML =
+        tmdbNote(groups.length + " groups · " + linked + " linked · " +
+          (groups.length - linked - films) + " shows not linked · " +
+          films + " films in parts, correctly not linked") +
+        groups.map(tmdbGroupRow).join("");
+    }).catch(function (e) { el.innerHTML = tmdbMuted(tmdbErr(e)); });
+  }
+
+  function tmdbCandidate(x) {
+    return '<div class="row" style="align-items:center;padding:6px 0 0 14px">' +
+      '<div style="flex:1;min-width:0;font-size:13px"><b>' + esc(x.name) + "</b> " +
+      '<span class="muted">(' + esc(String(x.year || "?")) + ") · " +
+      esc(x.episodes != null ? x.episodes + " episodes" : "episode count unknown") + "</span>" +
+      (x.overview ? '<div class="muted" style="font-size:12px;margin-top:2px">' + esc(x.overview) + "</div>" : "") +
+      "</div>" +
+      '<div style="flex:0 0 auto"><button class="ghost" data-act="link" data-tmdb="' + esc(String(x.id)) +
+      '" data-label="' + esc(x.name) + '" data-eps="' + esc(x.episodes != null ? String(x.episodes) : "") +
+      '">Link</button></div>' +
+      "</div>";
+  }
+
+  function tmdbGroupAction(b) {
+    var box = b.closest(".tmdb-group");
+    var groupId = box.getAttribute("data-group");
+    var out = box.querySelector(".tmdb-cands");
+
+    if (b.getAttribute("data-act") === "search") {
+      out.innerHTML = tmdbMuted("Asking TMDB…");
+      // The existing endpoint, live today — only the list above is new.
+      api("/api/admin/tmdb", {
+        method: "PUT",
+        body: { groupId: groupId, search: true, name: box.querySelector(".tmdb-q").value }
+      }).then(function (d) {
+        var c = (d && d.candidates) || [];
+        out.innerHTML = c.length
+          ? c.map(tmdbCandidate).join("")
+          : tmdbMuted("Nothing on TMDB by that name. Try the original-language title.");
+      }).catch(function (e) { out.innerHTML = tmdbMuted(tmdbErr(e)); });
+      return;
+    }
+
+    // Linking. Applying stills trusts this link completely, so it asks first and
+    // puts the two counts side by side, because a mismatch is the usual tell.
+    var eps = b.getAttribute("data-eps");
+    var question =
+      'Link "' + box.getAttribute("data-name") + '" (' + box.getAttribute("data-files") + ' files) to TMDB\'s "' +
+      b.getAttribute("data-label") + '"' + (eps ? " (" + eps + " episodes)" : "") + "?\n\n" +
+      "Applying stills trusts this link: a wrong one puts another show's artwork on every episode.";
+    if (!window.confirm(question)) return;
+    b.disabled = true;
+    api("/api/admin/tmdb", {
+      method: "PUT",
+      body: { groupId: groupId, tmdbId: Number(b.getAttribute("data-tmdb")) }
+    }).then(function () {
+      out.innerHTML = tmdbNote(
+        "Linked. Run one pass above to fetch its seasons now. The weekly job applies stills to every " +
+        "linked show, so this link reaches the episodes the next time it runs.");
+    }).catch(function (e) {
+      b.disabled = false;
+      out.insertAdjacentHTML("beforeend", tmdbMuted(tmdbErr(e)));
+    });
+  }
+
+  /* -- Episodes without TMDB's still -------------------------------- */
+
+  function tmdbStillList(title, why, items) {
+    if (!items || !items.length) return "";
+    return '<div style="margin-top:14px">' +
+      '<div style="font-weight:600;font-size:13.5px">' + esc(title) +
+      ' <span class="muted" style="font-weight:400">' + items.length + "</span></div>" +
+      '<div class="note" style="margin:2px 0 6px">' + esc(why) + "</div>" +
+      items.map(function (it) {
+        return '<div style="padding:5px 0;border-top:1px solid var(--border)">' +
+          '<div style="font-size:13px">' + esc(it.main) + "</div>" +
+          '<div class="muted" style="font-size:11.5px;font-family:ui-monospace,monospace;word-break:break-all">' +
+          esc(it.sub) + "</div>" +
+          "</div>";
+      }).join("") +
+      "</div>";
+  }
+
+  function tmdbLoadStills() {
+    var el = $("tmdbStillsOut");
+    el.innerHTML = tmdbMuted("Planning — this touches nothing…");
+    api("/api/admin/episode-stills?detail=1").then(function (d) {
+      var s = d.skipped || {};
+      var head = tmdbNote(
+        (d.alreadyDone || 0) + " already carry TMDB's still · " + (d.planned || 0) + " ready to apply · " +
+        (s.unparsed || 0) + " with no episode number · " + (s.noEpisode || 0) + " numbering mismatches · " +
+        (s.noStill || 0) + " with no still on TMDB");
+      var det = d.details;
+      if (!det) {
+        el.innerHTML = head + tmdbMuted("The file-by-file list arrives with the next deploy; these counts are live now.");
+        return;
+      }
+      el.innerHTML = head +
+        tmdbStillList(
+          "No season or episode in the filename",
+          "Nothing can match these until the file carries an S01E02-style marker.",
+          det.unparsed.map(function (p) { return { main: tmdbBase(p), sub: p }; })) +
+        tmdbStillList(
+          "TMDB has no such episode",
+          "Usually a special or a double episode shifting the numbering. Check TMDB's season list before renaming anything.",
+          det.noEpisode.map(function (x) { return { main: x.group + " · " + tmdbSe(x), sub: x.path }; })) +
+        tmdbStillList(
+          "TMDB has the episode but no still",
+          "Nothing to fix here; TMDB may gain one later.",
+          det.noStill.map(function (x) {
+            return { main: x.group + " · " + tmdbSe(x) + " — " + x.title, sub: x.path };
+          }));
+    }).catch(function (e) { el.innerHTML = tmdbMuted(tmdbErr(e)); });
+  }
+
+  $("tmdbAgeLoad").addEventListener("click", tmdbLoadAges);
+  $("tmdbAgeKind").addEventListener("change", tmdbLoadAges);
+  $("tmdbAgeOldest").addEventListener("click", tmdbRefreshOldest);
+  $("tmdbAgeOut").addEventListener("click", function (ev) {
+    var b = ev.target.closest("button[data-tmdb-refresh]");
+    if (b) tmdbRefreshOne(b);
+  });
+  $("tmdbGroupsLoad").addEventListener("click", tmdbLoadGroups);
+  $("tmdbGroupsOut").addEventListener("click", function (ev) {
+    var b = ev.target.closest("button[data-act]");
+    if (b) tmdbGroupAction(b);
+  });
+  $("tmdbGroupsOut").addEventListener("keydown", function (ev) {
+    if (ev.key !== "Enter" || !ev.target.classList.contains("tmdb-q")) return;
+    var b = ev.target.closest(".tmdb-group").querySelector('button[data-act="search"]');
+    if (b) tmdbGroupAction(b);
+  });
+  $("tmdbStillsLoad").addEventListener("click", tmdbLoadStills);
 
   $("tmdbRefresh").addEventListener("click", tmdbLoadStats);
   $("tmdbTick").addEventListener("click", tmdbRunTick);

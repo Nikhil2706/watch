@@ -29,7 +29,7 @@ import { env } from "./env";
 
 const BASE_URL = "https://api.themoviedb.org/3";
 
-export type TmdbKind = "movie" | "tv" | "season" | "collection";
+export type TmdbKind = "movie" | "tv" | "season" | "collection" | "person";
 
 export interface CachedTmdb<T = unknown> {
   kind: TmdbKind;
@@ -176,6 +176,27 @@ export async function fetchShow(tmdbId: number, force = false): Promise<CachedTm
   const imdbId = payload.external_ids?.imdb_id ?? null;
   putCached("tv", tmdbId, payload, { imdbId });
   return { kind: "tv", tmdbId, season: NONE, imdbId, payload, fetchedAt: Date.now() };
+}
+
+/**
+ * A person, with their film credits appended in the same request.
+ *
+ * Fetched only when somebody opens a person page (see tmdb-person.ts), never by
+ * a sweep. The credit tables name 12,000 people and most of their pages will
+ * never be visited, so a sweep would be 12,000 calls over a link that drops one
+ * in thirty to fill rows nobody reads.
+ */
+export async function fetchPerson(tmdbId: number, force = false): Promise<CachedTmdb> {
+  if (!force) {
+    const hit = getCached("person", tmdbId);
+    if (hit) return hit;
+  }
+  const payload = await fetchJson<{ external_ids?: { imdb_id?: string } }>(
+    `/person/${tmdbId}?append_to_response=movie_credits,external_ids`,
+  );
+  const imdbId = payload.external_ids?.imdb_id ?? null;
+  putCached("person", tmdbId, payload, { imdbId });
+  return { kind: "person", tmdbId, season: NONE, imdbId, payload, fetchedAt: Date.now() };
 }
 
 export interface TmdbEpisode {

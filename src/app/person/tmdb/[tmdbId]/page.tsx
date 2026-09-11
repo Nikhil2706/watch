@@ -7,6 +7,11 @@ import { getMemberships } from "@/lib/lists";
 import { collapseEpisodeGroups, getItemsByPaths, type MediaItem } from "@/lib/media";
 import { creditsForPerson, personById } from "@/lib/tmdb-people";
 import { initialsOf } from "@/lib/credit-cards";
+import { ExpandableBio } from "@/components/media/ExpandableBio";
+import { MissingFilms } from "@/components/media/MissingFilms";
+import { directorGaps } from "@/lib/director-gaps";
+import { personFacts } from "@/lib/person-facts";
+import { directsHere, ownedMovieTmdbIds, personForPage } from "@/lib/tmdb-person";
 
 export const dynamic = "force-dynamic";
 
@@ -98,6 +103,16 @@ export default async function TmdbPersonPage({
 
   const photo = person.profilePath ? `/api/person-photo/${person.tmdbId}?size=h632` : null;
 
+  // Biography and dates from TMDB, fetched on first visit and never waited on
+  // (see tmdb-person.ts). Directors also get the list of their films that are
+  // not here; nobody else does, by decision.
+  const tmdb = personForPage(id);
+  const facts = personFacts(tmdb);
+  const gaps =
+    tmdb && directsHere(id)
+      ? directorGaps(tmdb.directed, ownedMovieTmdbIds(), new Date().getUTCFullYear())
+      : null;
+
   return (
     <>
       <AppBar username={session.username} langloisMode={session.langloisMode} />
@@ -111,12 +126,14 @@ export default async function TmdbPersonPage({
             <span className="cast-initials">{initialsOf(person.name)}</span>
           )}
         </div>
-        <div>
+        <div className="person-text">
           <h1>{person.name}</h1>
           {jobs.length > 0 ? <p className="page-sub">{jobs.join(" · ")}</p> : null}
           <p className="page-sub">
             {credits.length} credit{credits.length === 1 ? "" : "s"} in this library
           </p>
+          {facts ? <p className="person-facts">{facts}</p> : null}
+          {tmdb?.biography ? <ExpandableBio text={tmdb.biography} /> : null}
         </div>
       </section>
 
@@ -147,6 +164,8 @@ export default async function TmdbPersonPage({
           Their credits here are all on titles that are no longer in the library.
         </p>
       )}
+
+      {gaps ? <MissingFilms gaps={gaps} /> : null}
     </>
   );
 }

@@ -17,13 +17,18 @@ export async function GET(request: Request): Promise<Response> {
   const denied = requireAdmin(request);
   if (denied) return denied;
 
-  const groupId = new URL(request.url).searchParams.get("groupId") ?? undefined;
+  const url = new URL(request.url);
+  const groupId = url.searchParams.get("groupId") ?? undefined;
   const plan = planEpisodeStills({ groupId });
+  // ?detail=1 adds the files behind each skipped count, for the console's
+  // worklist. Off by default so the ordinary dry run stays small.
+  const detail = url.searchParams.get("detail") === "1";
   return Response.json(
     {
       planned: plan.entries.length,
       alreadyDone: plan.alreadyDone,
       skipped: plan.skipped,
+      ...(detail ? { details: plan.details } : {}),
       sample: plan.entries.slice(0, 12).map((e) => ({
         group: e.group,
         se: `S${String(e.season).padStart(2, "0")}E${String(e.episode).padStart(2, "0")}`,

@@ -56,6 +56,15 @@ export interface StillPlan {
     /** TMDB knows the episode but has no still for it. */
     noStill: number;
   };
+  /**
+   * The files behind the skipped counts, for the console's worklist. A count
+   * says there is a problem; only the list says which episodes to go and fix.
+   */
+  details: {
+    unparsed: string[];
+    noEpisode: Array<{ path: string; group: string; season: number; episode: number }>;
+    noStill: Array<{ path: string; group: string; season: number; episode: number; title: string }>;
+  };
 }
 
 interface GroupRow {
@@ -77,6 +86,7 @@ export function planEpisodeStills(options: { groupId?: string; force?: boolean }
     entries: [],
     alreadyDone: 0,
     skipped: { unlinkedGroups: [], unparsed: 0, noEpisode: 0, noStill: 0 },
+    details: { unparsed: [], noEpisode: [], noStill: [] },
   };
 
   const rows = asRows<GroupRow>(
@@ -125,16 +135,30 @@ export function planEpisodeStills(options: { groupId?: string; force?: boolean }
       const parsed = parseEpisodeInfo(path);
       if (parsed.season == null || parsed.episode == null) {
         plan.skipped.unparsed += 1;
+        plan.details.unparsed.push(path);
         continue;
       }
       const ep = loadSeason(parsed.season).get(parsed.episode);
       if (!ep) {
         plan.skipped.noEpisode += 1;
+        plan.details.noEpisode.push({
+          path,
+          group: group.name,
+          season: parsed.season,
+          episode: parsed.episode,
+        });
         continue;
       }
       const url = tmdbImage(ep.still_path, STILL_SIZE);
       if (!url) {
         plan.skipped.noStill += 1;
+        plan.details.noStill.push({
+          path,
+          group: group.name,
+          season: parsed.season,
+          episode: parsed.episode,
+          title: ep.name,
+        });
         continue;
       }
       plan.entries.push({

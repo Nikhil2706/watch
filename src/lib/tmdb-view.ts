@@ -592,6 +592,87 @@ interface RawSeasonSummary {
  * payloads: it carries the poster, the overview and the true episode count
  * without needing a season to have been fetched at all.
  */
+export interface DirectedFilm {
+  tmdbId: number;
+  title: string;
+  year: number | null;
+  posterUrl: string | null;
+}
+
+export interface PersonView {
+  tmdbId: number;
+  name: string;
+  biography: string | null;
+  /** ISO dates, as TMDB gives them. */
+  born: string | null;
+  died: string | null;
+  birthplace: string | null;
+  /** TMDB's own word for it: "Directing", "Acting", "Camera". */
+  knownFor: string | null;
+  profileUrl: string | null;
+  /** Films they directed, released ones only, earliest first. */
+  directed: DirectedFilm[];
+}
+
+interface RawPersonPayload {
+  name?: string;
+  biography?: string;
+  birthday?: string | null;
+  deathday?: string | null;
+  place_of_birth?: string | null;
+  known_for_department?: string | null;
+  profile_path?: string | null;
+  movie_credits?: {
+    crew?: Array<{
+      id: number;
+      title?: string;
+      job?: string;
+      release_date?: string | null;
+      poster_path?: string | null;
+    }>;
+  };
+}
+
+export function projectPerson(payload: unknown, tmdbId: number): PersonView | null {
+  const p = payload as RawPersonPayload | null;
+  if (!p || typeof p !== "object") return null;
+
+  // Directed, once each (TMDB lists a film twice when someone holds the credit
+  // twice, which is common on older co-directed work), and released ones only:
+  // an announced film with no date is not one anybody can own yet.
+  const seen = new Set<number>();
+  const directed: DirectedFilm[] = [];
+  for (const c of p.movie_credits?.crew ?? []) {
+    if (c.job !== "Director" || !c.release_date || seen.has(c.id)) continue;
+    seen.add(c.id);
+    directed.push({
+      tmdbId: c.id,
+      title: c.title ?? "",
+      year: Number(c.release_date.slice(0, 4)) || null,
+      posterUrl: proxied(c.poster_path ?? null, "w185"),
+    });
+  }
+  directed.sort((a, b) => (a.year ?? 0) - (b.year ?? 0));
+
+  return {
+    tmdbId,
+    name: p.name ?? "",
+    biography: p.biography?.trim() || null,
+    born: p.birthday ?? null,
+    died: p.deathday ?? null,
+    birthplace: p.place_of_birth?.trim() || null,
+    knownFor: p.known_for_department ?? null,
+    profileUrl: proxied(p.profile_path ?? null, "h632"),
+    directed,
+  };
+}
+
+/** From the cache only. tmdb-person.ts is what puts it there. */
+export function personViewByTmdbId(tmdbId: number): PersonView | null {
+  const cached = getCached("person", tmdbId);
+  return cached ? projectPerson(cached.payload, tmdbId) : null;
+}
+
 export function seasonViewsByGroup(groupId: string | null | undefined): Map<number, SeasonView> {
   const out = new Map<number, SeasonView>();
   if (!groupId) return out;

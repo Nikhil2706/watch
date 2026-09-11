@@ -1,6 +1,11 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { forgetAdminMovie } from "@/lib/admin-library-cache";
-import { applyRemoteSearchMatch, clearItemBackdrop, type RemoteSearchResult } from "@/lib/jellyfin";
+import {
+  applyRemoteSearchMatch,
+  clearItemBackdrop,
+  getAdminMovie,
+  type RemoteSearchResult,
+} from "@/lib/jellyfin";
 import { markMetadataConfirmed } from "@/lib/library-curation";
 import { forgetTmdbForPath } from "@/lib/tmdb-people";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
@@ -34,6 +39,14 @@ export async function POST(request: Request): Promise<Response> {
       throw new ValidationError("itemId and candidate are required.");
     }
 
+    // The stale TMDB link can only be found by file path, and a caller that
+    // posts a bare { itemId, candidate } does not send one — which used to mean
+    // the title was corrected while the previous film's crew stayed attached.
+    // Look it up rather than depend on the caller. A path does not change when
+    // a film is re-identified, so reading it first is safe.
+    const filePath =
+      path ?? (await getAdminMovie(itemId, { withMediaSources: false }).catch(() => null))?.Path ?? null;
+
     await applyRemoteSearchMatch(itemId, candidate as RemoteSearchResult);
     // Forget it rather than re-read it. Jellyfin applies a remote match
     // asynchronously, so re-reading now returns the OLD row and caches it as
@@ -59,12 +72,14 @@ export async function POST(request: Request): Promise<Response> {
       console.warn(`[admin/library/apply-match] backdrop clear failed for ${itemId}:`, error);
     }
 
-    if (path) {
-      markMetadataConfirmed(path);
+    // Confirming stays tied to a caller that named the file, as before; this
+    // change is only about never leaving a stale TMDB link behind.
+    if (path) markMetadataConfirmed(path);
+    if (filePath) {
       // The TMDB link still points at the film this one was mistaken for, and
       // so does every credit built from it. Drop both; the next backfill tick
       // re-resolves from the corrected IMDb id.
-      forgetTmdbForPath(path);
+      forgetTmdbForPath(filePath);
     }
     return Response.json({ applied: true }, { headers: NO_STORE });
   } catch (error) {

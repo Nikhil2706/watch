@@ -4589,3 +4589,27 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
     padding: 0 14px;
   }
 }
+
+/* ---------------------------------------------------------------- *
+ * Person pages and missing films
+ * ---------------------------------------------------------------- */
+
+/* Born, died and where, from TMDB, in one quiet line under the name. */
+.person-facts {
+  margin: 2px 0 8px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+/* A director's films that are not in the library. Dimmed rather than hidden,
+   and never links: every other poster on the site plays something, and these
+   must not look as though they do. */
+.poster--missing .poster-art {
+  opacity: 0.45;
+  filter: grayscale(0.5);
+}
+
+.poster--missing .poster-title,
+.poster--missing .poster-sub {
+  opacity: 0.75;
+}

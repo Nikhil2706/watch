@@ -13,6 +13,10 @@ import {
   personPhotoUrl,
 } from "@/lib/media";
 import { SpecialFeaturesRow } from "@/components/media/SpecialFeaturesRow";
+import { MissingFilms } from "@/components/media/MissingFilms";
+import { directorGaps } from "@/lib/director-gaps";
+import { personFacts } from "@/lib/person-facts";
+import { directsHere, ownedMovieTmdbIds, personForPage } from "@/lib/tmdb-person";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +51,21 @@ export default async function PersonPage({
   // ten-episode season shows up here as ten near-identical entries.
   const collapsed = collapseEpisodeGroups(items);
 
-  const photo = personPhotoUrl(person, 260);
+  // TMDB fills what Jellyfin lacks and never overrides what it has. This
+  // page's biography and portrait were chosen deliberately, and TMDB is an
+  // addition on top of the existing design rather than a replacement for it.
+  // Jellyfin holds TMDB's id for nearly every person, so nothing here is
+  // matched by name.
+  const tmdbId = Number(person.ProviderIds?.Tmdb);
+  const tmdb = Number.isSafeInteger(tmdbId) && tmdbId > 0 ? personForPage(tmdbId) : null;
+  const photo = personPhotoUrl(person, 260) ?? tmdb?.profileUrl ?? null;
+  const bio = person.Overview || tmdb?.biography || null;
+  const facts = personFacts(tmdb);
+  // Directors only, by decision: see director-gaps.ts.
+  const gaps =
+    tmdb && directsHere(tmdb.tmdbId)
+      ? directorGaps(tmdb.directed, ownedMovieTmdbIds(), new Date().getUTCFullYear())
+      : null;
   const lists = getMemberships(
     session.userId,
     collapsed.items.map((item) => item.Id),
@@ -80,7 +98,8 @@ export default async function PersonPage({
               ? "Nothing else in the library"
               : `${collapsed.items.length} title${collapsed.items.length === 1 ? "" : "s"} here`}
           </p>
-          {person.Overview ? <ExpandableBio text={person.Overview} /> : null}
+          {facts ? <p className="person-facts">{facts}</p> : null}
+          {bio ? <ExpandableBio text={bio} /> : null}
         </div>
       </section>
 
@@ -103,6 +122,8 @@ export default async function PersonPage({
           They are credited on a title here, but nothing else matches.
         </div>
       )}
+
+      {gaps ? <MissingFilms gaps={gaps} /> : null}
     </>
   );
 }

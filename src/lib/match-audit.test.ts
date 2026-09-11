@@ -5,6 +5,7 @@ import {
   auditFilm,
   normaliseTitle,
   titleFromFilename,
+  titlesAgree,
   type AuditCandidate,
 } from "./match-audit.ts";
 
@@ -27,7 +28,10 @@ const film = (o: Partial<AuditCandidate>): AuditCandidate => ({
 
 test("titles normalise past punctuation, case and articles", () => {
   assert.equal(normaliseTitle("The Descent: Part 2"), "descent part 2");
-  assert.equal(normaliseTitle("[REC]²"), "rec");
+  // The superscript is the sequel's number, not decoration: NFKD reads it as a
+  // 2, which is what lets the [REC]² file agree with a library title of "[REC] 2"
+  // while still disagreeing with plain "[REC]".
+  assert.equal(normaliseTitle("[REC]²"), "rec 2");
   // Accents are stripped rather than discarded: "Samouraï" becomes "samourai",
   // not "samoura". The earlier behaviour dropped the letter entirely, which is
   // what made "Celine" and "Céline" look like different films.
@@ -179,4 +183,120 @@ test("the reason is always readable, because a score alone cannot be acted on", 
   ]) {
     assert.ok(auditFilm(f).why.length > 0);
   }
+});
+
+/* ------------------------------------------------------------------ *
+ * The live audit's false alarms, 2026-09-10
+ *
+ * Eight of fifteen findings were correctly identified films whose filenames the
+ * audit could not read. Each case below is one of them, real filename and all.
+ * The tests after them are the other half: the same rules must not excuse a
+ * file that really is a different film.
+ * ------------------------------------------------------------------ */
+
+test("dotted titles agree with their spaced-out filenames", () => {
+  const f = auditFilm(film({
+    libraryTitle: "Ro.Go.Pa.G.",
+    tmdbTitle: "Ro.Go.Pa.G.",
+    filename: "Ro.Go.Pa.G..1963.1080p.BluRay.x264.AAC-[YTS.MX].mp4",
+  }));
+  assert.equal(f.verdict, "agrees");
+});
+
+test("an apostrophe that became a dot is not a different film", () => {
+  const f = auditFilm(film({
+    libraryTitle: "L'Amore",
+    tmdbTitle: "L'Amore",
+    filename: "L.amore.1948.ITALIAN.1080p.BluRay.H264.AAC-VXT.mp4",
+  }));
+  assert.equal(f.verdict, "agrees");
+});
+
+test("a superscript is the digit it looks like", () => {
+  assert.equal(normaliseTitle("[REC]²"), normaliseTitle("[Rec] 2"));
+  const f = auditFilm(film({
+    libraryTitle: "[REC]²",
+    tmdbTitle: "[REC]²",
+    filename: "[Rec].2.2009.1080p.BluRay.x264-[YTS.LT].mp4",
+  }));
+  assert.equal(f.verdict, "agrees");
+});
+
+test("a filename that leads with the director still gives up the title", () => {
+  assert.equal(
+    titleFromFilename("Harun Farocki - (1990) How to Live in the FRG.mkv"),
+    "How to Live in the FRG",
+  );
+  const f = auditFilm(film({
+    libraryTitle: "How to Live in the German Federal Republic",
+    tmdbTitle: "How to Live in the German Federal Republic",
+    filename: "Harun Farocki - (1990) How to Live in the FRG.mkv",
+  }));
+  assert.equal(f.verdict, "agrees");
+});
+
+test("a filename keeping only the end of a long title agrees", () => {
+  const f = auditFilm(film({
+    libraryTitle: "Jacques Rivette le veilleur: 2-La nuit",
+    tmdbTitle: "Jacques Rivette le veilleur: 2-La nuit",
+    filename: "II - La Nuit.mkv",
+  }));
+  assert.equal(f.verdict, "agrees");
+});
+
+test("underscores and pluses no longer glue a whole filename into its title", () => {
+  const f = auditFilm(film({
+    libraryTitle: "We, the Women",
+    tmdbTitle: "We, the Women",
+    tmdbOriginalTitle: "Siamo donne",
+    filename: "Anna+Magnani_Siamo+Donne+1953_SD_H264_Ita_Ac3_2_0_BaMax71_MIRCrew.mkv",
+  }));
+  assert.equal(f.verdict, "agrees");
+});
+
+test("a translation one letter apart is the same film", () => {
+  const f = auditFilm(film({
+    libraryTitle: "Europa '51",
+    tmdbTitle: "Europa '51",
+    filename: "Europe.'51.1952.1080p.BluRay.x264-[YTS.AG].mp4",
+  }));
+  assert.equal(f.verdict, "agrees");
+});
+
+test("a wrong sequel is still caught, whichever rule might have excused it", () => {
+  const f = auditFilm(film({
+    libraryTitle: "Toy Story 2",
+    tmdbTitle: "Toy Story 2",
+    libraryYear: 1999,
+    tmdbYear: 1999,
+    filename: "Toy.Story.3.2010.1080p.BluRay.x264.mp4",
+  }));
+  assert.notEqual(f.verdict, "agrees");
+  // Five shared opening words, but the parts are numbered, so no.
+  assert.equal(
+    titlesAgree(
+      normaliseTitle("Mission: Impossible - Dead Reckoning Part One"),
+      normaliseTitle("Mission: Impossible - Dead Reckoning Part Two"),
+    ),
+    false,
+  );
+});
+
+test("the swapped Rivette parts are still told apart", () => {
+  const f = auditFilm(film({
+    libraryTitle: "Jacques Rivette le veilleur: 1-Le jour",
+    tmdbTitle: "Jacques Rivette le veilleur: 1-Le jour",
+    filename: "II - La Nuit.mkv",
+  }));
+  assert.notEqual(f.verdict, "agrees");
+});
+
+test("a genuinely different film survives every new rule", () => {
+  const f = auditFilm(film({
+    libraryTitle: "The French Connection",
+    tmdbTitle: "The French Connection",
+    filename: "Chocolat.mp4",
+  }));
+  assert.notEqual(f.verdict, "agrees");
+  assert.equal(titlesAgree("chocolat", "french connection"), false);
 });

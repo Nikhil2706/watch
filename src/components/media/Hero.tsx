@@ -15,8 +15,24 @@ import { itemHref, watchHref } from "@/lib/slugs";
  * is a server-side, rate-limited lookup, and the page already knows which item
  * is featured before this renders.
  */
-export function Hero({ item, imdb }: { item: MediaItem; imdb?: string | null }) {
-  const backdrop = backdropUrl(item, 1600);
+export function Hero({
+  item,
+  imdb,
+  title,
+  logoUrl,
+  fallbackBackdrop,
+}: {
+  item: MediaItem;
+  imdb?: string | null;
+  /** A better name than the item's own -- an episode's real title, say. */
+  title?: string | null;
+  /** TMDB's title treatment, where it has one (67% of films). */
+  logoUrl?: string | null;
+  /** Only used when Jellyfin holds no backdrop of its own for the item. */
+  fallbackBackdrop?: string | null;
+}) {
+  const backdrop = backdropUrl(item, 1600) ?? fallbackBackdrop ?? null;
+  const name = title || item.Name;
   const runtime = formatRuntime(item.RunTimeTicks);
   const resume = resumeSeconds(item);
 
@@ -31,7 +47,17 @@ export function Hero({ item, imdb }: { item: MediaItem; imdb?: string | null }) 
       ) : null}
 
       <div className="hero-content">
-        <h1>{item.Name}</h1>
+        {/* The logo stands in for the heading where TMDB has one; the h1 stays
+            in the document, visually hidden, so the page keeps its heading. */}
+        {logoUrl ? (
+          <>
+            <h1 className="sr-only">{name}</h1>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="hero-logo" src={logoUrl} alt={name} />
+          </>
+        ) : (
+          <h1>{name}</h1>
+        )}
 
         <div className="meta">
           {item.ProductionYear ? <span>{item.ProductionYear}</span> : null}

@@ -57,7 +57,11 @@ const ROMAN: Record<string, string> = {
 
 export function normaliseTitle(name: string): string {
   return name
-    .normalize("NFD")
+    // NFKD rather than NFD: it also folds compatibility forms, so the "²" in
+    // "[REC]²" becomes a 2 and matches a file called "[Rec].2". NFD left it as a
+    // symbol the next line turned into a space, and the real title disagreed
+    // with its own file.
+    .normalize("NFKD")
     // Strip combining accents, so é and e are the same letter.
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
@@ -88,6 +92,101 @@ function isShorteningOf(a: string, b: string): boolean {
   return long === short || long.startsWith(short + " ");
 }
 
+/** Words that number a part of a series, compared the way digits are. */
+const NUMBERING_WORDS = new Set([
+  "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+  "first", "second", "third", "fourth", "fifth",
+  "part", "chapter", "episode", "vol", "volume",
+]);
+
+function hasNumbering(words: readonly string[]): boolean {
+  return words.some((w) => /\d/.test(w) || NUMBERING_WORDS.has(w));
+}
+
+/** Levenshtein distance. Titles are short, so the plain version is plenty. */
+function editDistance(a: string, b: string): number {
+  const row = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    let diagonal = row[0]!;
+    row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const above = row[j]!;
+      row[j] = Math.min(row[j]! + 1, row[j - 1]! + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diagonal = above;
+    }
+  }
+  return row[b.length]!;
+}
+
+/**
+ * Do two normalised titles name the same film?
+ *
+ * The strict tests -- equality, or a dropped subtitle -- came first and still run
+ * first. Every rule after them exists because of a specific false alarm on the
+ * live audit of 2026-09-10, where 8 of 15 findings were a correctly identified
+ * film whose filename the audit could not read. Each rule is fenced so that it
+ * cannot excuse what the audit is for, a file holding a different film from the
+ * one it is filed as. In particular none of them lets two titles that differ
+ * only in a number agree: a wrong sequel is the mis-identification that looks
+ * most like a match.
+ */
+export function titlesAgree(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b || isShorteningOf(a, b)) return true;
+
+  // Spacing only. "Ro.Go.Pa.G." normalises to "rogopag" while the file's dots
+  // become spaces, "ro go pa g"; "L'Amore" against "L.amore" is the same case.
+  const compactA = a.replace(/ /g, "");
+  const compactB = b.replace(/ /g, "");
+  if (compactA.length >= 4 && compactA === compactB) return true;
+
+  const wordsA = a.split(" ");
+  const wordsB = b.split(" ");
+  const [shortWords, longWords] =
+    wordsA.length <= wordsB.length ? [wordsA, wordsB] : [wordsB, wordsA];
+  const short = shortWords.join(" ");
+
+  // The END of a longer title. A file keeps "II - La Nuit" of "Jacques Rivette,
+  // le veilleur: 2-La nuit", or "Siamo Donne" after an actor's name. Two words
+  // at least, so a bare numeral cannot match every sequel going.
+  if (
+    shortWords.length >= 2 &&
+    short.length >= 4 &&
+    longWords.slice(longWords.length - shortWords.length).join(" ") === short
+  ) {
+    return true;
+  }
+
+  // A long shared opening: "How to Live in the FRG" for "How to Live in the
+  // German Federal Republic". Three words and most of the shorter title, and
+  // nothing numbered after the point where they part -- otherwise "Part One"
+  // and "Part Two" of the same series would agree.
+  let shared = 0;
+  while (shared < shortWords.length && shortWords[shared] === longWords[shared]) shared += 1;
+  if (
+    shared >= 3 &&
+    shared / shortWords.length >= 0.6 &&
+    !hasNumbering(shortWords.slice(shared)) &&
+    !hasNumbering(longWords.slice(shared))
+  ) {
+    return true;
+  }
+
+  // One letter apart in a title long enough for that to be spelling: "Europe
+  // '51" and "Europa '51". The digits have to match exactly, which is what stops
+  // this ever turning Toy Story 2 into Toy Story 3.
+  if (
+    wordsA.length === wordsB.length &&
+    a.length >= 6 &&
+    a.replace(/\D/g, "") === b.replace(/\D/g, "") &&
+    editDistance(a, b) <= 1
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Strip release noise from a filename to get at the title it claims to be.
  *
@@ -98,9 +197,18 @@ const RELEASE_NOISE =
   /\b(1080p|2160p|720p|480p|4k|uhd|web[- ]?dl|webrip|bluray|blu[- ]?ray|brrip|bdrip|dvdrip|hdrip|hdtv|x264|x265|h ?264|h ?265|hevc|avc|aac\d*|ac3|dts|remux|proper|repack|amzn|nf|hulu|dsnp|multi|dual|yts|rarbg)\b/i;
 
 export function titleFromFilename(filename: string): string {
-  const stem = filename.replace(/\.[a-z0-9]{2,4}$/i, "");
+  // Underscores and pluses are word breaks. Left in, they glued "_H264_" and
+  // "+1953_" to their neighbours, so neither the release-noise cut nor the year
+  // cut could find a word boundary and the whole name survived as the "title" --
+  // "Anna+Magnani_Siamo+Donne+1953_SD_H264_Ita_Ac3..." on the live audit.
+  const stem = filename.replace(/\.[a-z0-9]{2,4}$/i, "").replace(/[_+]+/g, " ");
   const cut = RELEASE_NOISE.exec(stem);
   let text = cut ? stem.slice(0, cut.index) : stem;
+  // "Harun Farocki - (1990) How to Live in the FRG": a name, a dash, a year,
+  // and then the title. Cutting at the year below would keep the director and
+  // throw the title away.
+  const byLine = /^(.+?)\s+-\s+[([]?(?:19|20)\d{2}[)\]]?\s+(.+)$/.exec(text);
+  if (byLine) return byLine[2]!.replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
   // A trailing year in brackets or bare is a year, not part of the title.
   text = text.replace(/[([]?\b(19|20)\d{2}\b[)\]]?.*$/, "");
   return text.replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
@@ -120,7 +228,7 @@ function matchesAnyKnownTitle(libraryTitle: string, c: AuditCandidate): boolean 
   return known.some((k) => {
     if (!k) return false;
     const n = normaliseTitle(k);
-    return n === target || isShorteningOf(n, target);
+    return titlesAgree(n, target);
   });
 }
 
@@ -153,7 +261,7 @@ export function auditFilm(c: AuditCandidate): AuditFinding {
     const fromFile = titleFromFilename(c.filename);
     if (fromFile) {
       const fileAgreesWithTmdb = matchesAnyKnownTitle(fromFile, c);
-      const fileAgreesWithLibrary = normaliseTitle(fromFile) === normaliseTitle(c.libraryTitle);
+      const fileAgreesWithLibrary = titlesAgree(normaliseTitle(fromFile), normaliseTitle(c.libraryTitle));
 
       if (!titleAgrees && fileAgreesWithTmdb) {
         // The file says what TMDB says; only the library's stored name is odd.
