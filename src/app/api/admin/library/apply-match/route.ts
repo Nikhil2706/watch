@@ -8,6 +8,7 @@ import {
 } from "@/lib/jellyfin";
 import { markMetadataConfirmed } from "@/lib/library-curation";
 import { forgetTmdbForPath } from "@/lib/tmdb-people";
+import { putLink } from "@/lib/tmdb-store";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -77,9 +78,38 @@ export async function POST(request: Request): Promise<Response> {
     if (path) markMetadataConfirmed(path);
     if (filePath) {
       // The TMDB link still points at the film this one was mistaken for, and
-      // so does every credit built from it. Drop both; the next backfill tick
-      // re-resolves from the corrected IMDb id.
+      // so does every credit built from it. Drop both.
       forgetTmdbForPath(filePath);
+
+      /*
+       * Then write the new link straight from the candidate, when it carries a
+       * TMDB id of its own.
+       *
+       * Leaving the backfill to re-resolve it is what made this fragile: the
+       * backfill reads provider ids for the whole library at once, and the
+       * seconds just after an apply are exactly when Jellyfin has not finished
+       * writing the new ones. The admin, meanwhile, picked this candidate by
+       * id — there is a correct answer in hand right here, and no reason to
+       * throw it away and go back for a racier copy of it.
+       *
+       * Candidates from providers with no stable id of their own (OMDb) carry
+       * only an IMDb id; those still fall through to the backfill, which
+       * resolves them from a per-item read.
+       */
+      const candidateTmdbId = Number(
+        (candidate as RemoteSearchResult).ProviderIds?.Tmdb ?? NaN,
+      );
+      if (Number.isFinite(candidateTmdbId) && candidateTmdbId > 0) {
+        putLink({
+          subjectType: "path",
+          subjectId: filePath,
+          tmdbKind: "movie",
+          tmdbId: candidateTmdbId,
+          season: null,
+          episode: null,
+          resolvedBy: "apply-match",
+        });
+      }
     }
     return Response.json({ applied: true }, { headers: NO_STORE });
   } catch (error) {

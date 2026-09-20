@@ -4,6 +4,7 @@ import { getAdminMovies } from "./admin-library-cache";
 import { asRows, getDb } from "./db";
 import { parseEpisodeInfo } from "./episode-naming";
 import { setItemImage } from "./jellyfin";
+import { tailOfDoubleEpisode } from "./tmdb-shape";
 import { getCached, getLink, putLink, tmdbImage, type TmdbEpisode } from "./tmdb-store";
 
 /**
@@ -40,6 +41,13 @@ export interface StillPlanEntry {
   episode: number;
   title: string;
   stillUrl: string;
+  /**
+   * Set when this file is the back half of a double-length episode that TMDB
+   * counts as one — the number of the episode its still came from. Worth
+   * carrying rather than hiding: two files legitimately end up with the same
+   * image, and a reader who did not know why would report it as a bug.
+   */
+  continuationOf?: number;
 }
 
 export interface StillPlan {
@@ -51,7 +59,11 @@ export interface StillPlan {
     unlinkedGroups: string[];
     /** Filename carries no season/episode marker. */
     unparsed: number;
-    /** Parsed fine, but TMDB has no such episode — a numbering mismatch. */
+    /**
+     * Parsed fine, but TMDB has no such episode — a real numbering mismatch.
+     * The split-finale case that looks like one is resolved rather than counted
+     * here; see tailOfDoubleEpisode().
+     */
     noEpisode: number;
     /** TMDB knows the episode but has no still for it. */
     noStill: number;
@@ -138,7 +150,17 @@ export function planEpisodeStills(options: { groupId?: string; force?: boolean }
         plan.details.unparsed.push(path);
         continue;
       }
-      const ep = loadSeason(parsed.season).get(parsed.episode);
+      const episodes = loadSeason(parsed.season);
+      let ep = episodes.get(parsed.episode);
+      // The back half of a split finale, which TMDB counts as one episode.
+      let continuationOf: number | undefined;
+      if (!ep) {
+        const tail = tailOfDoubleEpisode(episodes, parsed.episode);
+        if (tail) {
+          ep = tail.episode;
+          continuationOf = tail.number;
+        }
+      }
       if (!ep) {
         plan.skipped.noEpisode += 1;
         plan.details.noEpisode.push({
@@ -169,6 +191,7 @@ export function planEpisodeStills(options: { groupId?: string; force?: boolean }
         episode: parsed.episode,
         title: ep.name,
         stillUrl: url,
+        ...(continuationOf != null ? { continuationOf } : {}),
       });
     }
   }

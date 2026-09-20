@@ -3,6 +3,7 @@ import "server-only";
 import { getAdminMovies } from "./admin-library-cache";
 import { asRows, getDb } from "./db";
 import { parseEpisodeInfo } from "./episode-naming";
+import { getAdminMovie } from "./jellyfin";
 import {
   fetchMovie,
   fetchSeason,
@@ -296,9 +297,31 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
     if (spent()) continue;
 
     try {
-      let tmdbId = Number(movie.ProviderIds?.Tmdb);
+      /* An admin who used apply-match picked this film's TMDB id by hand. That
+         outranks anything derived from Jellyfin's provider ids, and re-deriving
+         it is what went wrong on 2026-09-11: the derivation ran while Jellyfin
+         was still writing the new ids, read the old ones, and overwrote the
+         correction. Take the stored answer and go straight to the payload. */
+      const chosenByHand =
+        existingLink && existingLink.tmdbId !== NO_MATCH && existingLink.resolvedBy === "apply-match"
+          ? existingLink.tmdbId
+          : null;
+
+      /* Otherwise re-read THIS item rather than trust the listing's copy of it.
+         The listing is a cursor — it says which films exist — and it is cached
+         for a minute at a time; it is not the authority on what any one of them
+         is. A whole-library listing fetched in the seconds after a match was
+         applied holds the pre-match provider ids, and every pass in the
+         following minute read that same frozen answer. One narrow item read is
+         bounded by the tick budget and costs nothing upstream of Jellyfin. */
+      const providerIds = chosenByHand
+        ? null
+        : ((await getAdminMovie(movie.Id, { withMediaSources: false }).catch(() => null))
+            ?.ProviderIds ?? movie.ProviderIds);
+
+      let tmdbId = chosenByHand ?? Number(providerIds?.Tmdb);
       if (!Number.isFinite(tmdbId) || tmdbId <= 0) {
-        const found = await findByImdbId(imdb);
+        const found = await findByImdbId(providerIds?.Imdb ?? imdb);
         spend();
         if (!found || found.kind !== "movie") {
           if (movie.Path) {
@@ -324,7 +347,10 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
          hit its budget used to discard that answer and pay for it again next
          time — so a small budget could spend everything and record nothing.
          The link is a fact worth keeping on its own; the payload can follow. */
-      if (movie.Path) {
+      // Nothing to bank when the link already says this, by a stronger
+      // authority than this loop has: rewriting it would only downgrade
+      // resolved_by from the admin's choice to a guess at where it came from.
+      if (movie.Path && !chosenByHand) {
         putLink({
           subjectType: "path",
           subjectId: movie.Path,
@@ -332,7 +358,7 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
           tmdbId,
           season: null,
           episode: null,
-          resolvedBy: movie.ProviderIds?.Tmdb ? "tmdb-id" : "imdb",
+          resolvedBy: providerIds?.Tmdb ? "tmdb-id" : "imdb",
         });
       }
 

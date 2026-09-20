@@ -300,3 +300,52 @@ test("a genuinely different film survives every new rule", () => {
   assert.notEqual(f.verdict, "agrees");
   assert.equal(titlesAgree("chocolat", "french connection"), false);
 });
+
+/* ---- "Title - Year Blurb" is not a by-line ----
+   The by-line rule read the dash in this real filename the way it reads the one
+   in "Harun Farocki - (1990) ...", and decided the film was called "Italian
+   Drama (Eng Subs); Sophia Loren ...". Nothing matches that, so a film that had
+   just been identified by hand sat on the check list. */
+
+const ALTONA =
+  "The Condemned of Altona - 1962 Italian Drama (Eng Subs); Sophia Loren I Maximilian Schell (700p_25fps_H264-128kbit_AAC).mp4";
+
+test("a title followed by a year and a blurb is read as the title", () => {
+  // Without the library title there is nothing to break the tie, and the
+  // by-line reading still stands -- that is the documented fallback.
+  assert.equal(titleFromFilename(ALTONA), "Italian Drama (Eng Subs); Sophia Loren I Maximilian Schell (700p 25fps");
+  // With it, the side of the dash that agrees wins.
+  assert.equal(titleFromFilename(ALTONA, "The Condemned of Altona"), "The Condemned of Altona");
+
+  const f = auditFilm(film({
+    libraryTitle: "The Condemned of Altona",
+    tmdbTitle: "The Condemned of Altona",
+    libraryYear: 1962,
+    tmdbYear: 1962,
+    filename: ALTONA,
+  }));
+  assert.equal(f.verdict, "agrees");
+});
+
+test("the tie-break does not spoil an actual by-line", () => {
+  // The title is on the far side of the year here, and passing the library
+  // title must not start preferring the director's name.
+  assert.equal(
+    titleFromFilename("Harun Farocki - (1990) How to Live in the FRG.mkv", "How to Live in the German Federal Republic"),
+    "How to Live in the FRG",
+  );
+});
+
+test("the tie-break cannot excuse a wrong match", () => {
+  // Neither side of the dash agrees with the library's title, because the
+  // library's title is the wrong film. Falling back to the by-line reading
+  // keeps the disagreement visible instead of quietly resolving it.
+  const f = auditFilm(film({
+    libraryTitle: "The Descent: Part 2",
+    tmdbTitle: "The Descent: Part 2",
+    libraryYear: 2009,
+    tmdbYear: 2009,
+    filename: "Jaume Balaguero - (2009) [Rec] 2.mkv",
+  }));
+  assert.notEqual(f.verdict, "agrees");
+});

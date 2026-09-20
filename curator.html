@@ -2442,10 +2442,13 @@
     el.innerHTML = '<div class="muted" style="font-size:13px">Comparing every film against TMDB…</div>';
     api("/api/admin/match-audit").then(function (d) {
       var findings = d.findings || [];
+      // "confirmed" arrives with the deploy that added it; an older gate simply
+      // omits the field, and the line then reads as it always did.
+      var skipped = d.confirmed ? " · " + d.confirmed + " confirmed by hand, not re-judged" : "";
       var head =
         '<div class="note" style="margin-bottom:10px">' +
         esc(d.audited + " audited · " + d.suspect + " suspect · " + d.check + " worth a look · " +
-            d.uncached + " not cached, so not judged") + "</div>";
+            d.uncached + " not cached, so not judged" + skipped) + "</div>";
       if (!findings.length) {
         el.innerHTML = head + '<div class="muted" style="font-size:13px">Nothing disagrees.</div>';
         return;

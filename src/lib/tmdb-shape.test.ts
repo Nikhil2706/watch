@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { creditsFromPayload, isCacheableImagePath } from "./tmdb-shape.ts";
+import { creditsFromPayload, isCacheableImagePath, tailOfDoubleEpisode } from "./tmdb-shape.ts";
 
 /**
  * The thing worth pinning down is the filtering.
@@ -168,4 +168,49 @@ test("only accepts TMDB's own file-path shape", () => {
   assert.equal(isCacheableImagePath("//evil.example/x.jpg"), false);
   assert.equal(isCacheableImagePath("/abc.gif"), false);
   assert.equal(isCacheableImagePath(""), false);
+});
+
+/* ---- split finales ----
+   The three real seasons behind this rule, with the runtimes TMDB actually
+   reports. Two of them end in a feature-length episode the release splits in
+   two; the third does not, and is a genuine off-by-one that must stay visible. */
+
+const season = (runtimes: readonly number[]) =>
+  new Map(runtimes.map((runtime, i) => [i + 1, { runtime }]));
+
+test("a file after a feature-length finale is that finale's second half", () => {
+  // Lost season 1: 24 episodes, "Exodus (2)" running 87 minutes against a
+  // median of 44. The release calls its two halves E24 and E25.
+  const lostS1 = season([...Array(23).fill(44), 87]);
+  const tail = tailOfDoubleEpisode(lostS1, 25);
+  assert.equal(tail?.number, 24);
+  assert.equal(tail?.episode.runtime, 87);
+
+  // Lost season 4: 13 episodes, the finale 85 minutes against a median of 43.
+  const lostS4 = season([...Array(12).fill(43), 85]);
+  assert.equal(tailOfDoubleEpisode(lostS4, 14)?.number, 13);
+});
+
+test("an ordinary finale does not swallow the file after it", () => {
+  // E.R. season 1: 25 episodes, the finale an ordinary 46 minutes. The file
+  // called S01E26 is a real numbering mismatch and has to stay reported.
+  const erS1 = season([...Array(24).fill(46), 46]);
+  assert.equal(tailOfDoubleEpisode(erS1, 26), null);
+});
+
+test("the rule reaches exactly one episode past the end, and no further", () => {
+  const s = season([...Array(9).fill(40), 90]);
+  assert.notEqual(tailOfDoubleEpisode(s, 11), null);
+  // Two past the end is a numbering problem, not a split finale.
+  assert.equal(tailOfDoubleEpisode(s, 12), null);
+  // An episode TMDB actually has is never routed through this.
+  assert.equal(tailOfDoubleEpisode(s, 10), null);
+});
+
+test("a season with nothing to compare against is left alone", () => {
+  // No runtimes, so no median and no way to tell a double from a single.
+  const blank = new Map([1, 2, 3, 4].map((n) => [n, { runtime: null }]));
+  assert.equal(tailOfDoubleEpisode(blank, 5), null);
+  // Too few episodes for a median to mean anything.
+  assert.equal(tailOfDoubleEpisode(season([40, 90]), 3), null);
 });

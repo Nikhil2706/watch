@@ -196,7 +196,14 @@ export function titlesAgree(a: string, b: string): boolean {
 const RELEASE_NOISE =
   /\b(1080p|2160p|720p|480p|4k|uhd|web[- ]?dl|webrip|bluray|blu[- ]?ray|brrip|bdrip|dvdrip|hdrip|hdtv|x264|x265|h ?264|h ?265|hevc|avc|aac\d*|ac3|dts|remux|proper|repack|amzn|nf|hulu|dsnp|multi|dual|yts|rarbg)\b/i;
 
-export function titleFromFilename(filename: string): string {
+/**
+ * `libraryTitle`, when given, only ever breaks a tie the filename cannot break
+ * on its own — see the note on the by-line shape below. It never overrides a
+ * filename that reads cleanly, because the whole value of the filename to this
+ * audit is that it is an independent witness.
+ */
+export function titleFromFilename(filename: string, libraryTitle?: string): string {
+  const tidy = (s: string) => s.replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
   // Underscores and pluses are word breaks. Left in, they glued "_H264_" and
   // "+1953_" to their neighbours, so neither the release-noise cut nor the year
   // cut could find a word boundary and the whole name survived as the "title" --
@@ -208,10 +215,31 @@ export function titleFromFilename(filename: string): string {
   // and then the title. Cutting at the year below would keep the director and
   // throw the title away.
   const byLine = /^(.+?)\s+-\s+[([]?(?:19|20)\d{2}[)\]]?\s+(.+)$/.exec(text);
-  if (byLine) return byLine[2]!.replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
+  if (byLine) {
+    const before = tidy(byLine[1]!);
+    const after = tidy(byLine[2]!);
+    /* The same shape means the opposite thing often enough to matter: "The
+       Condemned of Altona - 1962 Italian Drama (Eng Subs)" is a title, a year
+       and then a blurb, and reading it as a by-line made the audit believe the
+       file was called "Italian Drama (Eng Subs)" -- which matches nothing, so a
+       correctly identified film sat on the check list looking wrong.
+
+       Nothing inside the string separates the two readings. What does is the
+       library's own title: whichever side of the dash agrees with it is the
+       side that is a title. When neither does -- which includes every case
+       where the identification really is wrong -- fall back to the by-line
+       reading, so a genuine disagreement is still reported rather than
+       explained away. */
+    const target = libraryTitle ? normaliseTitle(libraryTitle) : "";
+    if (target) {
+      if (titlesAgree(normaliseTitle(after), target)) return after;
+      if (titlesAgree(normaliseTitle(before), target)) return before;
+    }
+    return after;
+  }
   // A trailing year in brackets or bare is a year, not part of the title.
   text = text.replace(/[([]?\b(19|20)\d{2}\b[)\]]?.*$/, "");
-  return text.replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
+  return tidy(text);
 }
 
 /**
@@ -258,7 +286,7 @@ export function auditFilm(c: AuditCandidate): AuditFinding {
   // agree with a wrong match, so when the filename says one thing and the
   // matched title says another, the filename is usually right.
   if (c.filename) {
-    const fromFile = titleFromFilename(c.filename);
+    const fromFile = titleFromFilename(c.filename, c.libraryTitle);
     if (fromFile) {
       const fileAgreesWithTmdb = matchesAnyKnownTitle(fromFile, c);
       const fileAgreesWithLibrary = titlesAgree(normaliseTitle(fromFile), normaliseTitle(c.libraryTitle));

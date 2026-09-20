@@ -139,3 +139,57 @@ const IMAGE_PATH_RE = /^\/[A-Za-z0-9]+\.(jpg|png|svg)$/;
 export function isCacheableImagePath(path: string): boolean {
   return IMAGE_PATH_RE.test(path);
 }
+
+/** As much of a season's episode as the rule below needs. */
+export interface EpisodeRuntime {
+  runtime: number | null;
+}
+
+/**
+ * A file numbered one past the end of its season, where the season ends in a
+ * double-length episode, is the second half of that episode.
+ *
+ * Three files were reported as episode-numbering mismatches on 2026-09-11.
+ * Checking them against TMDB's season lists showed they were not one problem
+ * but two:
+ *
+ *   Lost S01E25 "Exodus (Part 3)"               TMDB S1 ends at E24, 87 minutes
+ *   Lost S04E14 "There's No Place Like Home 3"  TMDB S4 ends at E13, 85 minutes
+ *   E.R. S01E26 "Everything Old Is New Again"   TMDB S1 ends at E25, 46 minutes
+ *
+ * The two Lost files are right as they are. The broadcast finale was a single
+ * feature-length episode, TMDB records it as one, and the release splits it in
+ * two — so renaming them to agree with TMDB would be renaming them away from
+ * what they contain. E.R. is a genuine off-by-one, its filenames running one
+ * ahead of TMDB's numbering for the whole season, and it has to stay reported.
+ *
+ * Runtime is what tells the two apart, so runtime is what this reads: the last
+ * episode must be half again the season's median before the file after it is
+ * read as its tail. E.R.'s finale is an ordinary 46 minutes against a median of
+ * 46, so it does not qualify. A median and not a mean, because one
+ * feature-length episode is precisely the thing that would drag a mean up and
+ * let the season excuse itself.
+ */
+export function tailOfDoubleEpisode<T extends EpisodeRuntime>(
+  season: ReadonlyMap<number, T>,
+  wanted: number,
+): { episode: T; number: number } | null {
+  if (season.size < 3) return null;
+  const numbers = [...season.keys()].sort((a, b) => a - b);
+  const last = numbers[numbers.length - 1]!;
+  // Strictly the next number along: a file two or more past the end is a
+  // numbering problem, not a split finale.
+  if (wanted !== last + 1) return null;
+
+  const lastEp = season.get(last)!;
+  if (typeof lastEp.runtime !== "number" || lastEp.runtime <= 0) return null;
+
+  const runtimes = numbers
+    .map((n) => season.get(n)?.runtime)
+    .filter((r): r is number => typeof r === "number" && r > 0)
+    .sort((a, b) => a - b);
+  if (runtimes.length < 3) return null;
+  const median = runtimes[Math.floor(runtimes.length / 2)]!;
+
+  return lastEp.runtime >= median * 1.5 ? { episode: lastEp, number: last } : null;
+}

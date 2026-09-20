@@ -42,6 +42,17 @@ interface Entry {
 const cache = new Map<string, Entry>();
 const inFlight = new Map<string, Promise<AdminMovieListItem[]>>();
 
+/**
+ * Bumped whenever something invalidates the listing.
+ *
+ * A fetch that was already in flight when the invalidation happened read
+ * Jellyfin BEFORE the write, so its result is pre-write data — and without
+ * this it would land in the cache a moment later and be served as current for
+ * the next minute. Dropping the cache is not enough on its own; the answer
+ * already on the wire has to be refused too.
+ */
+let generation = 0;
+
 function keyFor(withMediaSources: boolean): string {
   return withMediaSources ? "heavy" : "light";
 }
@@ -73,9 +84,14 @@ export async function getAdminMovies(
 }
 
 function refresh(key: string, withMediaSources: boolean): Promise<AdminMovieListItem[]> {
+  const startedAt = generation;
   const request = listAllMoviesAdmin({ withMediaSources })
     .then((items) => {
-      cache.set(key, { fetchedAt: Date.now(), items });
+      // Something was invalidated while this was in flight, so these items
+      // predate that change. Hand them to the caller that is already waiting —
+      // they are no worse than what it would have got — but do not store them,
+      // or the next minute of readers gets pre-write data presented as fresh.
+      if (generation === startedAt) cache.set(key, { fetchedAt: Date.now(), items });
       return items;
     })
     .finally(() => {
@@ -98,6 +114,7 @@ function refresh(key: string, withMediaSources: boolean): Promise<AdminMovieList
  */
 export function invalidateAdminMovies(): void {
   cache.clear();
+  generation += 1;
 }
 
 /**
@@ -124,17 +141,30 @@ export function invalidateAdminMovies(): void {
  * runTmdbBackfillTick() reads this listing for ProviderIds, and only a process
  * restart cleared it.
  *
- * Dropping the row instead costs one narrow re-fetch on the next read, by
+ * Dropping the cached listing instead costs one re-fetch on the next read, by
  * which point Jellyfin has settled.
+ *
+ * It drops the whole listing rather than splicing the row out of it, which the
+ * first version of this did. Splicing and setting fetchedAt = 0 does not make
+ * the next caller wait: getAdminMovies() is stale-while-revalidate, so it still
+ * hands back the cached array — now SHORT BY THE FILM THAT JUST CHANGED — and
+ * merely starts a refresh behind it. On 2026-09-11 that is precisely what
+ * happened: a backfill pass straight after three re-identifications did not see
+ * the three films at all, and the refresh it kicked off read Jellyfin before
+ * the match had settled and cached the OLD provider ids as current, so the next
+ * pass re-linked all three to the films they had just been corrected from.
+ * Only restarting the process cleared it.
  */
 export function forgetAdminMovie(itemId: string): void {
-  for (const entry of cache.values()) {
-    const index = entry.items.findIndex((item) => item.Id === itemId);
-    if (index !== -1) entry.items.splice(index, 1);
-    // The listing is now short by one, so make the next caller rebuild it
-    // rather than hand out a set that is missing a film.
-    entry.fetchedAt = 0;
+  for (const [key, entry] of cache) {
+    // Only the shapes that actually hold a copy: dropping a listing that never
+    // contained this item buys nothing and costs the next reader a full
+    // re-fetch, 16 seconds of it in the heavy shape.
+    if (entry.items.some((item) => item.Id === itemId)) cache.delete(key);
   }
+  // Unconditional, even when nothing was cached: a fetch may be in flight that
+  // started before the write, and it must not be allowed to cache its answer.
+  generation += 1;
 }
 
 export async function refreshAdminMovie(itemId: string): Promise<void> {
