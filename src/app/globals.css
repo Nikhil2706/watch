@@ -4302,7 +4302,9 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
 /* The downloads screen is the one page that renders with no network at all
    (the service worker precaches it), so everything here is plain CSS with no
    dependency on anything fetched at runtime. */
-.dl-page { padding-top: 18px; }
+/* Its own gutters: the "wrap" class this page also carries is defined nowhere,
+   so without these the text ran flush to the screen edge. */
+.dl-page { max-width: 760px; margin: 0 auto; padding: 18px 16px 24px; }
 .dl-heading { font-family: var(--font-serif, ui-serif, Georgia, serif); font-weight: 600; margin: 0 0 6px; }
 
 .dl-list { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
