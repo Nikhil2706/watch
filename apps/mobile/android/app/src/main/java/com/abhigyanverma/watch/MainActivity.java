@@ -132,4 +132,10 @@ public class MainActivity extends BridgeActivity {
                 }
             });
     }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        UpdateChecker.resumePendingInstall(this);
+    }
 }

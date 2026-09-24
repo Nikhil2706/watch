@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Player, type PlayerSubtitle } from "@/components/media/Player";
-import { getOfflineBridge, offlineSupported, prepareForOffline } from "@/lib/offline/bridge";
+import {
+  cancelPendingDownload,
+  getOfflineBridge,
+  offlineSupported,
+  pendingOfflineDownloads,
+  prepareForOffline,
+  resumeOfflineDownloads,
+} from "@/lib/offline/bridge";
+import type { PendingDownload } from "@/lib/offline/pending";
 import { OFFLINE_BRIDGE_VERSION, type OfflineBundle } from "@/lib/offline/types";
 
 /**
@@ -29,6 +37,7 @@ interface Playing {
 
 export function DownloadsScreen() {
   const [bundles, setBundles] = useState<OfflineBundle[] | null>(null);
+  const [pending, setPending] = useState<PendingDownload[]>([]);
   const [playing, setPlaying] = useState<Playing | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
@@ -40,6 +49,10 @@ export function DownloadsScreen() {
       setBundles([]);
       return;
     }
+    // Hand over anything the server has finished preparing before listing,
+    // so it shows up as downloading on this same pass.
+    await resumeOfflineDownloads().catch(() => undefined);
+    setPending(pendingOfflineDownloads());
     try {
       setBundles(await bridge.list());
       // Playback is never gated on this — see OFFLINE_BRIDGE_VERSION. An old
@@ -60,11 +73,13 @@ export function DownloadsScreen() {
   // Poll only while something is actually moving. A downloads screen with
   // nothing in flight has no reason to wake the device up every two seconds.
   const busy = (bundles ?? []).some((b) => b.state === "downloading" || b.state === "queued");
+  const waiting = pending.some((p) => p.status !== "failed");
   useEffect(() => {
-    if (!busy) return;
-    const timer = setInterval(() => void refresh(), 2000);
+    if (!busy && !waiting) return;
+    // The server side moves in minutes, the device side in seconds.
+    const timer = setInterval(() => void refresh(), busy ? 2000 : 5000);
     return () => clearInterval(timer);
-  }, [busy, refresh]);
+  }, [busy, waiting, refresh]);
 
   useEffect(
     () => () => {
@@ -90,10 +105,12 @@ export function DownloadsScreen() {
       // this page, and while <video> does not care, <track> is CORS-checked
       // and would silently load nothing — a film that plays with no subtitles
       // and no error to explain it.
+      // One unreadable subtitle must not cost the whole film: playback of
+      // something already on the device is never gated (see types.ts).
       const revoke: string[] = [];
       const subtitles: PlayerSubtitle[] = [];
       for (const track of bundle.subtitles ?? []) {
-        const text = await bridge.readText(bundle.itemId, track.filename);
+        const text = await bridge.readText(bundle.itemId, track.filename).catch(() => null);
         if (!text) continue;
         const url = URL.createObjectURL(new Blob([text], { type: "text/vtt" }));
         revoke.push(url);
@@ -170,18 +187,53 @@ export function DownloadsScreen() {
     <>
       {stale ? (
         <p className="note">
-          This app is older than the site. Your downloads still play; updating the app
-          restores managing them.
+          This app is older than the site. Your downloads still play, but subtitles need the
+          app update — accept it next time the app offers one.
         </p>
       ) : null}
       {error ? <p className="msg err">{error}</p> : null}
 
+      {pending.length > 0 ? (
+        <ul className="dl-list">
+          {pending.map((p) => (
+            <li key={p.itemId} className="dl-row">
+              <div className="dl-meta">
+                <div className="dl-title">{p.title}</div>
+                <div className="dl-sub">
+                  {p.status === "failed"
+                    ? (p.error ?? "The server could not prepare this title.")
+                    : `Preparing on the server${p.progress > 0 ? ` · ${p.progress}%` : "…"} · downloads by itself when ready`}
+                </div>
+                {p.status !== "failed" ? (
+                  <div className="dl-bar is-server">
+                    <i style={{ width: `${Math.max(p.progress, 3)}%` }} />
+                  </div>
+                ) : null}
+              </div>
+              <div className="dl-actions">
+                <button
+                  className="btn ghost"
+                  onClick={() => {
+                    cancelPendingDownload(p.itemId);
+                    setPending(pendingOfflineDownloads());
+                  }}
+                >
+                  {p.status === "failed" ? "Dismiss" : "Cancel"}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       {bundles === null ? (
         <p className="note">Reading your downloads…</p>
       ) : bundles.length === 0 ? (
-        <p className="note">
-          Nothing downloaded yet. Open a film and choose Download to keep it on this device.
-        </p>
+        pending.length === 0 ? (
+          <p className="note">
+            Nothing downloaded yet. Open a film and choose Keep offline to have it on this device.
+          </p>
+        ) : null
       ) : (
         <ul className="dl-list">
           {bundles.map((bundle) => (

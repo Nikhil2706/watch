@@ -5,7 +5,12 @@ import { Readable } from "node:stream";
 import { parseRange } from "@/lib/http-range";
 import { getItem } from "@/lib/media";
 import { getSessionFromRequest } from "@/lib/session";
-import { DownloadSourceError, getDownloadJob, queueDownload } from "@/lib/downloads";
+import {
+  DownloadSourceError,
+  getDownloadJob,
+  queueDownload,
+  requeueFailedDownload,
+} from "@/lib/downloads";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,6 +67,10 @@ export async function GET(
       console.error(`[download] queue failed for ${itemId}:`, error);
       return Response.json({ error: "queue_failed", message }, { status: 502, headers: NO_STORE });
     }
+  }
+
+  if (job.status === "failed" && new URL(request.url).searchParams.get("retry") === "1") {
+    job = requeueFailedDownload(itemId) ?? job;
   }
 
   if (job.status === "failed") {

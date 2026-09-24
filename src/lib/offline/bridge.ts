@@ -1,4 +1,12 @@
-import type { OfflineBridge, OfflineBundle, OfflineManifest } from "./types";
+import {
+  forgetPending,
+  keepOffline,
+  readPending,
+  resumePending,
+  type KeyValueStore,
+  type PendingDownload,
+} from "./pending";
+import type { OfflineBridge, OfflineBundle } from "./types";
 
 /**
  * Finds the native shell hosting this page, if any.
@@ -37,13 +45,19 @@ function capacitorBridge(): OfflineBridge | null {
   const plugin = window.Capacitor?.Plugins?.Offline;
   if (!plugin) return null;
 
-  return {
+  const bridge: OfflineBridge = {
     async start(manifest) {
       await plugin.start!({ manifest });
     },
     async list() {
-      const result = (await plugin.list!()) as { bundles?: OfflineBundle[] } | OfflineBundle[];
-      return Array.isArray(result) ? result : (result.bundles ?? []);
+      const result = (await plugin.list!()) as
+        | { bundles?: OfflineBundle[]; version?: number }
+        | OfflineBundle[];
+      if (Array.isArray(result)) return result;
+      // Shells before 1.5 report no version, which reads as 0 and correctly
+      // marks them stale: they cannot read subtitles back out.
+      if (typeof result.version === "number") bridge.version = result.version;
+      return result.bundles ?? [];
     },
     async remove(itemId) {
       await plugin.remove!({ itemId });
@@ -57,10 +71,17 @@ function capacitorBridge(): OfflineBridge | null {
       return window.Capacitor?.convertFileSrc ? window.Capacitor.convertFileSrc(path) : path;
     },
     async readText(itemId, file) {
-      const result = (await plugin.readText!({ itemId, file })) as { text?: string | null };
-      return result?.text ?? null;
+      // Missing from shells before 1.5, where Capacitor rejects the call as
+      // unimplemented. Null means "no subtitles", so the film still plays.
+      try {
+        const result = (await plugin.readText!({ itemId, file })) as { text?: string | null };
+        return result?.text ?? null;
+      } catch {
+        return null;
+      }
     },
   };
+  return bridge;
 }
 
 function tauriBridge(): OfflineBridge | null {
@@ -113,36 +134,56 @@ export function __setOfflineBridge(bridge: OfflineBridge | null | undefined): vo
   cached = bridge;
 }
 
+function localStore(): KeyValueStore | null {
+  try {
+    return typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+const boundFetch = (url: string, init?: RequestInit) => fetch(url, init);
+
 /**
- * Fetches the manifest and hands it to the shell.
+ * Keeps a title offline. The manifest is fetched from the page, not the shell,
+ * because the page is the only place with the session — the cookie is
+ * httpOnly, so the native side reads its own cookie jar for the URLs inside.
  *
- * The manifest is fetched HERE, from the page, because the page is the only
- * place with the session — the cookie is httpOnly, so the native side cannot
- * be given it and has to read its own cookie jar when it fetches the URLs
- * inside. Splitting it this way keeps the credential handling in the one
- * place that already has credentials.
+ * "preparing" means the server is still producing the copy; it is picked up
+ * by resumeOfflineDownloads() from whichever page is open when it is ready.
  */
-export async function startOfflineDownload(itemId: string): Promise<OfflineManifest> {
+export async function startOfflineDownload(
+  itemId: string,
+  title: string,
+): Promise<"downloading" | "preparing"> {
   const bridge = getOfflineBridge();
   if (!bridge) throw new Error("Offline downloads need the app.");
 
-  const response = await fetch(`/api/download/${encodeURIComponent(itemId)}/manifest`, {
-    headers: { Accept: "application/json" },
+  const outcome = await keepOffline(itemId, title, {
+    bridge,
+    fetcher: boundFetch,
+    store: localStore(),
   });
-  if (!response.ok) {
-    throw new Error(
-      response.status === 404
-        ? "That title is not available."
-        : "Could not work out what to download.",
-    );
-  }
-  const manifest = (await response.json()) as OfflineManifest;
-  await bridge.start(manifest);
   // Starting a download is somebody saying they expect to be offline. That is
   // the moment to make sure the screen they will need survives without a
   // network — not the moment they open it, by which time it is too late.
   void prepareForOffline();
-  return manifest;
+  return outcome;
+}
+
+/** Hands any server-ready titles to the device. Safe to call often. */
+export async function resumeOfflineDownloads(): Promise<PendingDownload[]> {
+  const bridge = getOfflineBridge();
+  if (!bridge) return [];
+  return resumePending({ bridge, fetcher: boundFetch, store: localStore() });
+}
+
+export function pendingOfflineDownloads(): PendingDownload[] {
+  return readPending(localStore());
+}
+
+export function cancelPendingDownload(itemId: string): void {
+  forgetPending(localStore(), itemId);
 }
 
 /**

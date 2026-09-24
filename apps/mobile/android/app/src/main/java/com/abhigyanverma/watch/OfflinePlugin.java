@@ -61,6 +61,9 @@ public class OfflinePlugin extends Plugin {
     private static final String MEDIA = "media.mp4";
     private static final String POSTER = "poster.jpg";
 
+    /** Reported through list(); the web layer compares it to OFFLINE_BRIDGE_VERSION. */
+    private static final int BRIDGE_VERSION = 1;
+
     private final ExecutorService io = Executors.newSingleThreadExecutor();
 
     // ---------------------------------------------------------------- paths
@@ -190,6 +193,7 @@ public class OfflinePlugin extends Plugin {
             }
             JSObject result = new JSObject();
             result.put("bundles", out);
+            result.put("version", BRIDGE_VERSION);
             call.resolve(result);
         });
     }
@@ -226,16 +230,32 @@ public class OfflinePlugin extends Plugin {
             call.reject("itemId and file are both required.");
             return;
         }
-        File dir = bundleDir(itemId);
-        File target = "media".equals(file)
-            ? new File(dir, MEDIA)
-            : "poster".equals(file)
-                ? new File(dir, POSTER)
-                : new File(new File(dir, "subs"), file.replaceAll("[^A-Za-z0-9_.-]", "_"));
+        File target = bundleFile(itemId, file);
 
         JSObject result = new JSObject();
         result.put("url", target.exists() ? target.getAbsolutePath() : null);
         call.resolve(result);
+    }
+
+    /**
+     * Subtitles reach the page as text rather than a local URL: a local file is
+     * a different origin from the page, and a track element is CORS-checked,
+     * so pointing one at it silently loads nothing.
+     */
+    @PluginMethod
+    public void readText(PluginCall call) {
+        String itemId = call.getString("itemId");
+        String file = call.getString("file");
+        if (itemId == null || file == null) {
+            call.reject("itemId and file are both required.");
+            return;
+        }
+        io.execute(() -> {
+            File target = bundleFile(itemId, file);
+            JSObject result = new JSObject();
+            result.put("text", target.exists() ? readUtf8(target) : null);
+            call.resolve(result);
+        });
     }
 
     // ---------------------------------------------------------------- guts
@@ -332,6 +352,25 @@ public class OfflinePlugin extends Plugin {
         }
     }
 
+    private File bundleFile(String itemId, String file) {
+        File dir = bundleDir(itemId);
+        if ("media".equals(file)) return new File(dir, MEDIA);
+        if ("poster".equals(file)) return new File(dir, POSTER);
+        return new File(new File(dir, "subs"), file.replaceAll("[^A-Za-z0-9_.-]", "_"));
+    }
+
+    private String readUtf8(File source) {
+        try (InputStream in = new java.io.FileInputStream(source)) {
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+            byte[] chunk = new byte[8192];
+            int n;
+            while ((n = in.read(chunk)) > 0) buf.write(chunk, 0, n);
+            return buf.toString("UTF-8");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private void writeJson(File target, JSONObject value) throws IOException {
         try (FileOutputStream out = new FileOutputStream(target)) {
             out.write(value.toString().getBytes(StandardCharsets.UTF_8));
@@ -340,12 +379,10 @@ public class OfflinePlugin extends Plugin {
 
     private JSONObject readJson(File source) {
         if (!source.exists()) return null;
-        try (InputStream in = new java.io.FileInputStream(source)) {
-            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
-            byte[] chunk = new byte[4096];
-            int n;
-            while ((n = in.read(chunk)) > 0) buf.write(chunk, 0, n);
-            return new JSONObject(buf.toString("UTF-8"));
+        String text = readUtf8(source);
+        if (text == null) return null;
+        try {
+            return new JSONObject(text);
         } catch (Exception e) {
             return null;
         }

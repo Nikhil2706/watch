@@ -6,6 +6,10 @@
 #   bash apps/mobile/build-apk.sh            # icons + sync + assembleDebug
 #   bash apps/mobile/build-apk.sh --apk-only # skip the node step, just build
 #
+#   DEV_SERVER_URL=http://localhost:3100 bash apps/mobile/build-apk.sh
+#       point the (.dev, debug-signed) build at a dev server instead of the
+#       live site — same rewrite the CI workflow's dev_server_url input does.
+#
 # Run it from anywhere; paths below are absolute inside the containers.
 #
 # IMPORTANT, and learned the hard way on 2026-09-06: the Android SDK download
@@ -16,7 +20,7 @@
 # toolchain image (Dockerfile.build) so this run is only Gradle.
 set -euo pipefail
 
-REPO=/mnt/c/Users/Dell/Downloads/jellyfin-gate
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 MOBILE="$REPO/apps/mobile"
 APK_ONLY="${1:-}"
 
@@ -44,15 +48,37 @@ if [ "$APK_ONLY" != "--apk-only" ]; then
     '
 fi
 
+if [ -n "${DEV_SERVER_URL:-}" ]; then
+  echo
+  echo "=== pointing this build at $DEV_SERVER_URL ==="
+  # After cap sync, into the packaged copy only (gitignored). cleartext
+  # because a dev server is plain http, which Android blocks by default.
+  docker run --rm \
+    -v "$MOBILE":/app \
+    -e DEV_URL="$DEV_SERVER_URL" \
+    -w /app node:22-alpine node -e '
+      const fs = require("fs");
+      const p = "android/app/src/main/assets/capacitor.config.json";
+      const c = JSON.parse(fs.readFileSync(p, "utf8"));
+      c.server = { url: process.env.DEV_URL, cleartext: true, androidScheme: "http" };
+      fs.writeFileSync(p, JSON.stringify(c, null, 2));
+      console.log("dev build will load", c.server.url);
+    '
+fi
+
 echo
 echo "=== assembleDebug ==="
 # GRADLE_USER_HOME on a named volume: without it every build re-downloads
 # Gradle itself plus the whole dependency graph.
+#
+# The whole mobile dir, not just android/: capacitor.settings.gradle points
+# at ../node_modules/@capacitor/android, and without it Gradle finds an empty
+# project and fails with "No variants exist".
 docker run --rm \
-  -v "$MOBILE/android":/app \
+  -v "$MOBILE":/app \
   -v watch-gradle-home:/gradle \
   -e GRADLE_USER_HOME=/gradle \
-  -w /app watch-android-build \
+  -w /app/android watch-android-build \
   sh ./gradlew --no-daemon assembleDebug
 
 APK="$MOBILE/android/app/build/outputs/apk/debug/app-debug.apk"

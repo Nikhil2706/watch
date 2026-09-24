@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { MobileTabBar } from "@/components/MobileTabBar";
 import { DownloadsScreen } from "@/components/offline/DownloadsScreen";
 
 export const metadata: Metadata = { title: "Downloads · Watch" };
@@ -19,12 +20,17 @@ export const metadata: Metadata = { title: "Downloads · Watch" };
  */
 export default function DownloadsPage() {
   return (
-    <main className="wrap dl-page">
-      <h1 className="dl-heading">Downloads</h1>
-      <p className="note">
-        Films kept on this device. They play with no connection, subtitles and all.
-      </p>
-      <DownloadsScreen />
-    </main>
+    <>
+      <main className="wrap dl-page">
+        <h1 className="dl-heading">Downloads</h1>
+        <p className="note">
+          Films kept on this device. They play with no connection, subtitles and all.
+        </p>
+        <DownloadsScreen />
+      </main>
+      {/* No AppBar here — it needs a session, and this page must render with
+          no network — so this is the only way back out of it in the app. */}
+      <MobileTabBar />
+    </>
   );
 }
