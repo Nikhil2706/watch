@@ -189,8 +189,15 @@ export async function resumePending({ bridge, fetcher, store }: Deps): Promise<P
       try {
         await bridge.start(manifest);
         continue;
-      } catch {
-        next.push({ ...entry, status: "failed", error: "The device could not start the download." });
+      } catch (error) {
+        // The shell's own reason, when it gives one: the generic line hid a
+        // WebView threading bug for a whole debugging session.
+        const reason = error instanceof Error && error.message ? error.message : null;
+        next.push({
+          ...entry,
+          status: "failed",
+          error: reason ?? "The device could not start the download.",
+        });
         continue;
       }
     }
