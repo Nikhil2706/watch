@@ -324,10 +324,15 @@ public class OfflinePlugin extends Plugin {
         return out;
     }
 
-    /** Resolves a site-relative manifest URL against the origin being viewed. */
+    /**
+     * Resolves a site-relative manifest URL against the server the shell loads.
+     * Not getWebView().getUrl(): callers run on the io executor, and a WebView
+     * method off the UI thread throws — which silently skipped the subtitles
+     * and poster and failed every media download.
+     */
     private String absolute(String url) {
         if (url.startsWith("http://") || url.startsWith("https://")) return url;
-        String base = getBridge().getWebView().getUrl();
+        String base = getBridge().getServerUrl();
         try {
             return new URL(new URL(base), url).toString();
         } catch (Exception e) {

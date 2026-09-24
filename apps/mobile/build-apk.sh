@@ -74,9 +74,13 @@ echo "=== assembleDebug ==="
 # The whole mobile dir, not just android/: capacitor.settings.gradle points
 # at ../node_modules/@capacitor/android, and without it Gradle finds an empty
 # project and fails with "No variants exist".
+# ~/.android in a named volume too: that is where the debug keystore lives,
+# and a fresh one per build means every dev APK refuses to install over the
+# last ("signatures do not match") until the old one is uninstalled.
 docker run --rm \
   -v "$MOBILE":/app \
   -v watch-gradle-home:/gradle \
+  -v watch-android-debug-key:/root/.android \
   -e GRADLE_USER_HOME=/gradle \
   -w /app/android watch-android-build \
   sh ./gradlew --no-daemon assembleDebug

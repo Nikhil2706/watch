@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug (.dev) builds only: a dev server is plain http, and from API 28
+     Android refuses cleartext unless the manifest allows it. The capacitor
+     config's "cleartext" does not reach the manifest when it is rewritten
+     after cap sync, which is how both build-apk.sh and CI point a dev build
+     at a dev server — so the WebView showed "Web page not available".
+     Release builds never see this file. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:usesCleartextTraffic="true" />
+</manifest>
