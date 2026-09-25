@@ -41,6 +41,8 @@ export function DownloadsScreen() {
   const [playing, setPlaying] = useState<Playing | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
+  const [posters, setPosters] = useState<Record<string, string | null>>({});
+  const [confirming, setConfirming] = useState<string | null>(null);
   const revoking = useRef<string[]>([]);
 
   const refresh = useCallback(async () => {
@@ -54,7 +56,16 @@ export function DownloadsScreen() {
     await resumeOfflineDownloads().catch(() => undefined);
     setPending(pendingOfflineDownloads());
     try {
-      setBundles(await bridge.list());
+      const list = await bridge.list();
+      setBundles(list);
+      // The poster was saved with the bundle precisely so this list is not a
+      // column of bare titles when there is no network.
+      for (const b of list) {
+        void bridge
+          .localUrl(b.itemId, "poster")
+          .catch(() => null)
+          .then((url) => setPosters((prev) => (b.itemId in prev ? prev : { ...prev, [b.itemId]: url })));
+      }
       // Playback is never gated on this — see OFFLINE_BRIDGE_VERSION. An old
       // shell can still play what it already holds; only managing downloads
       // needs the app itself updating, and that needs a network anyway, so
@@ -141,9 +152,13 @@ export function DownloadsScreen() {
   async function remove(bundle: OfflineBundle) {
     const bridge = getOfflineBridge();
     if (!bridge) return;
-    if (!confirm(`Delete "${bundle.title}" from this device?`)) return;
+    setConfirming(null);
     try {
       await bridge.remove(bundle.itemId);
+      setPosters((prev) => {
+        const { [bundle.itemId]: _gone, ...rest } = prev;
+        return rest;
+      });
       await refresh();
     } catch {
       setError("Could not delete that download.");
@@ -237,7 +252,13 @@ export function DownloadsScreen() {
       ) : (
         <ul className="dl-list">
           {bundles.map((bundle) => (
-            <li key={bundle.itemId} className="dl-row">
+            <li key={bundle.itemId} className="dl-row has-poster">
+              {posters[bundle.itemId] ? (
+                // eslint-disable-next-line @next/next/no-img-element -- a local file URL, not something next/image can optimise
+                <img className="dl-poster" src={posters[bundle.itemId]!} alt="" />
+              ) : (
+                <div className="dl-poster is-empty" aria-hidden="true" />
+              )}
               <div className="dl-meta">
                 <div className="dl-title">
                   {bundle.title}
@@ -250,16 +271,28 @@ export function DownloadsScreen() {
                   </div>
                 ) : null}
               </div>
-              <div className="dl-actions">
-                {bundle.state === "ready" ? (
-                  <button className="btn" onClick={() => void open(bundle)}>
-                    Play
+              {confirming === bundle.itemId ? (
+                <div className="dl-actions dl-confirm">
+                  <span>Delete from this device?</span>
+                  <button className="btn ghost" onClick={() => setConfirming(null)}>
+                    Keep
                   </button>
-                ) : null}
-                <button className="btn danger" onClick={() => void remove(bundle)}>
-                  Delete
-                </button>
-              </div>
+                  <button className="btn danger" onClick={() => void remove(bundle)}>
+                    Delete
+                  </button>
+                </div>
+              ) : (
+                <div className="dl-actions">
+                  {bundle.state === "ready" ? (
+                    <button className="btn" onClick={() => void open(bundle)}>
+                      ▶ Play
+                    </button>
+                  ) : null}
+                  <button className="btn ghost" onClick={() => setConfirming(bundle.itemId)}>
+                    Delete
+                  </button>
+                </div>
+              )}
             </li>
           ))}
         </ul>

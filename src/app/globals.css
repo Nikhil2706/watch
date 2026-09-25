@@ -4305,7 +4305,7 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
 /* Its own gutters: the "wrap" class this page also carries is defined nowhere,
    so without these the text ran flush to the screen edge. */
 .dl-page { max-width: 760px; margin: 0 auto; padding: 18px 16px 24px; }
-.dl-heading { font-family: var(--font-serif, ui-serif, Georgia, serif); font-weight: 600; margin: 0 0 6px; }
+.dl-heading { font-family: var(--font-serif, ui-serif, Georgia, serif); font-weight: 600; font-size: 1.7rem; margin: 0 0 6px; }
 
 .dl-list { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .dl-row {
@@ -4319,6 +4319,19 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
 .dl-sub { color: var(--muted); font-size: 12.5px; margin-top: 3px; font-variant-numeric: tabular-nums; }
 .dl-actions { display: flex; gap: 8px; flex: 0 0 auto; }
 .dl-actions .btn { width: auto; font-size: 13px; padding: 6px 13px; }
+
+/* A downloaded title: poster down the left, title and actions stacked beside
+   it, so the actions never wrap back under the poster on a phone. */
+.dl-row.has-poster {
+  display: grid; grid-template-columns: 56px minmax(0, 1fr);
+  column-gap: 14px; row-gap: 10px; align-items: center;
+}
+.dl-poster {
+  grid-row: span 2; width: 56px; aspect-ratio: 2 / 3; object-fit: cover;
+  border-radius: 6px; background: var(--surface-2);
+}
+.dl-confirm { align-items: center; flex-wrap: wrap; }
+.dl-confirm span { color: var(--muted); font-size: 13px; margin-right: 4px; }
 
 .dl-bar { height: 4px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 8px; }
 .dl-bar i { display: block; height: 100%; background: var(--accent); transition: width 0.4s; }
