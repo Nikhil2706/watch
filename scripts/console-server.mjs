@@ -31,9 +31,24 @@ const PORT = Number(process.env.PORT || 3200);
 const COOKIE = "jfg_console";
 const MAX_AGE_S = 30 * 24 * 3600;
 
-if (TOKEN.length < 32 || ADMIN_KEY.length < 32) {
-  console.error("CONSOLE_TOKEN and ADMIN_API_KEY must both be at least 32 characters.");
+// Meant to be typed: 12 characters from 31 unambiguous ones is ~59 bits, and
+// with the guess limit below not something a device on the network can
+// brute force.
+if (TOKEN.length < 12 || ADMIN_KEY.length < 32) {
+  console.error("CONSOLE_TOKEN needs 12+ characters and ADMIN_API_KEY 32+.");
   process.exit(1);
+}
+
+// Every client arrives from the same Docker gateway address, so this is one
+// global budget rather than per-device: after too many wrong links, new
+// sign-ins pause. Devices already signed in are unaffected.
+const GUESS_WINDOW_MS = 15 * 60 * 1000;
+const GUESS_LIMIT = 50;
+let guesses = [];
+function tooManyGuesses() {
+  const now = Date.now();
+  guesses = guesses.filter((t) => now - t < GUESS_WINDOW_MS);
+  return guesses.length >= GUESS_LIMIT;
 }
 
 const digest = (s) => createHash("sha256").update(s).digest();
@@ -128,10 +143,22 @@ async function proxy(req, res) {
 }
 
 createServer(async (req, res) => {
+  const started = Date.now();
+  const isLink = (req.url || "").split("?")[0].slice(1).toLowerCase() === TOKEN.toLowerCase();
+  res.on("finish", () => {
+    // Never the token itself: the sign-in link shows as a placeholder.
+    const shown = isLink ? "/[sign-in link]" : (req.url || "").split("?")[0];
+    const who = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+    console.log(`${who} ${req.method} ${shown} -> ${res.statusCode} ${Date.now() - started}ms cookie=${cookieValue(req) ? "yes" : "no"}`);
+  });
   try {
     const path = (req.url || "/").split("?")[0];
 
-    if (path.length > 1 && req.method === "GET" && sameSecret(path.slice(1), TOKEN)) {
+    const looksLikeLink = req.method === "GET" && /^\/[A-Za-z0-9_-]+$/.test(path);
+    if (looksLikeLink && !signedIn(req) && tooManyGuesses()) return notFound(res);
+
+    // Case-insensitive: the link gets typed by hand, and phones capitalise.
+    if (looksLikeLink && sameSecret(path.slice(1).toLowerCase(), TOKEN.toLowerCase())) {
       const issued = String(Date.now());
       res.writeHead(303, {
         "Set-Cookie": `${COOKIE}=${issued}.${sign(issued)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${MAX_AGE_S}`,
@@ -142,7 +169,10 @@ createServer(async (req, res) => {
       return res.end();
     }
 
-    if (!signedIn(req)) return notFound(res);
+    if (!signedIn(req)) {
+      if (looksLikeLink) guesses.push(Date.now());
+      return notFound(res);
+    }
 
     if (path === "/") return serveConsole(res);
     if (path.startsWith("/api/")) {
