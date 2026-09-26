@@ -4331,7 +4331,20 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
   border-radius: 6px; background: var(--surface-2);
 }
 .dl-confirm { align-items: center; flex-wrap: wrap; }
-.dl-confirm span { color: var(--muted); font-size: 13px; margin-right: 4px; }
+/* Its own line, so the two buttons sit together beneath it instead of Delete
+   wrapping alone onto a second row. */
+.dl-confirm span { flex: 1 1 100%; color: var(--muted); font-size: 13px; }
+
+/* Playing a download takes the whole screen: it was a small inline player
+   over a mostly empty page. The player's own fullscreen still works on top. */
+.dl-player {
+  position: fixed; inset: 0; z-index: 70; background: #000;
+  display: flex; flex-direction: column; justify-content: center;
+}
+.dl-player .dl-player-back {
+  position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: 12px; z-index: 2;
+  background: rgba(0, 0, 0, 0.55);
+}
 
 .dl-bar { height: 4px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 8px; }
 .dl-bar i { display: block; height: 100%; background: var(--accent); transition: width 0.4s; }
@@ -4787,4 +4800,123 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
 .poster--missing .poster-title,
 .poster--missing .poster-sub {
   opacity: 0.75;
+}
+
+/* ---------------------------------------------------------------- *
+ * Phone polish, from driving the app on a real phone (2026-09-25).
+ * ---------------------------------------------------------------- */
+
+/* The type-ahead shares the frosted panel treatment, whose gradient is
+   translucent: over the search page the heading and empty-state text read
+   straight through the results. A solid ground under the same gradient. */
+.suggest {
+  background-color: var(--surface);
+}
+
+/* Favourite/rewatch on every poster covered the artwork on a touchscreen,
+   where there is no hover to hide them behind. Touch devices show only the
+   ones that are on (state, not controls); adding happens on the film page,
+   which has both buttons at full size. */
+@media (hover: none) {
+  .list-overlay {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .list-overlay.has-active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (max-width: 700px) {
+  /* 158px posters fit ~2.3 across a phone, so one shelf filled the screen.
+     ~112px fits ~3.3 — enough to see a shelf at a glance, with the next
+     poster peeking in to say it scrolls. */
+  .row-scroll > .poster:not(.poster--still) {
+    width: 112px;
+  }
+  .grid:not(.grid--still) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px 9px;
+    padding: 0 14px 32px;
+  }
+  .poster-title {
+    font-size: 0.78rem;
+  }
+  .poster-sub {
+    font-size: 0.7rem;
+  }
+
+  /* Seven actions on the film page wrapped into three uneven rows. Play takes
+     the full remaining width next to the heart/rewatch pair; everything else
+     is a quieter, smaller second tier. */
+  .btn-row > .btn:not(.ghost) {
+    flex: 1 1 auto;
+    justify-content: center;
+    text-align: center;
+  }
+  .btn-row > .btn.ghost,
+  .btn-row > .offline-btn,
+  .btn-row > button.ghost {
+    font-size: 0.82rem;
+    padding: 8px 12px;
+  }
+
+  /* Was on the 20px desktop gutter while the hero above it is on 14px. */
+  .pick-entry {
+    padding: 0 14px 18px;
+  }
+
+  /* Browse: the sidebar folds behind one summary line (see browse/page.tsx). */
+  .bf-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 12px 14px 4px;
+    padding: 11px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    font-size: 0.9rem;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .bf-summary b {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .bf-open {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .bf-open::after {
+    content: " \25BE";
+  }
+  .bf-toggle:checked + .bf-summary .bf-open::after {
+    content: " \25B4";
+  }
+  .browse-sidebar {
+    display: none;
+  }
+  .bf-toggle:checked ~ .browse-sidebar {
+    display: block;
+    padding-top: 8px;
+  }
+}
+
+.bf-toggle {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bf-summary {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .bf-summary {
+    display: flex;
+  }
 }

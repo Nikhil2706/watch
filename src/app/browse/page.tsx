@@ -117,6 +117,23 @@ export default async function BrowsePage({
       <AppBar username={session.username} langloisMode={session.langloisMode} />
 
       <div className="browse-shell">
+        {/* Phones only: the whole sidebar collapses behind this one line, which
+            the grid used to sit ~500px below. A checkbox rather than state, so
+            it needs no JavaScript and stays a server component; picking a value
+            navigates, which closes it again. Open by default mid-search, when
+            the filtered facet list is the thing being looked at. */}
+        <input
+          type="checkbox"
+          id="browse-filter-toggle"
+          className="bf-toggle"
+          defaultChecked={Boolean(search)}
+        />
+        <label htmlFor="browse-filter-toggle" className="bf-summary">
+          <span>
+            {dimMeta.label} · <b>{value ? title : "All"}</b>
+          </span>
+          <span className="bf-open">Filter</span>
+        </label>
         <aside className="browse-sidebar">
           <nav className="dim-tabs">
             {DIMS.map((d) => (

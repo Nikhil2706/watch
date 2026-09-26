@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+
+import { useCloseOnBack } from "@/lib/overlay-back";
 
 type NotificationKind =
   | "reply"
@@ -28,7 +30,8 @@ function notificationText(n: NotificationItem): ReactNode {
     case "new_item":
       return (
         <>
-          <b>{n.filmTitle}</b> was just added to the library
+          {/* Not "was just added": the line sits over a "20h ago" timestamp. */}
+          New in the library: <b>{n.filmTitle}</b>
         </>
       );
     case "new_show":
@@ -102,6 +105,8 @@ export function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const closePanel = useCallback(() => setOpen(false), []);
+  useCloseOnBack(open, closePanel);
 
   async function load() {
     try {

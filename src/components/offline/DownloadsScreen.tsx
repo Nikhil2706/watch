@@ -12,6 +12,7 @@ import {
   resumeOfflineDownloads,
 } from "@/lib/offline/bridge";
 import type { PendingDownload } from "@/lib/offline/pending";
+import { useCloseOnBack } from "@/lib/overlay-back";
 import { OFFLINE_BRIDGE_VERSION, type OfflineBundle } from "@/lib/offline/types";
 
 /**
@@ -148,6 +149,11 @@ export function DownloadsScreen() {
     }
     setPlaying(null);
   }
+  // Back in the app leaves the player for the list rather than the page.
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  const closeForBack = useCallback(() => closeRef.current(), []);
+  useCloseOnBack(playing !== null, closeForBack);
 
   async function remove(bundle: OfflineBundle) {
     const bridge = getOfflineBridge();
@@ -178,7 +184,7 @@ export function DownloadsScreen() {
     const recommended = playing.subtitles.find((s) => s.recommended);
     return (
       <div className="dl-player">
-        <button className="btn ghost" onClick={close}>
+        <button className="btn ghost dl-player-back" onClick={close}>
           ← Back to downloads
         </button>
         <Player

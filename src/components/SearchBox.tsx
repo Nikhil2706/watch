@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useTvMode } from "@/components/tv/TvProvider";
+import { useCloseOnBack } from "@/lib/overlay-back";
 import { itemHref } from "@/lib/slugs";
 
 interface Hit {
@@ -43,6 +44,8 @@ export function SearchBox({
   const [loading, setLoading] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const closeSuggest = useCallback(() => setOpen(false), []);
+  useCloseOnBack(open, closeSuggest);
 
   useEffect(() => {
     if (query.trim().length < 2) {
