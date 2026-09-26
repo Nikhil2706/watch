@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { useTvMode } from "@/components/tv/TvProvider";
 import {
   getOfflineBridge,
   offlineSupported,
@@ -42,6 +43,9 @@ type View =
   | { kind: "failed"; message: string };
 
 export function OfflineButton({ itemId, title }: { itemId: string; title: string }) {
+  // The TV app is the same APK, so the bridge exists there too; nobody keeps
+  // a film offline on a television, and it would be one more D-pad stop.
+  const tvMode = useTvMode();
   const [supported, setSupported] = useState(false);
   const [view, setView] = useState<View>({ kind: "checking" });
 
@@ -87,7 +91,7 @@ export function OfflineButton({ itemId, title }: { itemId: string; title: string
     return () => clearInterval(timer);
   }, [moving, read]);
 
-  if (!supported || view.kind === "checking") return null;
+  if (tvMode || !supported || view.kind === "checking") return null;
 
   async function keep() {
     setView({ kind: "starting" });
