@@ -72,3 +72,60 @@ test("a resolution is not mistaken for a season and episode", () => {
   const m = findEpisodeMarker("some.film.1920x1080.bluray");
   assert.notEqual(m.season, 1920);
 });
+
+// --- The three conventions that matched nothing until 2026-09-26 -----------
+
+test("reads a 3-digit season+episode between dashes, keeping the title after", () => {
+  const stem = "Sports Night - 201 - Special Powers";
+  const m = findEpisodeMarker(stem);
+  assert.equal(m.season, 2);
+  assert.equal(m.episode, 1);
+  assert.equal(stem.slice(m.endIndex), "Special Powers");
+});
+
+test("a film called 300 is not season 3, episode 0", () => {
+  const m = findEpisodeMarker("Frank Miller - 300 - Directors Cut");
+  assert.equal(m.episode, null);
+});
+
+test("reads part N of a miniseries written with a fraction slash, as season 1", () => {
+  const m = findEpisodeMarker("Atti degli apostoli 2⁄5 (1969) Roberto Rossellini eng sub");
+  assert.equal(m.season, 1);
+  assert.equal(m.episode, 2);
+});
+
+test("reads part N of a miniseries written with a hyphen", () => {
+  // Real names, including the double space and the typo in "Engish".
+  const cases: [string, number][] = [
+    ["La lotta del uomo per la sua sopravvivenza  1-12  English subtitles (480p_25fps_H264-128kbit_AAC)", 1],
+    ["La lotta dell'uomo per la sua sopravvivenza 2-12 English subtitles (480p_25fps_H264-128kbit_AAC)", 2],
+    ["La lotta dell'uomo per la sua sopravvivenza 6-12  Engish subtitles (1080p_25fps_H264-128kbit_AAC-English)", 6],
+    ["La lotta dell'uomo per la sua sopravvivenza 11-12  English subtitles (1080p_25fps_H264-128kbit_AAC)", 11],
+  ];
+  for (const [stem, part] of cases) {
+    const m = findEpisodeMarker(stem);
+    assert.equal(m.season, 1, stem);
+    assert.equal(m.episode, part, stem);
+  }
+});
+
+test("what follows a part marker is not taken as an episode title", () => {
+  const stem = "La lotta dell'uomo per la sua sopravvivenza 10-12  English subtitles (480p)";
+  assert.equal(stem.slice(findEpisodeMarker(stem).endIndex), "");
+});
+
+test("a part past its total, or a two-part hyphen, is not a part", () => {
+  assert.equal(findEpisodeMarker("Something 13-12 cut").episode, null);
+  // "1-2" is too easily something else; the fraction slash is unambiguous.
+  assert.equal(findEpisodeMarker("Dune 1-2 extended").episode, null);
+  assert.equal(findEpisodeMarker("Dune 1⁄2 extended").episode, 1);
+});
+
+test("years, resolutions and ranges inside words are not parts", () => {
+  assert.equal(findEpisodeMarker("Some Film 1970-1972 (1080p_25fps)").episode, null);
+  assert.equal(findEpisodeMarker("Film (480p_25fps_H264-128kbit_AAC)").episode, null);
+});
+
+test("a (2) duplicate-file suffix stays unparsed on purpose", () => {
+  assert.equal(findEpisodeMarker("L'età di Cosimo de Medici (2)").episode, null);
+});
