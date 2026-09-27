@@ -3080,6 +3080,12 @@ html[data-tv="true"] .appbar-more {
   color: #2a1f0f;
 }
 
+/* Sits among .row sections, which inset their own headings 20px; without
+   this the heading and card ran to the screen edges on a phone. */
+.community-section {
+  padding: 0 20px;
+}
+
 .community-card {
   background: var(--panel);
   border: 1px solid rgba(255, 255, 255, 0.08);

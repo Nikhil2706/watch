@@ -627,6 +627,11 @@
      pinned to the top, and every control gets a thumb-sized target. */
   .lw-back { display: none; }
   body.via-console #connCard { display: none; }
+  /* Through the console server the page is on another device (or at least
+     another origin): a file:// link to this PC's disk can't open, and the
+     dupefinder sidecar is only ever reachable at 127.0.0.1 on this PC. */
+  body.via-console .rv-folderlink,
+  body.via-console .tab-btn[data-tab="dupes"] { display: none; }
 
   @media (max-width: 700px) {
     body { font-size: 14.5px; padding-bottom: 80px; }
@@ -642,6 +647,23 @@
       scrollbar-width: none; -webkit-overflow-scrolling: touch;
     }
     .tabs::-webkit-scrollbar { display: none; }
+    /* Faded edges, so a tab cut off at the side reads as "more this way". */
+    .tabs {
+      -webkit-mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 28px), transparent 100%);
+      mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 28px), transparent 100%);
+    }
+
+    /* Fields fill their row: at their default size they sat at ~60% width. */
+    .card input:not([type="checkbox"]):not([type="radio"]), .card textarea {
+      width: 100%; box-sizing: border-box; min-width: 0;
+    }
+
+    /* Item detail: poster beside the title, actions across the full width
+       beneath, instead of squeezed into the column right of the poster. */
+    .lw-head { display: grid; grid-template-columns: 70px 1fr; column-gap: 12px; row-gap: 2px; }
+    .lw-head > .lw-poster { grid-row: 1 / span 3; }
+    .lw-head-text { display: contents; }
+    .lw-head-text > .lw-acts, .lw-head-text > .lw-acts ~ div { grid-column: 1 / -1; }
     .tab-btn { flex: 0 0 auto; white-space: nowrap; padding: 12px 2px 10px; font-size: 0.9rem; }
 
     .card { padding: 12px; border-radius: 12px; margin-bottom: 12px;
@@ -2990,7 +3012,7 @@
   // absent that, this quietly renders nothing rather than a dead link.
   function folderLinkHtml(it) {
     if (!it.fileUrl) return "";
-    return '<a class="rv-openfolder" href="' + esc(it.fileUrl) + '" title="' + esc(it.localPath || "") + '">Open folder</a>';
+    return '<a class="rv-openfolder rv-folderlink" href="' + esc(it.fileUrl) + '" title="' + esc(it.localPath || "") + '">Open folder</a>';
   }
 
   function guessSearchName(name) {
@@ -3144,11 +3166,22 @@
    * episode files. Its flags are the union of its members', so a show with
    * a single subtitle-less episode still surfaces under "No subtitles".
    */
+  /*
+   * A file saved from a URL keeps its escapes ("Kindl %28Farocki%29.mp4"),
+   * and with no metadata Jellyfin's name is the filename. Shown decoded;
+   * the path underneath stays exactly as it is on disk.
+   */
+  function readableName(name) {
+    if (!name || !/%[0-9A-Fa-f]{2}/.test(name)) return name;
+    try { return decodeURIComponent(name); } catch (e) { return name; }
+  }
+
   function lwBuildRows() {
     var rows = [];
     var groups = {};
 
     lw.items.forEach(function (it) {
+      it.name = readableName(it.name);
       review.itemsById[it.id] = it;
 
       if (it.isGrouped && it.groupId) {

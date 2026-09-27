@@ -85,6 +85,10 @@ function sameOrigin(req) {
   return true;
 }
 
+// Say nothing about what lives here: both only move the browser along.
+const HOP_PAGE = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="refresh" content="0;url=/"><title>Curator's Console</title><body style="background:#06070a;color:#939cad;font:15px system-ui;padding:24px">Signed in. <a href="/" style="color:#5b8def">Open the console</a></body>`;
+const RETRY_PAGE = `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/?r=1"><body style="background:#06070a"></body>`;
+
 const notFound = (res) => {
   res.writeHead(404, { "Content-Type": "text/plain" });
   res.end("Not found");
@@ -158,19 +162,36 @@ createServer(async (req, res) => {
     if (looksLikeLink && !signedIn(req) && tooManyGuesses()) return notFound(res);
 
     // Case-insensitive: the link gets typed by hand, and phones capitalise.
+    // A page that moves on to "/" by itself, rather than a 303. The cookie is
+    // SameSite=Strict, and a link opened from another app is a cross-site
+    // navigation: Chrome withheld the cookie on the redirected request and
+    // on every reload of it, so the link landed on "Not found". A refresh
+    // started by this same-origin page is same-site, and carries it.
     if (looksLikeLink && sameSecret(path.slice(1).toLowerCase(), TOKEN.toLowerCase())) {
       const issued = String(Date.now());
-      res.writeHead(303, {
+      res.writeHead(200, {
         "Set-Cookie": `${COOKIE}=${issued}.${sign(issued)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${MAX_AGE_S}`,
-        Location: "/",
+        "Content-Type": "text/html; charset=utf-8",
         "Referrer-Policy": "no-referrer",
         "Cache-Control": "no-store",
       });
-      return res.end();
+      return res.end(HOP_PAGE);
     }
 
     if (!signedIn(req)) {
       if (looksLikeLink) guesses.push(Date.now());
+      // Same cause, other door: "/" opened from outside (a bookmark shared
+      // into another app, a reload of a cross-site landing) arrives without
+      // the Strict cookie even when the device holds one. One same-origin
+      // retry; "?r" marks it so a device that really is signed out gets its
+      // 404 instead of a loop.
+      const query = (req.url || "").split("?")[1] ?? "";
+      const crossSiteNav =
+        req.headers["sec-fetch-mode"] === "navigate" && req.headers["sec-fetch-site"] !== "same-origin";
+      if (path === "/" && crossSiteNav && !/(^|&)r(=|&|$)/.test(query)) {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+        return res.end(RETRY_PAGE);
+      }
       return notFound(res);
     }
 

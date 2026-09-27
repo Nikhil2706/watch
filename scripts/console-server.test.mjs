@@ -95,12 +95,33 @@ test("a wrong link is a 404 and sets nothing", async () => {
 
 test("the link signs in, in any case, with a strict httpOnly cookie", async () => {
   const res = await http(port, "GET", "/ABCD-EFGH-2345");
-  assert.equal(res.status, 303);
-  assert.equal(res.headers.location, "/");
+  // A page that refreshes to "/", not a redirect: the refresh is same-site,
+  // so the Strict cookie survives a link opened from another app.
+  assert.equal(res.status, 200);
+  assert.match(res.body, /http-equiv="refresh" content="0;url=\/"/);
   const cookie = String(res.headers["set-cookie"]);
   assert.match(cookie, /HttpOnly/);
   assert.match(cookie, /SameSite=Strict/);
   assert.equal(res.headers["referrer-policy"], "no-referrer");
+});
+
+test("a cross-site landing on / gets one same-origin retry, then its 404", async () => {
+  const nav = { "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "cross-site" };
+  const first = await http(port, "GET", "/", nav);
+  assert.equal(first.status, 200);
+  assert.match(first.body, /url=\/\?r=1/);
+  assert.doesNotMatch(first.body, /console/i, "says nothing about what lives here");
+  assert.equal((await http(port, "GET", "/?r=1", nav)).status, 404);
+  assert.equal(
+    (await http(port, "GET", "/", { "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "same-origin" })).status,
+    404,
+  );
+});
+
+test("the retry lands signed in when the device holds the cookie", async () => {
+  const res = await http(port, "GET", "/?r=1", { Cookie: cookieFor(Date.now()) });
+  assert.equal(res.status, 200);
+  assert.match(res.body, /signed-in-by-console-server/);
 });
 
 test("signed in, the console is served with the sign-in pre-seeded", async () => {

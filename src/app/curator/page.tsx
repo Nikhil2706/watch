@@ -71,8 +71,8 @@ export default async function CuratorPage() {
         <div className="empty">
           <p>Nothing here yet.</p>
           <p className="hint" style={{ margin: 0 }}>
-            Picks are added with the admin API and show up here, plus on the film
-            they refer to.
+            When the curator recommends something, it shows up here and on the
+            film itself.
           </p>
         </div>
       ) : null}

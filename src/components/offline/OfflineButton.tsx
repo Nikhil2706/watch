@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { DownloadIcon } from "@/components/DownloadIcon";
 import { useTvMode } from "@/components/tv/TvProvider";
 import {
   getOfflineBridge,
@@ -151,7 +152,8 @@ export function OfflineButton({ itemId, title }: { itemId: string; title: string
     default:
       return (
         <button className="btn ghost offline-btn" onClick={() => void keep()}>
-          ⬇ Keep offline
+          <DownloadIcon />
+          Keep offline
         </button>
       );
   }

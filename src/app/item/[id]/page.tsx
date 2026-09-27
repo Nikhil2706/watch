@@ -6,6 +6,7 @@ import { CuratorNote } from "@/components/media/CuratorNote";
 import { AccoladesSection } from "@/components/media/AccoladesSection";
 import { CreditsRow } from "@/components/media/CreditsRow";
 import { FetchSubtitlesButton } from "@/components/media/FetchSubtitlesButton";
+import { DownloadIcon } from "@/components/DownloadIcon";
 import { CommunitySection } from "@/components/media/CommunitySection";
 import { CuratorPicks } from "@/components/media/CuratorPicks";
 import { ListButtons } from "@/components/media/ListButtons";
@@ -310,7 +311,8 @@ export default async function ItemPage({
               // for this user's Jellyfin account and no one else's — no
               // extra gating needed in this route.
               <a className="btn ghost" href={`/jf/Items/${item.Id}/Download`}>
-                ⬇ Download film
+                <DownloadIcon />
+                Download film
               </a>
             ) : null}
             {/* Renders only inside an app shell that can store files; a plain
