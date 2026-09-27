@@ -3532,6 +3532,36 @@
       }).join("") + '</div>';
   }
 
+  /* The subtitle plan for a show (src/lib/subtitle-series.ts): the family the
+     approved episode came from, then one row per episode with its pick. */
+  function subsPlanHtml(plan) {
+    var ref = plan.reference;
+    var code = function (e) { return "S" + String(e.season).padStart(2, "0") + "E" + String(e.episode).padStart(2, "0"); };
+    var planned = plan.episodes.filter(function (e) { return e.status === "planned"; }).length;
+    var head = '<div class="note" style="margin:8px 0">' +
+      (ref ? "<b>" + code(ref) + "</b> is the approved episode. " + esc(ref.note) : "") +
+      (plan.downloadsUsed ? " Identifying it used " + plan.downloadsUsed + " download" + (plan.downloadsUsed === 1 ? "" : "s") +
+        (plan.downloadsLeft != null ? " (" + plan.downloadsLeft + " left today)" : "") + "." : "") +
+      '</div>';
+    var rows = plan.episodes.map(function (e, i) {
+      var what;
+      if (e.status === "approved") what = '<span class="muted">approved — the reference</span>';
+      else if (e.status === "has-subtitle") what = '<span class="muted">already has a subtitle</span>';
+      else if (e.status === "planned") what = '<label style="display:flex;gap:8px;align-items:flex-start;margin:0;text-transform:none;letter-spacing:0;font-weight:400">' +
+          '<input type="checkbox" checked data-subs-pick="' + i + '">' +
+          '<span>' + esc(e.pick.release || e.pick.fileName || "subtitle") +
+          ' <span class="muted">· ' + esc(e.pick.uploader || "unknown uploader") + ' · ' + esc(e.pick.why.join(", ")) + '</span></span></label>';
+      else what = '<span style="color:var(--warn)">no match</span> <span class="muted">' + esc(e.note || "") + '</span>';
+      return '<div class="lw-ep"><span class="lw-ep-n">' + code(e) + '</span><span class="lw-ep-t" style="white-space:normal">' + what + '</span></div>';
+    }).join("");
+    return head + '<div class="lw-list-box">' + rows + '</div>' +
+      (planned
+        ? '<div class="lw-acts" style="margin-top:8px"><button data-lw-action="subs-apply" data-lw-target="' + esc(plan.groupId) +
+            '">Download ticked subtitles</button><span class="muted" style="font-size:12px">' + planned +
+            ' planned · one download each</span></div>'
+        : '');
+  }
+
   /* A cut of a film kept as several (film-versions.ts): what it's called on
      the site, and the three things to do with it. */
   function lwVersionHtml(it) {
@@ -3589,6 +3619,16 @@
         '</div>' +
       '</div>' +
       '<div class="cur-group-panel-slot" data-panel-for-group="' + esc(row.groupId) + '" data-open="0"></div>' +
+      '<div class="lw-section">Subtitles for every episode</div>' +
+      '<div class="note" style="margin-bottom:8px">Put the right subtitle next to one episode first. This finds which ' +
+        'OpenSubtitles upload it is and picks the same uploader\'s file for the others — you see every pick before ' +
+        'anything is downloaded.</div>' +
+      '<div class="lw-acts" style="align-items:center">' +
+        '<button data-lw-action="subs-plan" data-lw-target="' + esc(row.groupId) + '">Find matching subtitles</button>' +
+        '<label style="display:flex;align-items:center;gap:6px;margin:0;text-transform:none;letter-spacing:0;font-size:12.5px">' +
+          '<input type="checkbox" id="subsAllSeasons-' + esc(row.groupId) + '"> all seasons, not just that one</label>' +
+      '</div>' +
+      '<div class="subs-plan-slot" data-subs-plan-for="' + esc(row.groupId) + '"></div>' +
       '<div class="lw-section">Files</div>' +
       '<div class="lw-list-box">' + row.members.map(function (m) {
         return '<div class="lw-ep">' +
@@ -3895,6 +3935,46 @@
         show("ok", "Kept " + keeper.name + ", hid the rest.");
         return lwLoad(true);
       }).catch(function (err) { show("err", err.message); btn.disabled = false; });
+      return;
+    }
+
+    if (action === "subs-plan") {
+      var slot = document.querySelector('[data-subs-plan-for="' + target + '"]');
+      var all = document.getElementById("subsAllSeasons-" + target);
+      if (!slot) return;
+      btn.disabled = true;
+      slot.innerHTML = '<div class="muted" style="padding:8px 0">Searching OpenSubtitles episode by episode — about a second each…</div>';
+      api("/api/admin/subtitles/series/plan", { method: "POST", body: { groupId: target, allSeasons: !!(all && all.checked) } })
+        .then(function (r) { lw.subsPlans = lw.subsPlans || {}; lw.subsPlans[target] = r.plan; slot.innerHTML = subsPlanHtml(r.plan); })
+        .catch(function (err) { slot.innerHTML = '<div class="msg-inline err">' + esc(err.message) + '</div>'; })
+        .then(function () { btn.disabled = false; });
+      return;
+    }
+
+    if (action === "subs-apply") {
+      var plan = lw.subsPlans && lw.subsPlans[target];
+      var slot2 = document.querySelector('[data-subs-plan-for="' + target + '"]');
+      if (!plan || !slot2) return;
+      var picks = [];
+      Array.prototype.forEach.call(slot2.querySelectorAll("input[data-subs-pick]:checked"), function (cb) {
+        var ep = plan.episodes[Number(cb.getAttribute("data-subs-pick"))];
+        if (ep && ep.pick) picks.push({ path: ep.path, fileId: ep.pick.fileId });
+      });
+      if (!picks.length) { show("err", "Tick at least one episode."); return; }
+      btn.disabled = true;
+      btn.textContent = "Downloading " + picks.length + "…";
+      api("/api/admin/subtitles/series/apply", { method: "POST", body: { groupId: target, picks: picks } })
+        .then(function (r) {
+          var ok = r.results.filter(function (x) { return x.ok; }).length;
+          show(ok === r.results.length ? "ok" : "err", "Added " + ok + " of " + r.results.length + " subtitles" +
+            (r.downloadsLeft != null ? " — " + r.downloadsLeft + " downloads left today." : "."));
+          var failed = r.results.filter(function (x) { return !x.ok; });
+          if (failed.length) slot2.insertAdjacentHTML("beforeend", '<div class="note">' + failed.map(function (f) {
+            return esc(f.path.split("/").pop()) + ": " + esc(f.message);
+          }).join("<br>") + '</div>');
+          btn.textContent = "Done";
+        })
+        .catch(function (err) { show("err", err.message); btn.disabled = false; btn.textContent = "Download ticked subtitles"; });
       return;
     }
 
