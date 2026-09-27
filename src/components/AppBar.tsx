@@ -4,6 +4,7 @@ import { Ambience } from "@/components/Ambience";
 import { Wordmark } from "@/components/Brand";
 
 import { AppBarMore } from "./AppBarMore";
+import { AppVersionItem } from "./AppVersionItem";
 import { LogoutButton } from "./LogoutButton";
 import { MobileTabBar } from "./MobileTabBar";
 import { NotificationBell } from "./NotificationBell";
@@ -63,6 +64,7 @@ export function AppBar({
           {langloisMode ? <Link href="/upload">Upload</Link> : null}
           <Link href="/remote">Use this phone as a remote</Link>
           <Link href="/screen">Pair a phone with this screen</Link>
+          <AppVersionItem />
           <LogoutButton />
         </AppBarMore>
       </header>

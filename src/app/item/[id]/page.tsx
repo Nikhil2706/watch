@@ -13,6 +13,7 @@ import { ListButtons } from "@/components/media/ListButtons";
 import { RatingsRow } from "@/components/media/RatingsRow";
 import { SpecialFeaturesRow } from "@/components/media/SpecialFeaturesRow";
 import { OfflineButton } from "@/components/offline/OfflineButton";
+import { franchiseHeading } from "@/lib/home-shelves";
 import { getCuratorNote } from "@/lib/notifications";
 import { getRatingSummary } from "@/lib/community";
 import { getCachedContentWarning, toDisplaySignals } from "@/lib/content-warnings";
@@ -445,7 +446,7 @@ export default async function ItemPage({
       {seriesContext && seriesContext.entries.length > 1 ? (
         <div style={{ marginTop: 28 }}>
           <SeriesRow
-            title={`In the ${seriesContext.seriesName} series`}
+            title={`In the ${franchiseHeading(seriesContext.seriesName)} series`}
             entries={seriesContext.entries}
             items={seriesItems}
             lists={allLists}

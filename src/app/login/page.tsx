@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { AuthShell } from "@/components/auth/AuthShell";
+import { GetAppPrompt } from "@/components/GetAppPrompt";
 import { LoginScreen } from "@/components/tv/LoginScreen";
 import { currentSession } from "@/lib/current-user";
 import { resolveTvModeFromRequest } from "@/lib/tv/detect";
@@ -63,6 +64,7 @@ export default async function LoginPage({
           <span aria-hidden="true"> · </span>
           <a href="/login?next=%2Fscreen">Use this device as the TV</a>
         </p>
+        <GetAppPrompt variant="link" />
       </div>
     </AuthShell>
   );

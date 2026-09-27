@@ -197,3 +197,30 @@ test("a candidate with no alternative titles behaves exactly as before", () => {
   );
   assert.equal(withNone.confident, false);
 });
+
+test("Heroes: two shows with the same name are told apart by the seasons held", () => {
+  const american: ShowCandidate = {
+    id: 1639,
+    name: "Heroes",
+    episodeCount: 77,
+    firstAirYear: 2006,
+    seasonEpisodes: { 1: 23, 2: 11, 3: 25, 4: 18 },
+  };
+  const chinese: ShowCandidate = { id: 106617, name: "Heroes", episodeCount: 40, firstAirYear: 2020, seasonEpisodes: { 1: 40 } };
+
+  // Season 1 only: 23 files is 23 of 23, not 23 of 77 — the whole-show count
+  // is what linked the Chinese series.
+  const s1 = pickBestShowMatch([chinese, american], { name: "Heroes", fileCount: 23, seasons: [1] });
+  assert.equal(s1?.candidate.id, 1639);
+
+  // Files reaching season 2 rule out a show that has only one.
+  const s2 = scoreShowCandidate(chinese, { name: "Heroes", fileCount: 34, seasons: [1, 2] });
+  assert.equal(s2.confident, false);
+  assert.match(s2.why, /season 2/);
+  assert.equal(pickBestShowMatch([chinese, american], { name: "Heroes", fileCount: 34, seasons: [1, 2] })?.candidate.id, 1639);
+});
+
+test("without per-season counts the whole-show count still decides", () => {
+  const m = scoreShowCandidate(show("E.R.", 331), { name: "E.R.", fileCount: 308, seasons: [1, 2] });
+  assert.equal(m.confident, true);
+});

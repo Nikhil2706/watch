@@ -845,13 +845,16 @@
       </div>
 
       <!-- ---------------- Franchises ----------------
-           Genuinely a different subject: Wikipedia-scraped series membership
-           and their release schedules, not files on disk. Kept separate
-           rather than folded into the list above. -->
+           Genuinely a different subject: series membership (TMDB collections,
+           plus any made by hand) and their release schedules, not files on
+           disk. Kept separate rather than folded into the list above. -->
       <div id="lwFranchises" style="display:none">
-        <div class="note" style="margin-bottom:10px">
-          Every scraped franchise. "Matched" counts entries with a resolved IMDb id — not how many
-          you own; open one to see which of those are here and set a release schedule.
+        <div class="row" style="margin-bottom:10px;align-items:center">
+          <div class="note" style="flex:1 1 240px;margin:0">
+            Franchises your library has at least one film of, from TMDB — incomplete ones first. Open one to see
+            what's missing or set a release schedule.
+          </div>
+          <button class="ghost" id="fsSyncTmdb" style="flex:0 0 auto">Sync from TMDB</button>
         </div>
         <div id="filmSeriesList"></div>
       </div>
@@ -3928,16 +3931,48 @@
    * ================================================================ */
   function renderFilmSeriesList(series) {
     var el = $("filmSeriesList");
-    if (!series.length) { el.innerHTML = '<div class="cur-empty">No scraped film series yet.</div>'; return; }
+    if (!series.length) {
+      el.innerHTML = '<div class="cur-empty">No franchises yet — "Sync from TMDB" builds them from the films TMDB has linked.</div>';
+      return;
+    }
     el.innerHTML = series.map(function (s) {
+      var complete = s.entryCount > 0 && s.matchedCount >= s.entryCount;
+      var status = complete
+        ? "Complete — all " + s.entryCount + " here"
+        : s.matchedCount + " of " + s.entryCount + " here";
       return '<div class="cur-row">' +
         '<div><strong>' + esc(s.name) + '</strong>' +
-        '<span class="cur-path">' + s.matchedCount + ' of ' + s.entryCount + ' entries matched to an IMDb id</span></div>' +
+        '<span class="cur-path">' + esc(status) + (s.source === "manual" ? " · made by hand" : "") + '</span></div>' +
         '<button class="ghost" data-action="toggle-film-series" data-series-id="' + esc(s.id) + '">Manage</button>' +
         '</div>' +
         '<div class="cur-group-panel-slot" data-panel-for-series="' + esc(s.id) + '"></div>';
     }).join("");
   }
+
+  // Repeats while TMDB says there's more to fetch (budget per call), then
+  // redraws the list.
+  $("fsSyncTmdb").addEventListener("click", function () {
+    var btn = $("fsSyncTmdb");
+    btn.disabled = true;
+    btn.textContent = "Syncing…";
+    var created = 0, updated = 0, removed = 0, rounds = 0;
+    function round() {
+      return api("/api/admin/library/film-series/sync-tmdb", { method: "POST", body: {} }).then(function (r) {
+        created += r.created; updated += r.updated; removed += r.removed; rounds += 1;
+        if (!r.done && rounds < 10) return round();
+        return r;
+      });
+    }
+    round()
+      .then(function (r) {
+        show("ok", r.collections + " franchises from TMDB — " + created + " new, " + updated + " refreshed" +
+          (removed ? ", " + removed + " no longer in the library" : "") + (r.done ? "." : ". More to fetch: run it again."));
+        return api("/api/admin/library/film-series");
+      })
+      .then(function (data) { renderFilmSeriesList(data.series || []); })
+      .catch(function (e) { show("err", e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = "Sync from TMDB"; });
+  });
 
   function toggleFilmSeriesDetail(seriesId) {
     var slot = document.querySelector('[data-panel-for-series="' + seriesId + '"]');

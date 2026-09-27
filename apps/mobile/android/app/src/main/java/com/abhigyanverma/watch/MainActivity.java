@@ -84,6 +84,7 @@ public class MainActivity extends BridgeActivity {
         // window.Capacitor.Plugins.Offline comes back undefined — which the web
         // layer reads as "this shell cannot store files" and hides the feature.
         registerPlugin(OfflinePlugin.class);
+        registerPlugin(AppUpdatePlugin.class);
 
         super.onCreate(savedInstanceState);
 
@@ -93,7 +94,7 @@ public class MainActivity extends BridgeActivity {
 
         // Sideloaded, so no store pushes updates. Fire-and-forget on a
         // background thread; it stays silent unless there is something newer.
-        UpdateChecker.checkInBackground(this);
+        UpdateChecker.checkInBackground(this, true);
 
         this.bridge.getWebView().setDownloadListener(
             (url, userAgent, contentDisposition, mimeType, contentLength) -> {
@@ -142,6 +143,9 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         UpdateChecker.resumePendingInstall(this);
+        // Throttled inside; catches a release that landed while the app sat
+        // in the background.
+        UpdateChecker.checkInBackground(this, false);
     }
 
     /**

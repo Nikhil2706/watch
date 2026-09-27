@@ -196,11 +196,19 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
             const payload = show.payload as {
               number_of_episodes?: number;
               alternative_titles?: { results?: Array<{ title?: string }> };
+              seasons?: Array<{ season_number?: number; episode_count?: number }>;
             };
+            const seasonEpisodes: Record<number, number> = {};
+            for (const s of payload.seasons ?? []) {
+              if (typeof s.season_number === "number" && typeof s.episode_count === "number") {
+                seasonEpisodes[s.season_number] = s.episode_count;
+              }
+            }
             candidates.push({
               id: p.id,
               name: p.name,
               episodeCount: payload.number_of_episodes ?? null,
+              seasonEpisodes: Object.keys(seasonEpisodes).length > 0 ? seasonEpisodes : undefined,
               firstAirYear: p.year,
               // The detail fetch already happened for this candidate, so the
               // alternative titles are free — and they are what lets a group
@@ -215,7 +223,11 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
           }
         }
 
-        const best = pickBestShowMatch(candidates, { name: group.group_name, fileCount });
+        const best = pickBestShowMatch(candidates, {
+          name: group.group_name,
+          fileCount,
+          seasons: seasonsPresent(group.group_id),
+        });
         if (!best) {
           // Left unlinked on purpose. A wrong link stamps another show's stills
           // across every episode; an unlinked group is one manual step.

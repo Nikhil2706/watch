@@ -179,6 +179,20 @@ export async function fetchShow(tmdbId: number, force = false): Promise<CachedTm
 }
 
 /**
+ * A collection ("franchise"): its name and every film in it, TMDB ids only.
+ * One call however many films it holds — see syncTmdbFranchises().
+ */
+export async function fetchCollection(tmdbId: number, force = false): Promise<CachedTmdb> {
+  if (!force) {
+    const hit = getCached("collection", tmdbId);
+    if (hit) return hit;
+  }
+  const payload = await fetchJson<unknown>(`/collection/${tmdbId}`);
+  putCached("collection", tmdbId, payload);
+  return { kind: "collection", tmdbId, season: NONE, imdbId: null, payload, fetchedAt: Date.now() };
+}
+
+/**
  * A person, with their film credits appended in the same request.
  *
  * Fetched only when somebody opens a person page (see tmdb-person.ts), never by

@@ -30,7 +30,7 @@
  * runVersionedMigrations() will not replay the set at all. The live database
  * is already at 40, so the other branch's v38 work would never have run here.
  */
-export const SCHEMA_VERSION = 45;
+export const SCHEMA_VERSION = 46;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (

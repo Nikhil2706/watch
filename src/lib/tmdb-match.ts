@@ -36,6 +36,12 @@ export interface ShowCandidate {
    * them. Absent for a bare search result, which does not carry them.
    */
   alternativeNames?: readonly string[];
+  /**
+   * Episodes per season (season number → count), from the detail fetch.
+   * When present, the fit is judged against only the seasons the library
+   * holds, which is what separates two shows with the same name.
+   */
+  seasonEpisodes?: Readonly<Record<number, number>>;
 }
 
 export interface ShowMatch {
@@ -43,6 +49,8 @@ export interface ShowMatch {
   score: number;
   confident: boolean;
   why: string;
+  /** How far files/episodes is from 1 — breaks ties between equal scores. */
+  gap: number;
 }
 
 /** Lowercase, strip punctuation and articles, collapse space. "E.R." and "ER" are the same show. */
@@ -95,9 +103,35 @@ const COUNT_WEIGHT = 2.5;
  */
 const MIN_COUNT_FIT_TO_ACT = 0.6;
 
+/**
+ * Which episode count to hold the files against, or null when the candidate
+ * cannot be this show at all.
+ *
+ * Heroes is why this exists: a search for it returns the 2006 American series
+ * (4 seasons, 77 episodes) and a 2020 Chinese one (1 season, ~40), both named
+ * exactly "Heroes". Against a library holding season 1 — 23 files — the whole
+ * -show count picked the Chinese show (23/40 fits better than 23/77). Against
+ * the seasons actually held it is 23 vs 23 and not close. And files reaching a
+ * season the show doesn't have rule it out outright.
+ */
+function comparableEpisodes(
+  candidate: ShowCandidate,
+  seasons: readonly number[] | undefined,
+): { episodes: number | null; missingSeason: number | null } {
+  const per = candidate.seasonEpisodes;
+  if (!per || !seasons || seasons.length === 0) return { episodes: candidate.episodeCount, missingSeason: null };
+  let total = 0;
+  for (const s of seasons) {
+    const n = per[s];
+    if (n == null) return { episodes: null, missingSeason: s };
+    total += n;
+  }
+  return { episodes: total, missingSeason: null };
+}
+
 export function scoreShowCandidate(
   candidate: ShowCandidate,
-  group: { name: string; fileCount: number },
+  group: { name: string; fileCount: number; seasons?: readonly number[] },
 ): ShowMatch {
   const a = normaliseShowName(group.name);
   const b = normaliseShowName(candidate.name);
@@ -123,19 +157,23 @@ export function scoreShowCandidate(
     nameWhy = "one name contains the other";
   }
 
-  const fit = countFit(group.fileCount, candidate.episodeCount);
+  const { episodes, missingSeason } = comparableEpisodes(candidate, group.seasons);
+  const fit = missingSeason != null ? 0 : countFit(group.fileCount, episodes);
   const score = nameScore + fit * COUNT_WEIGHT;
 
   const countWhy =
-    candidate.episodeCount == null
-      ? "episode count unknown"
-      : `${group.fileCount} files vs ${candidate.episodeCount} episodes`;
+    missingSeason != null
+      ? `files reach season ${missingSeason}, which this show does not have`
+      : episodes == null
+        ? "episode count unknown"
+        : `${group.fileCount} files vs ${episodes} episodes${candidate.seasonEpisodes && group.seasons?.length ? " in the seasons held" : ""}`;
 
   return {
     candidate,
     score,
     confident: nameScore === NAME_EXACT && fit >= MIN_COUNT_FIT_TO_ACT,
     why: `${nameWhy}, ${countWhy}`,
+    gap: episodes && missingSeason == null ? Math.abs(1 - group.fileCount / episodes) : Number.POSITIVE_INFINITY,
   };
 }
 
@@ -148,10 +186,14 @@ export function scoreShowCandidate(
  */
 export function pickBestShowMatch(
   candidates: readonly ShowCandidate[],
-  group: { name: string; fileCount: number },
+  group: { name: string; fileCount: number; seasons?: readonly number[] },
 ): ShowMatch | null {
   if (candidates.length === 0) return null;
-  const scored = candidates.map((c) => scoreShowCandidate(c, group)).sort((x, y) => y.score - x.score);
+  // Equal scores are common: countFit is flat across 0.5–1.15, so 23 files
+  // score the same against 23 episodes as against 40. The closer count wins.
+  const scored = candidates
+    .map((c) => scoreShowCandidate(c, group))
+    .sort((x, y) => y.score - x.score || x.gap - y.gap);
   const best = scored[0]!;
   return best.confident ? best : null;
 }
