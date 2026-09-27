@@ -4,7 +4,9 @@ import { hasNoMetadata } from "./has-metadata";
 import { dirname } from "node:path";
 
 import { env } from "./env";
+import { duplicateIds } from "./duplicate-titles";
 import { versionedPathMap } from "./film-versions";
+import { getSpecialFeatureIdSet } from "./special-features";
 import { episodeLabel, parseEpisodeInfo } from "./episode-naming";
 import { getAdminMovies } from "./admin-library-cache";
 import { adminThumbUrl } from "./admin-thumb";
@@ -119,8 +121,17 @@ export async function buildLibraryReview(): Promise<{
     !!path && (excluded.has(path) || grouped.has(path) || versioned.has(path));
   const movies = all.filter((m) => !decided(m.Path));
 
+  // A special feature is a decision too, and only the same film is a copy —
+  // see duplicate-titles.ts (The Climb, short vs feature).
+  const specialFeatures = getSpecialFeatureIdSet();
+  const copies = duplicateIds(
+    movies
+      .filter((m) => !specialFeatures.has(m.Id))
+      .map((m) => ({ id: m.Id, titleKey: normaliseTitle(m.Name), imdbId: m.ProviderIds?.Imdb ?? null })),
+  );
   const byTitle = new Map<string, ReviewItem[]>();
   for (const m of movies) {
+    if (!copies.has(m.Id)) continue;
     const key = normaliseTitle(m.Name);
     if (!key) continue;
     if (!byTitle.has(key)) byTitle.set(key, []);
@@ -210,16 +221,19 @@ export async function buildLibraryBrowse(): Promise<BrowseItem[]> {
   const whitelisted = getWhitelistedPathSet();
 
   const versioned = versionedPathMap();
-  const byTitle = new Map<string, number>();
-  for (const m of all) {
-    // A film kept as several cuts counts once, so it stops reading as a
-    // duplicate to resolve.
-    const v = m.Path ? versioned.get(m.Path) : undefined;
-    if (v && !v.isPrimary) continue;
-    const key = normaliseTitle(m.Name);
-    if (!key) continue;
-    byTitle.set(key, (byTitle.get(key) ?? 0) + 1);
-  }
+  const specialFeatures = getSpecialFeatureIdSet();
+  // Copies of the same film (duplicate-titles.ts): a film kept as several
+  // cuts counts once, a special feature not at all, and a same-titled film
+  // with a different IMDb id (The Climb, short vs feature; any remake) is a
+  // different film, not a copy to choose between.
+  const copies = duplicateIds(
+    all
+      .filter((m) => {
+        const v = m.Path ? versioned.get(m.Path) : undefined;
+        return !(v && !v.isPrimary) && !specialFeatures.has(m.Id);
+      })
+      .map((m) => ({ id: m.Id, titleKey: normaliseTitle(m.Name), imdbId: m.ProviderIds?.Imdb ?? null })),
+  );
 
   return all.map((m) => {
     const path = m.Path;
@@ -228,7 +242,7 @@ export async function buildLibraryBrowse(): Promise<BrowseItem[]> {
     const groupInfo = path ? grouped.get(path) : undefined;
     const isWhitelisted = !!path && whitelisted.has(path);
     const isThinMetadata = hasNoMetadata(m);
-    const isDuplicate = (byTitle.get(normaliseTitle(m.Name)) ?? 0) > 1;
+    const isDuplicate = copies.has(m.Id);
     // Same "visible" definition as missingSubtitles above — a file still
     // stuck in the thin-metadata pile isn't a subtitle problem yet either.
     const isVisible = !isExcluded && (!isThinMetadata || isWhitelisted);
