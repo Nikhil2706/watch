@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug (.dev) builds only: a phone with both installed otherwise shows two
+     identical "Watch" icons, one of which only works plugged into a dev PC. -->
+<resources>
+    <string name="app_name">Watch dev</string>
+    <string name="title_activity_main">Watch dev</string>
+</resources>

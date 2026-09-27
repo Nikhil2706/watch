@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { NavProgress } from "@/components/NavProgress";
+import { OfflineResume } from "@/components/offline/OfflineResume";
 import { ScreenAgent } from "@/components/remote/ScreenAgent";
 import { TvProvider } from "@/components/tv/TvProvider";
 import { resolveTvModeFromRequest } from "@/lib/tv/detect";
@@ -51,6 +52,7 @@ export default async function RootLayout({
             screen, but only when it plausibly is a television — see the
             component for the opt-in rules. */}
         <ScreenAgent tvMode={tvMode} />
+        <OfflineResume />
         {/* Registered here rather than a client component: no UI depends on
             it, and this keeps it out of the client JS bundle entirely. */}
         <script

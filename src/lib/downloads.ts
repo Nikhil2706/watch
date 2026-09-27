@@ -89,3 +89,19 @@ export async function queueDownload(itemId: string): Promise<DownloadJob> {
   // we generated.
   return getDownloadJob(itemId)!;
 }
+
+/**
+ * Puts a failed job back in the queue. Only on an explicit retry from the
+ * user: a failure can be transient (the file was mid-rename, the disk was
+ * full), and without this one bad moment would block the title for good.
+ */
+export function requeueFailedDownload(itemId: string): DownloadJob | null {
+  getDb()
+    .prepare(
+      `UPDATE download_jobs
+          SET status = 'pending', progress = 0, error = NULL, started_at = NULL, finished_at = NULL
+        WHERE jellyfin_item_id = ? AND status = 'failed'`,
+    )
+    .run(itemId);
+  return getDownloadJob(itemId);
+}

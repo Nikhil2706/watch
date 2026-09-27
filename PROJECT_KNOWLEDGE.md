@@ -513,7 +513,71 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
-### 2026-08-28 (latest) — The logo: the aperture finished, and every surface made to agree
+### 2026-09-23 to 09-26 (latest) — Restored onto the HP host; offline downloads made to work; a phone layout
+The Dell's boot SSD failed and the stack was restored onto an HP laptop from the
+2026-09-19 backup. How that host is set up — native Windows tunnel, hidden logon
+tasks, console server, dev copy — is in **HOST-SETUP.md**; read it before
+RESTORE.md. The work below is on branch `mobile-phase3-and-fixes`, not deployed.
+
+- **Offline downloads had never run once.** Zero `download_jobs` rows in
+  production. The first "Keep offline" handed Android's downloader a URL the
+  server answers 202 until it has prepared a copy; the native plugin called the
+  WebView from its io thread, which throws, so no download could start; there
+  was no `readText`, so a film with subtitles could not open offline. All fixed
+  and proven on a real phone: prepare, auto-download, play with the server
+  unreachable, subtitles, delete. Pending server-side prepares are remembered
+  and handed over from whichever page is open (`src/lib/offline/pending.ts`).
+- Prepared copies were named by title, so two episodes called "Pilot" shared a
+  file; now by item id. A failed prepare can be retried.
+- **Android Back exited the app from any page** — nothing handled it. It now
+  closes an open menu/dropdown/player, else goes back, else leaves
+  (`src/lib/overlay-back.ts` + `MainActivity`).
+- Self-update stalled after the first "install unknown apps" grant; it now
+  resumes. The app ran in the stock light theme after the splash, which
+  edge-to-edge insets exposed as white bands. App version 1.5.
+- **Phone layout:** one-row top bar plus a bottom tab bar (Downloads in the app,
+  Picks in a browser); ~3.3 posters per shelf instead of ~2.3; Browse's sidebar
+  folded behind one line; favourite/rewatch overlays hidden on touch; a solid
+  type-ahead; a full-screen offline player.
+- **Curator console** served on the home network by `scripts/console-server.mjs`
+  behind a typeable secret link, with the admin key added server-side, and a
+  phone layout of its own.
+- Episode parsing reads three more conventions (`- 201 -`, `2⁄5`, `10-12`):
+  47 unparsed grouped files down to 31.
+- Host scripts read their paths from `/etc/default/jellyfin-gate` instead of
+  being hand-edited per host; the dev APK build and CI's dev path can reach a
+  plain-http dev server (debug-only cleartext).
+
+### 2026-08-29 to 09-20 — Catch-up, reconstructed from commit messages
+This file stopped being updated after 08-28. What follows is condensed from the
+commit history, not written at the time; the commits themselves carry the why.
+
+- **08-29:** Watch wordmark and PWA icons; Browse's decade filter fixed (it never
+  matched); navigation progress; phone remote for a TV; watch party moved from
+  WebSockets to SSE; downloads and subtitle fetches brought under parental
+  control; assorted fixes (watched badge on shows, same-named uploads, scraper
+  index expiry, nominations outranking placements).
+- **09-05:** the Library and Accolades tabs rebuilt as single workspaces; whole
+  series groupable in one go; two more episode-naming shapes; the library
+  listing cache cleared on Jellyfin changes; `watch.abhigyanverma.com` made
+  canonical.
+- **09-06:** duplicate-video finder (VDF sidecar + Duplicates tab); Android APK
+  built on GitHub runners, release-signed, self-updating; the app made to work
+  on a TV and Fire TV; offline downloads built (server, Android, Windows,
+  offline shell); special features marked, mapped and surfaced.
+- **09-07:** Choose something for me; Screening Room (expiring no-account
+  links); a curator's yearly accolade list; franchises you can manage; TMDB
+  fetched once and kept, retried on blips; real episode stills.
+- **09-08:** TMDB ids kept once paid for; artwork picked from disk; weekly
+  refresh and a backup that lands on the other drive.
+- **09-09:** TMDB crew on the page; the APK pointable at a dev server; a LAN door
+  to Jellyfin for a dev machine; TMDB images proxied rather than hotlinked;
+  re-identification made to stick; a TMDB tab in the console.
+- **09-11:** home shelves, TMDB person pages, console worklists, a quieter audit.
+- **09-20:** the four bugs from 09-11 and the episode-mismatch findings — the last
+  commit before the Dell was shut down, and never deployed there.
+
+### 2026-08-28 — The logo: the aperture finished, and every surface made to agree
 `Brand.tsx` has always drawn an aperture, with a comment explaining why it is
 not a play triangle. The app icon and favicon never got the memo: they shipped
 a blue **W** — a letter, in `--accent`, which is the one colour the palette

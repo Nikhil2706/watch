@@ -1022,11 +1022,17 @@ async function processOne() {
  * newer caller is exactly the kind of change that's safer to keep separate
  * until there's been time to prove this path out.
  */
+// Keyed by item id, not title: episode names repeat across shows ("Pilot"),
+// and two jobs sharing a path would each serve whichever finished last.
+// The title still reaches the user through Content-Disposition.
+function downloadCachePath(job) {
+  return join(DOWNLOADS_CACHE, `${job.jellyfin_item_id}.mp4`);
+}
+
 async function convertForDownload(job, info) {
   const useHw = await detectHardware();
-  const safe = job.title.replace(/[/\\:*?"<>|]/g, "").trim() || "Untitled";
-  const output = join(DOWNLOADS_CACHE, `${safe}.mp4`);
-  const temp = join(DOWNLOADS_CACHE, `.${safe}.inprogress.mp4`);
+  const output = downloadCachePath(job);
+  const temp = join(DOWNLOADS_CACHE, `.${job.jellyfin_item_id}.inprogress.mp4`);
 
   const scale = useHw
     ? `scale=w=min(${MAX_WIDTH}\\,iw):h=-2,format=nv12,hwupload`
@@ -1124,8 +1130,7 @@ async function processDownloadJob() {
   // simple whole-file copy with nothing to track progress on, unlike the
   // conversion path below.
   if (alreadyPlayable(job.source_path, info)) {
-    const safe = job.title.replace(/[/\\:*?"<>|]/g, "").trim() || "Untitled";
-    const output = join(DOWNLOADS_CACHE, `${safe}.mp4`);
+    const output = downloadCachePath(job);
     try {
       copyFileSync(job.source_path, output);
       const size = statSync(output).size;

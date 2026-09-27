@@ -6,15 +6,17 @@
 # WHOLE dashboard, not just the part that was edited. This catches that in a
 # second, without a rebuild or a browser.
 #
-# Runs inside the existing gate image, so it needs no local node.
+# Runs in a stock node image, so it needs no local node - and not the gate
+# image either, whose name follows the compose project and changed with the
+# host ("jellyfin-gate-gate" before, "watch-gate" after).
 #
 # Second argument picks the file, for the other console-shaped page in this repo:
 #   bash scripts/checks/check-console-syntax.sh "" dupefinder/console.html
 set -uo pipefail
-REPO=${1:-/mnt/c/Users/Dell/Downloads/jellyfin-gate}
-REPO=${REPO:-/mnt/c/Users/Dell/Downloads/jellyfin-gate}
+REPO=${1:-}
+REPO=${REPO:-$(cd "$(dirname "$0")/../.." && pwd)}
 TARGET=${2:-curator.html}
-docker run --rm --user 0 -v "$REPO":/src -w /src -e TARGET="$TARGET" --entrypoint node jellyfin-gate-gate -e '
+docker run --rm -v "$REPO":/src:ro -w /src -e TARGET="$TARGET" node:22-alpine node -e '
 const fs = require("fs");
 const html = fs.readFileSync(process.env.TARGET, "utf8");
 const blocks = [...html.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);

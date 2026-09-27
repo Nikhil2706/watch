@@ -3,7 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Player, type PlayerSubtitle } from "@/components/media/Player";
-import { getOfflineBridge, offlineSupported, prepareForOffline } from "@/lib/offline/bridge";
+import {
+  cancelPendingDownload,
+  getOfflineBridge,
+  offlineSupported,
+  pendingOfflineDownloads,
+  prepareForOffline,
+  resumeOfflineDownloads,
+} from "@/lib/offline/bridge";
+import type { PendingDownload } from "@/lib/offline/pending";
+import { useCloseOnBack } from "@/lib/overlay-back";
 import { OFFLINE_BRIDGE_VERSION, type OfflineBundle } from "@/lib/offline/types";
 
 /**
@@ -29,9 +38,12 @@ interface Playing {
 
 export function DownloadsScreen() {
   const [bundles, setBundles] = useState<OfflineBundle[] | null>(null);
+  const [pending, setPending] = useState<PendingDownload[]>([]);
   const [playing, setPlaying] = useState<Playing | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
+  const [posters, setPosters] = useState<Record<string, string | null>>({});
+  const [confirming, setConfirming] = useState<string | null>(null);
   const revoking = useRef<string[]>([]);
 
   const refresh = useCallback(async () => {
@@ -40,8 +52,21 @@ export function DownloadsScreen() {
       setBundles([]);
       return;
     }
+    // Hand over anything the server has finished preparing before listing,
+    // so it shows up as downloading on this same pass.
+    await resumeOfflineDownloads().catch(() => undefined);
+    setPending(pendingOfflineDownloads());
     try {
-      setBundles(await bridge.list());
+      const list = await bridge.list();
+      setBundles(list);
+      // The poster was saved with the bundle precisely so this list is not a
+      // column of bare titles when there is no network.
+      for (const b of list) {
+        void bridge
+          .localUrl(b.itemId, "poster")
+          .catch(() => null)
+          .then((url) => setPosters((prev) => (b.itemId in prev ? prev : { ...prev, [b.itemId]: url })));
+      }
       // Playback is never gated on this — see OFFLINE_BRIDGE_VERSION. An old
       // shell can still play what it already holds; only managing downloads
       // needs the app itself updating, and that needs a network anyway, so
@@ -60,11 +85,13 @@ export function DownloadsScreen() {
   // Poll only while something is actually moving. A downloads screen with
   // nothing in flight has no reason to wake the device up every two seconds.
   const busy = (bundles ?? []).some((b) => b.state === "downloading" || b.state === "queued");
+  const waiting = pending.some((p) => p.status !== "failed");
   useEffect(() => {
-    if (!busy) return;
-    const timer = setInterval(() => void refresh(), 2000);
+    if (!busy && !waiting) return;
+    // The server side moves in minutes, the device side in seconds.
+    const timer = setInterval(() => void refresh(), busy ? 2000 : 5000);
     return () => clearInterval(timer);
-  }, [busy, refresh]);
+  }, [busy, waiting, refresh]);
 
   useEffect(
     () => () => {
@@ -90,10 +117,12 @@ export function DownloadsScreen() {
       // this page, and while <video> does not care, <track> is CORS-checked
       // and would silently load nothing — a film that plays with no subtitles
       // and no error to explain it.
+      // One unreadable subtitle must not cost the whole film: playback of
+      // something already on the device is never gated (see types.ts).
       const revoke: string[] = [];
       const subtitles: PlayerSubtitle[] = [];
       for (const track of bundle.subtitles ?? []) {
-        const text = await bridge.readText(bundle.itemId, track.filename);
+        const text = await bridge.readText(bundle.itemId, track.filename).catch(() => null);
         if (!text) continue;
         const url = URL.createObjectURL(new Blob([text], { type: "text/vtt" }));
         revoke.push(url);
@@ -120,13 +149,22 @@ export function DownloadsScreen() {
     }
     setPlaying(null);
   }
+  // Back in the app leaves the player for the list rather than the page.
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  const closeForBack = useCallback(() => closeRef.current(), []);
+  useCloseOnBack(playing !== null, closeForBack);
 
   async function remove(bundle: OfflineBundle) {
     const bridge = getOfflineBridge();
     if (!bridge) return;
-    if (!confirm(`Delete "${bundle.title}" from this device?`)) return;
+    setConfirming(null);
     try {
       await bridge.remove(bundle.itemId);
+      setPosters((prev) => {
+        const { [bundle.itemId]: _gone, ...rest } = prev;
+        return rest;
+      });
       await refresh();
     } catch {
       setError("Could not delete that download.");
@@ -146,7 +184,7 @@ export function DownloadsScreen() {
     const recommended = playing.subtitles.find((s) => s.recommended);
     return (
       <div className="dl-player">
-        <button className="btn ghost" onClick={close}>
+        <button className="btn ghost dl-player-back" onClick={close}>
           ← Back to downloads
         </button>
         <Player
@@ -170,22 +208,63 @@ export function DownloadsScreen() {
     <>
       {stale ? (
         <p className="note">
-          This app is older than the site. Your downloads still play; updating the app
-          restores managing them.
+          This app is older than the site. Your downloads still play, but subtitles need the
+          app update — accept it next time the app offers one.
         </p>
       ) : null}
       {error ? <p className="msg err">{error}</p> : null}
 
+      {pending.length > 0 ? (
+        <ul className="dl-list">
+          {pending.map((p) => (
+            <li key={p.itemId} className="dl-row">
+              <div className="dl-meta">
+                <div className="dl-title">{p.title}</div>
+                <div className="dl-sub">
+                  {p.status === "failed"
+                    ? (p.error ?? "The server could not prepare this title.")
+                    : `Preparing on the server${p.progress > 0 ? ` · ${p.progress}%` : "…"} · downloads by itself when ready`}
+                </div>
+                {p.status !== "failed" ? (
+                  <div className="dl-bar is-server">
+                    <i style={{ width: `${Math.max(p.progress, 3)}%` }} />
+                  </div>
+                ) : null}
+              </div>
+              <div className="dl-actions">
+                <button
+                  className="btn ghost"
+                  onClick={() => {
+                    cancelPendingDownload(p.itemId);
+                    setPending(pendingOfflineDownloads());
+                  }}
+                >
+                  {p.status === "failed" ? "Dismiss" : "Cancel"}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       {bundles === null ? (
         <p className="note">Reading your downloads…</p>
       ) : bundles.length === 0 ? (
-        <p className="note">
-          Nothing downloaded yet. Open a film and choose Download to keep it on this device.
-        </p>
+        pending.length === 0 ? (
+          <p className="note">
+            Nothing downloaded yet. Open a film and choose Keep offline to have it on this device.
+          </p>
+        ) : null
       ) : (
         <ul className="dl-list">
           {bundles.map((bundle) => (
-            <li key={bundle.itemId} className="dl-row">
+            <li key={bundle.itemId} className="dl-row has-poster">
+              {posters[bundle.itemId] ? (
+                // eslint-disable-next-line @next/next/no-img-element -- a local file URL, not something next/image can optimise
+                <img className="dl-poster" src={posters[bundle.itemId]!} alt="" />
+              ) : (
+                <div className="dl-poster is-empty" aria-hidden="true" />
+              )}
               <div className="dl-meta">
                 <div className="dl-title">
                   {bundle.title}
@@ -198,16 +277,28 @@ export function DownloadsScreen() {
                   </div>
                 ) : null}
               </div>
-              <div className="dl-actions">
-                {bundle.state === "ready" ? (
-                  <button className="btn" onClick={() => void open(bundle)}>
-                    Play
+              {confirming === bundle.itemId ? (
+                <div className="dl-actions dl-confirm">
+                  <span>Delete from this device?</span>
+                  <button className="btn ghost" onClick={() => setConfirming(null)}>
+                    Keep
                   </button>
-                ) : null}
-                <button className="btn danger" onClick={() => void remove(bundle)}>
-                  Delete
-                </button>
-              </div>
+                  <button className="btn danger" onClick={() => void remove(bundle)}>
+                    Delete
+                  </button>
+                </div>
+              ) : (
+                <div className="dl-actions">
+                  {bundle.state === "ready" ? (
+                    <button className="btn" onClick={() => void open(bundle)}>
+                      ▶ Play
+                    </button>
+                  ) : null}
+                  <button className="btn ghost" onClick={() => setConfirming(bundle.itemId)}>
+                    Delete
+                  </button>
+                </div>
+              )}
             </li>
           ))}
         </ul>

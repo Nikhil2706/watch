@@ -18,8 +18,13 @@
 
 set -uo pipefail
 
-REPO=/mnt/c/Users/Dell/Downloads/jellyfin-gate
-DEST_ROOT=/mnt/e/jellyfin-gate-backups
+# Host-specific paths live in /etc/default/jellyfin-gate, so this file is the
+# same on every machine; each restore used to mean hand-editing it. Unset is an
+# error rather than a guess: a backup written to the wrong disk is the failure
+# this job exists to prevent. See HOST-SETUP.md for the file's contents.
+[ -r /etc/default/jellyfin-gate ] && . /etc/default/jellyfin-gate
+REPO="${JFG_REPO:?set JFG_REPO in /etc/default/jellyfin-gate}"
+DEST_ROOT="${JFG_BACKUP_ROOT:?set JFG_BACKUP_ROOT in /etc/default/jellyfin-gate}"
 LOG=/var/log/jellyfin-gate-backup.log
 MAX_AGE_DAYS=7
 
@@ -66,7 +71,9 @@ if [ -n "${AGE_DAYS:-}" ] && [ "$AGE_DAYS" -ge 14 ]; then
 fi
 
 log "starting backup"
-if bash "$REPO/scripts/backup-to-e.sh" >> "$LOG" 2>&1; then
+# Its sibling, wherever this copy lives (scripts/ in the repo, /usr/local/bin
+# once installed).
+if bash "$(dirname "$0")/backup-to-e.sh" >> "$LOG" 2>&1; then
   log "BACKUP OK"
 else
   log "BACKUP FAILED — the boot disk is failing, so this needs a look"

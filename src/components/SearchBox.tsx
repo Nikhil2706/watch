@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useTvMode } from "@/components/tv/TvProvider";
+import { useCloseOnBack } from "@/lib/overlay-back";
 import { itemHref } from "@/lib/slugs";
 
 interface Hit {
@@ -28,7 +29,14 @@ interface Hit {
  * Still a real <form> underneath, so pressing Enter goes to the full results
  * page and the whole thing degrades to a plain GET without JavaScript.
  */
-export function SearchBox({ initialQuery = "" }: { initialQuery?: string }) {
+export function SearchBox({
+  initialQuery = "",
+  autoFocus = false,
+}: {
+  initialQuery?: string;
+  /** For the empty search page on a phone, where the Search tab lands. */
+  autoFocus?: boolean;
+}) {
   const tvMode = useTvMode();
   const [query, setQuery] = useState(initialQuery);
   const [hits, setHits] = useState<Hit[]>([]);
@@ -36,6 +44,8 @@ export function SearchBox({ initialQuery = "" }: { initialQuery?: string }) {
   const [loading, setLoading] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const closeSuggest = useCallback(() => setOpen(false), []);
+  useCloseOnBack(open, closeSuggest);
 
   useEffect(() => {
     if (query.trim().length < 2) {
@@ -98,6 +108,8 @@ export function SearchBox({ initialQuery = "" }: { initialQuery?: string }) {
         <input
           type="search"
           name="q"
+          // Not on a TV: it would pull D-pad focus away from the roving grid.
+          autoFocus={autoFocus && !tvMode}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onFocus={() => hits.length > 0 && setOpen(true)}

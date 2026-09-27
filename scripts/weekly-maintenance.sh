@@ -16,7 +16,12 @@
 
 set -uo pipefail
 
-REPO=/mnt/c/Users/Dell/Downloads/jellyfin-gate
+# Host-specific paths live in /etc/default/jellyfin-gate, so this file is the
+# same on every machine; each restore used to mean hand-editing it. Unset is an
+# error rather than a guess: a backup written to the wrong disk is the failure
+# this job exists to prevent. See HOST-SETUP.md for the file's contents.
+[ -r /etc/default/jellyfin-gate ] && . /etc/default/jellyfin-gate
+REPO="${JFG_REPO:?set JFG_REPO in /etc/default/jellyfin-gate}"
 LOG=/var/log/jellyfin-gate-weekly.log
 BASE=https://watch.abhigyanverma.com
 

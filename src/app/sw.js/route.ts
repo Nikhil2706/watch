@@ -86,11 +86,17 @@ self.addEventListener("activate", (event) => {
 // Live state, session state, and video. Caching any of these would either
 // serve a stale login or quietly fill the cache with a film — offline
 // playback comes from real files on disk, not from here.
-const NEVER_CACHE = [/^\\/jf\\//, /^\\/api\\//, /^\\/watch\\//];
+// /_watch_offline_/ is a kept-offline film, answered on the device by the app
+// shell (OfflineMedia.java). Passing it through here meant fetch() from the
+// worker, a 206 offered to the cache, and "Offline 503" for most seeks.
+const NEVER_CACHE = [/^\\/jf\\//, /^\\/api\\//, /^\\/watch\\//, /^\\/_watch_offline_\\//];
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
+  // A Range request is media seeking; a partial response cannot be cached
+  // and a worker in the middle only adds a failure point.
+  if (request.headers.has("range")) return;
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;

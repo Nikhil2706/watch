@@ -53,7 +53,31 @@ final class UpdateChecker {
     private static final String MANIFEST_URL = BASE + "latest.json";
     private static final String APK_NAME = "watch-update.apk";
 
+    /**
+     * A downloaded update waiting on the "install unknown apps" grant. The
+     * update prompt only appears at launch, so without this the user who goes
+     * to grant it comes back to nothing to tap, and the APK sits unused until
+     * they happen to kill and relaunch the app.
+     */
+    private static File pendingInstall;
+
     private UpdateChecker() {}
+
+    /** Called from MainActivity.onResume: finishes an install the grant was blocking. */
+    static void resumePendingInstall(Activity activity) {
+        File apk = pendingInstall;
+        if (apk == null) return;
+        if (!apk.exists()) {
+            pendingInstall = null;
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                && !activity.getPackageManager().canRequestPackageInstalls()) {
+            return;
+        }
+        pendingInstall = null;
+        install(activity, apk);
+    }
 
     static void checkInBackground(final Activity activity) {
         new Thread(() -> {
@@ -177,8 +201,9 @@ final class UpdateChecker {
         // the screen that grants it rather than failing with nothing on screen.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 && !activity.getPackageManager().canRequestPackageInstalls()) {
+            pendingInstall = apk;
             Toast.makeText(activity,
-                "Allow installing apps from Watch, then tap Update again",
+                "Allow installing apps from Watch, then come back — the update continues",
                 Toast.LENGTH_LONG).show();
             activity.startActivity(
                 new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,

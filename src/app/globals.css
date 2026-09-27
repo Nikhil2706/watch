@@ -595,6 +595,12 @@ button.secondary {
   color: var(--muted);
 }
 
+/* A page-level empty state sits straight in body, beside .page-head, and
+   without this ran edge to edge while the heading above it was inset. */
+body > .empty {
+  margin-inline: 20px;
+}
+
 /* ---------------------------------------------------------------- *
  * Titles still being converted
  * ---------------------------------------------------------------- */
@@ -1371,12 +1377,19 @@ a.curator-card:hover {
  * siblings inside one .plyr__volume container.
  */
 @media (max-width: 700px) and (orientation: portrait) {
-  .plyr__volume {
+  /* Prefixed with .vds-player: Vidstack's Plyr stylesheet loads after this
+     file with equal-specificity rules, and won every tie. */
+  .vds-player .plyr__volume {
     max-width: none;
+    /* Plyr also sets min-width: 80px and width: 20%. Without these two the
+       collapse never happened: volume kept 105px of a 360px bar and the
+       seek bar was left 27px wide. */
+    min-width: 0;
+    width: auto;
     flex: 0 0 auto;
   }
 
-  .plyr__volume .plyr__slider {
+  .vds-player .plyr__volume .plyr__slider {
     position: absolute;
     right: 0;
     bottom: calc(100% + 10px);
@@ -1392,9 +1405,34 @@ a.curator-card:hover {
     z-index: 3;
   }
 
-  .plyr__volume:focus-within .plyr__slider {
+  .vds-player .plyr__volume:focus-within .plyr__slider {
     opacity: 1;
     pointer-events: auto;
+  }
+
+  /* Even with volume collapsed, play, time, CC, settings and fullscreen left
+     the seek bar ~67px on a 360px phone - too short to aim at a scene in a
+     two-hour film. It gets a full-width row of its own above the buttons. */
+  .vds-player .plyr__controls {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .vds-player .plyr__controls .plyr__progress__container {
+    order: -1;
+    flex: 1 0 100%;
+    margin-left: 0;
+    padding-inline: 6px;
+  }
+
+  .vds-player .plyr__controls .plyr__time {
+    margin-right: auto;
+  }
+
+  /* Plyr pushes everything after the play button right with an auto margin;
+     sharing the free space with the time's left it floating mid-row. */
+  .vds-player .plyr__controls .plyr__controls__item:first-child {
+    margin-right: 0;
   }
 }
 
@@ -2656,6 +2694,151 @@ button:focus-visible {
   }
 }
 
+/*
+ * Phone layout: one-row top bar plus a bottom tab bar.
+ *
+ * The three-row sticky header above cost ~130px of an 812px screen on every
+ * page, and its nav row overflowed a 375px width — Pair phone sat off the
+ * right edge. The main destinations now live in MobileTabBar, in thumb
+ * reach; the rest is in the More menu. Search shows only on the search page,
+ * which is where the Search tab goes.
+ */
+.appbar-more,
+.tabbar {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .appbar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+    padding: 8px 12px;
+  }
+  .appbar nav,
+  .appbar > .who,
+  .appbar > button.secondary {
+    display: none;
+  }
+  .appbar .searchbox {
+    display: none;
+    order: 10;
+    width: 100%;
+  }
+  .appbar.is-searching .searchbox {
+    display: block;
+  }
+  .appbar .bell-wrap {
+    order: 4;
+    margin-left: auto;
+  }
+
+  .appbar-more {
+    display: block;
+    position: relative;
+    order: 5;
+  }
+  .appbar-more summary {
+    list-style: none;
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 999px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .appbar-more summary::-webkit-details-marker {
+    display: none;
+  }
+  .appbar-more[open] summary {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+  .appbar-more-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    min-width: 240px;
+    display: flex;
+    flex-direction: column;
+    padding: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    z-index: 60;
+  }
+  /* .appbar-scoped to outrank ".appbar button.secondary" above, which would
+     otherwise push Sign out to the right edge of the menu. */
+  .appbar .appbar-more-menu a,
+  .appbar .appbar-more-menu button.secondary {
+    order: 0;
+    margin: 0;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    color: var(--text);
+    text-align: left;
+    background: none;
+    border: 0;
+    width: 100%;
+  }
+  .appbar .appbar-more-menu button.secondary {
+    color: #e8695a;
+    border-top: 1px solid var(--border);
+    border-radius: 0 0 8px 8px;
+    margin-top: 4px;
+  }
+  .appbar .appbar-more-menu a:active,
+  .appbar .appbar-more-menu button.secondary:active {
+    background: var(--surface-2);
+  }
+  .appbar-more-who {
+    padding: 8px 12px 10px;
+    font-size: 0.8rem;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+  }
+
+  .tabbar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 55;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+    background: rgba(11, 13, 17, 0.94);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(38, 44, 55, 0.7);
+  }
+  .tabbar .tab {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 5px 0 3px;
+    min-height: 48px;
+    font-size: 0.68rem;
+    letter-spacing: 0.01em;
+    color: var(--muted);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tabbar .tab.is-active {
+    color: var(--accent);
+  }
+  body:has(.tabbar) {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+html[data-tv="true"] .tabbar,
+html[data-tv="true"] .appbar-more {
+  display: none !important;
+}
+
 /* ---------------------------------------------------------------- *
  * Browse: genre / director / actor / decade, sidebar + grid
  * ---------------------------------------------------------------- */
@@ -2895,6 +3078,12 @@ button:focus-visible {
 .mark-us {
   background: var(--warm);
   color: #2a1f0f;
+}
+
+/* Sits among .row sections, which inset their own headings 20px; without
+   this the heading and card ran to the screen edges on a phone. */
+.community-section {
+  padding: 0 20px;
 }
 
 .community-card {
@@ -4157,8 +4346,10 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
 /* The downloads screen is the one page that renders with no network at all
    (the service worker precaches it), so everything here is plain CSS with no
    dependency on anything fetched at runtime. */
-.dl-page { padding-top: 18px; }
-.dl-heading { font-family: var(--font-serif, ui-serif, Georgia, serif); font-weight: 600; margin: 0 0 6px; }
+/* Its own gutters: the "wrap" class this page also carries is defined nowhere,
+   so without these the text ran flush to the screen edge. */
+.dl-page { max-width: 760px; margin: 0 auto; padding: 18px 16px 24px; }
+.dl-heading { font-family: var(--font-serif, ui-serif, Georgia, serif); font-weight: 600; font-size: 1.7rem; margin: 0 0 6px; }
 
 .dl-list { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .dl-row {
@@ -4173,14 +4364,55 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
 .dl-actions { display: flex; gap: 8px; flex: 0 0 auto; }
 .dl-actions .btn { width: auto; font-size: 13px; padding: 6px 13px; }
 
+/* A downloaded title: poster down the left, title and actions stacked beside
+   it, so the actions never wrap back under the poster on a phone. */
+.dl-row.has-poster {
+  display: grid; grid-template-columns: 56px minmax(0, 1fr);
+  column-gap: 14px; row-gap: 10px; align-items: center;
+}
+.dl-poster {
+  grid-row: span 2; width: 56px; aspect-ratio: 2 / 3; object-fit: cover;
+  border-radius: 6px; background: var(--surface-2);
+}
+.dl-confirm { align-items: center; flex-wrap: wrap; }
+/* Its own line, so the two buttons sit together beneath it instead of Delete
+   wrapping alone onto a second row. */
+.dl-confirm span { flex: 1 1 100%; color: var(--muted); font-size: 13px; }
+
+/* Playing a download takes the whole screen: it was a small inline player
+   over a mostly empty page. The player's own fullscreen still works on top. */
+.dl-player {
+  position: fixed; inset: 0; z-index: 70; background: #000;
+  display: flex; flex-direction: column; justify-content: center;
+}
+.dl-player .dl-player-back {
+  position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: 12px; z-index: 2;
+  background: rgba(0, 0, 0, 0.55);
+}
+
 .dl-bar { height: 4px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 8px; }
 .dl-bar i { display: block; height: 100%; background: var(--accent); transition: width 0.4s; }
 
 .dl-player { display: flex; flex-direction: column; gap: 12px; }
 .dl-player .btn { align-self: flex-start; width: auto; }
 
+/* Server-side preparation: slower and less certain than the device download,
+   so it reads as a different, quieter bar. */
+.dl-bar.is-server i { background: var(--muted); }
+
 /* Sits next to the Keep offline button on the item page. */
 .offline-note { color: var(--muted); font-size: 12.5px; align-self: center; }
+.offline-note.is-error { color: #e8695a; }
+
+/* The button doubles as its own progress meter while something is moving. */
+.offline-btn { position: relative; overflow: hidden; }
+.offline-btn > span { position: relative; z-index: 1; }
+.offline-btn .offline-meter {
+  position: absolute; left: 0; bottom: 0; height: 3px;
+  background: var(--accent); transition: width 0.4s;
+}
+.offline-btn.is-ready { color: var(--text); border-color: var(--accent-line, var(--border)); }
+.offline-btn.is-busy { cursor: default; font-variant-numeric: tabular-nums; }
 
 
 /* --- Choose something for me ------------------------------------------- */
@@ -4612,4 +4844,123 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
 .poster--missing .poster-title,
 .poster--missing .poster-sub {
   opacity: 0.75;
+}
+
+/* ---------------------------------------------------------------- *
+ * Phone polish, from driving the app on a real phone (2026-09-25).
+ * ---------------------------------------------------------------- */
+
+/* The type-ahead shares the frosted panel treatment, whose gradient is
+   translucent: over the search page the heading and empty-state text read
+   straight through the results. A solid ground under the same gradient. */
+.suggest {
+  background-color: var(--surface);
+}
+
+/* Favourite/rewatch on every poster covered the artwork on a touchscreen,
+   where there is no hover to hide them behind. Touch devices show only the
+   ones that are on (state, not controls); adding happens on the film page,
+   which has both buttons at full size. */
+@media (hover: none) {
+  .list-overlay {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .list-overlay.has-active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (max-width: 700px) {
+  /* 158px posters fit ~2.3 across a phone, so one shelf filled the screen.
+     ~112px fits ~3.3 — enough to see a shelf at a glance, with the next
+     poster peeking in to say it scrolls. */
+  .row-scroll > .poster:not(.poster--still) {
+    width: 112px;
+  }
+  .grid:not(.grid--still) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px 9px;
+    padding: 0 14px 32px;
+  }
+  .poster-title {
+    font-size: 0.78rem;
+  }
+  .poster-sub {
+    font-size: 0.7rem;
+  }
+
+  /* Seven actions on the film page wrapped into three uneven rows. Play takes
+     the full remaining width next to the heart/rewatch pair; everything else
+     is a quieter, smaller second tier. */
+  .btn-row > .btn:not(.ghost) {
+    flex: 1 1 auto;
+    justify-content: center;
+    text-align: center;
+  }
+  .btn-row > .btn.ghost,
+  .btn-row > .offline-btn,
+  .btn-row > button.ghost {
+    font-size: 0.82rem;
+    padding: 8px 12px;
+  }
+
+  /* Was on the 20px desktop gutter while the hero above it is on 14px. */
+  .pick-entry {
+    padding: 0 14px 18px;
+  }
+
+  /* Browse: the sidebar folds behind one summary line (see browse/page.tsx). */
+  .bf-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 12px 14px 4px;
+    padding: 11px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    font-size: 0.9rem;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .bf-summary b {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .bf-open {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .bf-open::after {
+    content: " \25BE";
+  }
+  .bf-toggle:checked + .bf-summary .bf-open::after {
+    content: " \25B4";
+  }
+  .browse-sidebar {
+    display: none;
+  }
+  .bf-toggle:checked ~ .browse-sidebar {
+    display: block;
+    padding-top: 8px;
+  }
+}
+
+.bf-toggle {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bf-summary {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .bf-summary {
+    display: flex;
+  }
 }

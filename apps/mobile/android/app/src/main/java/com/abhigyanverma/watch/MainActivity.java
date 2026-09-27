@@ -11,7 +11,10 @@ import android.os.Environment;
 import android.webkit.CookieManager;
 import android.webkit.URLUtil;
 import android.webkit.WebSettings;
+import android.webkit.WebView;
 import android.widget.Toast;
+
+import androidx.activity.OnBackPressedCallback;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -84,7 +87,9 @@ public class MainActivity extends BridgeActivity {
 
         super.onCreate(savedInstanceState);
 
+        OfflineMedia.install(this.bridge);
         announceTelevisionToTheSite();
+        installBackHandling();
 
         // Sideloaded, so no store pushes updates. Fire-and-forget on a
         // background thread; it stays silent unless there is something newer.
@@ -131,5 +136,40 @@ public class MainActivity extends BridgeActivity {
                     Toast.makeText(this, "Could not start the download", Toast.LENGTH_LONG).show();
                 }
             });
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        UpdateChecker.resumePendingInstall(this);
+    }
+
+    /**
+     * Back, the way the rest of Android behaves. Neither BridgeActivity nor a
+     * plugin handled it, so Back finished the activity from any page - one
+     * press from a film page and the app was gone.
+     *
+     * In order: close whatever is open on the page (menu, dropdown, offline
+     * player - see src/lib/overlay-back.ts), else go back a page, else leave.
+     */
+    private void installBackHandling() {
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                final WebView web = bridge.getWebView();
+                web.evaluateJavascript(
+                    "(function(){try{return !!(window.__watchCloseOverlay&&window.__watchCloseOverlay())}catch(e){return false}})()",
+                    closed -> {
+                        if ("true".equals(closed)) return;
+                        if (web.canGoBack()) {
+                            web.goBack();
+                            return;
+                        }
+                        setEnabled(false);
+                        getOnBackPressedDispatcher().onBackPressed();
+                        setEnabled(true);
+                    });
+            }
+        });
     }
 }

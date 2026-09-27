@@ -26,8 +26,13 @@
 
 set -uo pipefail
 
-REPO=/mnt/c/Users/Dell/Downloads/jellyfin-gate
-DEST_ROOT=/mnt/e/jellyfin-gate-backups
+# Host-specific paths live in /etc/default/jellyfin-gate, so this file is the
+# same on every machine; each restore used to mean hand-editing it. Unset is an
+# error rather than a guess: a backup written to the wrong disk is the failure
+# this job exists to prevent. See HOST-SETUP.md for the file's contents.
+[ -r /etc/default/jellyfin-gate ] && . /etc/default/jellyfin-gate
+REPO="${JFG_REPO:?set JFG_REPO in /etc/default/jellyfin-gate}"
+DEST_ROOT="${JFG_BACKUP_ROOT:?set JFG_BACKUP_ROOT in /etc/default/jellyfin-gate}"
 STAMP=$(date +%Y-%m-%d)
 DEST="$DEST_ROOT/$STAMP"
 KEEP=6            # weekly, so roughly six weeks of history
@@ -59,9 +64,13 @@ else
 fi
 
 # --- 2. Jellyfin's config volume --------------------------------------------
+# Whatever the compose project is called on this machine: the volume name is
+# project-prefixed, and hard-coding it broke the first backup on a new host.
+CONFIG_VOLUME=$(docker inspect jellyfin --format '{{range .Mounts}}{{if eq .Destination "/config"}}{{.Name}}{{end}}{{end}}' 2>/dev/null)
+[ -n "$CONFIG_VOLUME" ] || fail "cannot find the jellyfin container's /config volume"
 log "archiving jellyfin config volume"
 if docker run --rm \
-     -v jellyfin-gate_jellyfin-config:/src:ro \
+     -v "$CONFIG_VOLUME":/src:ro \
      -v "$DEST":/out \
      alpine sh -c "tar czf /out/jellyfin-config.tar.gz -C /src ." 2>/dev/null; then
   log "jellyfin config done"
