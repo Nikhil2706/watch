@@ -1377,7 +1377,9 @@ a.curator-card:hover {
  * siblings inside one .plyr__volume container.
  */
 @media (max-width: 700px) and (orientation: portrait) {
-  .plyr__volume {
+  /* Prefixed with .vds-player: Vidstack's Plyr stylesheet loads after this
+     file with equal-specificity rules, and won every tie. */
+  .vds-player .plyr__volume {
     max-width: none;
     /* Plyr also sets min-width: 80px and width: 20%. Without these two the
        collapse never happened: volume kept 105px of a 360px bar and the
@@ -1387,7 +1389,7 @@ a.curator-card:hover {
     flex: 0 0 auto;
   }
 
-  .plyr__volume .plyr__slider {
+  .vds-player .plyr__volume .plyr__slider {
     position: absolute;
     right: 0;
     bottom: calc(100% + 10px);
@@ -1403,7 +1405,7 @@ a.curator-card:hover {
     z-index: 3;
   }
 
-  .plyr__volume:focus-within .plyr__slider {
+  .vds-player .plyr__volume:focus-within .plyr__slider {
     opacity: 1;
     pointer-events: auto;
   }
@@ -1411,19 +1413,19 @@ a.curator-card:hover {
   /* Even with volume collapsed, play, time, CC, settings and fullscreen left
      the seek bar ~67px on a 360px phone - too short to aim at a scene in a
      two-hour film. It gets a full-width row of its own above the buttons. */
-  .plyr__controls {
+  .vds-player .plyr__controls {
     flex-wrap: wrap;
     row-gap: 4px;
   }
 
-  .plyr__controls .plyr__progress__container {
+  .vds-player .plyr__controls .plyr__progress__container {
     order: -1;
     flex: 1 0 100%;
     margin-left: 0;
     padding-inline: 6px;
   }
 
-  .plyr__controls .plyr__time {
+  .vds-player .plyr__controls .plyr__time {
     margin-right: auto;
   }
 }
