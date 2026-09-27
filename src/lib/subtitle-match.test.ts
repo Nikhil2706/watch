@@ -66,3 +66,14 @@ test("text similarity ignores numbering, timing and tags", () => {
   assert.equal(subtitleTextSimilarity(a, b), 1);
   assert.equal(subtitleTextSimilarity(a, "1\n00:00:01,000 --> 00:00:02,000\nSomething else entirely.\n"), 0);
 });
+
+test("a subtitle named for the episode's own release counts, even from another family", () => {
+  // Nathan For You S01E03 is an EVOLVE file; the approved S01E01 was os-auto's AFG release.
+  const family: SubtitleFamily = { uploader: "os-auto", release: "Nathan.For.You.S01E01.HDTV.XviD-AFG", fileName: null, hearingImpaired: false, fps: null };
+  const results = [
+    cand({ fileId: 40, uploader: "someone", release: "Nathan For You S01E03 random rip", downloadCount: 9000 }),
+    cand({ fileId: 41, uploader: "other", release: "Nathan.For.You.S01E03.HDTV.x264-EVOLVE", downloadCount: 800 }),
+  ];
+  assert.equal(pickFromFamily(results, family, "Nathan.For.You.S01E03.HDTV.x264-EVOLVE.mp4")?.candidate.fileId, 41);
+  assert.equal(pickFromFamily(results, family, null), null, "without the file's name there is nothing to go on");
+});

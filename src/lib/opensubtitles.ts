@@ -42,6 +42,28 @@ export function isOpenSubtitlesConfigured(): boolean {
   return env.opensubtitlesApiKey !== "";
 }
 
+/**
+ * This host's link resets connections to OpenSubtitles during the TLS
+ * handshake — measured 2026-09-28 at about two attempts in three, from the
+ * container, WSL and Windows alike, while other sites were fine. Every such
+ * failure surfaced as "OpenSubtitles is not reachable". A reset before the
+ * request is sent costs nothing to repeat (not even download quota), so
+ * transport failures are retried; an HTTP answer, even an error, never is.
+ */
+async function withTransportRetry(send: () => Promise<Response>, attempts = 5): Promise<Response> {
+  let last: unknown = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await send();
+    } catch (cause) {
+      last = cause;
+      if (attempt < attempts - 1) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+  const reason = last instanceof Error ? ((last.cause as { code?: string } | undefined)?.code ?? last.message) : String(last);
+  throw new OpenSubtitlesError(`Could not reach OpenSubtitles after ${attempts} tries (${reason}).`, 0, "");
+}
+
 async function osFetch<T>(
   path: string,
   init: { method?: string; body?: unknown; timeoutMs?: number } = {},
@@ -58,22 +80,15 @@ async function osFetch<T>(
   };
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
-  let response: Response;
-  try {
-    response = await fetch(`${BASE_URL}${path}`, {
+  const response = await withTransportRetry(() =>
+    fetch(`${BASE_URL}${path}`, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
       cache: "no-store",
-    });
-  } catch (cause) {
-    throw new OpenSubtitlesError(
-      `Could not reach OpenSubtitles: ${cause instanceof Error ? cause.message : String(cause)}`,
-      0,
-      "",
-    );
-  }
+    }),
+  );
 
   const text = await response.text();
   if (!response.ok) {
@@ -286,9 +301,11 @@ export async function downloadSubtitle(fileId: number): Promise<SubtitleDownload
     body: { file_id: fileId },
   });
 
-  const fileResponse = await fetch(requested.link, {
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
+  // The download link is valid for hours and re-fetching it is free, so it
+  // gets the same retries: losing a counted download to one reset would hurt.
+  const fileResponse = await withTransportRetry(() =>
+    fetch(requested.link, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
+  );
   if (!fileResponse.ok) {
     throw new OpenSubtitlesError(
       `Fetching the downloaded subtitle file failed with ${fileResponse.status}`,

@@ -5535,7 +5535,14 @@
   });
 
   // Article reader — shared by every place that offers "Read full text".
-  function acOpenReader(title, meta, body) {
+  function acOpenReader(title, meta, body, host) {
+    // The reader is one element, and it lived in the Articles pane — so
+    // "Read full text" from a film's panel opened it inside a hidden view and
+    // nothing appeared. It moves to the pane the button was pressed in (same
+    // element, same ids and handlers) and scrolls into view there.
+    var panel = $("acReaderPanel");
+    var pane = host || $("accArtPane");
+    if (panel.parentNode !== pane) pane.insertBefore(panel, pane.firstChild);
     $("acReaderTitle").textContent = title;
     $("acReaderMeta").textContent = meta;
     // Paragraphs as separate <p> elements (not one .textContent dump) so a
@@ -5549,6 +5556,7 @@
     acTriviaPicks = [];
     acRenderReaderCollectors();
     acHideReaderToolbar();
+    panel.scrollIntoView({ block: "start", behavior: "smooth" });
   }
   function acCloseReader() {
     $("acReaderPanel").classList.remove("open");
@@ -5561,14 +5569,14 @@
   var acCurrentArticleId = null;
   var acCurrentArticle = null;
 
-  function acReadArticle(articleId) {
+  function acReadArticle(articleId, host) {
     api("/api/admin/accolades/article/" + encodeURIComponent(articleId)).then(function (data) {
       acCurrentArticleId = articleId;
       acCurrentArticle = data.article;
       var a = data.article;
       var fetched = new Date(a.fetched_at).toLocaleDateString();
       acRenderMatches(data.links || []);
-      acOpenReader(a.title, a.source_id + " — fetched " + fetched, a.full_text);
+      acOpenReader(a.title, a.source_id + " — fetched " + fetched, a.full_text, host);
     }).catch(function (e) { show("err", e.message); });
   }
 
@@ -5662,6 +5670,36 @@
                 '" data-imdb-id="' + esc(r.imdbId) + '">' + esc(r.name) + ' <span class="ac-r-year">' + (r.year || "") + '</span></div>';
             }).join("")
           : '<div class="muted" style="padding:4px 0">No matches.</div>';
+      }).catch(function () {});
+    }, 250);
+  });
+
+  /* The builder's title boxes said "Search your library…" and searched
+     nothing: a typed title was only matched on save, by guesswork. Now they
+     search as you type (the same library search as the reader's link box),
+     and a picked result is saved with its exact IMDb id and year. Typing
+     after a pick drops it, so what's saved is always what's shown. */
+  $("acBuilderList").addEventListener("input", function (e) {
+    if (!e.target.classList.contains("ac-slot-title")) return;
+    var input = e.target;
+    var row = input.closest(".ac-slot-row");
+    var resultsEl = row.querySelector(".ac-slot-results");
+    row.removeAttribute("data-imdb-id");
+    row.removeAttribute("data-year");
+    clearTimeout(input._acTimer);
+    var q = input.value.trim();
+    if (q.length < 2 || !resultsEl) { if (resultsEl) resultsEl.innerHTML = ""; return; }
+    input._acTimer = setTimeout(function () {
+      api("/api/admin/accolades/search?q=" + encodeURIComponent(q)).then(function (data) {
+        if (input.value.trim() !== q) return; // typed on since
+        var results = data.results || [];
+        resultsEl.innerHTML = results.length
+          ? results.map(function (r) {
+              return '<div class="ac-match-result" data-ac-action="slot-pick" data-imdb-id="' + esc(r.imdbId) +
+                '" data-name="' + esc(r.name) + '" data-year="' + (r.year || "") + '">' + esc(r.name) +
+                ' <span class="ac-r-year">' + (r.year || "") + '</span></div>';
+            }).join("")
+          : '<div class="muted" style="padding:4px 0">Not in your library — saved as typed, and it links itself if it\'s ever added.</div>';
       }).catch(function () {});
     }, 250);
   });
@@ -6037,7 +6075,8 @@
     row.className = "ac-slot-row";
     row.setAttribute("data-insert-at", String(position));
     row.innerHTML = '<div class="ac-rank" title="Enters at this rank">#' + (position + 1) + '</div>' +
-      '<div class="ac-slot-main"><input class="ac-slot-title" placeholder="Search your library…">' +
+      '<div class="ac-slot-main"><input class="ac-slot-title" placeholder="Search your library…" autocomplete="off">' +
+      '<div class="ac-match-search-results ac-slot-results"></div>' +
       '<textarea class="ac-slot-blurb" placeholder="Blurb (optional)"></textarea></div>' +
       '<button class="ghost" data-ac-action="save-slot">Save</button>' +
       '<button class="ghost" data-ac-action="delete-slot">✕</button>';
@@ -6058,7 +6097,8 @@
       a.entries.forEach(function (e, i) {
         html += '<div class="ac-slot-row" data-entry-id="' + esc(e.id) + '" data-slot="' + e.slot + '" data-index="' + i + '">' +
           '<div class="ac-rank" title="Rank">#' + (i + 1) + '</div>' +
-          '<div class="ac-slot-main"><input class="ac-slot-title" value="' + esc(e.raw_title) + '" placeholder="Search your library…">' +
+          '<div class="ac-slot-main"><input class="ac-slot-title" value="' + esc(e.raw_title) + '" placeholder="Search your library…" autocomplete="off">' +
+          '<div class="ac-match-search-results ac-slot-results"></div>' +
           '<textarea class="ac-slot-blurb" placeholder="Blurb (optional)">' + (e.blurb_text ? esc(e.blurb_text) : "") + '</textarea>' +
           '<div class="muted">' + (e.imdb_id ? "Matched" : "Not yet in your library — will auto-link if it's ever added") + '</div></div>' +
           '<input class="ac-rank-to" type="number" min="1" max="' + a.entries.length + '" placeholder="#" title="Move to this rank">' +
@@ -6206,8 +6246,16 @@
       acReloadFilmDetail();
     } else if (action === "rt-format") {
       wrapSelectionInTag($(btn.getAttribute("data-target")), btn.getAttribute("data-tag"));
+    } else if (action === "slot-pick") {
+      var pickRow = btn.closest(".ac-slot-row");
+      if (!pickRow) return;
+      pickRow.querySelector(".ac-slot-title").value = btn.getAttribute("data-name");
+      pickRow.setAttribute("data-imdb-id", btn.getAttribute("data-imdb-id"));
+      pickRow.setAttribute("data-year", btn.getAttribute("data-year") || "");
+      pickRow.querySelector(".ac-slot-results").innerHTML =
+        '<div class="muted" style="padding:4px 0">Linked — Save to keep it.</div>';
     } else if (action === "read-article") {
-      acReadArticle(btn.getAttribute("data-article-id"));
+      acReadArticle(btn.getAttribute("data-article-id"), btn.closest(".lw-pane"));
     } else if (action === "reader-add-blurb") {
       if (!acPendingSelectionText) return;
       acBlurbPicks.push(acPendingSelectionText);
@@ -6364,6 +6412,11 @@
          whatever already held that slot. */
       var insertAt = slotRow.getAttribute("data-insert-at");
       var slotBody = { title: slotTitle, blurb_text: slotBlurb || null };
+      // Picked from the search: link exactly, no guessing from the title.
+      if (slotRow.getAttribute("data-imdb-id")) {
+        slotBody.imdb_id = slotRow.getAttribute("data-imdb-id");
+        if (slotRow.getAttribute("data-year")) slotBody.year = Number(slotRow.getAttribute("data-year"));
+      }
       if (insertAt !== null) { slotBody.insert_at = Number(insertAt); }
       else { slotBody.slot = slotNum; }
       api("/api/admin/accolades/builder/" + encodeURIComponent(slotAccoladeId) + "/entries", {

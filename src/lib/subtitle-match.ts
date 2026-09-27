@@ -43,7 +43,8 @@ export function releaseSignature(name: string | null | undefined): string {
   if (!name) return "";
   return name
     .toLowerCase()
-    .replace(/\.(srt|sub|ass|vtt)$/, "")
+    // Subtitle or video extension: a video filename is compared too.
+    .replace(/\.(srt|sub|ass|ssa|vtt|mp4|mkv|avi|m4v|mov|wmv|ts)$/, "")
     .replace(/s\d{1,2}\s*e\d{1,3}/g, " ")
     .replace(/\b\d{1,2}x\d{1,3}\b/g, " ")
     .replace(/\bs\d{1,2}eall\b/g, " ")
@@ -77,9 +78,27 @@ export interface ScoredCandidate {
 /** Below this, no candidate is trusted enough to download on its own say-so. */
 export const MIN_FAMILY_SCORE = 3;
 
-export function scoreCandidate(c: SubtitleCandidate, family: SubtitleFamily): ScoredCandidate {
+export function scoreCandidate(
+  c: SubtitleCandidate,
+  family: SubtitleFamily,
+  /** The episode's own video filename: a subtitle named for that release was made for it. */
+  videoName?: string | null,
+): ScoredCandidate {
   let score = 0;
   const why: string[] = [];
+  if (videoName) {
+    const own = Math.max(
+      signatureSimilarity(releaseSignature(c.release), releaseSignature(videoName)),
+      signatureSimilarity(releaseSignature(c.fileName), releaseSignature(videoName)),
+    );
+    if (own >= 0.99) {
+      score += 3;
+      why.push("named for this file's release");
+    } else if (own >= 0.75) {
+      score += 2;
+      why.push("close to this file's release");
+    }
+  }
   if (family.uploader && c.uploader && c.uploader.toLowerCase() === family.uploader.toLowerCase()) {
     score += 3;
     why.push("same uploader");
@@ -105,9 +124,13 @@ export function scoreCandidate(c: SubtitleCandidate, family: SubtitleFamily): Sc
 }
 
 /** The best candidate for an episode, or null when nothing is family enough. */
-export function pickFromFamily(candidates: readonly SubtitleCandidate[], family: SubtitleFamily): ScoredCandidate | null {
+export function pickFromFamily(
+  candidates: readonly SubtitleCandidate[],
+  family: SubtitleFamily,
+  videoName?: string | null,
+): ScoredCandidate | null {
   const scored = candidates
-    .map((c) => scoreCandidate(c, family))
+    .map((c) => scoreCandidate(c, family, videoName))
     .sort((a, b) => b.score - a.score || b.candidate.downloadCount - a.candidate.downloadCount);
   const best = scored[0];
   return best && best.score >= MIN_FAMILY_SCORE ? best : null;

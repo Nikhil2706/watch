@@ -232,7 +232,7 @@ export async function planSeriesSubtitles(
         languages: LANG,
         moviehash: existsSync(e.path) ? moviehash(e.path) : null,
       });
-      const best = pickFromFamily(candidates, identified.family);
+      const best = pickFromFamily(candidates, identified.family, basename(e.path));
       plan.episodes.push(
         best
           ? {
