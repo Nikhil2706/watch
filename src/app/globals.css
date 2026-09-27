@@ -1428,6 +1428,12 @@ a.curator-card:hover {
   .vds-player .plyr__controls .plyr__time {
     margin-right: auto;
   }
+
+  /* Plyr pushes everything after the play button right with an auto margin;
+     sharing the free space with the time's left it floating mid-row. */
+  .vds-player .plyr__controls .plyr__controls__item:first-child {
+    margin-right: 0;
+  }
 }
 
 /*
