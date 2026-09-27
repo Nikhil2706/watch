@@ -1379,6 +1379,11 @@ a.curator-card:hover {
 @media (max-width: 700px) and (orientation: portrait) {
   .plyr__volume {
     max-width: none;
+    /* Plyr also sets min-width: 80px and width: 20%. Without these two the
+       collapse never happened: volume kept 105px of a 360px bar and the
+       seek bar was left 27px wide. */
+    min-width: 0;
+    width: auto;
     flex: 0 0 auto;
   }
 
@@ -1401,6 +1406,25 @@ a.curator-card:hover {
   .plyr__volume:focus-within .plyr__slider {
     opacity: 1;
     pointer-events: auto;
+  }
+
+  /* Even with volume collapsed, play, time, CC, settings and fullscreen left
+     the seek bar ~67px on a 360px phone - too short to aim at a scene in a
+     two-hour film. It gets a full-width row of its own above the buttons. */
+  .plyr__controls {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .plyr__controls .plyr__progress__container {
+    order: -1;
+    flex: 1 0 100%;
+    margin-left: 0;
+    padding-inline: 6px;
+  }
+
+  .plyr__controls .plyr__time {
+    margin-right: auto;
   }
 }
 

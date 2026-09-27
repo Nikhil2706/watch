@@ -127,9 +127,11 @@ final class OfflineMedia {
         long length = end - start + 1;
         InputStream body;
         try {
-            FileInputStream in = new FileInputStream(file);
-            in.getChannel().position(start);
-            body = new Bounded(in, length);
+            // From byte 0, NOT from start: the WebView applies the request's
+            // Range to an intercepted stream itself, skipping to the first
+            // byte. Seeking here as well skipped twice and failed every
+            // request that did not begin at 0. Only the end is ours to cut.
+            body = new Bounded(new FileInputStream(file), end + 1);
         } catch (IOException e) {
             return plain(500, "Internal Server Error");
         }
@@ -173,13 +175,37 @@ final class OfflineMedia {
             new ByteArrayInputStream(new byte[0]));
     }
 
-    /** Stops after the requested range instead of running to end of file. */
+    /**
+     * Ends at the last requested byte instead of running to end of file.
+     *
+     * available() reports 0 on purpose. The WebView checks the requested range
+     * against available(), an int, before skipping - so any honest answer for
+     * a film over 2 GB would be wrong, and a seek past 2 GB would be refused as
+     * unsatisfiable. With 0 it skips the check; the bounds were already
+     * checked above against the real, long, file length.
+     */
     private static final class Bounded extends FilterInputStream {
         private long remaining;
 
         Bounded(InputStream in, long length) {
             super(in);
             this.remaining = length;
+        }
+
+        /**
+         * At most 1 GiB per call. The WebView's skip loop carries the count
+         * back through a 32-bit int: skipping 2^31 bytes in one go came back
+         * negative, read as "cannot skip", and every seek into the last part
+         * of a film over 2 GiB failed. It loops until it reaches the start,
+         * so smaller steps lose nothing.
+         */
+        @Override
+        public long skip(long n) throws IOException {
+            long want = Math.min(Math.min(n, remaining), 1L << 30);
+            if (want <= 0) return 0;
+            long skipped = super.skip(want);
+            if (skipped > 0) remaining -= skipped;
+            return skipped;
         }
 
         @Override
@@ -199,8 +225,8 @@ final class OfflineMedia {
         }
 
         @Override
-        public int available() throws IOException {
-            return (int) Math.min(Integer.MAX_VALUE, Math.min(remaining, super.available()));
+        public int available() {
+            return 0;
         }
     }
 }
