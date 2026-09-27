@@ -2,6 +2,7 @@
   "appId": "com.abhigyanverma.watch",
   "appName": "Watch",
   "webDir": "www",
+  "backgroundColor": "#06070a",
   "server": {
     "url": "https://watch.abhigyanverma.com",
     "androidScheme": "https"

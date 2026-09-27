@@ -58,7 +58,7 @@ import java.util.concurrent.Executors;
 public class OfflinePlugin extends Plugin {
 
     private static final String BUNDLE_JSON = "bundle.json";
-    private static final String MEDIA = "media.mp4";
+    static final String MEDIA = "media.mp4";
     private static final String POSTER = "poster.jpg";
 
     /** Reported through list(); the web layer compares it to OFFLINE_BRIDGE_VERSION. */
@@ -69,7 +69,11 @@ public class OfflinePlugin extends Plugin {
     // ---------------------------------------------------------------- paths
 
     private File offlineRoot() {
-        File root = new File(getContext().getExternalFilesDir(null), "offline");
+        return offlineRoot(getContext());
+    }
+
+    static File offlineRoot(Context context) {
+        File root = new File(context.getExternalFilesDir(null), "offline");
         if (!root.exists() && !root.mkdirs()) {
             // Nothing useful to do here; callers surface the resulting failure.
         }
@@ -83,7 +87,11 @@ public class OfflinePlugin extends Plugin {
      * also rules out "..".
      */
     private File bundleDir(String itemId) {
-        return new File(offlineRoot(), itemId.replaceAll("[^A-Za-z0-9_-]", "_"));
+        return bundleDir(getContext(), itemId);
+    }
+
+    static File bundleDir(Context context, String itemId) {
+        return new File(offlineRoot(context), OfflineMedia.sanitise(itemId));
     }
 
     // --------------------------------------------------------------- plugin
@@ -233,7 +241,15 @@ public class OfflinePlugin extends Plugin {
         File target = bundleFile(itemId, file);
 
         JSObject result = new JSObject();
-        result.put("url", target.exists() ? target.getAbsolutePath() : null);
+        if (!target.exists()) {
+            result.put("url", null);
+        } else if ("media".equals(file)) {
+            // Not a file path: Capacitor's file route cannot seek, or size a
+            // film over 2 GB. See OfflineMedia.
+            result.put("url", OfflineMedia.urlFor(getBridge(), itemId));
+        } else {
+            result.put("url", target.getAbsolutePath());
+        }
         call.resolve(result);
     }
 

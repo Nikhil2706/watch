@@ -87,6 +87,7 @@ public class MainActivity extends BridgeActivity {
 
         super.onCreate(savedInstanceState);
 
+        OfflineMedia.install(this.bridge);
         announceTelevisionToTheSite();
         installBackHandling();
 

@@ -595,6 +595,12 @@ button.secondary {
   color: var(--muted);
 }
 
+/* A page-level empty state sits straight in body, beside .page-head, and
+   without this ran edge to edge while the heading above it was inset. */
+body > .empty {
+  margin-inline: 20px;
+}
+
 /* ---------------------------------------------------------------- *
  * Titles still being converted
  * ---------------------------------------------------------------- */

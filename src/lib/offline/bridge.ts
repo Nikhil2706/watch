@@ -66,6 +66,10 @@ function capacitorBridge(): OfflineBridge | null {
       const result = (await plugin.localUrl!({ itemId, file })) as { url?: string | null };
       const path = result?.url ?? null;
       if (!path) return null;
+      // Shells from 1.5 hand media back as a URL on the page's own origin,
+      // served natively with working Range (Capacitor's file route cannot
+      // seek or size a film over 2 GB). Use it as given.
+      if (/^https?:\/\//.test(path)) return path;
       // A raw file:// path is not loadable from the WebView; Capacitor
       // rewrites it onto its own scheme.
       return window.Capacitor?.convertFileSrc ? window.Capacitor.convertFileSrc(path) : path;

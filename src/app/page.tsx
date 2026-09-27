@@ -40,9 +40,16 @@ export default async function HomePage() {
   // Middleware only checked that a cookie existed. This is the real check.
   if (!session) redirect("/login");
 
+  // Each fetch degrades to empty so one failing row cannot take the page
+  // down. But if the latest-items call fails, Jellyfin itself is unreachable,
+  // and "nothing in the library" would be the wrong thing to tell anyone.
+  let libraryUnreachable = false;
   const [resume, latest, genres, shelves] = await Promise.all([
     getResume(session).catch(() => []),
-    getLatest(session).catch(() => []),
+    getLatest(session).catch(() => {
+      libraryUnreachable = true;
+      return [];
+    }),
     getGenres(session).catch(() => []),
     // Local and cached for the day, so this costs a Map lookup on most loads.
     todaysShelves().catch(() => []),
@@ -108,12 +115,21 @@ export default async function HomePage() {
         <AppBar username={session.username} langloisMode={session.langloisMode} />
         <PartyBanner live={liveParties} upcoming={upcomingParties} />
         <ProcessingRow jobs={processing} />
-        <div className="empty">
-          <p>Nothing in the library yet.</p>
-          <p className="hint" style={{ margin: 0 }}>
-            Once media is added and scanned in Jellyfin, it will appear here.
-          </p>
-        </div>
+        {libraryUnreachable ? (
+          <div className="empty">
+            <p>The library is not answering right now.</p>
+            <p className="hint" style={{ margin: 0 }}>
+              Try again in a few minutes. In the app, films kept offline still play from Downloads.
+            </p>
+          </div>
+        ) : (
+          <div className="empty">
+            <p>Nothing in the library yet.</p>
+            <p className="hint" style={{ margin: 0 }}>
+              Once media is added and scanned in Jellyfin, it will appear here.
+            </p>
+          </div>
+        )}
       </>
     );
   }
