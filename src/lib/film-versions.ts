@@ -89,9 +89,15 @@ export function createVersionSet(primaryPath: string, otherPaths: readonly strin
         db.prepare(`SELECT path, label FROM film_versions WHERE path IN (${paths.map(() => "?").join(",")})`).all(...paths),
       ).map((r) => [r.path, r.label]),
     );
+    // Beside a director's, extended or uncut version, the plain one is the
+    // theatrical cut; otherwise it's just the original.
+    const guesses = paths.map((p) => guessVersionLabel(p));
+    const longerCut = guesses.some((g) => g === "Director's cut" || g === "Extended" || g === "Uncut" || g === "Unrated");
     paths.forEach((path, position) => {
       const label =
-        existing.get(path) ?? guessVersionLabel(path) ?? (position === 0 ? "Original" : `Version ${position + 1}`);
+        existing.get(path) ??
+        guesses[position] ??
+        (position === 0 ? (longerCut ? "Theatrical" : "Original") : `Version ${position + 1}`);
       db.prepare(
         `INSERT INTO film_versions (path, primary_path, label, position, created_at) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(path) DO UPDATE SET primary_path = excluded.primary_path, position = excluded.position`,
