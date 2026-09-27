@@ -139,6 +139,18 @@ public class MainActivity extends BridgeActivity {
             });
     }
 
+    /**
+     * The WebView writes cookies to disk lazily. An update replaces the app by
+     * killing its process, so a session cookie renewed moments before could be
+     * lost and the person signed out; leaving the app is the last safe moment
+     * to write it down.
+     */
+    @Override
+    public void onPause() {
+        super.onPause();
+        CookieManager.getInstance().flush();
+    }
+
     @Override
     public void onResume() {
         super.onResume();

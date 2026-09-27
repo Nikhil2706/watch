@@ -113,6 +113,9 @@ export const config = {
      *   downloads        — see below
      *   app              — "Get the app". A new member installs before they
      *                      sign in; it only links to the public GitHub release.
+     *   .well-known/*    — assetlinks.json, which Google fetches (signed out,
+     *                      of course) to trust the Android app with this site's
+     *                      saved passwords. A redirect to /login breaks it.
      *
      * login is deliberately NOT in this exclusion list (see the comment
      * above) — the function's own first branch handles it.
@@ -130,6 +133,6 @@ export const config = {
      * that device. Offline there is no way to check a session anyway, and the
      * films were put there by whoever was logged in at the time.
      */
-    "/((?!api/|jf/|invite/|party/|screening/|s/|downloads|app$|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|icon-maskable-512.png|apple-touch-icon.png|favicon-32.png).*)",
+    "/((?!api/|jf/|invite/|party/|screening/|s/|downloads|app$|\\.well-known/|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|icon-maskable-512.png|apple-touch-icon.png|favicon-32.png).*)",
   ],
 };
