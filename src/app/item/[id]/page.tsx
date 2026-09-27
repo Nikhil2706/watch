@@ -13,6 +13,7 @@ import { ListButtons } from "@/components/media/ListButtons";
 import { RatingsRow } from "@/components/media/RatingsRow";
 import { SpecialFeaturesRow } from "@/components/media/SpecialFeaturesRow";
 import { OfflineButton } from "@/components/offline/OfflineButton";
+import { versionLinksForPath } from "@/lib/film-versions";
 import { franchiseHeading } from "@/lib/home-shelves";
 import { getCuratorNote } from "@/lib/notifications";
 import { getRatingSummary } from "@/lib/community";
@@ -142,6 +143,8 @@ export default async function ItemPage({
   // Jellyfin item ids do not survive a library rebuild and paths do. It comes
   // from the item, not the media source, and DETAIL_FIELDS already asks for it.
   const filePath = item.Path ?? null;
+  // Other cuts of this film (film-versions.ts); [] for almost every title.
+  const versions = filePath ? await versionLinksForPath(filePath).catch(() => []) : [];
 
   // Jellyfin knows the cast, and Director/Writer/Producer. It holds ZERO
   // people of type DirectorOfPhotography, Editor, Composer or ProductionDesign
@@ -284,6 +287,24 @@ export default async function ItemPage({
             <p>{episode?.overview || film?.overview || item.Overview}</p>
           ) : null}
           {curatorNote ? <CuratorNote note={curatorNote} /> : null}
+          {versions.length > 1 ? (
+            // Each cut is its own item — own Play, resume point and offline
+            // copy — so switching is just going to that one's page.
+            <nav className="version-picker" aria-label="Version">
+              <span>Version</span>
+              {versions.map((v) =>
+                v.itemId === item.Id ? (
+                  <span key={v.itemId} className="version-chip is-current" aria-current="page">
+                    {v.label}
+                  </span>
+                ) : (
+                  <Link key={v.itemId} className="version-chip" href={itemHref(v.itemId, item.Name, item.ProductionYear)}>
+                    {v.label}
+                  </Link>
+                ),
+              )}
+            </nav>
+          ) : null}
           <div className="btn-row">
             <ListButtons
               itemId={item.Id}

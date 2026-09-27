@@ -3453,6 +3453,7 @@
     if (it.isThinMetadata && !it.isWhitelisted) bits.push("No metadata fetched — hidden until fixed");
     if (it.isThinMetadata && it.isWhitelisted) bits.push("No metadata, shown anyway");
     if (it.isDuplicate) bits.push("Duplicate title");
+    if (it.version) bits.push(it.version.isPrimary ? "Main of " + it.version.setSize + " cuts" : "Cut: " + it.version.label);
     if (it.isMissingSubtitles) bits.push("No subtitles");
     if (!bits.length) bits.push("Nothing needs deciding");
     return bits.join(" · ");
@@ -3524,8 +3525,30 @@
             ? '<span class="muted" style="font-size:12px">Showing this one</span>'
             : '<button class="ghost" data-lw-action="select" data-lw-target="' + esc(c.id) + '">Look at this copy</button>') +
           '<button class="ghost" data-lw-action="keep-this" data-lw-target="' + esc(c.id) + '">Keep this one, hide the rest</button>' +
+          '<button class="ghost" data-lw-action="keep-versions" data-lw-target="' + esc(c.id) +
+            '" title="Different cuts of one film: the site lists this one and its page switches between them">' +
+            'Keep all as versions, list this one</button>' +
           '</div>';
       }).join("") + '</div>';
+  }
+
+  /* A cut of a film kept as several (film-versions.ts): what it's called on
+     the site, and the three things to do with it. */
+  function lwVersionHtml(it) {
+    var v = it.version;
+    if (!v) return "";
+    return '<div class="lw-section">Versions</div>' +
+      '<div class="note" style="margin-bottom:8px">' +
+        (v.isPrimary
+          ? "This is the one the site lists; its page offers the other " + (v.setSize - 1) + " cut" + (v.setSize === 2 ? "" : "s") + "."
+          : "One of " + v.setSize + " cuts of this film. The site lists the main one and links here from its page.") +
+        " Shown as <b>" + esc(v.label) + "</b>." +
+      '</div>' +
+      '<div class="lw-acts">' +
+        '<button class="ghost" data-lw-action="version-rename" data-lw-target="' + esc(it.id) + '">Rename</button>' +
+        (v.isPrimary ? "" : '<button class="ghost" data-lw-action="version-primary" data-lw-target="' + esc(it.id) + '">List this one instead</button>') +
+        '<button class="ghost" data-lw-action="version-split" data-lw-target="' + esc(it.id) + '">Make it a separate film</button>' +
+      '</div>';
   }
 
   function lwRenderFilmPane(row) {
@@ -3547,6 +3570,7 @@
       sfPaneHtml(it) +
       sfOnFilmHtml(it.id) +
       '<div class="rv-panel-slot" data-panel-for="' + esc(it.id) + '"></div>' +
+      lwVersionHtml(it) +
       (row.isDuplicate ? lwDuplicateHtml(row) : "");
   }
 
@@ -3871,6 +3895,45 @@
         show("ok", "Kept " + keeper.name + ", hid the rest.");
         return lwLoad(true);
       }).catch(function (err) { show("err", err.message); btn.disabled = false; });
+      return;
+    }
+
+    if (action === "keep-versions") {
+      var primary = lwRowById(target);
+      if (!primary) return;
+      var sameName = primary.name.toLowerCase();
+      var cuts = lw.rows.filter(function (r) {
+        return r.kind === "film" && r.isDuplicate && r.name.toLowerCase() === sameName && r.id !== target;
+      });
+      if (!cuts.length) return;
+      btn.disabled = true;
+      api("/api/admin/library/versions", {
+        method: "POST",
+        body: { primaryPath: primary.item.path, paths: [primary.item.path].concat(cuts.map(function (c) { return c.item.path; })) },
+      }).then(function (r) {
+        show("ok", primary.name + ": kept as " + r.set.length + " versions — " +
+          r.set.map(function (v) { return v.label; }).join(", ") + ". Rename any of them from its page here.");
+        return lwLoad(true);
+      }).catch(function (err) { show("err", err.message); btn.disabled = false; });
+      return;
+    }
+
+    if (action === "version-rename" || action === "version-primary" || action === "version-split") {
+      var vr = lwRowById(target);
+      if (!vr || !vr.item.version) return;
+      var req;
+      if (action === "version-rename") {
+        var label = prompt("What should this cut be called on the site?", vr.item.version.label);
+        if (!label || !label.trim()) return;
+        req = api("/api/admin/library/versions", { method: "PATCH", body: { path: vr.item.path, label: label.trim() } });
+      } else if (action === "version-primary") {
+        req = api("/api/admin/library/versions", { method: "PATCH", body: { path: vr.item.path, makePrimary: true } });
+      } else {
+        req = api("/api/admin/library/versions", { method: "DELETE", body: { path: vr.item.path } });
+      }
+      btn.disabled = true;
+      req.then(function () { show("ok", "Saved."); return lwLoad(true); })
+        .catch(function (err) { show("err", err.message); btn.disabled = false; });
       return;
     }
 

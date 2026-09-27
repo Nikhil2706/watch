@@ -28,6 +28,7 @@ import {
   getTargetsForFeatures,
   type SpecialFeatureTarget,
 } from "./special-features";
+import { getAlternateVersionPathSet } from "./film-versions";
 import { getRatings, type Ratings } from "./ratings";
 import { getHiddenRolloutImdbSet, getHiddenRolloutPathSet } from "./rollout";
 import { stripCredentials } from "./strip-credentials";
@@ -138,6 +139,7 @@ const whitelistedPaths = cache(getWhitelistedPathSet);
 const rolloutHiddenPathsMemo = cache(getHiddenRolloutPathSet);
 const rolloutHiddenImdbMemo = cache(getHiddenRolloutImdbSet);
 const specialFeatureIdsMemo = cache(getSpecialFeatureIdSet);
+const alternateVersionPathsMemo = cache(getAlternateVersionPathSet);
 
 function creds(session: ResolvedSession) {
   return [session.jellyfinToken, session.jellyfinDeviceId] as const;
@@ -180,8 +182,13 @@ function filterVisible(
   // half-watched making-of should carry on where you left it like anything
   // else — it just should not be sitting in Browse next to the films.
   const specialFeatures = options.includeSpecialFeatures ? null : specialFeatureIdsMemo();
+  // Other cuts of a film listed once (film-versions.ts): same rule as special
+  // features — out of discovery, still playable, and a half-watched director's
+  // cut still belongs in Continue Watching.
+  const alternateVersions = options.includeSpecialFeatures ? null : alternateVersionPathsMemo();
   return items.filter((item) => {
     if (specialFeatures?.has(item.Id)) return false;
+    if (item.Path && alternateVersions?.has(item.Path)) return false;
     if (item.Path && excluded.has(item.Path)) return false;
     if (requireMetadata && hasNoMetadata(item) && !(item.Path && whitelisted.has(item.Path))) return false;
     if (item.Path && rolloutHiddenPaths.has(item.Path)) return false;
