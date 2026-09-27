@@ -79,29 +79,90 @@ final class UpdateChecker {
         install(activity, apk);
     }
 
-    static void checkInBackground(final Activity activity) {
+    /** What latest.json describes. */
+    static final class Release {
+        final int code;
+        final String name;
+        final String apkUrl;
+
+        Release(int code, String name, String apkUrl) {
+            this.code = code;
+            this.name = name;
+            this.apkUrl = apkUrl;
+        }
+    }
+
+    /** Network: call off the main thread. */
+    static Release fetchLatest() throws Exception {
+        JSONObject latest = fetchJson(MANIFEST_URL);
+        int code = latest.getInt("versionCode");
+        return new Release(
+            code,
+            latest.optString("versionName", String.valueOf(code)),
+            latest.optString("apk", BASE + "watch-release.apk"));
+    }
+
+    static int currentCode(Context context) throws Exception {
+        PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
+        return (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+            ? (int) info.getLongVersionCode()
+            : info.versionCode;
+    }
+
+    static String currentName(Context context) {
+        try {
+            return context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /**
+     * The debug build installs beside the real app as its own package and is
+     * updated by hand over USB. Offering it the release APK would install a
+     * second, different app rather than update it.
+     */
+    static boolean isDevBuild(Context context) {
+        return context.getPackageName().endsWith(".dev");
+    }
+
+    private static final String PREFS = "watch.update";
+    /** Coming back to the app re-checks at most this often; a launch always does. */
+    private static final long RESUME_CHECK_EVERY_MS = 6L * 60 * 60 * 1000;
+    /** "Later" quiets the prompt for this version this long. The ⋯ menu still offers it. */
+    private static final long LATER_QUIET_MS = 24L * 60 * 60 * 1000;
+
+    /**
+     * At launch (force) and on every return to the app (throttled). Checking
+     * only at launch meant an app left in the background for days never heard
+     * about an update, and "Later" meant "until you happen to kill the app".
+     */
+    static void checkInBackground(final Activity activity, boolean force) {
+        if (isDevBuild(activity)) return;
+        final android.content.SharedPreferences prefs =
+            activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        long now = System.currentTimeMillis();
+        if (!force && now - prefs.getLong("lastCheck", 0) < RESUME_CHECK_EVERY_MS) return;
+        prefs.edit().putLong("lastCheck", now).apply();
+
         new Thread(() -> {
             try {
-                JSONObject latest = fetchJson(MANIFEST_URL);
-                int latestCode = latest.getInt("versionCode");
-                String latestName = latest.optString("versionName", String.valueOf(latestCode));
-                String apkUrl = latest.optString("apk", BASE + "watch-release.apk");
-
-                PackageInfo info = activity.getPackageManager()
-                    .getPackageInfo(activity.getPackageName(), 0);
-                int current = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
-                    ? (int) info.getLongVersionCode()
-                    : info.versionCode;
-
-                if (latestCode > current) {
-                    new Handler(Looper.getMainLooper())
-                        .post(() -> prompt(activity, latestName, apkUrl));
-                }
+                Release latest = fetchLatest();
+                if (latest.code <= currentCode(activity)) return;
+                boolean quieted = prefs.getInt("laterCode", -1) == latest.code
+                    && System.currentTimeMillis() - prefs.getLong("laterAt", 0) < LATER_QUIET_MS;
+                if (quieted) return;
+                new Handler(Looper.getMainLooper()).post(() -> prompt(activity, latest, prefs));
             } catch (Exception e) {
                 // Offline, GitHub unreachable, malformed descriptor - a failed
                 // update check must never be something the user has to see.
             }
         }, "update-check").start();
+    }
+
+    /** From the page (AppUpdatePlugin): the person asked, so no prompt first. */
+    static void startUpdate(Activity activity, String apkUrl) {
+        startDownload(activity, apkUrl);
     }
 
     private static JSONObject fetchJson(String url) throws Exception {
@@ -120,13 +181,18 @@ final class UpdateChecker {
         }
     }
 
-    private static void prompt(Activity activity, String versionName, String apkUrl) {
+    private static void prompt(Activity activity, Release latest,
+                               android.content.SharedPreferences prefs) {
         if (activity.isFinishing()) return;
         new AlertDialog.Builder(activity)
             .setTitle("Update available")
-            .setMessage("Watch " + versionName + " is ready to install.")
-            .setPositiveButton("Update", (d, w) -> startDownload(activity, apkUrl))
-            .setNegativeButton("Later", null)
+            .setMessage("Watch " + latest.name + " is ready to install. You can also update any "
+                + "time from the ⋯ menu.")
+            .setPositiveButton("Update", (d, w) -> startDownload(activity, latest.apkUrl))
+            .setNegativeButton("Later", (d, w) -> prefs.edit()
+                .putInt("laterCode", latest.code)
+                .putLong("laterAt", System.currentTimeMillis())
+                .apply())
             .show();
     }
 
@@ -186,7 +252,17 @@ final class UpdateChecker {
                 }
 
                 if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                    install(activity, target);
+                    // Left the app while it downloaded? Android 10+ refuses to
+                    // open the installer from the background, so the update
+                    // would just never appear. Hold it; onResume installs it.
+                    boolean inFront = activity instanceof androidx.lifecycle.LifecycleOwner
+                        && ((androidx.lifecycle.LifecycleOwner) activity).getLifecycle().getCurrentState()
+                            .isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED);
+                    if (inFront) {
+                        install(activity, target);
+                    } else {
+                        pendingInstall = target;
+                    }
                 } else if (status == DownloadManager.STATUS_FAILED) {
                     Toast.makeText(activity, "Update download failed", Toast.LENGTH_LONG).show();
                 } else {

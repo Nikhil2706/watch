@@ -4,6 +4,7 @@ import { hasNoMetadata } from "./has-metadata";
 import { dirname } from "node:path";
 
 import { env } from "./env";
+import { versionedPathMap } from "./film-versions";
 import { episodeLabel, parseEpisodeInfo } from "./episode-naming";
 import { getAdminMovies } from "./admin-library-cache";
 import { adminThumbUrl } from "./admin-thumb";
@@ -112,8 +113,10 @@ export async function buildLibraryReview(): Promise<{
   const excluded = getExcludedPathSet();
   const grouped = getGroupedPathMap();
   const whitelisted = getWhitelistedPathSet();
+  // Files kept together as cuts of one film (film-versions.ts) are a decision too.
+  const versioned = versionedPathMap();
   const decided = (path: string | undefined) =>
-    !!path && (excluded.has(path) || grouped.has(path));
+    !!path && (excluded.has(path) || grouped.has(path) || versioned.has(path));
   const movies = all.filter((m) => !decided(m.Path));
 
   const byTitle = new Map<string, ReviewItem[]>();
@@ -184,6 +187,8 @@ export interface BrowseItem extends ReviewItem {
   sizeBytes: number | null;
   /** How many subtitle streams the file carries, embedded or external. */
   subtitleCount: number;
+  /** Set when this file is one cut of a film kept as several (film-versions.ts). */
+  version: { label: string; isPrimary: boolean; setSize: number } | null;
   /** Pins a row to the top of the redesigned browse UI's default sort — anything the curator hasn't resolved yet. */
   needsDecision: boolean;
 }
@@ -204,8 +209,13 @@ export async function buildLibraryBrowse(): Promise<BrowseItem[]> {
   const grouped = getGroupedPathMap();
   const whitelisted = getWhitelistedPathSet();
 
+  const versioned = versionedPathMap();
   const byTitle = new Map<string, number>();
   for (const m of all) {
+    // A film kept as several cuts counts once, so it stops reading as a
+    // duplicate to resolve.
+    const v = m.Path ? versioned.get(m.Path) : undefined;
+    if (v && !v.isPrimary) continue;
     const key = normaliseTitle(m.Name);
     if (!key) continue;
     byTitle.set(key, (byTitle.get(key) ?? 0) + 1);
@@ -250,6 +260,7 @@ export async function buildLibraryBrowse(): Promise<BrowseItem[]> {
       isExcluded,
       isGrouped: !!groupInfo,
       groupName: groupInfo?.groupName ?? null,
+      version: (path && versioned.get(path)) || null,
       needsDecision: !isExcluded && !groupInfo && ((isThinMetadata && !isWhitelisted) || isDuplicate),
     };
   });

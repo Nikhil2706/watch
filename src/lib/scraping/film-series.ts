@@ -2,215 +2,14 @@ import "server-only";
 
 import { generateId } from "../crypto";
 import { asRow, asRows, getDb, transaction } from "../db";
-import { logEvent, recordExternalApiCall } from "../events";
 import { getCollectionParts, getMovieCollection, isTmdbConfigured } from "../tmdb";
 import { matchTitle } from "./match";
 
-/**
- * Film-series membership, sourced from Wikipedia's own maintained meta-index
- * at "Lists of feature film series" -> eleven "List of feature film series
- * with N entries" pages (bucketed by count: three entries, four, five, ...,
- * "11 to 20", "21 to 30", "more than thirty"). Deliberately not the
- * per-film infobox `preceded_by`/`followed_by` fields that older franchise
- * pages used to carry — checked three well-known sequels (The Dark Knight,
- * Iron Man 2, Halloween II (1981)) live and none had those fields populated;
- * that convention isn't reliably present anymore.
- *
- * The eleven bucket pages share one consistent, WikiProject-maintained
- * format (not a wikitable): a franchise header line, then its films as a
- * nested bullet list, e.g.
- *   *''[[Some Franchise]]''
- *   *#''[[First Film]]'' (1999)
- *   *#''[[Second Film]]'' (2001)
- * That consistency is what makes one parser workable across every franchise
- * in the index, rather than needing a bespoke parser per franchise's own
- * separate "List of X films" page (which do vary in structure).
+/*
+ * Franchises ("film series"): TMDB collections (syncTmdbFranchises) and ones a
+ * curator made by hand. The Wikipedia ingest that used to fill this table is
+ * gone — see syncTmdbFranchises() and the v46 migration in db.ts for why.
  */
-
-const API_BASE = "https://en.wikipedia.org/w/rest.php/v1";
-const USER_AGENT = "jellyfin-gate-curation/1.0 (self-hosted personal media library; single-user, non-commercial)";
-const INDEX_PAGE = "Lists of feature film series";
-
-interface PageSource {
-  title: string;
-  source: string;
-}
-
-async function wikiFetch<T>(path: string): Promise<T | null> {
-  try {
-    const res = await fetch(`${API_BASE}${path}`, {
-      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!res.ok) {
-      recordExternalApiCall("wikipedia", res.status === 404);
-      return null;
-    }
-    recordExternalApiCall("wikipedia", true);
-    return (await res.json()) as T;
-  } catch (error) {
-    recordExternalApiCall("wikipedia", false);
-    logEvent({
-      category: "external_api",
-      severity: "warning",
-      source: "wikipedia",
-      message: `Film-series index request failed: ${path}`,
-      detail: { path, error: error instanceof Error ? error.message : String(error) },
-    });
-    return null;
-  }
-}
-
-async function fetchPage(title: string): Promise<PageSource | null> {
-  return wikiFetch<PageSource>(`/page/${encodeURIComponent(title.replace(/ /g, "_"))}`);
-}
-
-/** The "By number of entries" section's page titles from the master index — deliberately not the "By country"/"By studio" links below it, which point at sections of unrelated articles rather than clean list pages in the same format. */
-export function extractBucketPageTitles(indexWikitext: string): string[] {
-  const sectionMatch = indexWikitext.match(/==By number of entries==([\s\S]*?)(?:\n==|$)/);
-  if (!sectionMatch?.[1]) return [];
-
-  const titles: string[] = [];
-  for (const m of sectionMatch[1].matchAll(/\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g)) {
-    if (m[1]) titles.push(m[1].trim());
-  }
-  return titles;
-}
-
-export interface ParsedSeries {
-  name: string;
-  entries: Array<{ title: string; year: number | null }>;
-}
-
-// Two header conventions both appear across the eleven bucket pages: most
-// franchises wrap the whole link in italics (`*''[[Star Trek]]''`), but some
-// (e.g. "Sherlock Holmes (1939 film series)" on the 11-to-20 page) instead
-// wrap only the piped display text (`*[[Sherlock Holmes (1939 film series)|
-// ''Sherlock Holmes'' (1939 film series)]]`). Missing the second form isn't
-// just a skipped franchise — parseSeriesBucketPage() below keeps `current`
-// pointing at whatever franchise opened last, so every one of that
-// franchise's `*#` entries silently gets attributed to the PREVIOUS
-// franchise instead. Caught live: Sherlock Holmes's 14 films all landed
-// under "Star Trek" in the first real ingest run.
-const HEADER_LINE = /^\*(?!#)\s*(?:'{0,2}''\[\[([^\]|]+)(?:\|[^\]]*)?\]\]''|\[\[([^\]|]+)\|[^\]]*\]\])/;
-// Deliberately stops at the closing ''  rather than also trying to capture
-// a trailing "(Year)" in the same match: a lazy `.*?` followed by an
-// OPTIONAL year group never gets forced to consume the year — since the
-// group can trivially match zero-width, the engine reports success right
-// after the closing '' and the year group comes back undefined every time.
-// Caught live: raw_year was silently null on every single entry across all
-// 699 series in the first real ingest run, which in turn starved
-// matchTitle()'s year-tolerance check of any signal (see match.ts) and let
-// "The Dark Knight" fuzzy-match onto The Dark Knight Rises' IMDb id. The
-// year is pulled separately, from the rest of the line after this match.
-const ENTRY_LINE = /^\*#\s*'{0,2}''\[\[([^\]|]+)(?:\|([^\]]*))?\]\]''/;
-
-/**
- * One bucket page -> every franchise it lists, in order, with their films in
- * release order. A line starting `*` (not `*#`) with either header
- * convention above opens a new franchise; every following `*#''[[...]]''`
- * line (optionally `(Year)`) is one of its films, until the next header line
- * or the block ends. Franchises with no `*#` entries under them (a
- * redirect-only stub, or a header format neither convention above matches)
- * are skipped rather than stored empty.
- */
-export function parseSeriesBucketPage(wikitext: string): ParsedSeries[] {
-  const lines = wikitext.split("\n");
-  const series: ParsedSeries[] = [];
-  let current: ParsedSeries | null = null;
-
-  for (const line of lines) {
-    const entryMatch = line.match(ENTRY_LINE);
-    if (entryMatch && current) {
-      const title = (entryMatch[2] ?? entryMatch[1])!.trim();
-      const yearMatch = line.slice(entryMatch[0].length).match(/\((\d{4})\)/);
-      const year = yearMatch ? Number.parseInt(yearMatch[1]!, 10) : null;
-      if (title) current.entries.push({ title, year });
-      continue;
-    }
-
-    const headerMatch = line.match(HEADER_LINE);
-    const headerName = headerMatch?.[1] ?? headerMatch?.[2];
-    if (headerName) {
-      if (current && current.entries.length > 0) series.push(current);
-      current = { name: headerName.trim(), entries: [] };
-    }
-  }
-  if (current && current.entries.length > 0) series.push(current);
-
-  return series;
-}
-
-export interface FilmSeriesIngestResult {
-  seriesProcessed: number;
-  entriesProcessed: number;
-  matchedCount: number;
-}
-
-/**
- * Full ingest: master index -> every bucket page -> every franchise's films,
- * matched against the library and stored. Re-running replaces a series'
- * entries wholesale (same "delete then re-insert" shape upsertScrapedArticle
- * uses for articles) rather than trying to diff — Wikipedia's own list is
- * the source of truth, not incremental edits layered on top of it.
- */
-export async function runFilmSeriesIngest(): Promise<FilmSeriesIngestResult> {
-  const index = await fetchPage(INDEX_PAGE);
-  if (!index) return { seriesProcessed: 0, entriesProcessed: 0, matchedCount: 0 };
-
-  const bucketTitles = extractBucketPageTitles(index.source);
-
-  let seriesProcessed = 0;
-  let entriesProcessed = 0;
-  let matchedCount = 0;
-
-  for (const bucketTitle of bucketTitles) {
-    const page = await fetchPage(bucketTitle);
-    if (!page) continue;
-
-    const parsed = parseSeriesBucketPage(page.source);
-
-    for (const s of parsed) {
-      const resolved = await Promise.all(
-        s.entries.map(async (e) => ({ ...e, match: await matchTitle(e.title, e.year) })),
-      );
-
-      const now = Date.now();
-      const existing = asRow<{ id: string }>(
-        getDb().prepare("SELECT id FROM film_series WHERE name = ?").get(s.name),
-      );
-      const seriesId = existing?.id ?? generateId();
-
-      transaction((db) => {
-        if (existing) {
-          db.prepare("UPDATE film_series SET wiki_page = ?, updated_at = ? WHERE id = ?").run(
-            bucketTitle,
-            now,
-            seriesId,
-          );
-          db.prepare("DELETE FROM film_series_entries WHERE series_id = ?").run(seriesId);
-        } else {
-          db.prepare(
-            "INSERT INTO film_series (id, name, wiki_page, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-          ).run(seriesId, s.name, bucketTitle, now, now);
-        }
-
-        resolved.forEach((e, position) => {
-          db.prepare(
-            `INSERT INTO film_series_entries (id, series_id, position, raw_title, raw_year, imdb_id, confidence, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          ).run(generateId(), seriesId, position, e.title, e.year, e.match.imdbId, e.match.confidence, now);
-        });
-      });
-
-      seriesProcessed++;
-      entriesProcessed += resolved.length;
-      matchedCount += resolved.filter((e) => e.match.confidence !== "unmatched").length;
-    }
-  }
-
-  return { seriesProcessed, entriesProcessed, matchedCount };
-}
 
 /**
  * Same "try again, now that the library has more in it" pass as
@@ -229,9 +28,14 @@ export async function relinkUnmatchedFilmSeriesEntries(): Promise<number> {
   }>(
     getDb()
       .prepare(
-        "SELECT id, raw_title, raw_year, imdb_id, confidence FROM film_series_entries WHERE imdb_id IS NULL OR confidence = 'exact'",
+        // Hand-made franchises only. A TMDB franchise's entries come from TMDB
+        // ids (syncTmdbFranchises re-resolves them every run); title-matching
+        // them here is how the Wikipedia data went wrong.
+        `SELECT e.id, e.raw_title, e.raw_year, e.imdb_id, e.confidence
+           FROM film_series_entries e JOIN film_series s ON s.id = e.series_id
+          WHERE s.wiki_page = ? AND (e.imdb_id IS NULL OR e.confidence = 'exact')`,
       )
-      .all(),
+      .all(MANUAL_WIKI_PAGE),
   );
   let relinked = 0;
   for (const row of candidates) {
@@ -288,10 +92,12 @@ export interface SeriesListEntry {
   id: string;
   name: string;
   entryCount: number;
+  /** Entries resolved to an IMDb id. For a TMDB franchise that means owned: its entries are only given one when the film is in the library. */
   matchedCount: number;
+  source: "tmdb" | "manual";
 }
 
-/** Every scraped film series, for the curator dashboard's own listing (curator.html has no such view otherwise — SeriesRow.tsx, the only other consumer of this table, only ever looks up ONE series at a time, for the film it's rendering). matchedCount counts entries with a resolved imdb_id, not entries actually OWNED in this library — the caller cross-references ownership itself via listAllMoviesAdmin(), same reasoning as reconcileSeriesSlots()'s own comment in rollout.ts. */
+/** Every franchise, for the console's Franchises tab. */
 /**
  * Create a franchise by hand.
  *
@@ -381,19 +187,20 @@ export function deleteSeries(seriesId: string): boolean {
 }
 
 export function listAllSeries(): SeriesListEntry[] {
-  return asRows<SeriesListEntry>(
+  // Incomplete first — they're the ones with something to do — then by name.
+  return asRows<SeriesListEntry & { wiki_page: string | null }>(
     getDb()
       .prepare(
-        `SELECT fs.id AS id, fs.name AS name,
+        `SELECT fs.id AS id, fs.name AS name, fs.wiki_page AS wiki_page,
                 COUNT(fse.id) AS entryCount,
                 COUNT(fse.imdb_id) AS matchedCount
            FROM film_series fs
            LEFT JOIN film_series_entries fse ON fse.series_id = fs.id
           GROUP BY fs.id
-          ORDER BY fs.name ASC`,
+          ORDER BY (COUNT(fse.imdb_id) >= COUNT(fse.id)) ASC, fs.name ASC`,
       )
       .all(),
-  );
+  ).map(({ wiki_page, ...row }) => ({ ...row, source: wiki_page === TMDB_WIKI_PAGE ? "tmdb" : "manual" }));
 }
 
 /**
@@ -536,4 +343,157 @@ export function getSeriesById(seriesId: string): SeriesContext | null {
   );
 
   return { seriesId: row.id, seriesName: row.name, entries };
+}
+
+export interface TmdbFranchiseSyncResult {
+  /** Collections at least one film in the library belongs to. */
+  collections: number;
+  created: number;
+  updated: number;
+  /** Collection records fetched from TMDB this run (the rest were cached). */
+  fetched: number;
+  failures: number;
+  /** TMDB franchises dropped because no film in the library is in them any more. */
+  removed: number;
+  /** False when the budget ran out before every collection was fetched. */
+  done: boolean;
+}
+
+/**
+ * Franchises, from TMDB alone: every collection a film in the library belongs
+ * to, with all of its films, so the console can show which are complete.
+ *
+ * Replaces the Wikipedia ingest, whose bucket-page parser lost track of where
+ * one franchise ended and ran several into the next — Hell House LLC ended up
+ * as films 16–18 of "Has Fallen". TMDB states membership per film
+ * (belongs_to_collection, already in the cached movie record) and per
+ * collection (its parts), so there is nothing to parse and nothing to guess.
+ *
+ * Cheap to repeat: membership comes from the movie cache, and each collection
+ * costs one request the first time and none after (tmdb_cache). Which films are
+ * owned is resolved by TMDB id through tmdb_links, never by title. Hand-made
+ * franchises are left alone, and so is any name one of them already uses.
+ */
+export async function syncTmdbFranchises(budget = 40): Promise<TmdbFranchiseSyncResult> {
+  const { fetchCollection, getCached } = await import("../tmdb-store");
+  const db = getDb();
+  const result: TmdbFranchiseSyncResult = {
+    collections: 0,
+    created: 0,
+    updated: 0,
+    fetched: 0,
+    failures: 0,
+    removed: 0,
+    done: true,
+  };
+
+  const owned = asRows<{ tmdbId: number; imdbId: string | null; cid: number | null; cname: string | null }>(
+    db
+      .prepare(
+        `SELECT DISTINCT l.tmdb_id AS tmdbId, c.imdb_id AS imdbId,
+                json_extract(c.payload, '$.belongs_to_collection.id') AS cid,
+                json_extract(c.payload, '$.belongs_to_collection.name') AS cname
+           FROM tmdb_links l
+           JOIN tmdb_cache c ON c.kind = 'movie' AND c.tmdb_id = l.tmdb_id AND c.season = -1
+          WHERE l.subject_type = 'path' AND l.tmdb_kind = 'movie' AND l.tmdb_id > 0`,
+      )
+      .all(),
+  );
+  const imdbByTmdb = new Map<number, string | null>();
+  const collections = new Map<number, string>();
+  for (const o of owned) {
+    imdbByTmdb.set(o.tmdbId, o.imdbId);
+    if (o.cid != null && o.cname) collections.set(o.cid, o.cname);
+  }
+  result.collections = collections.size;
+
+  const keep = new Set<string>();
+  for (const [cid, fallbackName] of collections) {
+    let payload = getCached<CollectionPayload>("collection", cid)?.payload ?? null;
+    if (!payload) {
+      if (result.fetched >= budget) {
+        result.done = false;
+        continue;
+      }
+      try {
+        payload = (await fetchCollection(cid)).payload as CollectionPayload;
+        result.fetched += 1;
+      } catch {
+        result.failures += 1;
+        continue;
+      }
+    }
+    const name = (payload.name || fallbackName).trim();
+    keep.add(name);
+    const parts = (payload.parts ?? [])
+      .slice()
+      .sort((a, b) => (a.release_date || "9999").localeCompare(b.release_date || "9999"));
+    if (parts.length === 0) continue;
+
+    const existing = asRow<{ id: string; wiki_page: string | null }>(
+      db.prepare("SELECT id, wiki_page FROM film_series WHERE name = ?").get(name),
+    );
+    // A franchise made by hand under the same name is the curator's; leave it.
+    if (existing && existing.wiki_page !== TMDB_WIKI_PAGE) continue;
+
+    const now = Date.now();
+    const seriesId = existing?.id ?? generateId();
+    transaction((tx) => {
+      if (existing) {
+        tx.prepare("UPDATE film_series SET updated_at = ? WHERE id = ?").run(now, seriesId);
+        tx.prepare("DELETE FROM film_series_entries WHERE series_id = ?").run(seriesId);
+      } else {
+        tx.prepare("INSERT INTO film_series (id, name, wiki_page, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
+          seriesId,
+          name,
+          TMDB_WIKI_PAGE,
+          now,
+          now,
+        );
+      }
+      parts.forEach((part, position) => {
+        const year = part.release_date ? Number(part.release_date.slice(0, 4)) : null;
+        const imdbId = imdbByTmdb.get(part.id) ?? null;
+        tx.prepare(
+          `INSERT INTO film_series_entries (id, series_id, position, raw_title, raw_year, imdb_id, confidence, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          generateId(),
+          seriesId,
+          position,
+          part.title ?? "",
+          Number.isFinite(year) ? year : null,
+          imdbId,
+          // "tmdb": resolved by TMDB id, not by title — owned or not.
+          "tmdb",
+          now,
+        );
+      });
+    });
+    if (existing) result.updated += 1;
+    else result.created += 1;
+  }
+
+  // A TMDB franchise none of whose films is here any more (the last one was
+  // deleted, or relinked elsewhere). Only on a complete run: a budget-limited
+  // one hasn't seen every collection, so it can't know what's gone.
+  if (result.done) {
+    const stale = asRows<{ id: string; name: string }>(
+      db.prepare("SELECT id, name FROM film_series WHERE wiki_page = ?").all(TMDB_WIKI_PAGE),
+    ).filter((s) => !keep.has(s.name));
+    for (const s of stale) {
+      transaction((tx) => {
+        tx.prepare("DELETE FROM film_series_entries WHERE series_id = ?").run(s.id);
+        tx.prepare("DELETE FROM library_rollout_plans WHERE subject_type = 'series' AND subject_id = ?").run(s.id);
+        tx.prepare("DELETE FROM film_series WHERE id = ?").run(s.id);
+      });
+      result.removed += 1;
+    }
+  }
+  return result;
+}
+
+interface CollectionPayload {
+  name?: string;
+  parts?: Array<{ id: number; title?: string; release_date?: string }>;
 }

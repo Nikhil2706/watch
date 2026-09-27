@@ -365,6 +365,24 @@ function runVersionedMigrations(db: DatabaseSync): void {
   ) {
     db.exec("DROP TABLE subtitle_availability_cache");
   }
+
+  // v46: franchises come from TMDB only (syncTmdbFranchises). The Wikipedia
+  // ingest's rows go: its bucket-page parser ran franchises into each other
+  // (Hell House LLC landed inside "Has Fallen"), and ~700 franchises with a
+  // few dozen library links only made the console harder to read. Hand-made
+  // and TMDB franchises stay. A rollout plan can only point at a series, so
+  // any left pointing at a removed one goes with it.
+  if (tableExists(db, "film_series")) {
+    db.exec("DELETE FROM film_series WHERE wiki_page LIKE 'List of feature film series%'");
+    if (tableExists(db, "film_series_entries")) {
+      db.exec("DELETE FROM film_series_entries WHERE series_id NOT IN (SELECT id FROM film_series)");
+    }
+    if (tableExists(db, "library_rollout_plans")) {
+      db.exec(
+        "DELETE FROM library_rollout_plans WHERE subject_type = 'series' AND subject_id NOT IN (SELECT id FROM film_series)",
+      );
+    }
+  }
 }
 
 /**

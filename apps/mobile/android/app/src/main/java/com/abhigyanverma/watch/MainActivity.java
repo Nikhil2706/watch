@@ -84,6 +84,7 @@ public class MainActivity extends BridgeActivity {
         // window.Capacitor.Plugins.Offline comes back undefined — which the web
         // layer reads as "this shell cannot store files" and hides the feature.
         registerPlugin(OfflinePlugin.class);
+        registerPlugin(AppUpdatePlugin.class);
 
         super.onCreate(savedInstanceState);
 
@@ -93,7 +94,7 @@ public class MainActivity extends BridgeActivity {
 
         // Sideloaded, so no store pushes updates. Fire-and-forget on a
         // background thread; it stays silent unless there is something newer.
-        UpdateChecker.checkInBackground(this);
+        UpdateChecker.checkInBackground(this, true);
 
         this.bridge.getWebView().setDownloadListener(
             (url, userAgent, contentDisposition, mimeType, contentLength) -> {
@@ -138,10 +139,25 @@ public class MainActivity extends BridgeActivity {
             });
     }
 
+    /**
+     * The WebView writes cookies to disk lazily. An update replaces the app by
+     * killing its process, so a session cookie renewed moments before could be
+     * lost and the person signed out; leaving the app is the last safe moment
+     * to write it down.
+     */
+    @Override
+    public void onPause() {
+        super.onPause();
+        CookieManager.getInstance().flush();
+    }
+
     @Override
     public void onResume() {
         super.onResume();
         UpdateChecker.resumePendingInstall(this);
+        // Throttled inside; catches a release that landed while the app sat
+        // in the background.
+        UpdateChecker.checkInBackground(this, false);
     }
 
     /**

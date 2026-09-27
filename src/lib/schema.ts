@@ -30,7 +30,7 @@
  * runVersionedMigrations() will not replay the set at all. The live database
  * is already at 40, so the other branch's v38 work would never have run here.
  */
-export const SCHEMA_VERSION = 45;
+export const SCHEMA_VERSION = 46;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -397,6 +397,21 @@ CREATE TABLE IF NOT EXISTS library_excluded (
   reason     TEXT,
   created_at INTEGER NOT NULL
 ) STRICT;
+
+-- Cuts of one film (theatrical / director's / Italian version...), which
+-- Jellyfin sees as separate films because they sit in separate folders. One
+-- row per file in a set, the main one included (primary_path = path); the
+-- site lists only the main one and the film page switches between them. Same
+-- path-keyed, never-touch-the-files rules as the tables around it.
+CREATE TABLE IF NOT EXISTS film_versions (
+  path         TEXT PRIMARY KEY,
+  primary_path TEXT NOT NULL,
+  label        TEXT NOT NULL,
+  position     INTEGER NOT NULL,
+  created_at   INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_film_versions_primary ON film_versions(primary_path);
 
 -- A movie with no fetched metadata (no overview, no TMDB/IMDb id) is hidden
 -- from the front end by default — it's an open question, not a decision, and

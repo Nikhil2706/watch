@@ -2801,6 +2801,63 @@ button:focus-visible {
     margin-bottom: 4px;
   }
 
+  /* App version / update line (AppVersionItem). */
+  .appbar-more-app {
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+    padding-top: 4px;
+  }
+  .appbar .appbar-more-app button {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: 100%;
+    margin: 0;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--text);
+    font-size: 0.95rem;
+    text-align: left;
+  }
+  .appbar .appbar-more-app button span {
+    font-size: 0.8rem;
+    color: var(--accent);
+  }
+  .appbar .appbar-more-app button:disabled span {
+    color: var(--muted);
+  }
+  .appbar .appbar-more-app .appbar-more-update {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  .appbar .appbar-more-app .appbar-more-update:disabled {
+    opacity: 0.7;
+  }
+  .appbar-more-note {
+    margin: 4px 12px 6px;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  /* Update waiting: a dot on the ⋯ button itself. */
+  html[data-app-update] .appbar-more summary {
+    position: relative;
+  }
+  html[data-app-update] .appbar-more summary::after {
+    content: "";
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--accent);
+    box-shadow: 0 0 0 2px var(--bg);
+  }
+
   .tabbar {
     display: flex;
     position: fixed;
@@ -4963,4 +5020,130 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
   .bf-summary {
     display: flex;
   }
+}
+
+/* ---------------------------------------------------------------- *
+ * "Get the app" (GetAppPrompt, /app page). Android browsers only.
+ * ---------------------------------------------------------------- */
+.get-app-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 16px 0;
+  padding: 12px 8px 12px 14px;
+  background: var(--panel);
+  border: 1px solid rgba(91, 141, 239, 0.35);
+  border-radius: 12px;
+}
+.get-app-banner > div {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.get-app-banner strong {
+  font-size: 0.95rem;
+}
+.get-app-banner span {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.get-app-close {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.app-page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 28px 20px 40px;
+}
+.app-page h1 {
+  margin: 0 0 6px;
+  font-size: 1.7rem;
+}
+.app-page .page-sub {
+  margin: 0 0 22px;
+  padding: 0;
+}
+.app-download {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.app-download small {
+  font-size: 0.8rem;
+  font-weight: 400;
+  opacity: 0.85;
+}
+.app-steps {
+  margin: 24px 0 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  line-height: 1.5;
+}
+.app-steps li::marker {
+  color: var(--muted);
+}
+.app-note {
+  margin-top: 26px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+html[data-in-app] .app-get {
+  display: none;
+}
+
+/* Cuts of one film (film page). */
+.version-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+.version-picker > span:first-child {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 2px;
+}
+.version-chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text);
+  text-decoration: none;
+}
+.version-chip.is-current {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+  font-weight: 600;
 }

@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
+import { syncTmdbFranchises } from "@/lib/scraping/film-series";
 import { runTmdbBackfillTick, runTmdbRefreshTick } from "@/lib/tmdb-backfill";
 import { ingestAllFromCache } from "@/lib/tmdb-people";
 import { fetchShow, putLink, searchShows, tmdbStoreStats } from "@/lib/tmdb-store";
@@ -64,7 +65,14 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const result = await runTmdbBackfillTick(budget);
-    return Response.json({ ok: true, ...result, stats: tmdbStoreStats() }, { headers: NO_STORE });
+    // Franchises follow the films: a newly linked film can bring its whole
+    // collection. Cached collections cost nothing, so this is cheap to repeat;
+    // a failure here must not fail the pass that already did its work.
+    const franchises = await syncTmdbFranchises(20).catch((error) => {
+      console.error("[tmdb] franchise sync failed:", error);
+      return null;
+    });
+    return Response.json({ ok: true, ...result, franchises, stats: tmdbStoreStats() }, { headers: NO_STORE });
   } catch (error) {
     console.error("[tmdb] backfill tick failed:", error);
     return Response.json({ error: "internal_error", message: "The TMDB pass failed." }, { status: 500, headers: NO_STORE });

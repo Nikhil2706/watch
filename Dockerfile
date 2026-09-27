@@ -54,6 +54,9 @@ RUN mkdir -p /app/data && chown -R node:node /app
 # dependency tree never reaches the final image.
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
+# The standalone output brings public/ along but skips dot-folders, and
+# /.well-known/assetlinks.json is what lets Google autofill trust the app.
+COPY --from=build --chown=node:node /app/public/.well-known ./public/.well-known
 
 USER node
 EXPOSE 3000

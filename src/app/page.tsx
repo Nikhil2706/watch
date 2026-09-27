@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { AppBar } from "@/components/AppBar";
+import { GetAppPrompt } from "@/components/GetAppPrompt";
 import { Hero } from "@/components/media/Hero";
 import { PickButton } from "@/components/media/PickButton";
 import { ProcessingRow } from "@/components/media/ProcessingRow";
@@ -148,6 +149,7 @@ export default async function HomePage() {
   return (
     <>
       <AppBar username={session.username} langloisMode={session.langloisMode} />
+      <GetAppPrompt variant="banner" />
       <PartyBanner live={liveParties} upcoming={upcomingParties} />
       <Hero
         item={featured}

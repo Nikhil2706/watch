@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.get_login_creds"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.abhigyanverma.watch",
+      "sha256_cert_fingerprints": [
+        "58:7B:0A:9B:02:6D:9B:75:4A:00:BF:6F:75:A4:18:FD:ED:F7:A2:9E:B8:F5:64:2F:6D:A7:B1:EE:89:64:66:47"
+      ]
+    }
+  }
+]
