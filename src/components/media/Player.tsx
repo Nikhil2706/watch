@@ -209,14 +209,19 @@ export function Player({
         flashOsd(wasPaused ? "▶  Play" : "❚❚  Pause");
         break;
       }
-      case "seek":
-        p.currentTime = clampTime(p.currentTime + action.by, p.duration);
-        flashOsd(`${action.by > 0 ? "+" : "−"}${Math.abs(action.by) >= 60 ? `${Math.abs(action.by) / 60} min` : `${Math.abs(action.by)}s`}  ·  ${formatClock(p.currentTime)}`);
+      // The OSD shows the target, not currentTime read back: the player
+      // reports the new time only once the seek lands.
+      case "seek": {
+        const to = clampTime(p.currentTime + action.by, p.duration);
+        p.currentTime = to;
+        flashOsd(`${action.by > 0 ? "+" : "−"}${Math.abs(action.by) >= 60 ? `${Math.abs(action.by) / 60} min` : `${Math.abs(action.by)}s`}  ·  ${formatClock(to)}`);
         break;
+      }
       case "seekPercent":
         if (Number.isFinite(p.duration) && p.duration > 0) {
-          p.currentTime = (p.duration * action.percent) / 100;
-          flashOsd(`${action.percent}%  ·  ${formatClock(p.currentTime)}`);
+          const to = (p.duration * action.percent) / 100;
+          p.currentTime = to;
+          flashOsd(`${action.percent}%  ·  ${formatClock(to)}`);
         }
         break;
       case "seekTo":

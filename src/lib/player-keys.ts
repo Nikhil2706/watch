@@ -46,6 +46,12 @@ export function resolvePlayerKey(e: KeyLike): PlayerAction | null {
   // find, new tab...).
   if (ctrl || e.altKey) return null;
 
+  // By physical key too: some keyboards and remote-control tools report
+  // Shift + "." rather than ">", and Shift + "/" rather than "?".
+  if (e.code === "Period") return e.shiftKey ? { kind: "speed", by: 0.25 } : { kind: "frame", direction: 1 };
+  if (e.code === "Comma") return e.shiftKey ? { kind: "speed", by: -0.25 } : { kind: "frame", direction: -1 };
+  if (e.code === "Slash" && e.shiftKey) return { kind: "help" };
+
   switch (key) {
     case " ":
     case "k":

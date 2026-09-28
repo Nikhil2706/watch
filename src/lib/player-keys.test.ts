@@ -30,6 +30,14 @@ test("number keys jump by tenths, top row or number pad", () => {
   assert.equal(resolvePlayerKey({ key: "!", code: "Digit1", shiftKey: true }), null, "Shift+1 is not a jump");
 });
 
+test("speed, frame and help by physical key, whatever character it reports", () => {
+  assert.deepEqual(resolvePlayerKey({ key: ".", code: "Period", shiftKey: true }), { kind: "speed", by: 0.25 });
+  assert.deepEqual(resolvePlayerKey({ key: ",", code: "Comma", shiftKey: true }), { kind: "speed", by: -0.25 });
+  assert.deepEqual(resolvePlayerKey({ key: ".", code: "Period" }), { kind: "frame", direction: 1 });
+  assert.deepEqual(resolvePlayerKey({ key: "/", code: "Slash", shiftKey: true }), { kind: "help" });
+  assert.equal(resolvePlayerKey({ key: "/", code: "Slash" }), null);
+});
+
 test("browser shortcuts are left alone", () => {
   assert.equal(resolvePlayerKey({ key: "f", ctrlKey: true }), null, "Ctrl+F is find");
   assert.equal(resolvePlayerKey({ key: "l", ctrlKey: true }), null, "Ctrl+L is the address bar");
