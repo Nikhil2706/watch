@@ -52,12 +52,23 @@ export async function runLibraryNotifyTick(): Promise<{ newItems: number }> {
      ON CONFLICT(imdb_id) DO NOTHING`,
   );
 
+  // Episodes are movie items too, each with its own IMDb id, so a show's
+  // files look like new films the moment its group is linked to a series:
+  // on 2026-09-27 relinking Heroes sent every member 22 "New in the library"
+  // lines, one per episode. They are still recorded as seen; the TV tick
+  // below announces them once, as the show.
+  const showPaths = new Set(
+    listGroups()
+      .filter((g) => getGroupSeriesId(g.groupId))
+      .flatMap((g) => g.paths),
+  );
+
   let newCount = 0;
   const now = Date.now();
   for (const film of films) {
     if (known.has(film.imdbId)) continue;
     insert.run(film.imdbId, film.jellyfinId, film.name, now);
-    if (!isFirstRun) {
+    if (!isFirstRun && !(film.path && showPaths.has(film.path))) {
       notifyAllUsers({ kind: "new_item", imdbId: film.imdbId, filmTitle: film.name, filmHref: itemHref(film.jellyfinId, film.name, film.year) });
       newCount++;
     }

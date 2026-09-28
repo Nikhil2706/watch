@@ -47,15 +47,15 @@ export default async function WatchlistPage() {
     <>
       <AppBar username={session.username} langloisMode={session.langloisMode} />
 
-      <div style={{ padding: "18px 20px 0" }}>
-        <h1 style={{ margin: 0, fontSize: "1.25rem" }}>My list</h1>
+      <div className="page-head">
+        <h1>My list</h1>
       </div>
 
       {empty ? (
         <div className="empty">
           <p>Nothing saved yet.</p>
           <p className="hint" style={{ margin: 0 }}>
-            Use ☆ on any poster to add a favourite, or ↻ to mark something for a
+            Use ♡ on any poster to add a favourite, or ↻ to mark something for a
             rewatch.
           </p>
         </div>

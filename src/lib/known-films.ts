@@ -15,6 +15,8 @@ export interface KnownFilm {
   jellyfinId: string;
   name: string;
   year: number | null;
+  /** The file, so callers can tell an episode (a grouped path) from a film. */
+  path?: string;
 }
 
 /** New titles arrive far slower than this refreshes, so a long TTL is fine. */
@@ -44,7 +46,7 @@ async function fetchAndCacheKnownFilms(): Promise<KnownFilm[]> {
   const movies = await getAdminMovies({ withMediaSources: false });
   const films = movies
     .filter((m): m is typeof m & { ProviderIds: { Imdb: string } } => Boolean(m.ProviderIds?.Imdb))
-    .map((m) => ({ imdbId: m.ProviderIds.Imdb, jellyfinId: m.Id, name: m.Name, year: m.ProductionYear ?? null }));
+    .map((m) => ({ imdbId: m.ProviderIds.Imdb, jellyfinId: m.Id, name: m.Name, year: m.ProductionYear ?? null, path: m.Path }));
   globalThis.__jellyfinGateKnownFilms = { films, fetchedAt: Date.now() };
   return films;
 }

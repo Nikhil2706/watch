@@ -49,7 +49,21 @@ const LANGUAGE_NAMES: Record<string, string> = {
   ja: "Japanese", jpn: "Japanese",
   ko: "Korean", kor: "Korean",
   zh: "Chinese", chi: "Chinese", zho: "Chinese",
+  it: "Italian", ita: "Italian",
+  pt: "Portuguese", por: "Portuguese",
+  ru: "Russian", rus: "Russian",
+  fa: "Persian", per: "Persian", fas: "Persian",
+  sv: "Swedish", swe: "Swedish",
+  da: "Danish", dan: "Danish",
+  nl: "Dutch", dut: "Dutch", nld: "Dutch",
+  pl: "Polish", pol: "Polish",
+  cs: "Czech", cze: "Czech", ces: "Czech",
 };
+
+/** "English" for "eng"/"en"; undefined for a code this list doesn't know. */
+export function languageName(code: string | null | undefined): string | undefined {
+  return code ? LANGUAGE_NAMES[code.toLowerCase()] : undefined;
+}
 
 /** "English", "English (SDH)", "English (Forced)". */
 function readableLabel(stream: {
@@ -65,7 +79,8 @@ function readableLabel(stream: {
     // Fall back to a title the uploader set, then to the raw code, then to
     // something honest rather than an empty chip.
     stream.Title ??
-    (code ? code.toUpperCase() : "Unknown");
+    // "und" is the container's own word for "not set".
+    (code && code !== "und" ? code.toUpperCase() : "Unlabelled");
 
   const flags: string[] = [];
   if (stream.IsHearingImpaired) flags.push("SDH");

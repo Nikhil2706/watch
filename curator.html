@@ -239,12 +239,13 @@
   h1, h2, h3 { font-family: inherit; }
   label { display: block; font-size: 0.72rem; font-weight: 600; color: var(--muted);
           text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px; }
-  input, button, select {
+  input, button, select, textarea {
     font: inherit; border-radius: 8px; border: 1px solid var(--border);
     padding: 9px 12px; background: rgba(0, 0, 0, 0.35); color: var(--text);
   }
-  input::placeholder { color: #6b7486; }
-  input:focus, select:focus {
+  textarea { line-height: 1.5; resize: vertical; }
+  input::placeholder, textarea::placeholder { color: #6b7486; }
+  input:focus, select:focus, textarea:focus {
     outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(91, 141, 239, 0.22);
   }
   button {
@@ -263,6 +264,7 @@
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
   .row > div { flex: 1 1 150px; }
   .row > div.narrow { flex: 0 0 110px; }
+  .row > div.tmdb-age-ctl { flex: 0 1 auto; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 
   .card {
     background: var(--panel); border: 1px solid rgba(255, 255, 255, 0.08); border-top-color: var(--panel-edge);
@@ -730,7 +732,15 @@
     .link-out { flex-wrap: wrap; }
     .link-out input { flex: 1 1 100%; }
 
-    .msg { top: 8px; min-width: 0; width: calc(100% - 20px); }
+    /* At the bottom and opaque: at the top a translucent toast sat on the
+       title and read as one garbled line with it. */
+    .msg { top: auto; bottom: 12px; min-width: 0; width: calc(100% - 20px); box-sizing: border-box; }
+    .msg.ok { background: #0f1d16; }
+    .msg.err { background: #2a1418; }
+
+    /* Long unbroken strings (ids, paths, urls) wrap instead of widening the
+       page, which made the whole console zoom out. */
+    .log-msg, .note, .muted { overflow-wrap: anywhere; }
     .lw-undo { width: calc(100% - 20px); bottom: 12px; justify-content: space-between; }
     .ac-reader-head { flex-direction: column; gap: 8px; }
   }
@@ -966,9 +976,8 @@
           <div class="card-title">Conversion</div>
           <div class="note" style="margin-top:2px">
             Files that would fall back to a live transcode instead of playing directly in a browser,
-            read from Jellyfin's own analysis. Transform queues one — a database row, nothing more.
-            Nothing is converted until you start the worker yourself:
-            <code style="margin-left:4px">docker compose up worker</code>
+            read from Jellyfin's own analysis. Transform queues one, and the worker, which runs all
+            the time, picks it up within about a minute.
           </div>
         </div>
         <div style="flex:0 0 auto"><button id="loadQueue" class="ghost">Refresh</button></div>
@@ -1218,7 +1227,7 @@
             a month at once.
           </div>
         </div>
-        <div style="flex:0 0 auto">
+        <div class="tmdb-age-ctl">
           <select id="tmdbAgeKind">
             <option value="movie">Films</option>
             <option value="tv">Shows</option>
@@ -1369,6 +1378,7 @@
 
     <!-- Create -->
     <div class="card" id="createCard" style="display:none">
+      <div class="card-title">New invite</div>
       <div class="row">
         <div>
           <label for="label">Label</label>
@@ -1388,16 +1398,16 @@
           <label for="inviteEmail">Email (optional)</label>
           <input id="inviteEmail" type="email" placeholder="send the invite straight to them" spellcheck="false" autocomplete="off">
         </div>
-        <div style="flex:0 0 auto;align-self:flex-end">
-          <button id="create">Create invite</button>
-        </div>
       </div>
-      <div class="row" style="margin-top:10px">
+      <div class="row" style="margin-top:10px;align-items:center">
         <div>
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
             <input id="langloisMode" type="checkbox" style="width:auto">
             Langlois mode — raw film file + subtitle download, not just streaming
           </label>
+        </div>
+        <div style="flex:0 0 auto">
+          <button id="create">Create invite</button>
         </div>
       </div>
       <div id="emailStatus" class="note" style="margin-top:8px;display:none"></div>
@@ -1460,6 +1470,7 @@
   <div class="tab-panel" id="tab-screenings" data-tab="screenings">
 
     <div class="card">
+      <div class="card-title">Screening Room</div>
       <p class="hint">
         An expiring link that lets one person watch one film, with no account and
         no way to wander the library. The link is shown once and cannot be
@@ -2049,7 +2060,9 @@
       if ($("remember").checked) {
         try { sessionStorage.setItem("jfg_key", state.key); sessionStorage.setItem("jfg_base", state.base); } catch (e) {}
       }
-      show("ok", "Connected.");
+      // Through the console server there was no key to get right, so there
+      // is nothing to confirm.
+      if (!document.body.classList.contains("via-console")) show("ok", "Connected.");
       render();
       loadUsers();
       loadUploads();
@@ -3161,7 +3174,8 @@
     if (mins < 60) return "scanned " + mins + " min ago";
     var hrs = Math.round(mins / 60);
     if (hrs < 24) return "scanned " + hrs + (hrs === 1 ? " hour ago" : " hours ago");
-    return "scanned " + Math.round(hrs / 24) + " days ago";
+    var days = Math.round(hrs / 24);
+    return "scanned " + days + (days === 1 ? " day ago" : " days ago");
   }
 
   /*

@@ -1652,6 +1652,10 @@ a.curator-card:hover {
   .curator-grid {
     padding: 0 14px;
   }
+  /* Same 14px gutter as the sections under it (Picks, My list). */
+  .page-head {
+    padding: 16px 14px 4px;
+  }
 }
 
 /* Holds the player's space while its client-only bundle loads, so the page
@@ -5010,6 +5014,11 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
   position: absolute;
   opacity: 0;
   pointer-events: none;
+  /* Inputs are full width by default; left at that, this invisible one made
+     Browse 4px wider than a phone, and Chrome shrank the whole page to fit. */
+  width: 1px;
+  height: 1px;
+  margin: 0;
 }
 
 .bf-summary {
@@ -5048,6 +5057,10 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
 .get-app-banner span {
   font-size: 0.8rem;
   color: var(--muted);
+}
+.get-app-banner > .btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .get-app-close {
   flex: 0 0 auto;
@@ -5216,4 +5229,19 @@ html[data-in-app] .app-get {
 .player-help dd {
   margin: 0;
   color: var(--muted);
+}
+
+/* Film page ratings on a phone: two even columns. As wrapping flex items each
+   card took its own content width, leaving a ragged right edge. */
+@media (max-width: 700px) {
+  .ratings {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .rating {
+    min-width: 0;
+  }
+  .rating.accolade {
+    grid-column: 1 / -1;
+  }
 }

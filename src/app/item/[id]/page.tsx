@@ -28,7 +28,7 @@ import { suggestionsForPath } from "@/lib/tmdb-similar";
 import { episodeViewByPath, filmViewByPath } from "@/lib/tmdb-view";
 import { resolveAccolade, resolveBlurb } from "@/lib/scraping/resolve";
 import { resolveTriviaForFilm } from "@/lib/scraping/trivia";
-import { listSubtitles } from "@/lib/subtitles";
+import { languageName, listSubtitles } from "@/lib/subtitles";
 import { Row } from "@/components/media/Row";
 import { SeriesRow } from "@/components/media/SeriesRow";
 import { currentSession } from "@/lib/current-user";
@@ -51,6 +51,16 @@ import { extractJellyfinId, itemHref, watchHref } from "@/lib/slugs";
 export const dynamic = "force-dynamic";
 
 /** "$14.2M" — approximate on purpose; TMDB's figures are not audited. */
+/**
+ * "English AAC stereo". Jellyfin's DisplayTitle leads with the stream's title,
+ * which is often the muxer's name ("GPAC ISO Audio Handler").
+ */
+function audioLabel(a: { Language?: string; Codec?: string; Channels?: number; ChannelLayout?: string }): string {
+  const layout =
+    a.Channels === 1 ? "mono" : a.Channels === 2 ? "stereo" : a.ChannelLayout ?? (a.Channels ? `${a.Channels} ch` : null);
+  return [languageName(a.Language), a.Codec?.toUpperCase(), layout].filter(Boolean).join(" ");
+}
+
 function money(value: number): string {
   if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`;
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
@@ -531,7 +541,7 @@ export default async function ItemPage({
           source?.Size ? `${(source.Size / 1e9).toFixed(2)} GB` : null,
           quality,
           audio.length > 0
-            ? audio.map((a) => a.DisplayTitle ?? a.Codec).join(" / ")
+            ? audio.map(audioLabel).filter(Boolean).join(" / ")
             : null,
         ]
           .filter(Boolean)
