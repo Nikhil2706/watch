@@ -4,8 +4,8 @@ import { notFound, redirect } from "next/navigation";
 import { PlayerMount } from "@/components/media/PlayerMount";
 import { currentSession } from "@/lib/current-user";
 import { logEvent } from "@/lib/events";
-import { getItem, getPlaybackPlan, posterUrl, resumeSeconds } from "@/lib/media";
-import { extractJellyfinId, itemHref } from "@/lib/slugs";
+import { getEpisodeContext, getItem, getPlaybackPlan, posterUrl, resumeSeconds } from "@/lib/media";
+import { extractJellyfinId, itemHref, watchHref } from "@/lib/slugs";
 import { defaultTrack, listSubtitles } from "@/lib/subtitles";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +55,12 @@ export default async function WatchPage({
   // (which omits it) genuinely starts over.
   const startSeconds = t !== undefined ? Number(t) || 0 : resumeSeconds(item);
 
+  // Shift+N in the player. Null for anything that isn't an episode with a
+  // next one; a lookup failure just means no shortcut, never a broken page.
+  const episodes = await getEpisodeContext(session, item).catch(() => null);
+  const next = episodes?.future[0]?.item ?? null;
+  const nextHref = next ? watchHref(next.Id, next.Name, next.ProductionYear) : null;
+
   return (
     <div className="player-page">
       <div className="player-bar">
@@ -83,6 +89,7 @@ export default async function WatchPage({
             recommended: t.recommended,
           }))}
           defaultSubtitleIndex={preferred?.index ?? null}
+          nextHref={nextHref}
         />
       ) : (
         <div className="player-stage">
