@@ -1,3 +1,4 @@
+import { readCookie } from "@/lib/cookie-header";
 import { isPermittedForScreening } from "@/lib/screening-scope";
 import {
   SCREENING_COOKIE,
@@ -311,11 +312,11 @@ const BODYLESS_STATUSES = new Set([101, 204, 205, 304]);
 async function screeningIdentity(
   request: Request,
 ): Promise<{ itemIds: string[]; deviceId: string; sessionId: string } | null> {
-  const cookie = request.headers.get("cookie") ?? "";
-  const match = new RegExp(`(?:^|;\s*)${SCREENING_COOKIE}=([^;]+)`).exec(cookie);
-  if (!match) return null;
+  // readCookie, not a regex — see cookie-header.ts for how that failed.
+  const value = readCookie(request.headers.get("cookie"), SCREENING_COOKIE);
+  if (!value) return null;
 
-  const resolved = resolveScreeningSession(decodeURIComponent(match[1]!));
+  const resolved = resolveScreeningSession(value);
   if (!resolved) return null;
 
   // Checked per request, which is what lets a revoke kill a stream in progress
