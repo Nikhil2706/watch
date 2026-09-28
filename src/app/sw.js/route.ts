@@ -121,28 +121,37 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  async function fallback() {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    // Offline and nothing cached for this exact URL. A navigation should
+    // land somewhere useful rather than on a browser error page, and with
+    // no network the only useful place is the downloads the device
+    // already holds.
+    if (request.mode === "navigate") {
+      return (await caches.match("/downloads")) || (await caches.match("/login")) ||
+        new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } });
+    }
+    return new Response("Offline", { status: 503 });
+  }
+
   event.respondWith(
     fetch(request)
       .then((response) => {
         if (response.ok) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          return response;
         }
+        // The server being down does not look like being offline: the tunnel
+        // still answers, with Cloudflare's own 502/530 page. For a page
+        // load that is the same situation, so it gets the same fallback.
+        // Gateway codes only: a 500 is the site's own error, worth seeing.
+        const s = response.status;
+        if (request.mode === "navigate" && (s === 502 || s === 503 || s === 504 || s >= 520)) return fallback();
         return response;
       })
-      .catch(async () => {
-        const cached = await caches.match(request);
-        if (cached) return cached;
-        // Offline and nothing cached for this exact URL. A navigation should
-        // land somewhere useful rather than on a browser error page, and with
-        // no network the only useful place is the downloads the device
-        // already holds.
-        if (request.mode === "navigate") {
-          return (await caches.match("/downloads")) || (await caches.match("/login")) ||
-            new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } });
-        }
-        return new Response("Offline", { status: 503 });
-      }),
+      .catch(fallback),
   );
 });
 
