@@ -240,10 +240,12 @@ export function Player({
         flashOsd(`Volume ${Math.round(v * 100)}%`);
         break;
       }
-      case "mute":
-        p.muted = !p.muted;
-        flashOsd(p.muted ? "Muted" : `Volume ${Math.round(p.volume * 100)}%`);
+      case "mute": {
+        const muted = !p.muted;
+        p.muted = muted;
+        flashOsd(muted ? "Muted" : `Volume ${Math.round(p.volume * 100)}%`);
         break;
+      }
       case "fullscreen":
         if (p.state.fullscreen) void p.exitFullscreen();
         else void p.enterFullscreen();
@@ -276,10 +278,13 @@ export function Player({
         }
         break;
       }
-      case "speed":
-        p.playbackRate = nextSpeed(p.playbackRate, action.by);
-        flashOsd(`Speed ${p.playbackRate}×`);
+      case "speed": {
+        // Like the seek time: the player reports the new rate a beat late.
+        const rate = nextSpeed(p.playbackRate, action.by);
+        p.playbackRate = rate;
+        flashOsd(`Speed ${rate}×`);
         break;
+      }
       case "speedReset":
         p.playbackRate = 1;
         flashOsd("Speed 1×");
