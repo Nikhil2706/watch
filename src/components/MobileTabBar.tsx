@@ -13,8 +13,10 @@ import { offlineSupported } from "@/lib/offline/bridge";
  * carries the same destinations on wider screens, so nothing is reachable
  * only from here.
  *
- * The fifth slot is Downloads inside the app, where the device can hold
- * files, and Picks in a phone browser, where it cannot: a Downloads tab there
+ * Picks has a tab everywhere; My list moved up beside the bell to make room
+ * (AppBarListLink) - in the app Picks used to be reachable only from the More
+ * menu. Downloads is a fifth tab inside the app, where the device can hold
+ * files, and absent in a phone browser, where it cannot: a Downloads tab there
  * would only ever say "open this in the app".
  */
 
@@ -44,12 +46,6 @@ const SEARCH: Tab = {
   icon: icon("M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14zM20 20l-4-4"),
   match: (p) => p.startsWith("/search"),
 };
-const LIST: Tab = {
-  href: "/watchlist",
-  label: "My list",
-  icon: icon("M6 3h12v18l-6-4-6 4z"),
-  match: (p) => p.startsWith("/watchlist"),
-};
 const DOWNLOADS: Tab = {
   href: "/downloads",
   label: "Downloads",
@@ -70,7 +66,7 @@ export function MobileTabBar() {
   const [inApp, setInApp] = useState(false);
   useEffect(() => setInApp(offlineSupported()), []);
 
-  const tabs = [HOME, BROWSE, SEARCH, LIST, inApp ? DOWNLOADS : PICKS];
+  const tabs = inApp ? [HOME, BROWSE, SEARCH, PICKS, DOWNLOADS] : [HOME, BROWSE, SEARCH, PICKS];
 
   return (
     <nav className="tabbar" aria-label="Main">

@@ -2736,6 +2736,7 @@ button:focus-visible {
  * which is where the Search tab goes.
  */
 .appbar-more,
+.appbar-list,
 .tabbar {
   display: none;
 }
@@ -2759,9 +2760,20 @@ button:focus-visible {
   .appbar.is-searching .searchbox {
     display: block;
   }
+  .appbar-list {
+    display: grid;
+    place-items: center;
+    order: 3;
+    margin-left: auto;
+    padding: 6px;
+    border-radius: 8px;
+    color: var(--muted);
+  }
+  .appbar-list.is-active {
+    color: var(--accent);
+  }
   .appbar .bell-wrap {
     order: 4;
-    margin-left: auto;
   }
 
   .appbar-more {
@@ -5271,5 +5283,98 @@ html[data-in-app] .app-get {
   }
   .rating.accolade {
     grid-column: 1 / -1;
+  }
+}
+
+/* ---------------------------------------------------------------- *
+ * Film page actions (item/[id]/page.tsx): Play tier, then tiles.
+ * Wider screens: both tiers flow into the one .btn-row as before.
+ * ---------------------------------------------------------------- */
+.hero-primary,
+.hero-tiles {
+  display: contents;
+}
+.icon-btn-label {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .hero-actions {
+    display: block;
+  }
+  /* Play alone is full width; with a resume point, Resume and Start over
+     split the row evenly. */
+  .hero-primary {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .hero-primary > .btn {
+    justify-content: center;
+    padding: 13px 12px;
+    font-size: 1rem;
+  }
+  /* Every other action as an equal tile, icon over label, however many
+     there are (4 in a browser, 5 in the app, 6 with Langlois mode). */
+  .hero-tiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .hero-tiles > .list-inline {
+    display: contents;
+  }
+  .hero-tiles > .btn,
+  .hero-tiles > .offline-btn,
+  .hero-tiles button.icon-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    height: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 11px 4px 9px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text);
+    font-size: 0.72rem;
+    font-weight: 500;
+    line-height: 1.2;
+    text-align: center;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .hero-tiles button.icon-btn:hover {
+    transform: none;
+  }
+  .hero-tiles svg {
+    width: 20px !important;
+    height: 20px !important;
+    margin: 0 !important;
+    flex: 0 0 auto;
+  }
+  .hero-tiles .icon-btn-label {
+    display: block;
+  }
+  /* On-state keeps its colour, on the icon and the label alike. */
+  .hero-tiles button.icon-btn.on {
+    color: #ff5c7a;
+    border-color: rgba(255, 92, 122, 0.45);
+  }
+  .hero-tiles button.icon-btn:last-child.on {
+    color: var(--accent);
+    border-color: rgba(91, 141, 239, 0.45);
+  }
+  /* Progress text and errors get a full-width line under the tiles. */
+  .hero-tiles > .offline-note,
+  .hero-tiles > .party-start-error {
+    flex-basis: 100%;
+    order: 99;
   }
 }

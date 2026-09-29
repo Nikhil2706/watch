@@ -153,7 +153,7 @@ export function OfflineButton({ itemId, title }: { itemId: string; title: string
       return (
         <button className="btn ghost offline-btn" onClick={() => void keep()}>
           <DownloadIcon />
-          Keep offline
+          <span>Keep offline</span>
         </button>
       );
   }

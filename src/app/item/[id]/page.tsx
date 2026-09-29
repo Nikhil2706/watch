@@ -315,51 +315,63 @@ export default async function ItemPage({
               )}
             </nav>
           ) : null}
-          <div className="btn-row">
-            <ListButtons
-              itemId={item.Id}
-              initialFavourite={lists?.has("favourite") ?? false}
-              initialRewatch={lists?.has("rewatch") ?? false}
-              variant="inline"
-            />
-            <Link
-              className="btn"
-              data-tv-autofocus="true"
-              href={watchHref(item.Id, item.Name, item.ProductionYear, resume)}
-            >
-              ▶ {resume > 0 ? `Resume at ${Math.floor(resume / 60)}m` : "Play"}
-            </Link>
-            {resume > 0 ? (
-              <Link className="btn ghost" href={watchHref(item.Id, item.Name, item.ProductionYear)}>
-                Start over
+          {/* Two tiers. Play (with Start over beside it at the same width when
+              there is a resume point), then every other action as an equal
+              tile, icon over label. On a phone the old single wrapping row
+              broke into uneven rows; on wider screens both tiers flow back
+              into one row (display: contents in globals.css). */}
+          <div className="btn-row hero-actions">
+            <div className="hero-primary">
+              <Link
+                className="btn"
+                data-tv-autofocus="true"
+                href={watchHref(item.Id, item.Name, item.ProductionYear, resume)}
+              >
+                ▶ {resume > 0 ? `Resume at ${Math.floor(resume / 60)}m` : "Play"}
               </Link>
-            ) : null}
-            {session.langloisMode ? (
-              // "Langlois mode" — a per-user grant (see the langlois_mode
-              // column comment in schema.ts), curator-set from the Invites
-              // tab. Goes through the same /jf/* proxy as everything else;
-              // it succeeds here (and 403s for anyone else) purely because
-              // applyRestrictedPolicy() turned EnableContentDownloading on
-              // for this user's Jellyfin account and no one else's — no
-              // extra gating needed in this route.
-              <a className="btn ghost" href={`/jf/Items/${item.Id}/Download`}>
-                <DownloadIcon />
-                Download film
-              </a>
-            ) : null}
-            {/* Renders only inside an app shell that can store files; a plain
-                browser sees nothing. Not Langlois-gated — that grant is about
-                exporting the original file, this is a sandboxed copy. */}
-            <OfflineButton itemId={item.Id} title={item.Name} />
-            <StartPartyButton jellyfinId={item.Id} />
-            {/* 75% of the library has one. Opens on YouTube rather than
-                embedding: an embed would load Google's player into a page that
-                otherwise makes no third-party request. */}
-            {film?.trailerUrl ? (
-              <a className="btn ghost" href={film.trailerUrl} target="_blank" rel="noopener noreferrer">
-                ▶ Trailer
-              </a>
-            ) : null}
+              {resume > 0 ? (
+                <Link className="btn ghost" href={watchHref(item.Id, item.Name, item.ProductionYear)}>
+                  Start over
+                </Link>
+              ) : null}
+            </div>
+            <div className="hero-tiles">
+              <ListButtons
+                itemId={item.Id}
+                initialFavourite={lists?.has("favourite") ?? false}
+                initialRewatch={lists?.has("rewatch") ?? false}
+                variant="inline"
+              />
+              {session.langloisMode ? (
+                // "Langlois mode" — a per-user grant (see the langlois_mode
+                // column comment in schema.ts), curator-set from the Invites
+                // tab. Goes through the same /jf/* proxy as everything else;
+                // it succeeds here (and 403s for anyone else) purely because
+                // applyRestrictedPolicy() turned EnableContentDownloading on
+                // for this user's Jellyfin account and no one else's — no
+                // extra gating needed in this route.
+                <a className="btn ghost" href={`/jf/Items/${item.Id}/Download`}>
+                  <DownloadIcon />
+                  <span>Download film</span>
+                </a>
+              ) : null}
+              {/* Renders only inside an app shell that can store files; a plain
+                  browser sees nothing. Not Langlois-gated — that grant is about
+                  exporting the original file, this is a sandboxed copy. */}
+              <OfflineButton itemId={item.Id} title={item.Name} />
+              <StartPartyButton jellyfinId={item.Id} />
+              {/* 75% of the library has one. Opens on YouTube rather than
+                  embedding: an embed would load Google's player into a page that
+                  otherwise makes no third-party request. */}
+              {film?.trailerUrl ? (
+                <a className="btn ghost" href={film.trailerUrl} target="_blank" rel="noopener noreferrer">
+                  <svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">
+                    <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM10 8.5l5 3.5-5 3.5z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                  </svg>
+                  <span>Trailer</span>
+                </a>
+              ) : null}
+            </div>
           </div>
         </div>
       </section>

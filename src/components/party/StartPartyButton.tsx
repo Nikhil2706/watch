@@ -33,7 +33,17 @@ export function StartPartyButton({ jellyfinId, className }: { jellyfinId: string
   return (
     <>
       <button type="button" className={className ?? "btn ghost"} onClick={start} disabled={busy}>
-        {busy ? "Starting…" : "🎉 Watch party"}
+        <svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">
+          <path
+            d="M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20M10 11.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM20 20v-1.5a3.5 3.5 0 0 0-2.6-3.4M15.5 4.6a3.5 3.5 0 0 1 0 6.8"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+        <span>{busy ? "Starting…" : "Watch party"}</span>
       </button>
       {error ? <span className="party-start-error">{error}</span> : null}
     </>
