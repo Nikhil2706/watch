@@ -1549,6 +1549,21 @@ a.curator-card:hover {
   margin-top: 14px;
 }
 
+/* The fetch-subtitles chip is a <button>, and the global button style gave it
+   the accent fill under the chip's muted grey text: unreadable. */
+button.chip {
+  background: transparent;
+  color: var(--accent);
+  border-color: rgba(91, 141, 239, 0.45);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+button.chip:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
 .subtitle-label {
   font-size: 0.7rem;
   text-transform: uppercase;

@@ -63,7 +63,7 @@ export default async function WatchlistPage() {
 
       {favourites.length > 0 ? (
         <section className="row" aria-label="Favourites">
-          <h2>★ Favourites</h2>
+          <h2>♥ Favourites</h2>
           <div className="grid">
             {favourites.map((item) => (
               <PosterCard key={item.Id} item={item} lists={lists.get(item.Id)} />
