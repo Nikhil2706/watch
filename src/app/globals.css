@@ -1360,6 +1360,19 @@ a.curator-card:hover {
   object-fit: contain;
 }
 
+/*
+ * Hide the pointer with the controls in fullscreen. Vidstack's Plyr sheet
+ * has this rule, but on the layout's root (.plyr), which is
+ * pointer-events: none so clicks reach the video. An element that is never
+ * hit-tested is never the one under the pointer, so its cursor never showed:
+ * the pointer sat over the video and letterbox, siblings of .plyr, and
+ * stayed. Set here on the player that holds all of them.
+ */
+.vds-player:has(.plyr--fullscreen-active.plyr--hide-controls),
+.vds-player:has(.plyr--fullscreen-active.plyr--hide-controls) * {
+  cursor: none;
+}
+
 .player-note {
   margin: 8px 0 0;
   padding: 0 16px;
