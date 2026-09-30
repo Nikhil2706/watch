@@ -14,8 +14,16 @@ import {
 } from "@vidstack/react/player/layouts/plyr";
 import { useEffect, useRef, useState } from "react";
 
-import { useTvBack } from "@/components/tv/TvProvider";
-import { clampTime, nextSpeed, PLAYER_SHORTCUTS, resolvePlayerKey, type PlayerAction } from "@/lib/player-keys";
+import { useTvBack, useTvMode } from "@/components/tv/TvProvider";
+import {
+  clampTime,
+  nextSpeed,
+  PLAYER_SHORTCUTS,
+  resolvePlayerKey,
+  resolveTvRemoteKey,
+  type PlayerAction,
+  type TvFocusZone,
+} from "@/lib/player-keys";
 
 // The Plyr layout rather than Vidstack's default: a single slim control bar
 // instead of a large translucent panel, which suits a phone and does not fight
@@ -209,6 +217,14 @@ export function Player({
         flashOsd(wasPaused ? "▶  Play" : "❚❚  Pause");
         break;
       }
+      case "play":
+        if (p.paused) void p.play();
+        flashOsd("▶  Play");
+        break;
+      case "pause":
+        if (!p.paused) void p.pause();
+        flashOsd("❚❚  Pause");
+        break;
       // The OSD shows the target, not currentTime read back: the player
       // reports the new time only once the seek lands.
       case "seek": {
@@ -305,6 +321,107 @@ export function Player({
   const helpOpenRef = useRef(helpOpen);
   helpOpenRef.current = helpOpen;
 
+  const tvMode = useTvMode();
+  const tvModeRef = useRef(tvMode);
+  tvModeRef.current = tvMode;
+  const stageRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * The control bar's buttons, left to right: play, mute, subtitles,
+   * settings, fullscreen. Not the sliders — a slider keeps left/right for
+   * itself, so focus parked on the seek bar could never reach subtitles;
+   * seeking is left/right on the video, and a TV remote has its own volume.
+   */
+  function barControls(): HTMLElement[] {
+    const bar = stageRef.current?.querySelector(".plyr__controls");
+    if (!bar) return [];
+    return Array.from(bar.querySelectorAll<HTMLElement>("button"))
+      .filter((el) => el.getClientRects().length > 0 && !el.closest("[role='menu']"))
+      .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+  }
+
+  function focusVideo() {
+    stageRef.current?.querySelector<HTMLElement>(".vds-player")?.focus();
+  }
+
+  /** TV remote: on the video, or in the control bar. */
+  function tvZone(target: HTMLElement | null): TvFocusZone {
+    if (!target?.closest?.(".plyr__controls")) return "video";
+    return target.getAttribute("role") === "slider" ? "slider" : "controls";
+  }
+
+  function runTvAction(action: NonNullable<ReturnType<typeof resolveTvRemoteKey>>, target: HTMLElement | null) {
+    switch (action.kind) {
+      case "showControls": {
+        player.current?.controls.show();
+        barControls()[0]?.focus();
+        return;
+      }
+      case "leaveControls":
+        focusVideo();
+        return;
+      case "moveControl": {
+        const controls = barControls();
+        const i = target ? controls.indexOf(target) : -1;
+        const next = controls[i + action.direction];
+        if (next) next.focus();
+        player.current?.controls.show();
+        return;
+      }
+      default:
+        runActionRef.current(action);
+    }
+  }
+  const runTvActionRef = useRef(runTvAction);
+  runTvActionRef.current = runTvAction;
+
+  // TV: land on the video, not the bar's "‹ Back" link — the first OK
+  // pressed used to leave the film.
+  useEffect(() => {
+    if (!tvMode) return;
+    const frame = requestAnimationFrame(() => focusVideo());
+    return () => cancelAnimationFrame(frame);
+  }, [tvMode]);
+
+  // TV remote keys. Capture phase on window, so they arrive before anything
+  // inside the player: with focus on the player element, Vidstack's layout
+  // marked OK handled first and the toggle never ran.
+  useEffect(() => {
+    function onTvKey(event: KeyboardEvent) {
+      if (!tvModeRef.current || event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      // An open settings menu keeps up/down/OK (Vidstack moves through it).
+      // Left/right mean nothing there, but left unhandled the WebView's own
+      // D-pad navigation jumped focus out of the menu (onto fullscreen).
+      if (target?.closest?.("[role='menu']")) {
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        return;
+      }
+      // Anything outside the player (the bar's Back link) keeps its keys.
+      if (target && !target.closest(".player-stage") && target !== document.body) return;
+      const zone = tvZone(target);
+      const tvAction = resolveTvRemoteKey(event.key, zone);
+      if (!tvAction) {
+        // An arrow with nothing to do (down in the bar) is still ours: the
+        // WebView would otherwise move focus somewhere on its own.
+        if (event.key.startsWith("Arrow") && zone !== "slider") {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      runTvActionRef.current(tvAction, target);
+    }
+    window.addEventListener("keydown", onTvKey, true);
+    return () => window.removeEventListener("keydown", onTvKey, true);
+  }, []);
+
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.defaultPrevented) return;
@@ -317,6 +434,8 @@ export function Player({
       const target = event.target as HTMLElement | null;
       // Typing somewhere (search, a party chat) is not a player command.
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      // TV mode: onTvKey above owns the remote.
+      if (tvModeRef.current) return;
       // A focused control keeps its own keys: Space presses a button, arrows
       // move a slider — the keyboard-accessibility contract.
       const role = target?.getAttribute?.("role");
@@ -419,9 +538,29 @@ export function Player({
   // browsers already do this natively before JS ever sees the key, but not
   // all of them), otherwise fall through to the default (browser history
   // back, landing on the item page this was opened from).
+  //
+  // On a TV, Back first steps out of whatever the remote is inside: an open
+  // settings/captions menu closes (focus back on its button), the control
+  // bar hands focus back to the video; only then does it leave the film.
   useTvBack(() => {
     if (document.fullscreenElement) {
       void document.exitFullscreen();
+      return true;
+    }
+    if (!tvModeRef.current) return false;
+    const stage = stageRef.current;
+    const menuButton = stage?.querySelector<HTMLElement>(".plyr__controls [aria-expanded='true']");
+    if (menuButton) {
+      // Vidstack closes its menu on Escape; a click on the button does not.
+      // Dispatched without bubbling: at the document, Escape is TvProvider's
+      // Back, which would then leave the film as well.
+      const menu = stage?.querySelector(".plyr__menu__container") ?? menuButton;
+      menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: false }));
+      menuButton.focus();
+      return true;
+    }
+    if (document.activeElement?.closest(".plyr__controls")) {
+      focusVideo();
       return true;
     }
     return false;
@@ -597,10 +736,12 @@ export function Player({
       : null;
 
   return (
-    <div className="player-stage">
+    <div className="player-stage" ref={stageRef}>
       <MediaPlayer
         ref={player}
         className="vds-player"
+        // TV: where focus lands (TvProvider), so OK plays/pauses.
+        data-tv-autofocus="true"
         title={title}
         src={
           mode === "hls"

@@ -8,6 +8,8 @@
 
 export type PlayerAction =
   | { kind: "toggle" }
+  | { kind: "play" }
+  | { kind: "pause" }
   | { kind: "seek"; by: number }
   | { kind: "seekPercent"; percent: number }
   | { kind: "seekTo"; where: "start" | "end" }
@@ -31,10 +33,71 @@ export interface KeyLike {
   altKey?: boolean;
 }
 
+const MEDIA_KEYS: Record<string, PlayerAction> = {
+  MediaPlayPause: { kind: "toggle" },
+  MediaPlay: { kind: "play" },
+  MediaPause: { kind: "pause" },
+  MediaStop: { kind: "pause" },
+  MediaFastForward: { kind: "seek", by: 10 },
+  MediaRewind: { kind: "seek", by: -10 },
+  MediaTrackNext: { kind: "next" },
+};
+
+/**
+ * Where focus is when a TV remote key arrives in the player: on the video
+ * itself, on a button in the control bar, or on one of its sliders.
+ */
+export type TvFocusZone = "video" | "controls" | "slider";
+
+export type TvRemoteAction =
+  | PlayerAction
+  /** Reveal the control bar and focus its first control. */
+  | { kind: "showControls" }
+  /** Leave the control bar: focus back on the video. */
+  | { kind: "leaveControls" }
+  /** Move along the control bar. */
+  | { kind: "moveControl"; direction: 1 | -1 };
+
+/**
+ * A TV remote has arrows, OK, Back and (sometimes) transport keys — no
+ * letters, so the keyboard layout above leaves subtitles and settings out
+ * of reach. On a TV, on the video: OK plays/pauses, left/right jump 10 s,
+ * up/down open the control bar. In the bar: left/right move between
+ * controls (a slider keeps left/right for itself), up leaves it. Returns
+ * null to leave the key alone (OK on a button presses it).
+ */
+export function resolveTvRemoteKey(key: string, zone: TvFocusZone): TvRemoteAction | null {
+  const media = MEDIA_KEYS[key];
+  if (media) return media;
+  if (zone === "video") {
+    switch (key) {
+      case "Enter":
+        return { kind: "toggle" };
+      case "ArrowLeft":
+        return { kind: "seek", by: -10 };
+      case "ArrowRight":
+        return { kind: "seek", by: 10 };
+      case "ArrowUp":
+      case "ArrowDown":
+        return { kind: "showControls" };
+    }
+    return null;
+  }
+  if (key === "ArrowUp") return { kind: "leaveControls" };
+  if (zone === "controls" && (key === "ArrowLeft" || key === "ArrowRight")) {
+    return { kind: "moveControl", direction: key === "ArrowLeft" ? -1 : 1 };
+  }
+  return null;
+}
+
 /** Which action a key press means, or null to leave it to the browser. */
 export function resolvePlayerKey(e: KeyLike): PlayerAction | null {
   const ctrl = !!(e.ctrlKey || e.metaKey);
   const key = e.key;
+
+  // Media keys: a TV remote's transport buttons, a keyboard's media row.
+  const media = MEDIA_KEYS[key];
+  if (media) return media;
 
   // Arrow jumps, VLC-style by modifier: Shift 3s, plain 5s, Alt 10s, Ctrl 1 min.
   if (key === "ArrowLeft" || key === "ArrowRight") {
@@ -124,6 +187,7 @@ export const PLAYER_SHORTCUTS: ReadonlyArray<[keys: string, what: string]> = [
   ["F", "Fullscreen"],
   ["Shift + N", "Next episode"],
   ["?", "This list"],
+  ["Media keys", "Play / pause, ±10 seconds, next"],
 ];
 
 /** Where a frame step lands: about one frame at 24fps, never past the ends. */

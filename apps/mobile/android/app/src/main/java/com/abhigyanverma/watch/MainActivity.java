@@ -17,6 +17,7 @@ import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.WebViewListener;
 
 /**
  * Capacitor's BridgeActivity on its own is what this used to be - one empty
@@ -73,6 +74,22 @@ public class MainActivity extends BridgeActivity {
         // agent. Reloading is the cheap, reliable fix — one extra request at
         // launch, on TVs only, in exchange for never rendering the phone
         // layout on a television.
+        //
+        // The reload interrupts the first load, and after it the WebView's
+        // back list no longer matched the page's history: canGoBack() said
+        // false one page in, so Back left the app from a film page. Once the
+        // reloaded page has loaded, the history is cut to just that page, so
+        // both sides start from the same single entry.
+        this.bridge.addWebViewListener(new WebViewListener() {
+            private boolean cleared = false;
+
+            @Override
+            public void onPageLoaded(WebView webView) {
+                if (cleared) return;
+                cleared = true;
+                webView.clearHistory();
+            }
+        });
         this.bridge.getWebView().reload();
     }
 

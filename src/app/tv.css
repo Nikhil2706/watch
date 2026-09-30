@@ -220,6 +220,50 @@ html[data-tv="true"] .list-overlay button[aria-pressed="false"] {
 
 /* --- Detail / item page ------------------------------------------------ */
 
+/* One left edge, 48 px like the header and the rows. The hero's own 20 px
+   put its text at 68, and the sections under it (genres, ratings,
+   subtitles, the file line) sat at the desktop's 20. */
+html[data-tv="true"] .hero {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+html[data-tv="true"] .detail-body {
+  padding-left: 48px;
+  padding-right: 48px;
+}
+
+html[data-tv="true"] .file-line {
+  margin-left: 48px;
+}
+
+/* Couch-readable floor: the film page's secondary text ran 13–15 px at
+   1920 (vote counts, cast roles, sources, the file line). 18 px, badges 16. */
+html[data-tv="true"] :is(
+    .rating-source,
+    .rating-note,
+    .subtitle-label,
+    .content-warning-attribution,
+    .blurb-source-name,
+    .blurb-link,
+    .trivia-source,
+    .cast-role,
+    .file-line,
+    .hint
+  ) {
+  font-size: 0.9rem;
+}
+
+html[data-tv="true"] .cast-name,
+html[data-tv="true"] .detail-body h3 {
+  font-size: 1rem;
+}
+
+html[data-tv="true"] .mark,
+html[data-tv="true"] .runtime-badge {
+  font-size: 0.8rem;
+}
+
 html[data-tv="true"] .detail .hero-content h1 {
   font-size: 3rem;
 }
@@ -235,6 +279,58 @@ html[data-tv="true"] .chip {
 }
 
 /* --- Player ------------------------------------------------------------ */
+
+/* The player's height is the screen minus the bar above it. globals.css
+   assumes a 52 px bar; TV-sized buttons made it 84, so the page ran 32 px
+   past the bottom of the screen with the control bar in that strip. */
+html[data-tv="true"] .player-bar {
+  height: 72px;
+  padding: 0 32px;
+  box-sizing: border-box;
+}
+
+html[data-tv="true"] .player-bar .btn {
+  padding: 10px 24px;
+}
+
+html[data-tv="true"] .player-bar .title {
+  font-size: 1.1rem;
+}
+
+html[data-tv="true"] .vds-player,
+html[data-tv="true"] .vds-player video,
+html[data-tv="true"] .player-stage video {
+  max-height: calc(100dvh - 72px);
+}
+
+/* The player already fills a TV screen, and real fullscreen dropped the page
+   back to the WebView's 960 px layout. */
+html[data-tv="true"] .plyr__controls [data-plyr="fullscreen"] {
+  display: none;
+}
+
+/* Settings menu: it opened as a 65 px strip ("Captio…", "Speed N…") at
+   desktop text size. Wide enough for its labels, readable from a couch. */
+html[data-tv="true"] .plyr__menu__container {
+  min-width: 360px;
+  font-size: 1.05rem;
+}
+
+/* Menu items are .plyr__control too: the 52×52 px bar-button size below
+   squeezed each one so its label and value overlapped. */
+html[data-tv="true"] .plyr__menu__container .plyr__control {
+  width: 100%;
+  height: auto;
+  padding: 12px 18px;
+  font-size: 1.05rem;
+}
+
+/* The video itself takes focus on a TV (OK = play/pause); no ring on it. */
+html[data-tv="true"] .vds-player:focus,
+html[data-tv="true"] .vds-player:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
 
 html[data-tv="true"] .plyr__controls {
   padding: 24px 32px;

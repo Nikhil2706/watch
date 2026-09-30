@@ -19,6 +19,7 @@ import {
   type Direction,
 } from "@/lib/tv/spatial-nav";
 import { TV_MODE_COOKIE, viewportContent } from "@/lib/tv/constants";
+import { installAppBack, registerBackHandler } from "@/lib/overlay-back";
 
 /**
  * Root of the TV experience: detects/upgrades TV mode, and — only while TV
@@ -181,10 +182,21 @@ export function TvProvider({
     };
   }, []);
 
+  // The Android app's Back asks the page first on every page, not only once
+  // a menu has opened (overlay-back.ts).
+  useEffect(() => {
+    installAppBack();
+  }, []);
+
+  // Escape reaches the stack through the keydown handler below; the Android
+  // app's Back button never arrives as a key (MainActivity asks
+  // window.__watchCloseOverlay), so the same handler registers there too.
   const pushBackHandler = useCallback((handler: BackHandler) => {
     backStack.current.push(handler);
+    const unregisterAppBack = registerBackHandler(handler);
     return () => {
       backStack.current = backStack.current.filter((h) => h !== handler);
+      unregisterAppBack();
     };
   }, []);
 
