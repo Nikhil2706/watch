@@ -4,6 +4,7 @@ import { generateId } from "../crypto";
 import { asRow, asRows, getDb, transaction } from "../db";
 import { matchTitle } from "./match";
 import { normaliseTitle } from "../library-review";
+import { splitSentences } from "./sentences";
 
 /**
  * Storage for one fetched article or one uploaded book's extracted text —
@@ -91,10 +92,9 @@ export function splitIntoBlurbCandidates(windowText: string): string[] {
  * negatives are expected and the curator has the final say either way.
  */
 export function splitIntoTriviaCandidates(windowText: string): string[] {
-  return windowText
-    .replace(/\s+/g, " ")
-    .split(/(?<=[.!?])\s+(?=[A-Z"“])/)
-    .map((s) => s.trim())
+  // splitSentences, not a bare ". " + capital: that broke after initials
+  // and titles and stored facts starting "Vengeance did not fare well".
+  return splitSentences(windowText)
     .filter((s) => s.length >= 30 && s.length <= 280)
     .filter((s) => !/^["“]/.test(s));
 }
@@ -276,11 +276,12 @@ export interface BlurbCandidate {
   article_url: string;
   source_id: string;
   source_name: string;
+  article_type: ArticleType;
 }
 
 const BLURB_CANDIDATE_SELECT = `
   SELECT bc.id, bc.passage_text, bc.link_id, a.id AS article_id, a.title AS article_title,
-         a.url AS article_url, a.source_id, src.name AS source_name
+         a.url AS article_url, a.source_id, src.name AS source_name, a.article_type
     FROM article_blurb_candidates bc
     JOIN article_film_links l ON l.id = bc.link_id
     JOIN scraped_articles a ON a.id = l.article_id
