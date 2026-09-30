@@ -102,9 +102,19 @@ export function useCloseOnBack(open: boolean, close: Closer): void {
   useEffect(() => {
     if (!open) return;
     install();
-    openOverlays.push(close);
+    // What had focus as it opened — usually the button that opened it. Back
+    // hands focus back there: left alone, focus fell to the whole header
+    // (the notifications panel on a TV) and the next arrow had no anchor.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const closeAndRefocus: Closer = () => {
+      close();
+      requestAnimationFrame(() => {
+        if (opener?.isConnected) opener.focus();
+      });
+    };
+    openOverlays.push(closeAndRefocus);
     return () => {
-      const i = openOverlays.lastIndexOf(close);
+      const i = openOverlays.lastIndexOf(closeAndRefocus);
       if (i !== -1) openOverlays.splice(i, 1);
     };
   }, [open, close]);

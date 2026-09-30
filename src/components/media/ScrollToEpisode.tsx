@@ -25,8 +25,16 @@ export function ScrollToEpisode({ episodeId }: { episodeId: string | null }) {
     // first avoids fighting the browser's own scroll-restoration on a
     // back-navigation into this page.
     const timer = setTimeout(() => {
-      const link = document.querySelector(`a[href$="${episodeId}"]`);
+      const link = document.querySelector<HTMLElement>(`a[href$="${episodeId}"]`);
       link?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+      // TV: focus follows. Otherwise the page showed this episode while the
+      // D-pad's focus stayed on a genre chip far above, off screen. Also
+      // marked as the page's autofocus target: on a slow TV, TvProvider's
+      // own landing focus can run after this timer and would move it back.
+      if (link && document.documentElement.dataset.tv === "true") {
+        link.setAttribute("data-tv-autofocus", "true");
+        link.focus({ preventScroll: true });
+      }
     }, 60);
     return () => clearTimeout(timer);
   }, [episodeId]);

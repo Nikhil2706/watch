@@ -341,7 +341,20 @@ export function Player({
   }
 
   function focusVideo() {
+    // Back on the video: the bar may hide itself again when idle.
+    player.current?.controls.resume();
     stageRef.current?.querySelector<HTMLElement>(".vds-player")?.focus();
+  }
+
+  /**
+   * TV: the bar stays up while focus is in it. Left to its idle timer
+   * (~2 s) it hid mid-choice and sent focus back to the video, so an OK on
+   * subtitles, a moment later, did nothing.
+   */
+  function holdControls() {
+    const controls = player.current?.controls;
+    controls?.show();
+    controls?.pause();
   }
 
   /** TV remote: on the video, or in the control bar. */
@@ -353,7 +366,7 @@ export function Player({
   function runTvAction(action: NonNullable<ReturnType<typeof resolveTvRemoteKey>>, target: HTMLElement | null) {
     switch (action.kind) {
       case "showControls": {
-        player.current?.controls.show();
+        holdControls();
         barControls()[0]?.focus();
         return;
       }
@@ -365,7 +378,7 @@ export function Player({
         const i = target ? controls.indexOf(target) : -1;
         const next = controls[i + action.direction];
         if (next) next.focus();
-        player.current?.controls.show();
+        holdControls();
         return;
       }
       default:

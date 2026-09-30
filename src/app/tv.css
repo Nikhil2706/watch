@@ -123,6 +123,28 @@ html[data-tv="true"] .btn {
   border-radius: 10px;
 }
 
+/* Home's "Choose for me", a show's season headers, a person's header and a
+   film's Members section on the rows' 48 px edge (all sat at 20). */
+html[data-tv="true"] .season-head,
+html[data-tv="true"] .person-head,
+html[data-tv="true"] .community-section,
+html[data-tv="true"] .pick-entry {
+  padding-left: 48px;
+  padding-right: 48px;
+}
+
+/* Browse's filter sidebar, and the boxed cards (an empty page, Pair phone's
+   code), on the same edge. */
+html[data-tv="true"] .browse-sidebar {
+  padding-left: 48px;
+}
+
+html[data-tv="true"] .empty,
+html[data-tv="true"] .screen-code {
+  margin-left: 48px;
+  margin-right: 48px;
+}
+
 /* --- Rows & cards ------------------------------------------------------ */
 
 html[data-tv="true"] .row {
@@ -259,9 +281,14 @@ html[data-tv="true"] .detail-body h3 {
   font-size: 1rem;
 }
 
-html[data-tv="true"] .mark,
 html[data-tv="true"] .runtime-badge {
   font-size: 0.8rem;
+}
+
+/* The IMDb badge has a fixed height; 16 px clipped its baseline. */
+html[data-tv="true"] .mark {
+  font-size: 0.72rem;
+  line-height: 1.25;
 }
 
 html[data-tv="true"] .detail .hero-content h1 {
@@ -323,6 +350,19 @@ html[data-tv="true"] .plyr__menu__container .plyr__control {
   height: auto;
   padding: 12px 18px;
   font-size: 1.05rem;
+}
+
+/* Subtitles at couch distance: Plyr's 18 px is under 2% of a 1080 screen;
+   TV players sit around 4-5%. */
+html[data-tv="true"] .plyr__captions {
+  font-size: 48px;
+  line-height: 1.3;
+  padding-bottom: 36px;
+}
+
+html[data-tv="true"] .plyr__caption {
+  background: rgba(0, 0, 0, 0.72);
+  padding: 4px 14px;
 }
 
 /* The video itself takes focus on a TV (OK = play/pause); no ring on it. */
