@@ -4,6 +4,7 @@ import { generateId } from "../crypto";
 import { asRow, asRows, getDb } from "../db";
 import { sanitizeRichText } from "./rich-text";
 import { triviaCandidatesForFilm } from "./articles";
+import { looksLikeWikiMarkup } from "./wiki-markup";
 
 /**
  * Trivia is a LIST, not a single locked pick like the blurb — a film
@@ -124,7 +125,7 @@ export function resolveTriviaForFilm(imdbId: string, randomLimit = 5): TriviaFac
   const curated = listTriviaSelections(imdbId);
   if (curated.length > 0) return curated;
 
-  const candidates = triviaCandidatesForFilm(imdbId);
+  const candidates = triviaCandidatesForFilm(imdbId).filter((c) => !looksLikeWikiMarkup(c.fact_text));
   if (candidates.length === 0) return [];
 
   return shuffle(candidates)

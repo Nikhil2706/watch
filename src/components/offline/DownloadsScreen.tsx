@@ -27,6 +27,27 @@ import { OFFLINE_BRIDGE_VERSION, type OfflineBundle } from "@/lib/offline/types"
  * gain.
  */
 
+/**
+ * Where this person left the film, when there is a connection to ask.
+ *
+ * The player reports its position as it plays, and that report is what
+ * Jellyfin keeps as the resume point. Started at 0:00, a download played
+ * online wiped it: 25 minutes into Sympathy for Mr. Vengeance became "Play"
+ * after a few seconds of the offline copy. Offline the report fails anyway,
+ * so 0:00 is harmless there; the lookup gives up quickly so a bad connection
+ * doesn't hold the film back.
+ */
+async function resumePoint(itemId: string): Promise<number> {
+  try {
+    const response = await fetch(`/jf/UserItems/${itemId}/UserData`, { signal: AbortSignal.timeout(2500) });
+    if (!response.ok) return 0;
+    const data = (await response.json()) as { PlaybackPositionTicks?: number; Played?: boolean };
+    return data.Played ? 0 : Math.floor((data.PlaybackPositionTicks ?? 0) / 10_000_000);
+  } catch {
+    return 0;
+  }
+}
+
 interface Playing {
   bundle: OfflineBundle;
   src: string;
@@ -34,6 +55,8 @@ interface Playing {
   subtitles: PlayerSubtitle[];
   /** Blob URLs to revoke when this closes. */
   revoke: string[];
+  /** Where to begin: the resume point when online, else 0. */
+  startSeconds: number;
 }
 
 export function DownloadsScreen() {
@@ -137,7 +160,7 @@ export function DownloadsScreen() {
       }
       revoking.current.push(...revoke);
 
-      setPlaying({ bundle, src, poster, subtitles, revoke });
+      setPlaying({ bundle, src, poster, subtitles, revoke, startSeconds: await resumePoint(bundle.itemId) });
     } catch {
       setError("Could not open that download.");
     }
@@ -201,7 +224,7 @@ export function DownloadsScreen() {
           src={playing.src}
           title={playing.bundle.title}
           poster={playing.poster}
-          startSeconds={0}
+          startSeconds={playing.startSeconds}
           transcodeReasons={[]}
           subtitles={playing.subtitles}
           defaultSubtitleIndex={preferred ? preferred.index : null}

@@ -9,6 +9,7 @@ import {
 } from "./articles";
 import { curatorAccoladeMentionsForFilm, getCuratorAccoladeEntry } from "./curator-accolades";
 import { getLock } from "./locks";
+import { looksLikeWikiMarkup } from "./wiki-markup";
 
 /**
  * The ONLY read path the public film page is allowed to use for Accolades
@@ -50,7 +51,9 @@ export function resolveBlurb(imdbId: string): ResolvedBlurb | null {
     }
   }
 
-  const candidates = blurbCandidatesForFilm(imdbId);
+  // A curator's lock above is shown as chosen; the random pick skips
+  // passages that are raw wiki markup (see wiki-markup.ts).
+  const candidates = blurbCandidatesForFilm(imdbId).filter((c) => !looksLikeWikiMarkup(c.passage_text));
   if (candidates.length === 0) return null;
   const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
   return {
