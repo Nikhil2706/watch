@@ -281,6 +281,12 @@ html[data-tv="true"] :is(
   font-size: 0.9rem;
 }
 
+/* A person's "Show more" was a 19 px-tall target at 16 px. */
+html[data-tv="true"] .person-bio-toggle {
+  font-size: 0.9rem;
+  padding: 8px 0;
+}
+
 html[data-tv="true"] .cast-name,
 html[data-tv="true"] .detail-body h3 {
   font-size: 1rem;
