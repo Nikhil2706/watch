@@ -128,7 +128,8 @@ export function DownloadsScreen() {
         revoke.push(url);
         subtitles.push({
           index: track.index,
-          label: track.label,
+          // Downloads saved before the label change still say "Unknown".
+          label: track.label === "Unknown" ? "Unlabelled" : track.label,
           language: track.language,
           url,
           recommended: track.recommended,
@@ -181,7 +182,12 @@ export function DownloadsScreen() {
   }
 
   if (playing) {
-    const recommended = playing.subtitles.find((s) => s.recommended);
+    // Same order as defaultTrack() in lib/subtitles.ts (server-only, so not
+    // imported): the curator's pick, else English. Offline only honoured the
+    // pick, so a download played with its English track switched off.
+    const english = (s: PlayerSubtitle) => /^(en|eng|english)$/i.test(s.language ?? "");
+    const preferred =
+      playing.subtitles.find((s) => s.recommended) ?? playing.subtitles.find(english) ?? null;
     return (
       <div className="dl-player">
         <button className="btn ghost dl-player-back" onClick={close}>
@@ -198,7 +204,7 @@ export function DownloadsScreen() {
           startSeconds={0}
           transcodeReasons={[]}
           subtitles={playing.subtitles}
-          defaultSubtitleIndex={recommended ? recommended.index : null}
+          defaultSubtitleIndex={preferred ? preferred.index : null}
         />
       </div>
     );

@@ -5353,6 +5353,11 @@ html[data-in-app] .app-get {
   .hero-tiles button.icon-btn:hover {
     transform: none;
   }
+  /* ".list-inline + .btn" (the desk layout's gap after the heart/rewatch
+     pair) still matches in the DOM and pushed the third tile 4px over. */
+  .hero-tiles > * {
+    margin: 0;
+  }
   .hero-tiles svg {
     width: 20px !important;
     height: 20px !important;
