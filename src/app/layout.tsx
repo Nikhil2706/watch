@@ -32,7 +32,10 @@ export const metadata: Metadata = {
 export async function generateViewport(): Promise<Viewport> {
   const tvMode = await resolveTvModeFromRequest();
   return tvMode
-    ? { themeColor: "#06070a", width: TV_LAYOUT_WIDTH }
+    ? // initialScale explicitly undefined: Next's default adds
+      // initial-scale=1, which pins the WebView at 2x and shows only the
+      // top-left quarter of the 1920 page instead of fitting it to the screen.
+      { themeColor: "#06070a", width: TV_LAYOUT_WIDTH, initialScale: undefined }
     : { themeColor: "#06070a", width: "device-width", initialScale: 1 };
 }
 

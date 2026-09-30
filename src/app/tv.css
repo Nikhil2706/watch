@@ -66,6 +66,12 @@ html[data-tv="true"] .appbar .who {
   display: none;
 }
 
+/* "Remote" turns this device into a phone-style controller — never what a
+   television wants. "Pair phone" (the TV as the screen) stays. */
+html[data-tv="true"] .appbar a[href="/remote"] {
+  display: none;
+}
+
 .tv-search-link {
   display: inline-flex;
   align-items: center;
@@ -76,6 +82,12 @@ html[data-tv="true"] .appbar .who {
   background: var(--surface);
   color: var(--text);
   font-size: 0.95rem;
+}
+
+/* Page titles on the same 48 px gutter as the rows and grids below them
+   (they sat at the desktop's 20 px, ragged against everything else). */
+html[data-tv="true"] .page-head {
+  padding: 28px 48px 16px;
 }
 
 /* --- Hero ------------------------------------------------------------ */
@@ -163,6 +175,25 @@ html[data-tv="true"] .poster:focus-within .poster-art {
   z-index: 1;
 }
 
+/* One ring per card: the art's glow above is the focus indicator. The link's
+   own outline wrapped art + title and, broken up by the scaled art, drew a
+   second ring around the title. The title brightens instead, and sits clear
+   of the art's 8% lift. */
+html[data-tv="true"] .poster-link:focus,
+html[data-tv="true"] .poster-link:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+html[data-tv="true"] .poster:focus-within .poster-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+html[data-tv="true"] .poster .poster-title {
+  margin-top: 22px;
+}
+
 html[data-tv="true"] .poster-art {
   transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
 }
@@ -225,6 +256,13 @@ html[data-tv="true"] .plyr__time {
 }
 
 /* --- Browse & cast ------------------------------------------------------ */
+
+/* The phone's show/hide-filters checkbox: invisible, but still focusable, so
+   Browse opened with focus on a 1x1 nothing. The TV always shows the
+   sidebar, so it has no job here. */
+html[data-tv="true"] .bf-toggle {
+  display: none;
+}
 
 html[data-tv="true"] .dim-tab,
 html[data-tv="true"] .sort-btn {
