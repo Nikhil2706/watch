@@ -200,20 +200,19 @@ export interface FacetValue {
   count: number;
 }
 
-export function genreCounts(movies: BrowseMovie[], libraryMeanRating: number): FacetValue[] {
+/**
+ * Most films first, then by name. It was ordered by the genre's average
+ * popularity, which put a 2-film genre (Sport) above a 25-film one (War) and
+ * read as no order at all next to the counts it shows.
+ */
+export function genreCounts(movies: BrowseMovie[], _libraryMeanRating?: number): FacetValue[] {
   const counts = new Map<string, number>();
-  const sums = new Map<string, number>();
   for (const m of movies) {
-    const pop = basePopularity(m, libraryMeanRating);
-    for (const g of m.genres) {
-      counts.set(g, (counts.get(g) ?? 0) + 1);
-      sums.set(g, (sums.get(g) ?? 0) + pop);
-    }
+    for (const g of m.genres) counts.set(g, (counts.get(g) ?? 0) + 1);
   }
   return [...counts.entries()]
-    .map(([name, count]) => ({ id: name, name, count, avg: (sums.get(name) ?? 0) / count }))
-    .sort((a, b) => b.avg - a.avg)
-    .map(({ id, name, count }) => ({ id, name, count }));
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, count]) => ({ id: name, name, count }));
 }
 
 export function decadeCounts(movies: BrowseMovie[]): FacetValue[] {

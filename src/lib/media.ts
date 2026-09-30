@@ -99,6 +99,8 @@ export interface MediaItem {
       IsForced?: boolean;
       IsDefault?: boolean;
       IsHearingImpaired?: boolean;
+      Channels?: number;
+      ChannelLayout?: string;
     }>;
   }>;
 }

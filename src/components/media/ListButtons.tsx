@@ -88,6 +88,7 @@ export function ListButtons({
             strokeLinejoin="round"
           />
         </svg>
+        {variant === "inline" ? <span className="icon-btn-label">Favourite</span> : null}
       </button>
 
       <button
@@ -108,6 +109,7 @@ export function ListButtons({
             strokeLinejoin="round"
           />
         </svg>
+        {variant === "inline" ? <span className="icon-btn-label">Rewatch</span> : null}
       </button>
     </div>
   );

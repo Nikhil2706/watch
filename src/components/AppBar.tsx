@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Ambience } from "@/components/Ambience";
 import { Wordmark } from "@/components/Brand";
 
+import { AppBarListLink } from "./AppBarListLink";
 import { AppBarMore } from "./AppBarMore";
 import { AppVersionItem } from "./AppVersionItem";
 import { LogoutButton } from "./LogoutButton";
@@ -13,7 +14,7 @@ import { SearchBox } from "./SearchBox";
 /**
  * Persistent top bar. Search is a plain GET form, so it needs no JavaScript.
  *
- * On a phone it shrinks to one row — wordmark, notifications, a More menu —
+ * On a phone it shrinks to one row — wordmark, My list, notifications, a More menu —
  * and the main destinations move to MobileTabBar at the bottom. The search
  * field shows there only on the search page, which the Search tab opens.
  */
@@ -55,12 +56,12 @@ export function AppBar({
         </nav>
         <div className="spacer" />
         <SearchBox initialQuery={query ?? ""} autoFocus={searching && !query} />
+        <AppBarListLink />
         <NotificationBell />
         <span className="who">{username}</span>
         <LogoutButton />
         <AppBarMore>
           <span className="appbar-more-who">Signed in as {username}</span>
-          <Link href="/curator">Picks</Link>
           {langloisMode ? <Link href="/upload">Upload</Link> : null}
           <Link href="/remote">Use this phone as a remote</Link>
           <Link href="/screen">Pair a phone with this screen</Link>

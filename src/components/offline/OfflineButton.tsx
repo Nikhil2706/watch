@@ -110,8 +110,18 @@ export function OfflineButton({ itemId, title }: { itemId: string; title: string
   switch (view.kind) {
     case "ready":
       return (
-        <Link href="/downloads" className="btn ghost offline-btn is-ready">
-          ✓ On this device
+        <Link href="/downloads" className="btn ghost offline-btn is-ready" title="On this device">
+          <svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">
+            <path
+              d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12.5l2.8 2.8L16.5 9.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span>Saved</span>
         </Link>
       );
     case "downloading":
@@ -153,7 +163,7 @@ export function OfflineButton({ itemId, title }: { itemId: string; title: string
       return (
         <button className="btn ghost offline-btn" onClick={() => void keep()}>
           <DownloadIcon />
-          Keep offline
+          <span>Keep offline</span>
         </button>
       );
   }

@@ -15,6 +15,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { useTvBack } from "@/components/tv/TvProvider";
+import { clampTime, nextSpeed, PLAYER_SHORTCUTS, resolvePlayerKey, type PlayerAction } from "@/lib/player-keys";
 
 // The Plyr layout rather than Vidstack's default: a single slim control bar
 // instead of a large translucent panel, which suits a phone and does not fight
@@ -146,6 +147,8 @@ interface PlayerProps {
   subtitles: PlayerSubtitle[];
   defaultSubtitleIndex: number | null;
   party?: PlayerPartySync;
+  /** The next episode's watch URL, for Shift+N. */
+  nextHref?: string | null;
 }
 
 export function Player({
@@ -162,9 +165,171 @@ export function Player({
   subtitles,
   defaultSubtitleIndex,
   party,
+  nextHref = null,
 }: PlayerProps) {
   const player = useRef<MediaPlayerInstance>(null);
   const seeded = useRef(false);
+
+  /* ---- Keyboard: YouTube's keys, VLC's jump sizes (lib/player-keys.ts) ----
+     Vidstack's built-in shortcuts are switched off (keyDisabled below): they
+     covered the basics but said nothing on screen, so a key press gave no
+     sign it had landed, and there was no 0–9, Home/End, frame step, subtitle
+     cycling, next episode or help. One handler now owns every key. */
+  const [osd, setOsd] = useState<string | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const osdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastCaptionTrack = useRef<number>(-1);
+
+  function flashOsd(text: string) {
+    setOsd(text);
+    if (osdTimer.current) clearTimeout(osdTimer.current);
+    osdTimer.current = setTimeout(() => setOsd(null), 900);
+  }
+
+  function formatClock(seconds: number): string {
+    const s = Math.max(0, Math.floor(seconds));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = String(s % 60).padStart(2, "0");
+    return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+  }
+
+  function runAction(action: PlayerAction) {
+    const p = player.current;
+    if (!p) return;
+    const tracks = p.textTracks
+      .toArray()
+      .filter((t) => t.kind === "subtitles" || t.kind === "captions");
+    switch (action.kind) {
+      case "toggle": {
+        // Read before acting: paused only flips once the element reacts.
+        const wasPaused = p.paused;
+        if (wasPaused) void p.play();
+        else void p.pause();
+        flashOsd(wasPaused ? "▶  Play" : "❚❚  Pause");
+        break;
+      }
+      // The OSD shows the target, not currentTime read back: the player
+      // reports the new time only once the seek lands.
+      case "seek": {
+        const to = clampTime(p.currentTime + action.by, p.duration);
+        p.currentTime = to;
+        flashOsd(`${action.by > 0 ? "+" : "−"}${Math.abs(action.by) >= 60 ? `${Math.abs(action.by) / 60} min` : `${Math.abs(action.by)}s`}  ·  ${formatClock(to)}`);
+        break;
+      }
+      case "seekPercent":
+        if (Number.isFinite(p.duration) && p.duration > 0) {
+          const to = (p.duration * action.percent) / 100;
+          p.currentTime = to;
+          flashOsd(`${action.percent}%  ·  ${formatClock(to)}`);
+        }
+        break;
+      case "seekTo":
+        p.currentTime = action.where === "start" ? 0 : clampTime(p.duration - 1, p.duration);
+        flashOsd(action.where === "start" ? "Start" : "End");
+        break;
+      case "frame":
+        if (!p.paused) void p.pause();
+        p.currentTime = clampTime(p.currentTime + action.direction / 24, p.duration);
+        flashOsd(action.direction > 0 ? "Next frame" : "Previous frame");
+        break;
+      case "volume": {
+        const v = Math.min(1, Math.max(0, Math.round((p.volume + action.by) * 100) / 100));
+        p.volume = v;
+        if (action.by > 0 && p.muted) p.muted = false;
+        flashOsd(`Volume ${Math.round(v * 100)}%`);
+        break;
+      }
+      case "mute": {
+        const muted = !p.muted;
+        p.muted = muted;
+        flashOsd(muted ? "Muted" : `Volume ${Math.round(p.volume * 100)}%`);
+        break;
+      }
+      case "fullscreen":
+        if (p.state.fullscreen) void p.exitFullscreen();
+        else void p.enterFullscreen();
+        break;
+      case "captions": {
+        if (tracks.length === 0) return flashOsd("No subtitles");
+        const showing = tracks.findIndex((t) => t.mode === "showing");
+        if (showing >= 0) {
+          lastCaptionTrack.current = showing;
+          tracks[showing]!.mode = "disabled";
+          flashOsd("Subtitles off");
+        } else {
+          const i = lastCaptionTrack.current >= 0 && lastCaptionTrack.current < tracks.length ? lastCaptionTrack.current : 0;
+          tracks[i]!.mode = "showing";
+          flashOsd(`Subtitles: ${tracks[i]!.label || "on"}`);
+        }
+        break;
+      }
+      case "cycleCaptions": {
+        if (tracks.length === 0) return flashOsd("No subtitles");
+        const showing = tracks.findIndex((t) => t.mode === "showing");
+        if (showing >= 0) tracks[showing]!.mode = "disabled";
+        const next = showing + 1;
+        if (next >= tracks.length) {
+          flashOsd("Subtitles off");
+        } else {
+          tracks[next]!.mode = "showing";
+          lastCaptionTrack.current = next;
+          flashOsd(`Subtitles: ${tracks[next]!.label || `track ${next + 1}`}`);
+        }
+        break;
+      }
+      case "speed": {
+        // Like the seek time: the player reports the new rate a beat late.
+        const rate = nextSpeed(p.playbackRate, action.by);
+        p.playbackRate = rate;
+        flashOsd(`Speed ${rate}×`);
+        break;
+      }
+      case "speedReset":
+        p.playbackRate = 1;
+        flashOsd("Speed 1×");
+        break;
+      case "next":
+        if (nextHref) window.location.assign(nextHref);
+        else flashOsd("No next episode");
+        break;
+      case "help":
+        setHelpOpen((open) => !open);
+        break;
+    }
+  }
+
+  // Latest runAction and help state without re-binding the listener on every render.
+  const runActionRef = useRef(runAction);
+  runActionRef.current = runAction;
+  const helpOpenRef = useRef(helpOpen);
+  helpOpenRef.current = helpOpen;
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.defaultPrevented) return;
+      if (event.key === "Escape" && helpOpenRef.current) {
+        setHelpOpen(false);
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      // Typing somewhere (search, a party chat) is not a player command.
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      // A focused control keeps its own keys: Space presses a button, arrows
+      // move a slider — the keyboard-accessibility contract.
+      const role = target?.getAttribute?.("role");
+      if ((event.key === " " || event.key === "Enter") && (target?.tagName === "BUTTON" || role === "button")) return;
+      if (event.key.startsWith("Arrow") && role === "slider") return;
+      const action = resolvePlayerKey(event);
+      if (!action) return;
+      event.preventDefault();
+      runActionRef.current(action);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   // Mobile tap gestures: single tap reveals a big center play/pause button
   // (instead of the whole video pausing on any stray touch, per clickToPlay
@@ -239,9 +404,9 @@ export function Player({
   }, []);
 
   // Tells TvProvider's global keydown handler to stand down on arrow keys
-  // while this is mounted — Vidstack's own document-level shortcuts
-  // (keyTarget="document" below) already own seeking and playback there,
-  // and the two would otherwise fight over the same keys. Escape/Back is
+  // while this is mounted — the player's own document-level key handler
+  // (above) owns seeking and playback there, and the two would otherwise
+  // fight over the same keys. Escape/Back is
   // NOT suppressed; see the useTvBack registration below.
   useEffect(() => {
     document.body.dataset.tvPlayerOpen = "true";
@@ -446,9 +611,9 @@ export function Player({
         crossOrigin="anonymous"
         playsInline
         autoPlay
-        // Keyboard shortcuts work anywhere on the page, not only when the video
-        // itself holds focus.
-        keyTarget="document"
+        // Keys are handled by the document-level listener above (every
+        // shortcut, with on-screen feedback); Vidstack's own set would fight it.
+        keyDisabled
         onProviderChange={onProviderChange}
         onCanPlay={onCanPlay}
       >
@@ -500,6 +665,33 @@ export function Player({
           <div className={`mobile-seek-flash mobile-seek-flash-${seekFlash}`} aria-hidden="true">
             {seekFlash === "back" ? <SeekBackIcon /> : <SeekForwardIcon />}
             <span>10</span>
+          </div>
+        ) : null}
+
+        {/* Inside the player, so both still show in fullscreen. */}
+        {osd ? (
+          <div className="player-osd" role="status" aria-live="polite">
+            {osd}
+          </div>
+        ) : null}
+        {helpOpen ? (
+          <div className="player-help" role="dialog" aria-label="Keyboard shortcuts" onClick={() => setHelpOpen(false)}>
+            <div className="player-help-card" onClick={(e) => e.stopPropagation()}>
+              <div className="player-help-head">
+                <strong>Keyboard shortcuts</strong>
+                <button type="button" onClick={() => setHelpOpen(false)} aria-label="Close">
+                  ×
+                </button>
+              </div>
+              <dl>
+                {PLAYER_SHORTCUTS.map(([keys, what]) => (
+                  <div key={keys}>
+                    <dt>{keys}</dt>
+                    <dd>{what}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
           </div>
         ) : null}
 

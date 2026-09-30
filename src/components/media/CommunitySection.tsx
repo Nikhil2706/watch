@@ -32,7 +32,7 @@ export function CommunitySection({
 
   return (
     <div className="community-section">
-      <h3>Us</h3>
+      <h3>Members</h3>
       <CommunityClient
         imdbId={imdbId}
         filmTitle={filmTitle}

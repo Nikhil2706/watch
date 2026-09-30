@@ -148,8 +148,8 @@ export function RatingsRow({
         {usRating ? (
           <div className="rating us">
             <div className="rating-head">
-              <span className="mark mark-us">Us</span>
-              <span className="rating-source">Us</span>
+              <span className="mark mark-us" aria-hidden="true">★</span>
+              <span className="rating-source">Members</span>
             </div>
             <Stars value={scoreToStars(usRating.average)} size={15} />
             <div className="rating-note">

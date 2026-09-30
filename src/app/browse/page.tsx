@@ -222,7 +222,8 @@ export default async function BrowsePage({
           <div className="browse-topbar">
             <h1>{title}</h1>
             <span className="browse-count">
-              {sorted.length} film{sorted.length === 1 ? "" : "s"}
+              {/* Shows are in here too, so not "films". */}
+              {sorted.length} title{sorted.length === 1 ? "" : "s"}
             </span>
             <div className="spacer" />
             <div className="sort-group">

@@ -1,3 +1,4 @@
+import { readCookie } from "@/lib/cookie-header";
 import { isPermittedForScreening } from "@/lib/screening-scope";
 import {
   SCREENING_COOKIE,
@@ -9,6 +10,7 @@ import { env } from "@/lib/env";
 import { logEvent } from "@/lib/events";
 import { getSessionFromRequest, sessionCookie, touchSession } from "@/lib/session";
 import { stripCredentials } from "@/lib/strip-credentials";
+import { stripSubtitleAds } from "@/lib/subtitle-ads";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -276,6 +278,25 @@ async function sanitisePlaylist(
   });
 }
 
+/** A subtitle track as WebVTT: small, text, and read whole to drop ad cues. */
+function isSubtitleTrack(decodedPath: string): boolean {
+  return /\/Subtitles\/\d+\/(?:\d+\/)?Stream\.vtt$/i.test(decodedPath);
+}
+
+const MAX_SUBTITLE_BYTES = 5 * 1024 * 1024;
+
+async function cleanSubtitles(upstream: Response, headers: Headers): Promise<Response> {
+  const declared = Number(upstream.headers.get("content-length") ?? "0");
+  if (declared > MAX_SUBTITLE_BYTES) {
+    return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers });
+  }
+  const cleaned = stripSubtitleAds(await upstream.text());
+  // text() has already decoded and measured it; neither upstream value holds.
+  headers.delete("content-length");
+  headers.delete("content-encoding");
+  return new Response(cleaned, { status: upstream.status, statusText: upstream.statusText, headers });
+}
+
 /* ------------------------------------------------------------------ *
  * Handler
  * ------------------------------------------------------------------ */
@@ -311,11 +332,11 @@ const BODYLESS_STATUSES = new Set([101, 204, 205, 304]);
 async function screeningIdentity(
   request: Request,
 ): Promise<{ itemIds: string[]; deviceId: string; sessionId: string } | null> {
-  const cookie = request.headers.get("cookie") ?? "";
-  const match = new RegExp(`(?:^|;\s*)${SCREENING_COOKIE}=([^;]+)`).exec(cookie);
-  if (!match) return null;
+  // readCookie, not a regex — see cookie-header.ts for how that failed.
+  const value = readCookie(request.headers.get("cookie"), SCREENING_COOKIE);
+  if (!value) return null;
 
-  const resolved = resolveScreeningSession(decodeURIComponent(match[1]!));
+  const resolved = resolveScreeningSession(value);
   if (!resolved) return null;
 
   // Checked per request, which is what lets a revoke kill a stream in progress
@@ -473,6 +494,12 @@ async function proxy(request: Request): Promise<Response> {
     isPlaylist(decodedPath, upstream)
   ) {
     return sanitisePlaylist(upstream, headers);
+  }
+
+  // Release-group and subtitle-site ads ride along as timed cues
+  // ("Official YIFY movies site: YTS.BZ"); see subtitle-ads.ts.
+  if (request.method === "GET" && upstream.status === 200 && upstream.body && isSubtitleTrack(decodedPath)) {
+    return cleanSubtitles(upstream, headers);
   }
 
   // The body is handed straight through as a stream. `upstream.body` is a

@@ -37,15 +37,14 @@ export default async function SearchPage({
 
       <TvSearchField initialQuery={query} />
 
-      <div style={{ padding: "18px 20px 6px" }}>
-        <h1 style={{ margin: 0, fontSize: "1.25rem" }}>
-          {query ? `Results for “${query}”` : "Search"}
-        </h1>
+      <div className="page-head">
+        <h1>{query ? `Results for “${query}”` : "Search"}</h1>
+        {!query ? (
+          <p className="page-sub">Titles, people and genres: try &ldquo;Kubrick&rdquo; or &ldquo;horror&rdquo;.</p>
+        ) : null}
       </div>
 
-      {!query ? (
-        <div className="empty">Type a title in the search box above.</div>
-      ) : matches.length === 0 ? (
+      {!query ? null : matches.length === 0 ? (
         <div className="empty">No titles matched “{query}”.</div>
       ) : (
         <div className="grid">
