@@ -61,6 +61,13 @@ public class MainActivity extends BridgeActivity {
         if (ua == null || ua.contains("AndroidTV")) return;
 
         settings.setUserAgentString(ua + " AndroidTV");
+        // A TV WebView lays pages out at screen size / density: 960x540 CSS px
+        // on a 1080p set at 2x, while the site's TV layout is drawn for 1920
+        // (tv.css). In TV mode the site asks for width=1920 in its viewport
+        // tag; the WebView ignores that tag unless wide viewports are on, and
+        // overview mode then fits that 1920 px page to the screen.
+        settings.setUseWideViewPort(true);
+        settings.setLoadWithOverviewMode(true);
         // Capacitor has already begun loading the start URL by the time
         // onCreate runs, so the first request went out with the unmodified
         // agent. Reloading is the cheap, reliable fix — one extra request at

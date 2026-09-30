@@ -18,7 +18,7 @@ import {
   scrollFocusedIntoView,
   type Direction,
 } from "@/lib/tv/spatial-nav";
-import { TV_MODE_COOKIE } from "@/lib/tv/constants";
+import { TV_MODE_COOKIE, viewportContent } from "@/lib/tv/constants";
 
 /**
  * Root of the TV experience: detects/upgrades TV mode, and — only while TV
@@ -143,6 +143,11 @@ export function TvProvider({
 
   useEffect(() => {
     document.documentElement.setAttribute("data-tv", tvMode ? "true" : "false");
+    // Keep the viewport width in step when the client overrides the server's
+    // guess (see TV_LAYOUT_WIDTH in constants.ts).
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    const content = viewportContent(tvMode);
+    if (meta && meta.content !== content) meta.content = content;
   }, [tvMode]);
 
   // Expose a console escape hatch for testing without editing the URL —
