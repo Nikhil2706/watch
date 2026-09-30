@@ -121,7 +121,7 @@ export function OfflineButton({ itemId, title }: { itemId: string; title: string
               strokeLinejoin="round"
             />
           </svg>
-          <span>Downloaded</span>
+          <span>Saved</span>
         </Link>
       );
     case "downloading":

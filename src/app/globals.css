@@ -5336,9 +5336,11 @@ html[data-in-app] .app-get {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    /* Top, not centre: a two-line label ("Watch party") would otherwise lift
+       its icon above the rest of the row. */
+    justify-content: flex-start;
     gap: 6px;
-    padding: 11px 4px 9px;
+    padding: 12px 4px 10px;
     border-radius: 10px;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -5355,7 +5357,8 @@ html[data-in-app] .app-get {
   }
   /* ".list-inline + .btn" (the desk layout's gap after the heart/rewatch
      pair) still matches in the DOM and pushed the third tile 4px over. */
-  .hero-tiles > * {
+  .hero-tiles > *,
+  .hero-tiles > .list-inline + * {
     margin: 0;
   }
   .hero-tiles svg {
