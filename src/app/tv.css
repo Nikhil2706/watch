@@ -202,13 +202,20 @@ html[data-tv="true"] .poster:focus-within .poster-art img {
   transform: none;
 }
 
-/* Favourite/rewatch toggles are hover-only chrome on desktop; on TV they
-   are only ever reachable via a second focus stop, which does not exist
-   here (the whole card is one focusable link) — so they simply always
-   show, sized for a remote rather than a cursor. */
+/* Favourite/rewatch toggles are hover-only chrome on desktop. On a TV they
+   are indicators, not controls: the D-pad skips them (spatial-nav.ts —
+   they sat above the poster link, so pressing down into a row landed on a
+   heart and OK changed a list), and only the ones that are ON show, so a
+   favourite still reads at a glance without an empty heart on every poster.
+   The film page has the real buttons. */
 html[data-tv="true"] .list-overlay {
   opacity: 1 !important;
   transform: none !important;
+  pointer-events: none;
+}
+
+html[data-tv="true"] .list-overlay button[aria-pressed="false"] {
+  display: none;
 }
 
 /* --- Detail / item page ------------------------------------------------ */
