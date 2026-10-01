@@ -32,7 +32,13 @@ export function AccoladesSection({
             <span className="blurb-source-name">— {blurb.sourceLabel}</span>
             {blurb.sourceUrl ? (
               <a className="blurb-link" href={blurb.sourceUrl} target="_blank" rel="noopener noreferrer">
-                Read the full review →
+                {/* Only a review is a review: Wikipedia and the year-end
+                    lists are articles, and the link said otherwise. */}
+                {blurb.sourceKind === "review"
+                  ? "Read the full review →"
+                  : blurb.sourceLabel === "Wikipedia"
+                    ? "Read on Wikipedia →"
+                    : "Read the article →"}
               </a>
             ) : null}
           </div>

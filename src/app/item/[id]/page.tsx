@@ -116,7 +116,7 @@ export default async function ItemPage({
   const imdbId = item.ProviderIds?.Imdb;
   const blurb = imdbId ? resolveBlurb(imdbId) : null;
   const accolade = imdbId ? resolveAccolade(imdbId) : null;
-  const trivia = imdbId ? resolveTriviaForFilm(imdbId) : [];
+  const trivia = imdbId ? resolveTriviaForFilm(imdbId, 5, blurb?.text) : [];
   const ratingSummary = imdbId ? getRatingSummary(imdbId) : null;
   const usRating = ratingSummary && ratingSummary.count > 0 ? { average: ratingSummary.average!, count: ratingSummary.count } : null;
   const contentWarning = imdbId ? getCachedContentWarning(imdbId) : null;

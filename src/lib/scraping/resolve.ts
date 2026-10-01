@@ -26,6 +26,8 @@ export interface ResolvedBlurb {
   sourceLabel: string;
   sourceUrl: string | null;
   locked: boolean;
+  /** What the link opens: a review, or some other article (Wikipedia, a list). */
+  sourceKind: "review" | "article";
 }
 
 export function resolveBlurb(imdbId: string): ResolvedBlurb | null {
@@ -37,6 +39,7 @@ export function resolveBlurb(imdbId: string): ResolvedBlurb | null {
       sourceLabel: lock.locked_blurb_source_label || "Curator",
       sourceUrl: lock.locked_blurb_source_url,
       locked: true,
+      sourceKind: "article",
     };
   }
   if (lock?.locked_blurb_candidate_id) {
@@ -47,6 +50,7 @@ export function resolveBlurb(imdbId: string): ResolvedBlurb | null {
         sourceLabel: candidate.source_name,
         sourceUrl: candidate.article_url.startsWith("http") ? candidate.article_url : null,
         locked: true,
+        sourceKind: candidate.article_type === "review" ? "review" : "article",
       };
     }
   }
@@ -61,6 +65,7 @@ export function resolveBlurb(imdbId: string): ResolvedBlurb | null {
     sourceLabel: pick.source_name,
     sourceUrl: pick.article_url.startsWith("http") ? pick.article_url : null,
     locked: false,
+    sourceKind: pick.article_type === "review" ? "review" : "article",
   };
 }
 
