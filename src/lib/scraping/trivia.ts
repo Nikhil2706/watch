@@ -120,12 +120,24 @@ function nextPosition(imdbId: string): number {
   return (row?.max_position ?? -1) + 1;
 }
 
-/** Public read path: curated list if the curator has picked one, else up to 5 random candidates. Never returns full article text. */
-export function resolveTriviaForFilm(imdbId: string, randomLimit = 5): TriviaFact[] {
+const flat = (text: string) => text.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+
+/**
+ * Public read path: curated list if the curator has picked one, else up to 5
+ * random candidates. Never returns full article text.
+ *
+ * `shownAbove` is the blurb on the same page. Blurbs are paragraphs and
+ * trivia facts are sentences cut from the same articles, so a random fact
+ * was often a sentence of the quote printed just above it.
+ */
+export function resolveTriviaForFilm(imdbId: string, randomLimit = 5, shownAbove?: string): TriviaFact[] {
   const curated = listTriviaSelections(imdbId);
   if (curated.length > 0) return curated;
 
-  const candidates = triviaCandidatesForFilm(imdbId).filter((c) => !looksLikeWikiMarkup(c.fact_text));
+  const above = shownAbove ? flat(shownAbove) : "";
+  const candidates = triviaCandidatesForFilm(imdbId).filter(
+    (c) => !looksLikeWikiMarkup(c.fact_text) && !(above && above.includes(flat(c.fact_text))),
+  );
   if (candidates.length === 0) return [];
 
   return shuffle(candidates)
