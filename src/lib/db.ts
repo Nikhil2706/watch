@@ -384,7 +384,7 @@ function runVersionedMigrations(db: DatabaseSync): void {
     }
   }
 
-  // v47: picks replace the per-person "Curator's Pick" sends. The old sends
+  // v48: picks replace the per-person "Curator's Pick" sends. The old sends
   // were notifications of kind curators_pick pointing at one film; they go,
   // and from here on that kind points at a pick's own page. Guarded on the
   // picks table not existing yet, so this runs exactly once — a later replay

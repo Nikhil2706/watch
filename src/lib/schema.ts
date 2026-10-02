@@ -30,7 +30,7 @@
  * runVersionedMigrations() will not replay the set at all. The live database
  * is already at 40, so the other branch's v38 work would never have run here.
  */
-export const SCHEMA_VERSION = 47;
+export const SCHEMA_VERSION = 48;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1228,7 +1228,7 @@ CREATE TABLE IF NOT EXISTS tmdb_images (
   PRIMARY KEY (path, size)
 ) STRICT;
 
--- Picks (v47): a titled list of films and shows the curator publishes, to
+-- Picks (v48): a titled list of films and shows the curator publishes, to
 -- everyone or to chosen people. Ranked or not, with a writeup per title.
 -- Replaces the per-person "Curator's Pick" notification and the curations
 -- cards, which held one film or one link each.
