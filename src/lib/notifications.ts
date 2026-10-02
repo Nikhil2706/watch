@@ -7,9 +7,9 @@ import { asRow, asRows, getDb } from "./db";
  * In-app notifications — no push, no email. Seven kinds:
  *  - "reply": someone replied to your comment (has actorUsername + commentId).
  *  - "new_item": a movie was just added to the library (system-generated).
- *  - "curators_pick": the curator flagged a title for you (system-generated —
- *    curator actions are admin-key gated, not tied to a user account, so
- *    there's no "actor" to attribute this to either).
+ *  - "curators_pick": the curator made a pick for you (picks.ts). filmTitle is
+ *    the pick's title and filmHref its page, "/picks/{id}" — not a film. No
+ *    actor: curator actions are admin-key gated, not tied to a user account.
  *  - "new_show": a TV show's first episode(s) went live (system-generated —
  *    see runTvNotifyTick() in library-notify.ts).
  *  - "new_episodes": a TV show you already knew about got more episodes
@@ -79,7 +79,7 @@ export interface SystemNotificationInput {
   filmHref: string;
   /** "new_episodes" only — how many episodes just became visible, for "12 new episodes" phrasing. */
   episodeCount?: number;
-  /** "curators_pick" only — why the curator sent it. Never shown in the bell; see getCuratorNote(). */
+  /** Unused since picks became lists; the column stays for the rows already written. */
   note?: string | null;
 }
 
@@ -183,77 +183,4 @@ export function markNotificationsRead(userId: string, target: { id: string } | {
   } else {
     db.prepare("UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ?").run(Date.now(), target.id, userId);
   }
-}
-
-/* ------------------------------------------------------------------ *
- * Curator's notes
- *
- * A pick can carry a line explaining why it was sent. It is deliberately
- * absent from the bell — the notification stays one line — and appears in the
- * two places the recommendation actually lives: on the film's own page for the
- * person it was sent to, and on their Picks page.
- *
- * Kept for good rather than expiring. A reason for watching something does not
- * go stale the way an alert does, and an unexpiring note needs no sweeper.
- * ------------------------------------------------------------------ */
-
-export interface CuratorNote {
-  note: string;
-  sentAt: number;
-}
-
-/** The newest note this user was sent about this title, if any. */
-export function getCuratorNote(userId: string, imdbId: string): CuratorNote | null {
-  const row = asRow<{ note: string; created_at: number }>(
-    getDb()
-      .prepare(
-        `SELECT note, created_at FROM notifications
-          WHERE user_id = ? AND imdb_id = ? AND kind = 'curators_pick' AND note IS NOT NULL
-          ORDER BY created_at DESC
-          LIMIT 1`,
-      )
-      .get(userId, imdbId),
-  );
-  return row ? { note: row.note, sentAt: row.created_at } : null;
-}
-
-export interface PickedForYou {
-  imdbId: string;
-  filmTitle: string;
-  filmHref: string;
-  note: string | null;
-  sentAt: number;
-}
-
-/**
- * Every film the curator has picked for this person, newest first, one row per
- * title — a film picked twice shows the most recent note rather than appearing
- * twice.
- */
-export function listPicksForUser(userId: string, limit = 24): PickedForYou[] {
-  const rows = asRows<{
-    imdb_id: string;
-    film_title: string;
-    film_href: string;
-    note: string | null;
-    created_at: number;
-  }>(
-    getDb()
-      .prepare(
-        `SELECT imdb_id, film_title, film_href, note, MAX(created_at) AS created_at
-           FROM notifications
-          WHERE user_id = ? AND kind = 'curators_pick'
-          GROUP BY imdb_id
-          ORDER BY created_at DESC
-          LIMIT ?`,
-      )
-      .all(userId, limit),
-  );
-  return rows.map((r) => ({
-    imdbId: r.imdb_id,
-    filmTitle: r.film_title,
-    filmHref: r.film_href,
-    note: r.note,
-    sentAt: r.created_at,
-  }));
 }

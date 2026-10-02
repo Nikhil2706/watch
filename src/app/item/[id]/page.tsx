@@ -2,23 +2,21 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { AppBar } from "@/components/AppBar";
-import { CuratorNote } from "@/components/media/CuratorNote";
 import { AccoladesSection } from "@/components/media/AccoladesSection";
 import { CreditsRow } from "@/components/media/CreditsRow";
 import { FetchSubtitlesButton } from "@/components/media/FetchSubtitlesButton";
 import { DownloadIcon } from "@/components/DownloadIcon";
 import { CommunitySection } from "@/components/media/CommunitySection";
-import { CuratorPicks } from "@/components/media/CuratorPicks";
+import { PickPanels } from "@/components/picks/PickPanels";
 import { ListButtons } from "@/components/media/ListButtons";
 import { RatingsRow } from "@/components/media/RatingsRow";
 import { SpecialFeaturesRow } from "@/components/media/SpecialFeaturesRow";
 import { OfflineButton } from "@/components/offline/OfflineButton";
 import { versionLinksForPath } from "@/lib/film-versions";
 import { franchiseHeading } from "@/lib/home-shelves";
-import { getCuratorNote } from "@/lib/notifications";
+import { pickMentionsForTitle } from "@/lib/picks";
 import { getRatingSummary } from "@/lib/community";
 import { getCachedContentWarning, toDisplaySignals } from "@/lib/content-warnings";
-import { curationsForItem } from "@/lib/curations";
 import { getMemberships } from "@/lib/lists";
 import { getRatings } from "@/lib/ratings";
 import { mergeCredits } from "@/lib/credit-cards";
@@ -120,8 +118,8 @@ export default async function ItemPage({
   const ratingSummary = imdbId ? getRatingSummary(imdbId) : null;
   const usRating = ratingSummary && ratingSummary.count > 0 ? { average: ratingSummary.average!, count: ratingSummary.count } : null;
   const contentWarning = imdbId ? getCachedContentWarning(imdbId) : null;
-  // Only this viewer's own pick, if the curator sent them one for this film.
-  const curatorNote = imdbId ? getCuratorNote(session.userId, imdbId) : null;
+  // Every pick this film is in that this viewer can see, with its writeup.
+  const pickMentions = imdbId ? pickMentionsForTitle(session.userId, { imdbId }) : [];
   const contentWarningDisplay = contentWarning ? toDisplaySignals(contentWarning) : null;
 
   // "In this series" — every film Wikipedia's own film-series lists carry
@@ -136,7 +134,6 @@ export default async function ItemPage({
     (seriesContext?.entries ?? []).map((e) => e.imdb_id).filter((id): id is string => id !== null),
   );
 
-  const picks = curationsForItem(id);
   const subtitles = listSubtitles(item);
   const futureIds = (episodeContext?.future ?? []).map((f) => f.item.Id);
   const seriesItemIds = Array.from(seriesItems.values(), (i) => i.Id);
@@ -296,7 +293,6 @@ export default async function ItemPage({
           {episode?.overview || film?.overview || item.Overview ? (
             <p>{episode?.overview || film?.overview || item.Overview}</p>
           ) : null}
-          {curatorNote ? <CuratorNote note={curatorNote} /> : null}
           {versions.length > 1 ? (
             // Each cut is its own item — own Play, resume point and offline
             // copy — so switching is just going to that one's page.
@@ -377,6 +373,10 @@ export default async function ItemPage({
       </section>
 
       <div className="detail-body">
+        {/* First in the body: a pick's writeup is the reason someone was sent
+            here, and it shows however they arrived. */}
+        <PickPanels mentions={pickMentions} />
+
         {item.Genres?.length ? (
           <div className="chip-line">
             {item.Genres.map((g) => (
@@ -495,12 +495,6 @@ export default async function ItemPage({
             lists={allLists}
             currentImdbId={imdbId}
           />
-        </div>
-      ) : null}
-
-      {picks.length > 0 ? (
-        <div style={{ marginTop: 28 }}>
-          <CuratorPicks picks={picks} heading="Curator's notes on this" />
         </div>
       ) : null}
 

@@ -40,7 +40,7 @@ export function AppBar({
           <Link href="/">Home</Link>
           <Link href="/browse">Browse</Link>
           <Link href="/watchlist">My list</Link>
-          <Link href="/curator">Picks</Link>
+          <Link href="/picks">Picks</Link>
           {langloisMode ? <Link href="/upload">Upload</Link> : null}
           {/* Both halves of the phone-remote feature, reachable from every
               page. Which one you want depends on which device you are holding,

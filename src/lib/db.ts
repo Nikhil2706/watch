@@ -383,6 +383,15 @@ function runVersionedMigrations(db: DatabaseSync): void {
       );
     }
   }
+
+  // v47: picks replace the per-person "Curator's Pick" sends. The old sends
+  // were notifications of kind curators_pick pointing at one film; they go,
+  // and from here on that kind points at a pick's own page. Guarded on the
+  // picks table not existing yet, so this runs exactly once — a later replay
+  // must not delete the notifications the new picks send.
+  if (tableExists(db, "notifications") && !tableExists(db, "picks")) {
+    db.exec("DELETE FROM notifications WHERE kind = 'curators_pick'");
+  }
 }
 
 /**

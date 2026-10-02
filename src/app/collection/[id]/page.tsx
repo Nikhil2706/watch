@@ -9,9 +9,9 @@ import { Row } from "@/components/media/Row";
 import { ScrollToEpisode } from "@/components/media/ScrollToEpisode";
 import { getRatingSummary } from "@/lib/community";
 import { currentSession } from "@/lib/current-user";
-import { CuratorNote } from "@/components/media/CuratorNote";
+import { PickPanels } from "@/components/picks/PickPanels";
 import { getGroupKind, getGroupSeriesId, partsUnitFor } from "@/lib/library-curation";
-import { getCuratorNote } from "@/lib/notifications";
+import { pickMentionsForTitle } from "@/lib/picks";
 import { getMemberships } from "@/lib/lists";
 import { episodeGaps } from "@/lib/episode-gaps";
 import {
@@ -118,8 +118,8 @@ export default async function CollectionPage({
   // until the group has been linked to a real series (curator dashboard's
   // "Link series"), same as collection.ratings itself.
   const seriesImdbId = getGroupSeriesId(id);
-  // A show can be picked for someone too — same note, keyed on the series id.
-  const curatorNote = seriesImdbId ? getCuratorNote(session.userId, seriesImdbId) : null;
+  // Every pick this show is in that this viewer can see, with its writeup.
+  const pickMentions = pickMentionsForTitle(session.userId, { groupId: id });
   const ratingSummary = seriesImdbId ? getRatingSummary(seriesImdbId) : null;
   const usRating = ratingSummary && ratingSummary.count > 0 ? { average: ratingSummary.average!, count: ratingSummary.count } : null;
 
@@ -200,7 +200,6 @@ export default async function CollectionPage({
             {collection.Overview || show?.overview ? (
               <p>{collection.Overview || show?.overview}</p>
             ) : null}
-            {curatorNote ? <CuratorNote note={curatorNote} /> : null}
           </div>
         </section>
       ) : (
@@ -215,6 +214,8 @@ export default async function CollectionPage({
       )}
 
       <div className="detail-body">
+        <PickPanels mentions={pickMentions} />
+
         {collection.genres.length > 0 ? (
           <div className="chip-line">
             {collection.genres.map((g) => (

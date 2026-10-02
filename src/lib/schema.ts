@@ -30,7 +30,7 @@
  * runVersionedMigrations() will not replay the set at all. The live database
  * is already at 40, so the other branch's v38 work would never have run here.
  */
-export const SCHEMA_VERSION = 46;
+export const SCHEMA_VERSION = 47;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1227,4 +1227,71 @@ CREATE TABLE IF NOT EXISTS tmdb_images (
   fetched_at   INTEGER NOT NULL,
   PRIMARY KEY (path, size)
 ) STRICT;
+
+-- Picks (v47): a titled list of films and shows the curator publishes, to
+-- everyone or to chosen people. Ranked or not, with a writeup per title.
+-- Replaces the per-person "Curator's Pick" notification and the curations
+-- cards, which held one film or one link each.
+CREATE TABLE IF NOT EXISTS picks (
+  id           TEXT PRIMARY KEY,
+  title        TEXT NOT NULL,
+  subtitle     TEXT,
+  ranked       INTEGER NOT NULL DEFAULT 0,
+  audience     TEXT NOT NULL DEFAULT 'everyone', -- 'everyone' | 'people'
+  status       TEXT NOT NULL DEFAULT 'draft',    -- 'draft' | 'live'
+  -- Home shows a pick for a week after it is first published; pinned keeps it
+  -- there for as long as the curator wants.
+  pinned       INTEGER NOT NULL DEFAULT 0,
+  -- Order on the Picks page, highest first. A new pick takes max + 1, so
+  -- newest is on top until the curator drags them.
+  position     INTEGER NOT NULL DEFAULT 0,
+  -- Where a converted pick was copied from. The pick is the curator's own
+  -- copy; this is only the credit line.
+  source_kind  TEXT,                             -- 'article' | 'accolade'
+  source_id    TEXT,
+  source_label TEXT,
+  source_url   TEXT,
+  -- First publish only: unpublishing and publishing again does not restart
+  -- the week on Home.
+  published_at INTEGER,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+) STRICT;
+
+-- One title in a pick. Same not-yet-in-library support as
+-- curator_accolade_entries: imdb_id is NULL until matched, and a library
+-- scan re-resolves it, so a converted list gains films as they arrive.
+CREATE TABLE IF NOT EXISTS pick_items (
+  id                   TEXT PRIMARY KEY,
+  pick_id              TEXT NOT NULL REFERENCES picks(id) ON DELETE CASCADE,
+  position             INTEGER NOT NULL,
+  -- The number shown in a ranked pick. Set for a list converted from a
+  -- source, which keeps the source's own ranks (so they skip the films not
+  -- in the library); NULL means "number by position".
+  rank                 INTEGER,
+  kind                 TEXT NOT NULL DEFAULT 'film', -- 'film' | 'show'
+  imdb_id              TEXT,
+  group_id             TEXT,                         -- shows: library_groups.group_id
+  raw_title            TEXT NOT NULL,
+  raw_year             INTEGER,
+  writeup              TEXT,
+  writeup_source_label TEXT,
+  writeup_source_url   TEXT,
+  created_at           INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_pick_items_pick ON pick_items(pick_id, position);
+CREATE INDEX IF NOT EXISTS idx_pick_items_imdb ON pick_items(imdb_id);
+CREATE INDEX IF NOT EXISTS idx_pick_items_group ON pick_items(group_id);
+
+-- Who a pick with audience = 'people' is for. notified_at records the bell
+-- notification, so editing a live pick only notifies people added since.
+CREATE TABLE IF NOT EXISTS pick_recipients (
+  pick_id     TEXT NOT NULL REFERENCES picks(id) ON DELETE CASCADE,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  notified_at INTEGER,
+  PRIMARY KEY (pick_id, user_id)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_pick_recipients_user ON pick_recipients(user_id);
 `;

@@ -53,10 +53,10 @@ const DOWNLOADS: Tab = {
   match: (p) => p.startsWith("/downloads"),
 };
 const PICKS: Tab = {
-  href: "/curator",
+  href: "/picks",
   label: "Picks",
   icon: icon("M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"),
-  match: (p) => p.startsWith("/curator"),
+  match: (p) => p.startsWith("/picks") || p.startsWith("/curator"),
 };
 
 export function MobileTabBar() {

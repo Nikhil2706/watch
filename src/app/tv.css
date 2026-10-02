@@ -527,6 +527,102 @@ html[data-tv="true"] .cast-card:focus .cast-photo {
   color: #fff;
 }
 
+/* --- Picks -------------------------------------------------------------- */
+
+/* The same rows on the rows' 48 px edge, at the TV's poster size. The tile
+   under the remote's focus opens exactly as a hovered one does on a desktop;
+   a television reports no hover, so the open-tile rules are repeated here
+   rather than left to globals.css's (hover: hover) block. */
+html[data-tv="true"] .pk-row {
+  --pk-w: 230px;
+  --pk-gap: 24px;
+  --pk-room: 15rem;
+  margin: 0 0 46px;
+}
+
+html[data-tv="true"] .pk-row:not(.is-ranked) {
+  --pk-gap: 40px;
+}
+
+html[data-tv="true"] .pk-head {
+  padding: 0 48px;
+  margin: 0 0 12px;
+}
+
+html[data-tv="true"] .pk-head h2 {
+  font-size: 1.7rem;
+}
+
+/* The pick's title is a link to its page: a ring that hugs the words. */
+html[data-tv="true"] .pk-head h2 a {
+  display: inline-block;
+  padding: 2px 6px;
+  margin-left: -6px;
+}
+
+html[data-tv="true"] .pk-rail {
+  padding-top: 14px;
+  padding-bottom: var(--pk-room);
+  margin-bottom: calc(-1 * var(--pk-room));
+  overflow-y: hidden;
+}
+
+html[data-tv="true"] .pk-tile {
+  height: calc(var(--pk-w) * 1.5 + var(--pk-below));
+}
+
+/* One indicator per tile: the card's own ring, not the global outline. */
+html[data-tv="true"] .pk-tile:focus,
+html[data-tv="true"] .pk-tile:focus-visible {
+  width: calc(var(--pk-w) * 1.3);
+  outline: none;
+  box-shadow: none;
+}
+
+html[data-tv="true"] .pk-tile:focus .pk-card {
+  background: var(--surface);
+  box-shadow:
+    0 0 0 10px var(--surface),
+    0 0 0 13px var(--text),
+    0 30px 60px -6px rgba(0, 0, 0, 0.9);
+}
+
+html[data-tv="true"] .pk-tile:focus .pk-art {
+  border-color: var(--warm);
+}
+
+html[data-tv="true"] .pk-tile:focus .pk-num {
+  color: var(--warm);
+}
+
+html[data-tv="true"] .pk-tile:focus .pk-name {
+  white-space: normal;
+}
+
+html[data-tv="true"] .pk-tile:focus .pk-text {
+  -webkit-line-clamp: 8;
+  line-clamp: 8;
+  color: #dbe0ea;
+}
+
+html[data-tv="true"] .pk-list {
+  padding: 0 48px;
+  max-width: 1300px;
+}
+
+html[data-tv="true"] .pk-entry-row {
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 28px;
+}
+
+html[data-tv="true"] .pk-list.is-ranked .pk-entry-row {
+  grid-template-columns: 5rem 150px minmax(0, 1fr);
+}
+
+html[data-tv="true"] .pk-panels {
+  max-width: 1100px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html[data-tv="true"] .poster-art,
   html[data-tv="true"] a:focus-visible,

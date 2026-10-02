@@ -6,10 +6,12 @@ import { Hero } from "@/components/media/Hero";
 import { PickButton } from "@/components/media/PickButton";
 import { ProcessingRow } from "@/components/media/ProcessingRow";
 import { Row } from "@/components/media/Row";
+import { PickRow } from "@/components/picks/PickRow";
 import { PartyBanner } from "@/components/party/PartyBanner";
 import { currentSession } from "@/lib/current-user";
 import { getActiveJobs } from "@/lib/jobs";
 import { getMemberships } from "@/lib/lists";
+import { homePicksForViewer } from "@/lib/pick-views";
 import { listLiveParties, listUpcomingParties } from "@/lib/party";
 import { getRatings } from "@/lib/ratings";
 import { MIN_SHELF_SIZE } from "@/lib/home-shelves";
@@ -45,7 +47,7 @@ export default async function HomePage() {
   // down. But if the latest-items call fails, Jellyfin itself is unreachable,
   // and "nothing in the library" would be the wrong thing to tell anyone.
   let libraryUnreachable = false;
-  const [resume, latest, genres, shelves] = await Promise.all([
+  const [resume, latest, genres, shelves, picks] = await Promise.all([
     getResume(session).catch(() => []),
     getLatest(session).catch(() => {
       libraryUnreachable = true;
@@ -54,6 +56,8 @@ export default async function HomePage() {
     getGenres(session).catch(() => []),
     // Local and cached for the day, so this costs a Map lookup on most loads.
     todaysShelves().catch(() => []),
+    // Picks published in the last week, and any the curator has pinned.
+    homePicksForViewer(session).catch(() => []),
   ]);
 
   // Local, not from Jellyfin: these titles have been dropped into the watch
@@ -162,6 +166,9 @@ export default async function HomePage() {
         <PickButton />
       </div>
       <Row title="Continue watching" items={resume} lists={lists} />
+      {picks.map((pick) => (
+        <PickRow key={pick.id} pick={pick} />
+      ))}
       <Row
         title="Recently added"
         items={collapsedLatest.items}
