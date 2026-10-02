@@ -1294,4 +1294,15 @@ CREATE TABLE IF NOT EXISTS pick_recipients (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_pick_recipients_user ON pick_recipients(user_id);
+
+-- Pages a list scraper opened and found not to be a film list (v47). Only a
+-- few in a hundred of a site's articles are lists; this is what stops each
+-- run from fetching the other ninety-odd again.
+CREATE TABLE IF NOT EXISTS scrape_checked_urls (
+  url        TEXT PRIMARY KEY,
+  source_id  TEXT NOT NULL,
+  checked_at INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_scrape_checked_urls_source ON scrape_checked_urls(source_id);
 `;

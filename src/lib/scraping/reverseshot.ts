@@ -3,7 +3,7 @@ import "server-only";
 import * as cheerio from "cheerio";
 
 import { logEvent, recordExternalApiCall } from "../events";
-import { upsertScrapedArticle, type FilmMentionInput } from "./articles";
+import { upsertScrapedArticle, withoutStoredUrls, type FilmMentionInput } from "./articles";
 
 /**
  * Reverse Shot (reverseshot.org, Museum of the Moving Image) — one of the
@@ -24,8 +24,8 @@ import { upsertScrapedArticle, type FilmMentionInput } from "./articles";
 
 const BASE_URL = "https://reverseshot.org";
 const USER_AGENT = "jellyfin-gate-curation/1.0 (self-hosted personal media library; single-user, non-commercial)";
-/** Politeness — same spacing as yearendlists.ts, no published rate limit to respect otherwise. */
-const REQUEST_DELAY_MS = 1200;
+/** The site's robots.txt asks for this: "Crawl-delay: 10". */
+const REQUEST_DELAY_MS = 10_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -123,8 +123,12 @@ export interface ReverseShotRunResult {
 }
 
 /** Fetches and stores a small batch of reviews from the listing page — see discoverReverseShotReviewUrls's own comment on why this doesn't paginate yet. */
-export async function runReverseShotScrape(limit = 10): Promise<ReverseShotRunResult> {
-  const urls = await discoverReverseShotReviewUrls(limit);
+export async function runReverseShotScrape(limit = 10, onlyNew = false): Promise<ReverseShotRunResult> {
+  // A refresh walks the whole listing and keeps only what is not stored yet;
+  // see withoutStoredUrls() for why stored articles are left alone.
+  const urls = onlyNew
+    ? withoutStoredUrls("reverseshot", await discoverReverseShotReviewUrls(Number.MAX_SAFE_INTEGER)).slice(0, limit)
+    : await discoverReverseShotReviewUrls(limit);
   let reviewsProcessed = 0;
   let matchedCount = 0;
 

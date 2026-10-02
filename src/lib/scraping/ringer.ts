@@ -3,7 +3,7 @@ import "server-only";
 import * as cheerio from "cheerio";
 
 import { logEvent, recordExternalApiCall } from "../events";
-import { upsertScrapedArticle, type FilmMentionInput } from "./articles";
+import { upsertScrapedArticle, withoutStoredUrls, type FilmMentionInput } from "./articles";
 
 /**
  * The Ringer (theringer.com) — a movie/TV/sports/culture site; per your
@@ -44,6 +44,7 @@ import { upsertScrapedArticle, type FilmMentionInput } from "./articles";
 const BASE_URL = "https://www.theringer.com";
 const USER_AGENT = "jellyfin-gate-curation/1.0 (self-hosted personal media library; single-user, non-commercial)";
 const REQUEST_DELAY_MS = 1200;
+export const RINGER_REQUEST_DELAY_MS = REQUEST_DELAY_MS;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -54,6 +55,10 @@ async function fetchHtml(path: string): Promise<string | null> {
 }
 
 /** Same as fetchHtml but takes a full URL — the sitemap chunk files live at their own absolute locations, not under a fixed BASE_URL path. */
+export async function fetchRingerUrl(url: string): Promise<string | null> {
+  return fetchUrl(url);
+}
+
 async function fetchUrl(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, {
@@ -89,6 +94,25 @@ const MOVIE_REVIEW_URL = /^https:\/\/www\.theringer\.com\/\d{4}\/\d{2}\/\d{2}\/m
  * movie reviews doesn't get skipped just because an earlier one was dense.
  */
 export async function discoverRingerReviewUrls(limit = 10): Promise<string[]> {
+  return walkSitemap((loc) => MOVIE_REVIEW_URL.test(loc), limit);
+}
+
+const MOVIE_ARTICLE_URL = /^https:\/\/www\.theringer\.com\/\d{4}\/\d{2}\/\d{2}\/movies\/[^/]+$/;
+
+/**
+ * Every article filed under /movies/ that is NOT a review — the pool
+ * ringer-lists.ts reads through for lists and rankings. Newest first, so a
+ * run capped by a limit takes the recent ones.
+ */
+export async function discoverRingerMovieUrls(): Promise<string[]> {
+  const urls = await walkSitemap(
+    (loc) => MOVIE_ARTICLE_URL.test(loc) && !MOVIE_REVIEW_URL.test(loc),
+    Number.MAX_SAFE_INTEGER,
+  );
+  return urls.sort().reverse();
+}
+
+async function walkSitemap(keep: (loc: string) => boolean, limit: number): Promise<string[]> {
   const indexXml = await fetchUrl(`${BASE_URL}/sitemaps/articles/index.xml`);
   if (!indexXml) return [];
 
@@ -103,7 +127,7 @@ export async function discoverRingerReviewUrls(limit = 10): Promise<string[]> {
 
     for (const m of xml.matchAll(/<loc>([^<]+)<\/loc>/g)) {
       const loc = m[1]!;
-      if (MOVIE_REVIEW_URL.test(loc)) urls.add(loc);
+      if (keep(loc)) urls.add(loc);
     }
   }
 
@@ -151,8 +175,12 @@ export interface RingerRunResult {
   matchedCount: number;
 }
 
-export async function runRingerScrape(limit = 10): Promise<RingerRunResult> {
-  const urls = await discoverRingerReviewUrls(limit);
+export async function runRingerScrape(limit = 10, onlyNew = false): Promise<RingerRunResult> {
+  // A refresh walks the whole listing and keeps only what is not stored yet;
+  // see withoutStoredUrls() for why stored articles are left alone.
+  const urls = onlyNew
+    ? withoutStoredUrls("the-ringer", await discoverRingerReviewUrls(Number.MAX_SAFE_INTEGER)).slice(0, limit)
+    : await discoverRingerReviewUrls(limit);
   let reviewsProcessed = 0;
   let matchedCount = 0;
 
