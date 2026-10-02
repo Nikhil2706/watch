@@ -2,7 +2,7 @@ import "server-only";
 
 import { getAdminMovies } from "../admin-library-cache";
 import { adminThumbUrl } from "../admin-thumb";
-import { getGroupedPathMap, getGroupSeriesId, getGroupSeriesPoster } from "../library-curation";
+import { getAllGroupKinds, getGroupedPathMap, getGroupSeriesId, getGroupSeriesPoster } from "../library-curation";
 import { normaliseTitle } from "../library-review";
 import { itemHref } from "../slugs";
 import { episodeCode, episodeKey } from "../episode-key";
@@ -49,6 +49,7 @@ export async function searchLibraryForAdmin(
   // Episodes come after the films and shows, so a show's own hit is never
   // pushed off the list by forty of its episodes.
   const episodeHits: AdminSearchHit[] = [];
+  const groupKinds = getAllGroupKinds();
   const episodeNames = opts.episodes
     ? episodeTilesForPaths(movies.filter((m) => m.Path && groupedPaths.has(m.Path)).map((m) => m.Path!))
     : null;
@@ -59,9 +60,10 @@ export async function searchLibraryForAdmin(
     const g = movie.Path ? groupedPaths.get(movie.Path) : undefined;
     // One episode of a show, for a list that can hold one (a pick, a built
     // accolade). Found by the show's name, by "s02e22", or by the episode's
-    // own title. A grouped file with an IMDb id of its own is a film in a
-    // franchise, not an episode, and is not offered here.
-    if (g && episodeNames && movie.Path && !movie.ProviderIds?.Imdb) {
+    // own title. A file in a group of kind "movie" is a film in a franchise,
+    // not an episode, and is not offered here. (An IMDb id says nothing
+    // either way: every episode carries its show's.)
+    if (g && episodeNames && movie.Path && groupKinds.get(g.groupId) !== "movie") {
       const named = episodeNames.get(movie.Path);
       const label = named
         ? `${g.groupName}: ${named.name} (${episodeCode(named.seasonNumber, named.episodeNumber)})`

@@ -114,9 +114,13 @@ export default async function ItemPage({
   // never a scraped_articles.full_text.
   const imdbId = item.ProviderIds?.Imdb;
   const blurb = imdbId ? resolveBlurb(imdbId) : null;
-  // An episode has no IMDb id; in the curator's own lists it goes by its
-  // episode key instead (episode-key.ts).
-  const accolade = imdbId ? resolveAccolade(imdbId) : item.Path ? resolveAccolade(episodeKey(item.Path)) : null;
+  // An episode carries its show's IMDb id, not one of its own; in the
+  // curator's own lists it goes by its episode key instead (episode-key.ts).
+  // That is asked first, so an episode placed in a list shows its own
+  // placing rather than the show's.
+  const accolade =
+    (episodeContext && item.Path ? resolveAccolade(episodeKey(item.Path)) : null) ??
+    (imdbId ? resolveAccolade(imdbId) : null);
   const trivia = imdbId ? resolveTriviaForFilm(imdbId, 5, blurb?.text) : [];
   const ratingSummary = imdbId ? getRatingSummary(imdbId) : null;
   const usRating = ratingSummary && ratingSummary.count > 0 ? { average: ratingSummary.average!, count: ratingSummary.count } : null;
