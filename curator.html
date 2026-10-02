@@ -311,6 +311,70 @@
   .empty { text-align: center; color: var(--muted); padding: 30px; font-size: 14px; }
   .muted { color: var(--muted); font-size: 12px; }
 
+  /* ---- Picks tab ---- */
+  .pk-layout { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 16px; align-items: start; }
+  .pk-side-head, .pk-editor-head, .pk-titles-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .pk-titles-head { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .pk-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pk-check { display: inline-flex; align-items: center; gap: 7px; margin: 0; font-size: 13px; font-weight: 500;
+              text-transform: none; letter-spacing: 0; color: var(--text); cursor: pointer; }
+  .pk-check input { padding: 0; }
+  .pk-pick { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 9px 10px;
+             border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; background: rgba(255, 255, 255, 0.015); cursor: pointer; }
+  .pk-pick:hover { border-color: var(--accent); }
+  .pk-pick.sel { border-color: var(--warm-line); background: var(--surface-2); }
+  .pk-pick.dragging, .pk-item.dragging { opacity: 0.4; }
+  .pk-pick.over, .pk-item.over { box-shadow: 0 -2px 0 0 var(--warm); }
+  .pk-grip { color: var(--muted); cursor: grab; user-select: none; line-height: 1.2; }
+  .pk-pick-title { font-size: 13.5px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+  .pk-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .pk-chip { font-size: 10.5px; padding: 1px 8px; border-radius: 20px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .pk-chip.live { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+  .pk-chip.warm { color: var(--warm); border-color: var(--warm-line); }
+  .pk-chip.people { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+  .pk-arrows { display: flex; flex-direction: column; gap: 2px; }
+  .pk-arrows button, .pk-mini { padding: 1px 7px; font-size: 12px; line-height: 1.4; }
+  .pk-start-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 12px; }
+  .pk-source { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid var(--border); }
+  .pk-source:first-child { border-top: 0; }
+  .pk-source-title { font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
+  .pk-statusline { font-size: 13px; color: var(--muted); }
+  .pk-statusline b { color: var(--text); }
+  .pk-open { font-size: 13px; color: var(--accent); }
+  .pk-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-top: 14px; }
+  .pk-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .pk-seg button { background: transparent; color: var(--muted); border: 0; border-radius: 0; font-weight: 500; padding: 7px 13px; }
+  .pk-seg button.on { background: var(--warm); color: #2a1f0f; font-weight: 700; }
+  .pk-users { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 12px;
+              border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; max-height: 190px; overflow-y: auto; }
+  .pk-item { display: grid; grid-template-columns: 18px 46px 46px minmax(0, 1fr); gap: 10px; align-items: start;
+             padding: 10px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; background: rgba(255, 255, 255, 0.015); }
+  .pk-item.unranked { grid-template-columns: 18px 46px minmax(0, 1fr); }
+  .pk-rank { width: 46px; padding: 5px 4px; text-align: center; font-weight: 700; color: var(--warm); border-color: var(--warm-line); }
+  .pk-item .nf-thumb { width: 46px; height: 69px; }
+  .pk-item-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .pk-item-title { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+  .pk-item-title span { color: var(--muted); font-weight: 400; }
+  .pk-item textarea { width: 100%; margin-top: 7px; font-size: 13px; min-height: 74px; }
+  .pk-item-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .pk-credit { flex: 1 1 180px; min-width: 0; padding: 5px 9px; font-size: 12px; }
+  .pk-saved { font-size: 12px; color: var(--ok); min-width: 4em; }
+  .pk-saved.err { color: #ffb3bc; }
+  .pk-passages { margin-top: 8px; display: grid; gap: 6px; }
+  .pk-passage { border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; line-height: 1.5; color: #cdd4e0; }
+  .pk-passage-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .pk-passage-src { color: var(--warm); font-size: 11.5px; overflow-wrap: anywhere; }
+  .pk-add { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .pk-missing { margin-top: 16px; font-size: 13px; }
+  .pk-missing summary { cursor: pointer; color: var(--muted); }
+  .pk-missing-row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-top: 1px solid var(--border); color: var(--muted); }
+  @media (max-width: 860px) {
+    .pk-layout { grid-template-columns: minmax(0, 1fr); }
+    .pk-item, .pk-item.unranked { grid-template-columns: 18px 40px minmax(0, 1fr); }
+    .pk-item .pk-rank { grid-column: 2; grid-row: 2; width: 40px; }
+    .pk-item .nf-thumb { width: 40px; height: 60px; }
+  }
+
   .rv-group {
     border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px;
     background: rgba(255, 255, 255, 0.015);
@@ -799,7 +863,7 @@
     <button class="tab-btn" data-tab="accolades">Accolades</button>
     <button class="tab-btn" data-tab="tmdb">TMDB</button>
     <button class="tab-btn" data-tab="health">Health</button>
-    <button class="tab-btn" data-tab="notify">Notify</button>
+    <button class="tab-btn" data-tab="picks">Picks</button>
     <button class="tab-btn" data-tab="invites">Invites</button>
     <button class="tab-btn" data-tab="screenings">Screening Room</button>
     <button class="tab-btn" data-tab="uploads">Uploads</button>
@@ -1340,36 +1404,118 @@
     </div>
   </div>
 
-  <!-- ============================== Notify tab ============================== -->
-  <div class="tab-panel" id="tab-notify" data-tab="notify">
-    <div class="card">
-      <div class="card-title">Curator's Pick — Just For You</div>
-      <p class="muted" style="margin:0 0 12px;font-size:13px">Send a targeted recommendation notification to specific users.</p>
+  <!-- ============================== Picks tab ============================== -->
+  <div class="tab-panel" id="tab-picks" data-tab="picks">
+    <div class="pk-layout">
 
-      <label for="notifySearchInput">Film</label>
-      <input id="notifySearchInput" placeholder="Search your library…" spellcheck="false">
-      <div id="notifySearchResults" style="margin-top:6px"></div>
-      <div id="notifySelectedFilm" class="muted" style="margin-top:10px;font-size:13px"></div>
-
-      <div style="margin-top:16px">
-        <label>Send to</label>
-        <div id="notifyUserList" style="margin-top:6px;max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px"></div>
-      </div>
-
-      <div style="margin-top:16px">
-        <label for="notifyNote">Why this one? (optional)</label>
-        <div class="note" style="margin-bottom:4px">
-          Shown to them on the film's page and on their Picks page, and kept for good.
-          The notification itself stays one line either way.
+      <div class="card pk-side">
+        <div class="pk-side-head">
+          <div class="card-title">Picks</div>
+          <button id="pkNew">New pick</button>
         </div>
-        <textarea id="notifyNote" rows="3" maxlength="500" style="width:100%" placeholder="Because you liked Danger: Diabolik, and this is the same year and the same madness."></textarea>
-        <div class="note" id="notifyNoteCount">0 / 500</div>
+        <div class="note" style="margin:0 0 10px">
+          The order here is the order on the Picks page. Drag a pick, or use the arrows.
+          People always see picks made for them first.
+        </div>
+        <div id="pkList"><div class="muted">Loading…</div></div>
       </div>
 
-      <div style="margin-top:16px">
-        <button id="notifySend" disabled>Send Curator's Pick</button>
+      <div class="pk-main">
+
+        <!-- Start a pick -->
+        <div class="card" id="pkStart" hidden>
+          <div class="card-title">Start a new pick</div>
+
+          <div class="pk-start-grid">
+            <div>
+              <label for="pkNewTitle">From nothing</label>
+              <input id="pkNewTitle" placeholder="Films that cause an itch in the brain" maxlength="200" style="width:100%">
+              <div class="pk-inline" style="margin-top:8px">
+                <label class="pk-check"><input type="checkbox" id="pkNewRanked"> Ranked</label>
+                <button id="pkCreateBlank">Create</button>
+              </div>
+            </div>
+            <div>
+              <label for="pkSourceSearch">From a list or one of your accolades</label>
+              <input id="pkSourceSearch" placeholder="Search list titles — best of 2025, Stephen King…" spellcheck="false" style="width:100%">
+              <div class="note">A copy you can retitle, reorder, trim and write on. Lists with the most films in the library come first.</div>
+            </div>
+          </div>
+          <div id="pkSourceResults" style="margin-top:10px"></div>
+        </div>
+
+        <!-- Edit a pick -->
+        <div class="card" id="pkEditor" hidden>
+          <div class="pk-editor-head">
+            <div id="pkStatusLine" class="pk-statusline"></div>
+            <div class="pk-inline">
+              <button id="pkPublish">Publish</button>
+              <button id="pkUnpublish" class="ghost" hidden>Unpublish</button>
+              <a id="pkOpen" class="pk-open" target="_blank" rel="noopener" hidden>Open on the site ↗</a>
+              <button id="pkDelete" class="danger">Delete</button>
+            </div>
+          </div>
+
+          <label for="pkTitle">Title</label>
+          <input id="pkTitle" maxlength="200" style="width:100%">
+
+          <label for="pkSubtitle" style="margin-top:12px">Subtitle (optional)</label>
+          <input id="pkSubtitle" maxlength="200" style="width:100%" placeholder="These movies make you want to believe things you know not to be true.">
+
+          <div class="pk-options">
+            <div>
+              <label>Order</label>
+              <div class="pk-seg" id="pkRankedSeg">
+                <button type="button" data-pk-ranked="1">Ranked</button>
+                <button type="button" data-pk-ranked="0">Unranked</button>
+              </div>
+            </div>
+            <div>
+              <label>Who sees it</label>
+              <div class="pk-seg" id="pkAudienceSeg">
+                <button type="button" data-pk-audience="everyone">Everyone</button>
+                <button type="button" data-pk-audience="people">Chosen people</button>
+              </div>
+            </div>
+            <div>
+              <label>Home</label>
+              <label class="pk-check"><input type="checkbox" id="pkPinned"> Keep on Home</label>
+              <div class="note" id="pkHomeNote" style="margin-top:4px"></div>
+            </div>
+          </div>
+
+          <div id="pkPeople" hidden>
+            <label style="margin-top:12px">Made for</label>
+            <div class="note" style="margin:0 0 6px">They get a notification when you publish. Anyone you add later is told then.</div>
+            <div id="pkUserList" class="pk-users"></div>
+          </div>
+
+          <div id="pkSourceLine" class="note"></div>
+
+          <div class="pk-titles-head">
+            <div class="card-title">Titles</div>
+            <div class="muted" id="pkCounts"></div>
+          </div>
+          <div id="pkItems"></div>
+
+          <div class="pk-add">
+            <label for="pkAddSearch">Add a film or show</label>
+            <input id="pkAddSearch" placeholder="Search your library…" spellcheck="false" style="width:100%">
+            <div id="pkAddResults" style="margin-top:6px"></div>
+          </div>
+
+          <details id="pkMissingWrap" class="pk-missing" hidden>
+            <summary id="pkMissingSummary"></summary>
+            <div class="note" style="margin:0 0 8px">Kept in the pick and hidden from the site. Each one joins the row when it arrives in the library.</div>
+            <div id="pkMissing"></div>
+          </details>
+        </div>
+
+        <div class="card" id="pkBlank">
+          <div class="card-title">Nothing selected</div>
+          <div class="note">Choose a pick on the left to edit it, or start a new one.</div>
+        </div>
       </div>
-      <div id="notifyStatus" class="muted" style="margin-top:10px;font-size:13px"></div>
     </div>
   </div>
 
@@ -1575,6 +1721,7 @@
     // it used to open on a search box, so the material was invisible.
     if (name === "accolades" && state.key) { accLoad(false); acLoadBuilder(); }
     if (name === "worker" && state.key) wkLoad(false);
+    if (name === "picks" && state.key) pkLoad(false);
     if (name === "uploads" && state.key && !state.uploads) loadUploads();
   }
   document.querySelectorAll(".tab-btn").forEach(function (b) {
@@ -2050,7 +2197,8 @@
       $("listCard").style.display = "";
       $("usersCard").style.display = "";
       $("uploadsCard").style.display = "";
-      showTab(sessionStorage.getItem("jfg_tab") || "library");
+      // "notify" was the Picks tab's name while a pick was one film sent to one person.
+      showTab((sessionStorage.getItem("jfg_tab") || "library").replace(/^notify$/, "picks"));
       loadCuration();
       loadQueue();
       if (!$("acYearInput").value) $("acYearInput").value = new Date().getFullYear();
@@ -2900,117 +3048,496 @@
   });
 
   /* ================================================================
-   * Notify tab — Curator's Pick, sent to specific users
+   * Picks tab — lists of films and shows, for everyone or chosen people
+   *
+   * A pick is a draft until it is published. Header fields save as they
+   * change; a writeup saves when its box loses focus. Publishing a pick
+   * made for chosen people is what notifies them.
    * ================================================================ */
-  var notifyState = { film: null, users: [], usersLoaded: false };
-  var notifySearchTimer = null;
+  var pk = { picks: [], current: null, items: [], recipients: [], users: [], usersLoaded: false, loaded: false };
+  var pkSourceTimer = null, pkAddTimer = null;
 
-  function notifyRenderUsers() {
-    var el = $("notifyUserList");
-    if (!notifyState.users.length) {
-      el.innerHTML = '<div class="muted" style="font-size:13px">No users yet.</div>';
+  function pkSiteBase() {
+    // The console is served on its own port; the site is the gate.
+    return state.base || "";
+  }
+
+  function pkChips(p) {
+    var chips = '<span class="pk-chip ' + (p.status === "live" ? "live" : "") + '">' + (p.status === "live" ? "Live" : "Draft") + '</span>';
+    chips += p.audience === "people"
+      ? '<span class="pk-chip people">' + p.recipient_count + (p.recipient_count === 1 ? " person" : " people") + '</span>'
+      : '<span class="pk-chip">Everyone</span>';
+    if (p.status === "live") {
+      if (p.pinned) chips += '<span class="pk-chip warm">Pinned to Home</span>';
+      else if (p.published_at && Date.now() - p.published_at < 7 * 864e5) {
+        chips += '<span class="pk-chip">On Home until ' + pkShortDate(p.published_at + 7 * 864e5) + '</span>';
+      }
+    }
+    chips += '<span class="pk-chip">' + p.matched_count + (p.item_count !== p.matched_count ? " of " + p.item_count : "") + ' titles</span>';
+    return chips;
+  }
+
+  function pkShortDate(ms) {
+    return new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  }
+
+  function pkRenderList() {
+    var el = $("pkList");
+    if (!pk.picks.length) {
+      el.innerHTML = '<div class="muted" style="padding:6px 0">No picks yet. “New pick” starts one.</div>';
       return;
     }
-    el.innerHTML = notifyState.users.map(function (u) {
-      return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer">' +
-        '<input type="checkbox" class="notify-user-cb" data-user-id="' + esc(u.id) + '"> ' + esc(u.username) +
-        '</label>';
+    el.innerHTML = pk.picks.map(function (p, i) {
+      return '<div class="pk-pick' + (pk.current && pk.current.id === p.id ? " sel" : "") + '" draggable="true" data-pk-id="' + esc(p.id) + '">' +
+        '<span class="pk-grip" title="Drag to reorder">⠿</span>' +
+        '<div><div class="pk-pick-title">' + esc(p.title) + '</div><div class="pk-chips">' + pkChips(p) + '</div></div>' +
+        '<div class="pk-arrows">' +
+        '<button class="ghost" data-pk-move="up"' + (i === 0 ? " disabled" : "") + ' title="Move up">↑</button>' +
+        '<button class="ghost" data-pk-move="down"' + (i === pk.picks.length - 1 ? " disabled" : "") + ' title="Move down">↓</button>' +
+        '</div></div>';
     }).join("");
   }
 
-  function notifyLoadUsers() {
-    if (notifyState.usersLoaded) return;
-    api("/api/admin/users").then(function (data) {
-      notifyState.users = data.users || [];
-      notifyState.usersLoaded = true;
-      notifyRenderUsers();
-    }).catch(function (e) { $("notifyUserList").innerHTML = '<div class="muted" style="font-size:13px">' + esc(e.message) + '</div>'; });
+  function pkLoad(force) {
+    if (pk.loaded && !force) return Promise.resolve();
+    return api("/api/admin/picks").then(function (data) {
+      pk.picks = data.picks || [];
+      pk.loaded = true;
+      pkRenderList();
+    }).catch(function (e) { $("pkList").innerHTML = '<div class="muted">' + esc(e.message) + '</div>'; });
   }
 
-  function notifyUpdateSendState() {
-    var anyChecked = !!document.querySelector(".notify-user-cb:checked");
-    $("notifySend").disabled = !(notifyState.film && anyChecked);
+  function pkLoadUsers() {
+    if (pk.usersLoaded) return Promise.resolve();
+    return api("/api/admin/users").then(function (data) {
+      pk.users = data.users || [];
+      pk.usersLoaded = true;
+    });
   }
 
-  $("notifySearchInput").addEventListener("input", function () {
-    clearTimeout(notifySearchTimer);
-    var q = $("notifySearchInput").value.trim();
-    if (q.length < 2) { $("notifySearchResults").innerHTML = ""; return; }
-    notifySearchTimer = setTimeout(function () {
+  function pkPanels(which) {
+    $("pkStart").hidden = which !== "start";
+    $("pkEditor").hidden = which !== "editor";
+    $("pkBlank").hidden = which !== "blank";
+  }
+
+  function pkSaveOrder(ids) {
+    return api("/api/admin/picks/order", { method: "POST", body: { ids: ids } }).then(function (data) {
+      pk.picks = data.picks || [];
+      pkRenderList();
+    }).catch(function (e) { show("err", e.message); pkLoad(true); });
+  }
+
+  /* ---- drag to reorder, shared by the pick list and a pick's titles ---- */
+  function pkSortable(container, rowSelector, idAttr, onDrop) {
+    var dragging = null;
+    container.addEventListener("dragstart", function (e) {
+      var row = e.target.closest ? e.target.closest(rowSelector) : null;
+      // Dragging out of a text box is selecting text, not moving the row.
+      if (!row || (e.target.matches && e.target.matches("textarea, input"))) { e.preventDefault(); return; }
+      dragging = row;
+      row.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", row.getAttribute(idAttr)); } catch (err) {}
+    });
+    container.addEventListener("dragover", function (e) {
+      if (!dragging) return;
+      var row = e.target.closest(rowSelector);
+      container.querySelectorAll(".over").forEach(function (r) { r.classList.remove("over"); });
+      if (!row || row === dragging) return;
+      e.preventDefault();
+      row.classList.add("over");
+    });
+    container.addEventListener("drop", function (e) {
+      if (!dragging) return;
+      var row = e.target.closest(rowSelector);
+      container.querySelectorAll(".over").forEach(function (r) { r.classList.remove("over"); });
+      if (!row || row === dragging) return;
+      e.preventDefault();
+      container.insertBefore(dragging, row);
+      onDrop(Array.prototype.map.call(container.querySelectorAll(rowSelector), function (r) { return r.getAttribute(idAttr); }));
+    });
+    container.addEventListener("dragend", function () {
+      if (dragging) dragging.classList.remove("dragging");
+      container.querySelectorAll(".over").forEach(function (r) { r.classList.remove("over"); });
+      dragging = null;
+    });
+  }
+
+  pkSortable($("pkList"), ".pk-pick", "data-pk-id", pkSaveOrder);
+
+  $("pkList").addEventListener("click", function (e) {
+    var row = e.target.closest(".pk-pick");
+    if (!row) return;
+    var id = row.getAttribute("data-pk-id");
+    var move = e.target.closest("[data-pk-move]");
+    if (move) {
+      var ids = pk.picks.map(function (p) { return p.id; });
+      var i = ids.indexOf(id), j = move.getAttribute("data-pk-move") === "up" ? i - 1 : i + 1;
+      if (j < 0 || j >= ids.length) return;
+      ids.splice(j, 0, ids.splice(i, 1)[0]);
+      pkSaveOrder(ids);
+      return;
+    }
+    pkOpen(id);
+  });
+
+  /* ---- starting a pick ---- */
+  $("pkNew").addEventListener("click", function () {
+    pk.current = null;
+    pkRenderList();
+    pkPanels("start");
+    $("pkNewTitle").value = "";
+    $("pkSourceSearch").value = "";
+    pkSearchSources("");
+    $("pkNewTitle").focus();
+  });
+
+  $("pkCreateBlank").addEventListener("click", function () {
+    var title = $("pkNewTitle").value.trim();
+    if (!title) { show("err", "Give the pick a title first."); return; }
+    api("/api/admin/picks", { method: "POST", body: { title: title, ranked: $("pkNewRanked").checked } })
+      .then(function (data) { return pkLoad(true).then(function () { pkOpen(data.pick.id); }); })
+      .catch(function (e) { show("err", e.message); });
+  });
+
+  function pkSearchSources(q) {
+    api("/api/admin/picks/sources?q=" + encodeURIComponent(q)).then(function (data) {
+      var sources = data.sources || [];
+      $("pkSourceResults").innerHTML = sources.length ? sources.map(function (src) {
+        var bits = [src.inLibrary + " of " + src.entries + " in the library", src.ranked ? "ranked" : "unranked"];
+        if (src.withWriteups) bits.push(src.withWriteups + " with a writeup");
+        return '<div class="pk-source"><div><div class="pk-source-title">' + esc(src.title) + '</div>' +
+          '<div class="muted">' + esc(src.sourceName) + ' · ' + bits.join(" · ") + '</div></div>' +
+          '<button class="ghost" data-pk-from-' + src.kind + '="' + esc(src.id) + '">Make a pick</button></div>';
+      }).join("") : '<div class="muted" style="padding:6px 0">No lists match.</div>';
+    }).catch(function (e) { $("pkSourceResults").innerHTML = '<div class="muted">' + esc(e.message) + '</div>'; });
+  }
+
+  $("pkSourceSearch").addEventListener("input", function () {
+    clearTimeout(pkSourceTimer);
+    pkSourceTimer = setTimeout(function () { pkSearchSources($("pkSourceSearch").value.trim()); }, 250);
+  });
+
+  // Also answers the "Make a pick" button on an accolade in the Accolades tab.
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest ? e.target.closest("[data-pk-from-article], [data-pk-from-accolade]") : null;
+    if (!btn) return;
+    e.preventDefault();
+    var body = btn.hasAttribute("data-pk-from-article")
+      ? { from_article: btn.getAttribute("data-pk-from-article") }
+      : { from_accolade: btn.getAttribute("data-pk-from-accolade") };
+    btn.disabled = true;
+    api("/api/admin/picks", { method: "POST", body: body }).then(function (data) {
+      show("ok", "Copied into a draft pick. Nothing is on the site until you publish it.");
+      showTab("picks");
+      return pkLoad(true).then(function () { pkOpen(data.pick.id); });
+    }).catch(function (err) { show("err", err.message); })
+      .then(function () { btn.disabled = false; });
+  });
+
+  /* ---- the editor ---- */
+  function pkOpen(id) {
+    Promise.all([api("/api/admin/picks/" + encodeURIComponent(id)), pkLoadUsers()]).then(function (res) {
+      pkApply(res[0]);
+      pkPanels("editor");
+    }).catch(function (e) { show("err", e.message); });
+  }
+
+  function pkApply(data) {
+    pk.current = data.pick;
+    pk.items = data.items || [];
+    pk.recipients = data.recipients || [];
+    pkRenderEditor();
+    pkRenderList();
+  }
+
+  function pkRenderEditor() {
+    var p = pk.current;
+    $("pkTitle").value = p.title;
+    $("pkSubtitle").value = p.subtitle || "";
+    $("pkPinned").checked = !!p.pinned;
+    $("pkRankedSeg").querySelectorAll("button").forEach(function (b) {
+      b.classList.toggle("on", b.getAttribute("data-pk-ranked") === String(p.ranked));
+    });
+    $("pkAudienceSeg").querySelectorAll("button").forEach(function (b) {
+      b.classList.toggle("on", b.getAttribute("data-pk-audience") === p.audience);
+    });
+
+    var live = p.status === "live";
+    $("pkStatusLine").innerHTML = live
+      ? '<b>Live</b> since ' + pkShortDate(p.published_at) + '. Changes show on the site as you make them.'
+      : '<b>Draft.</b> Not on the site until you publish it.';
+    $("pkPublish").hidden = live;
+    $("pkUnpublish").hidden = !live;
+    $("pkOpen").hidden = !live;
+    $("pkOpen").href = pkSiteBase() + "/picks/" + encodeURIComponent(p.id);
+
+    $("pkHomeNote").textContent = p.pinned
+      ? "Stays on Home until you untick this."
+      : live && p.published_at
+        ? (Date.now() - p.published_at < 7 * 864e5
+            ? "On Home until " + pkShortDate(p.published_at + 7 * 864e5) + "."
+            : "No longer on Home. Its week ended " + pkShortDate(p.published_at + 7 * 864e5) + ".")
+        : "On Home for 7 days from publishing.";
+
+    $("pkPeople").hidden = p.audience !== "people";
+    $("pkUserList").innerHTML = pk.users.length ? pk.users.map(function (u) {
+      return '<label class="pk-check"><input type="checkbox" data-pk-user="' + esc(u.id) + '"' +
+        (pk.recipients.indexOf(u.id) !== -1 ? " checked" : "") + '> ' + esc(u.username) + '</label>';
+    }).join("") : '<div class="muted">No users yet.</div>';
+
+    $("pkSourceLine").textContent = p.source_label ? "Copied from: " + p.source_label : "";
+    pkRenderItems();
+  }
+
+  function pkRenderItems() {
+    var p = pk.current, ranked = !!p.ranked;
+    var present = [], missing = [];
+    pk.items.forEach(function (it, index) { (it.inLibrary ? present : missing).push({ it: it, index: index }); });
+
+    $("pkCounts").textContent = present.length + (present.length === 1 ? " title" : " titles") + " on the site" +
+      (missing.length ? " · " + missing.length + " not in the library" : "");
+
+    $("pkItems").innerHTML = present.length ? present.map(function (row) {
+      var it = row.it;
+      return '<div class="pk-item' + (ranked ? "" : " unranked") + '" draggable="true" data-pk-item="' + esc(it.id) + '">' +
+        '<span class="pk-grip" title="Drag to reorder">⠿</span>' +
+        (ranked
+          ? '<input class="pk-rank" type="number" min="1" value="' + (it.rank === null ? "" : it.rank) + '" placeholder="' + (row.index + 1) +
+            '" title="The number shown under the poster. Leave empty to number by position.">'
+          : "") +
+        thumbHtml(it.posterUrl) +
+        '<div><div class="pk-item-head"><div class="pk-item-title">' + esc(it.displayTitle) +
+        (it.displayYear ? ' <span>' + it.displayYear + '</span>' : "") + (it.kind === "show" ? ' <span>· show</span>' : "") + '</div>' +
+        '<div class="pk-inline"><button class="ghost pk-mini" data-pk-item-move="up" title="Move up">↑</button>' +
+        '<button class="ghost pk-mini" data-pk-item-move="down" title="Move down">↓</button>' +
+        '<button class="ghost pk-mini" data-pk-item-remove title="Remove from this pick">✕</button></div></div>' +
+        '<textarea class="pk-writeup" placeholder="Why this one. A blank line starts a new paragraph.">' + esc(it.writeup || "") + '</textarea>' +
+        '<div class="pk-item-foot">' +
+        '<input class="pk-credit" placeholder="Credit, if the words are someone else’s" value="' + esc(it.writeup_source_label || "") +
+        '" data-pk-credit-url="' + esc(it.writeup_source_url || "") + '">' +
+        (it.kind === "film" && it.imdb_id ? '<button class="ghost pk-mini" data-pk-passages>Scraped passages</button>' : "") +
+        '<span class="pk-saved"></span></div>' +
+        '<div class="pk-passages" hidden></div></div></div>';
+    }).join("") : '<div class="muted" style="padding:6px 0">No titles from the library yet. Add one below.</div>';
+
+    $("pkMissingWrap").hidden = !missing.length;
+    $("pkMissingSummary").textContent = missing.length + " from this list " + (missing.length === 1 ? "is" : "are") + " not in the library";
+    $("pkMissing").innerHTML = missing.map(function (row) {
+      var it = row.it;
+      return '<div class="pk-missing-row" data-pk-item="' + esc(it.id) + '"><span>' +
+        (ranked ? "#" + (it.rank === null ? row.index + 1 : it.rank) + " · " : "") + esc(it.displayTitle) +
+        (it.displayYear ? " (" + it.displayYear + ")" : "") + '</span>' +
+        '<button class="ghost pk-mini" data-pk-item-remove title="Remove from this pick">✕</button></div>';
+    }).join("");
+  }
+
+  function pkPatch(body, quiet) {
+    if (!pk.current) return Promise.resolve();
+    return api("/api/admin/picks/" + encodeURIComponent(pk.current.id), { method: "PATCH", body: body }).then(function (data) {
+      pkApply(data);
+      pkLoad(true);
+      if (!quiet) show("ok", "Saved.");
+      return data;
+    }).catch(function (e) { show("err", e.message); pkOpen(pk.current.id); });
+  }
+
+  $("pkTitle").addEventListener("change", function () {
+    var v = $("pkTitle").value.trim();
+    if (!v) { $("pkTitle").value = pk.current.title; return; }
+    pkPatch({ title: v });
+  });
+  $("pkSubtitle").addEventListener("change", function () {
+    pkPatch({ subtitle: $("pkSubtitle").value.trim() || null });
+  });
+  $("pkPinned").addEventListener("change", function () { pkPatch({ pinned: $("pkPinned").checked }); });
+  $("pkRankedSeg").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-pk-ranked]");
+    if (b) pkPatch({ ranked: b.getAttribute("data-pk-ranked") === "1" });
+  });
+  $("pkAudienceSeg").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-pk-audience]");
+    if (!b) return;
+    var audience = b.getAttribute("data-pk-audience");
+    if (audience === "people" && pk.current.status === "live" && pk.recipients.length &&
+        !confirm("This pick is live. Switching it to chosen people hides it from everyone else and notifies the " +
+                 pk.recipients.length + " ticked now. Go ahead?")) return;
+    pkPatch({ audience: audience });
+  });
+  $("pkUserList").addEventListener("change", function () {
+    var ids = Array.prototype.map.call($("pkUserList").querySelectorAll("[data-pk-user]:checked"), function (cb) {
+      return cb.getAttribute("data-pk-user");
+    });
+    pkPatch({ recipients: ids }, true);
+  });
+
+  $("pkPublish").addEventListener("click", function () {
+    var p = pk.current;
+    var who = p.audience === "people"
+      ? pk.recipients.length + (pk.recipients.length === 1 ? " person, who will be notified" : " people, who will be notified")
+      : "everyone";
+    if (!confirm("Publish “" + p.title + "” to " + who + "?")) return;
+    pkPatch({ status: "live" }, true).then(function (data) {
+      if (data) show("ok", "Published." + (data.notified ? " Notified " + data.notified + "." : ""));
+    });
+  });
+  $("pkUnpublish").addEventListener("click", function () {
+    if (!confirm("Take this pick off the site? It stays here as a draft.")) return;
+    pkPatch({ status: "draft" }, true).then(function (data) { if (data) show("ok", "Unpublished."); });
+  });
+  $("pkDelete").addEventListener("click", function () {
+    if (!confirm("Delete “" + pk.current.title + "” and every writeup in it? This can't be undone.")) return;
+    api("/api/admin/picks/" + encodeURIComponent(pk.current.id), { method: "DELETE" }).then(function () {
+      pk.current = null;
+      pkPanels("blank");
+      show("ok", "Deleted.");
+      pkLoad(true);
+    }).catch(function (e) { show("err", e.message); });
+  });
+
+  /* ---- titles ---- */
+  function pkItemUrl(itemId) {
+    return "/api/admin/picks/" + encodeURIComponent(pk.current.id) + "/items/" + encodeURIComponent(itemId);
+  }
+
+  function pkSaveItem(row) {
+    var id = row.getAttribute("data-pk-item");
+    var credit = row.querySelector(".pk-credit");
+    var label = credit.value.trim();
+    var rankInput = row.querySelector(".pk-rank");
+    var body = {
+      writeup: row.querySelector(".pk-writeup").value,
+      writeup_source_label: label || null,
+      // A link belongs to its credit: clearing one clears the other.
+      writeup_source_url: label ? (credit.getAttribute("data-pk-credit-url") || null) : null
+    };
+    if (rankInput) body.rank = rankInput.value.trim() === "" ? null : Number(rankInput.value);
+    var mark = row.querySelector(".pk-saved");
+    mark.className = "pk-saved"; mark.textContent = "Saving…";
+    return api(pkItemUrl(id), { method: "PATCH", body: body }).then(function (data) {
+      pk.items = pk.items.map(function (it) {
+        if (it.id !== id) return it;
+        var next = {}; for (var k in it) next[k] = it[k];
+        next.writeup = data.item.writeup; next.rank = data.item.rank;
+        next.writeup_source_label = data.item.writeup_source_label; next.writeup_source_url = data.item.writeup_source_url;
+        return next;
+      });
+      mark.textContent = "Saved";
+      setTimeout(function () { if (mark.textContent === "Saved") mark.textContent = ""; }, 2500);
+    }).catch(function (e) { mark.className = "pk-saved err"; mark.textContent = e.message; });
+  }
+
+  $("pkItems").addEventListener("change", function (e) {
+    var row = e.target.closest(".pk-item");
+    if (row && e.target.matches(".pk-writeup, .pk-credit, .pk-rank")) pkSaveItem(row);
+  });
+
+  function pkReorderItems(ids) {
+    // Titles the library lacks keep their place after the ones shown.
+    var shown = {}; ids.forEach(function (id) { shown[id] = true; });
+    var all = ids.concat(pk.items.filter(function (it) { return !shown[it.id]; }).map(function (it) { return it.id; }));
+    return api("/api/admin/picks/" + encodeURIComponent(pk.current.id) + "/items", { method: "PUT", body: { ids: all } })
+      .then(function (data) { pk.items = data.items || []; pkRenderItems(); })
+      .catch(function (e) { show("err", e.message); pkOpen(pk.current.id); });
+  }
+
+  pkSortable($("pkItems"), ".pk-item", "data-pk-item", pkReorderItems);
+
+  function pkRemoveItem(id) {
+    return api(pkItemUrl(id), { method: "DELETE" }).then(function () {
+      pkOpen(pk.current.id);
+      pkLoad(true);
+    }).catch(function (e) { show("err", e.message); });
+  }
+
+  $("pkItems").addEventListener("click", function (e) {
+    var row = e.target.closest(".pk-item");
+    if (!row) return;
+    var id = row.getAttribute("data-pk-item");
+
+    var move = e.target.closest("[data-pk-item-move]");
+    if (move) {
+      var ids = Array.prototype.map.call($("pkItems").querySelectorAll(".pk-item"), function (r) { return r.getAttribute("data-pk-item"); });
+      var i = ids.indexOf(id), j = move.getAttribute("data-pk-item-move") === "up" ? i - 1 : i + 1;
+      if (j < 0 || j >= ids.length) return;
+      ids.splice(j, 0, ids.splice(i, 1)[0]);
+      pkReorderItems(ids);
+      return;
+    }
+    if (e.target.closest("[data-pk-item-remove]")) {
+      if (row.querySelector(".pk-writeup").value.trim() && !confirm("Remove this title and its writeup from the pick?")) return;
+      pkRemoveItem(id);
+      return;
+    }
+    if (e.target.closest("[data-pk-passages]")) {
+      var box = row.querySelector(".pk-passages");
+      if (!box.hidden) { box.hidden = true; return; }
+      var item = pk.items.filter(function (it) { return it.id === id; })[0];
+      box.hidden = false;
+      box.innerHTML = '<div class="muted">Loading…</div>';
+      api("/api/admin/picks/sources?imdb_id=" + encodeURIComponent(item.imdb_id)).then(function (data) {
+        var passages = data.passages || [];
+        box.innerHTML = passages.length ? passages.map(function (ps) {
+          return '<div class="pk-passage" data-pk-src="' + esc(ps.sourceName) + '" data-pk-url="' + esc(ps.articleUrl || "") + '">' +
+            '<div class="pk-passage-text">' + esc(ps.text) + '</div>' +
+            '<div class="pk-passage-foot"><span class="pk-passage-src">' + esc(ps.sourceName) + ' · ' + esc(ps.articleTitle) + '</span>' +
+            '<span class="pk-inline"><button class="ghost pk-mini" data-pk-use="replace">Use this</button>' +
+            '<button class="ghost pk-mini" data-pk-use="append">Add below</button></span></div></div>';
+        }).join("") : '<div class="muted">Nothing has been scraped for this film.</div>';
+      }).catch(function (err) { box.innerHTML = '<div class="muted">' + esc(err.message) + '</div>'; });
+      return;
+    }
+    var use = e.target.closest("[data-pk-use]");
+    if (use) {
+      var passage = use.closest(".pk-passage");
+      var text = passage.querySelector(".pk-passage-text").textContent;
+      var area = row.querySelector(".pk-writeup");
+      area.value = use.getAttribute("data-pk-use") === "append" && area.value.trim()
+        ? area.value.replace(/\s+$/, "") + "\n\n" + text
+        : text;
+      var credit = row.querySelector(".pk-credit");
+      credit.value = passage.getAttribute("data-pk-src");
+      credit.setAttribute("data-pk-credit-url", passage.getAttribute("data-pk-url"));
+      pkSaveItem(row);
+    }
+  });
+
+  $("pkMissing").addEventListener("click", function (e) {
+    var row = e.target.closest("[data-pk-item]");
+    if (row && e.target.closest("[data-pk-item-remove]")) pkRemoveItem(row.getAttribute("data-pk-item"));
+  });
+
+  $("pkAddSearch").addEventListener("input", function () {
+    clearTimeout(pkAddTimer);
+    var q = $("pkAddSearch").value.trim();
+    if (q.length < 2) { $("pkAddResults").innerHTML = ""; return; }
+    pkAddTimer = setTimeout(function () {
       api("/api/admin/accolades/search?q=" + encodeURIComponent(q)).then(function (data) {
         var results = data.results || [];
-        $("notifySearchResults").innerHTML = results.length
-          ? results.map(function (r) {
-              return '<div class="ac-result-row nf-result" data-notify-select-imdb="' + esc(r.imdbId) + '" data-notify-select-name="' + esc(r.name) +
-                '" data-notify-select-href="' + esc(r.href) + '" data-notify-select-poster="' + esc(r.posterUrl || "") + '">' +
-                thumbHtml(r.posterUrl) +
-                '<span class="nf-result-name">' + esc(r.name) + ' <span class="ac-r-year">' + (r.year || "") + '</span></span>' +
-                '</div>';
-            }).join("")
-          : '<div class="muted" style="padding:6px 0;font-size:13px">No matches.</div>';
-      // A silent catch here is why this once looked like nothing was fetching
-      // at all. Say what happened.
-      }).catch(function (e) {
-        $("notifySearchResults").innerHTML = '<div class="muted" style="padding:6px 0;font-size:13px">' + esc(e.message) + '</div>';
-      });
+        $("pkAddResults").innerHTML = results.length ? results.map(function (r) {
+          return '<div class="ac-result-row nf-result" data-pk-add-imdb="' + esc(r.imdbId) + '" data-pk-add-name="' + esc(r.name) +
+            '" data-pk-add-year="' + (r.year || "") + '" data-pk-add-href="' + esc(r.href) + '">' + thumbHtml(r.posterUrl) +
+            '<span class="nf-result-name">' + esc(r.name) + ' <span class="ac-r-year">' + (r.year || "") + '</span></span></div>';
+        }).join("") : '<div class="muted" style="padding:6px 0">No matches in the library.</div>';
+      }).catch(function (e) { $("pkAddResults").innerHTML = '<div class="muted">' + esc(e.message) + '</div>'; });
     }, 250);
   });
 
-  $("notifySearchResults").addEventListener("click", function (e) {
-    var row = e.target.closest("[data-notify-select-imdb]");
-    if (!row) return;
-    notifyState.film = {
-      imdbId: row.getAttribute("data-notify-select-imdb"),
-      name: row.getAttribute("data-notify-select-name"),
-      href: row.getAttribute("data-notify-select-href"),
-      posterUrl: row.getAttribute("data-notify-select-poster") || null,
-    };
-    $("notifySearchResults").innerHTML = "";
-    $("notifySearchInput").value = notifyState.film.name;
-    $("notifySelectedFilm").innerHTML = '<div class="nf-selected">' + thumbHtml(notifyState.film.posterUrl) +
-      '<span>Sending: <strong>' + esc(notifyState.film.name) + '</strong></span></div>';
-    notifyUpdateSendState();
+  $("pkAddResults").addEventListener("click", function (e) {
+    var row = e.target.closest("[data-pk-add-imdb]");
+    if (!row || !pk.current) return;
+    var body = { title: row.getAttribute("data-pk-add-name"), imdb_id: row.getAttribute("data-pk-add-imdb"), href: row.getAttribute("data-pk-add-href") };
+    if (row.getAttribute("data-pk-add-year")) body.year = Number(row.getAttribute("data-pk-add-year"));
+    api("/api/admin/picks/" + encodeURIComponent(pk.current.id) + "/items", { method: "POST", body: body }).then(function (data) {
+      pk.items = data.items || [];
+      pkRenderItems();
+      pkLoad(true);
+      $("pkAddSearch").value = "";
+      $("pkAddResults").innerHTML = "";
+      $("pkAddSearch").focus();
+    }).catch(function (err) { show("err", err.message); });
   });
-
-  $("notifyUserList").addEventListener("change", function (e) {
-    if (e.target.classList.contains("notify-user-cb")) notifyUpdateSendState();
-  });
-
-  $("notifySend").addEventListener("click", function () {
-    if (!notifyState.film) return;
-    var userIds = Array.prototype.slice.call(document.querySelectorAll(".notify-user-cb:checked")).map(function (cb) {
-      return cb.getAttribute("data-user-id");
-    });
-    if (!userIds.length) return;
-    $("notifySend").disabled = true;
-    $("notifyStatus").textContent = "Sending…";
-    api("/api/admin/notifications/curators-pick", {
-      method: "POST",
-      body: {
-        imdbId: notifyState.film.imdbId,
-        filmTitle: notifyState.film.name,
-        filmHref: notifyState.film.href,
-        userIds: userIds,
-        note: $("notifyNote").value.trim(),
-      },
-    }).then(function (data) {
-      var hadNote = $("notifyNote").value.trim().length > 0;
-      $("notifyStatus").textContent = "Sent to " + data.notified + " user" + (data.notified === 1 ? "" : "s") +
-        (hadNote ? ", with your note." : ".");
-      $("notifyNote").value = "";
-      $("notifyNoteCount").textContent = "0 / 500";
-      notifyUpdateSendState();
-    }).catch(function (e) {
-      $("notifyStatus").textContent = "Failed: " + e.message;
-      notifyUpdateSendState();
-    });
-  });
-
-  $("notifyNote").addEventListener("input", function () {
-    $("notifyNoteCount").textContent = $("notifyNote").value.length + " / 500";
-  });
-
-  document.querySelector('.tab-btn[data-tab="notify"]').addEventListener("click", notifyLoadUsers);
 
   /* ================================================================
    * Library review — duplicates & no-metadata items
@@ -6107,6 +6634,7 @@
       html += '<div class="ac-builder-editor">';
       html += '<div class="row"><div><label>Name</label><input class="ac-rename-input" value="' + esc(a.name) + '"></div>' +
         '<div style="flex:0 0 auto"><button class="ghost small" data-ac-action="builder-rename">Rename</button></div>' +
+        '<div style="flex:0 0 auto"><button class="ghost small" data-pk-from-accolade="' + esc(a.id) + '">Make a pick</button></div>' +
         '<div style="flex:0 0 auto"><button class="ghost small" data-ac-action="builder-delete">Delete list</button></div></div>';
       a.entries.forEach(function (e, i) {
         html += '<div class="ac-slot-row" data-entry-id="' + esc(e.id) + '" data-slot="' + e.slot + '" data-index="' + i + '">' +
