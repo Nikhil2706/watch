@@ -322,7 +322,7 @@
   .pk-pick { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 9px 10px;
              border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; background: rgba(255, 255, 255, 0.015); cursor: pointer; }
   .pk-pick:hover { border-color: var(--accent); }
-  .pk-pick.sel { border-color: var(--warm-line); background: var(--surface-2); }
+  .pk-pick.sel { border-color: var(--warm-line); background: var(--surface-2); box-shadow: inset 3px 0 0 var(--warm); }
   .pk-pick.dragging, .pk-item.dragging { opacity: 0.4; }
   .pk-pick.over, .pk-item.over { box-shadow: 0 -2px 0 0 var(--warm); }
   .pk-grip { color: var(--muted); cursor: grab; user-select: none; line-height: 1.2; }
@@ -332,7 +332,7 @@
   .pk-chip.live { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
   .pk-chip.warm { color: var(--warm); border-color: var(--warm-line); }
   .pk-chip.people { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
-  .pk-arrows { display: flex; flex-direction: column; gap: 2px; }
+  .pk-arrows { display: flex; gap: 3px; }
   .pk-arrows button, .pk-mini { padding: 1px 7px; font-size: 12px; line-height: 1.4; }
   .pk-start-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 12px; }
   .pk-source { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid var(--border); }
@@ -364,7 +364,15 @@
   .pk-passage { border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; line-height: 1.5; color: #cdd4e0; }
   .pk-passage-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
   .pk-passage-src { color: var(--warm); font-size: 11.5px; overflow-wrap: anywhere; }
-  .pk-add { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .pk-add { margin: 0 0 14px; }
+  /* The actions stay in reach however long the pick is. */
+  .pk-editor-head { position: sticky; top: 0; z-index: 5; margin: -18px -18px 16px; padding: 12px 18px;
+                    background: var(--surface); border-bottom: 1px solid var(--border); border-radius: 14px 14px 0 0; }
+  .pk-item textarea { overflow-y: hidden; resize: none; }
+  @media (min-width: 861px) {
+    /* The list of picks stays beside the editor while the editor scrolls. */
+    .pk-side { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
+  }
   .pk-missing { margin-top: 16px; font-size: 13px; }
   .pk-missing summary { cursor: pointer; color: var(--muted); }
   .pk-missing-row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-top: 1px solid var(--border); color: var(--muted); }
@@ -373,6 +381,7 @@
     .pk-item, .pk-item.unranked { grid-template-columns: 18px 40px minmax(0, 1fr); }
     .pk-item .pk-rank { grid-column: 2; grid-row: 2; width: 40px; }
     .pk-item .nf-thumb { width: 40px; height: 60px; }
+    .pk-editor-head { margin: -12px -12px 14px; padding: 10px 12px; border-radius: 12px 12px 0 0; }
   }
 
   .rv-group {
@@ -1496,13 +1505,12 @@
             <div class="card-title">Titles</div>
             <div class="muted" id="pkCounts"></div>
           </div>
-          <div id="pkItems"></div>
-
           <div class="pk-add">
             <label for="pkAddSearch">Add a film, a show or an episode</label>
             <input id="pkAddSearch" placeholder="Search your library — a film, a show, or an episode (west wing s02e22)" spellcheck="false" style="width:100%">
             <div id="pkAddResults" style="margin-top:6px"></div>
           </div>
+          <div id="pkItems"></div>
 
           <details id="pkMissingWrap" class="pk-missing" hidden>
             <summary id="pkMissingSummary"></summary>
@@ -3291,6 +3299,14 @@
     pkRenderItems();
   }
 
+  /* A writeup box as tall as its text, up to about twenty lines: a three-line
+     window onto four paragraphs is no way to read what you are publishing. */
+  function pkAutoGrow(area) {
+    area.style.height = "auto";
+    area.style.height = Math.min(area.scrollHeight + 2, 440) + "px";
+    area.style.overflowY = area.scrollHeight + 2 > 440 ? "auto" : "hidden";
+  }
+
   function pkRenderItems() {
     var p = pk.current, ranked = !!p.ranked;
     var present = [], missing = [];
@@ -3321,6 +3337,8 @@
         '<span class="pk-saved"></span></div>' +
         '<div class="pk-passages" hidden></div></div></div>';
     }).join("") : '<div class="muted" style="padding:6px 0">No titles from the library yet. Add one below.</div>';
+
+    $("pkItems").querySelectorAll(".pk-writeup").forEach(pkAutoGrow);
 
     $("pkMissingWrap").hidden = !missing.length;
     $("pkMissingSummary").textContent = missing.length + " from this list " + (missing.length === 1 ? "is" : "are") + " not in the library";
@@ -3428,6 +3446,10 @@
     }).catch(function (e) { mark.className = "pk-saved err"; mark.textContent = e.message; });
   }
 
+  $("pkItems").addEventListener("input", function (e) {
+    if (e.target.matches(".pk-writeup")) pkAutoGrow(e.target);
+  });
+
   $("pkItems").addEventListener("change", function (e) {
     var row = e.target.closest(".pk-item");
     if (row && e.target.matches(".pk-writeup, .pk-credit, .pk-rank")) pkSaveItem(row);
@@ -3499,6 +3521,7 @@
       var credit = row.querySelector(".pk-credit");
       credit.value = passage.getAttribute("data-pk-src");
       credit.setAttribute("data-pk-credit-url", passage.getAttribute("data-pk-url"));
+      pkAutoGrow(area);
       pkSaveItem(row);
     }
   });
