@@ -18,7 +18,8 @@ import {
   scrollFocusedIntoView,
   type Direction,
 } from "@/lib/tv/spatial-nav";
-import { TV_MODE_COOKIE } from "@/lib/tv/constants";
+import { TV_MODE_COOKIE, viewportContent } from "@/lib/tv/constants";
+import { installAppBack, registerBackHandler } from "@/lib/overlay-back";
 
 /**
  * Root of the TV experience: detects/upgrades TV mode, and — only while TV
@@ -88,8 +89,29 @@ export function focusTvAutofocusTarget(): void {
     autofocus.focus();
     return;
   }
-  const first = getFocusableElements().find((el) => !el.closest(".appbar"));
+  const focusable = getFocusableElements();
+  // A page with nothing focusable of its own (an empty Picks, the pairing
+  // code) lands on its own header link, so the D-pad always has an anchor.
+  const first =
+    focusable.find((el) => !el.closest(".appbar")) ??
+    focusable.find((el) => el.closest(".appbar nav") && el.getAttribute("href") === window.location.pathname) ??
+    focusable.find((el) => el.closest(".appbar nav"));
   first?.focus();
+}
+
+/** This document itself was loaded by Back/Forward (a full page load, not a client-side one). */
+let backForwardLoadConsumed = false;
+function isBackForwardLoad(): boolean {
+  if (backForwardLoadConsumed) return false;
+  backForwardLoadConsumed = true;
+  const entry = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+  return entry?.type === "back_forward";
+}
+
+/** Nothing (or only <body>) has focus — arrow keys would have no anchor. */
+function nothingFocused(): boolean {
+  const active = document.activeElement;
+  return !active || active === document.body || active === document.documentElement;
 }
 
 function isKnownTvUserAgent(): boolean {
@@ -127,6 +149,7 @@ export function TvProvider({
   const backStack = useRef<BackHandler[]>([]);
   const pathname = usePathname();
   const lastMoveDirection = useRef<Direction>("down");
+  const cameBack = useRef(false);
 
   // Refine the server's guess once the browser can actually answer
   // hover/pointer questions. Only overrides when there is no explicit
@@ -143,6 +166,11 @@ export function TvProvider({
 
   useEffect(() => {
     document.documentElement.setAttribute("data-tv", tvMode ? "true" : "false");
+    // Keep the viewport width in step when the client overrides the server's
+    // guess (see TV_LAYOUT_WIDTH in constants.ts).
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    const content = viewportContent(tvMode);
+    if (meta && meta.content !== content) meta.content = content;
   }, [tvMode]);
 
   // Expose a console escape hatch for testing without editing the URL —
@@ -154,16 +182,33 @@ export function TvProvider({
     };
   }, []);
 
+  // The Android app's Back asks the page first on every page, not only once
+  // a menu has opened (overlay-back.ts).
+  useEffect(() => {
+    installAppBack();
+  }, []);
+
+  // Escape reaches the stack through the keydown handler below; the Android
+  // app's Back button never arrives as a key (MainActivity asks
+  // window.__watchCloseOverlay), so the same handler registers there too.
   const pushBackHandler = useCallback((handler: BackHandler) => {
     backStack.current.push(handler);
+    const unregisterAppBack = registerBackHandler(handler);
     return () => {
       backStack.current = backStack.current.filter((h) => h !== handler);
+      unregisterAppBack();
     };
   }, []);
 
   const moveFocus = useCallback((direction: Direction) => {
     const active = document.activeElement;
-    if (!(active instanceof HTMLElement)) return;
+    // Focus lost (the focused element was removed, or the page never had
+    // one): the first press lands on the page's default instead of doing
+    // nothing, which from a couch reads as a dead remote.
+    if (nothingFocused() || !(active instanceof HTMLElement)) {
+      focusTvAutofocusTarget();
+      return;
+    }
     const next = findNextFocusable(active, direction);
     if (!next) return;
     lastMoveDirection.current = direction;
@@ -212,16 +257,28 @@ export function TvProvider({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [tvMode, moveFocus]);
 
-  // Focus landing/restoration on every navigation: prefer the element the
-  // user last focused on this exact path (by href, so it survives a
-  // re-render with the same content), then an explicit
+  // Focus landing/restoration on every navigation: coming BACK to a page
+  // prefers the element the user last focused there (by href, so it
+  // survives a re-render with the same content); otherwise an explicit
   // data-tv-autofocus element, then the first focusable element outside the
-  // persistent header.
+  // persistent header. Only on Back: choosing Home from the header should
+  // land on Home's hero, not wherever focus was an hour ago.
   useEffect(() => {
     if (!tvMode) return;
+    const onPop = () => {
+      cameBack.current = true;
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [tvMode]);
+
+  useEffect(() => {
+    if (!tvMode) return;
+    const back = cameBack.current || isBackForwardLoad();
+    cameBack.current = false;
 
     const frame = requestAnimationFrame(() => {
-      const stored = sessionStorage.getItem(`tvFocus:${pathname}`);
+      const stored = back ? sessionStorage.getItem(`tvFocus:${pathname}`) : null;
       if (stored) {
         const byHref = document.querySelector<HTMLElement>(
           `a[href="${CSS.escape(stored)}"]`,
@@ -236,7 +293,26 @@ export function TvProvider({
       focusTvAutofocusTarget();
     });
 
-    return () => cancelAnimationFrame(frame);
+    // Content that streams in after the first frame (Browse's grid, a
+    // Suspense boundary) had nothing to focus yet: keep trying for a few
+    // seconds, until something is focused.
+    let observer: MutationObserver | null = new MutationObserver(() => {
+      if (!nothingFocused()) return stop();
+      focusTvAutofocusTarget();
+      if (!nothingFocused()) stop();
+    });
+    const timeout = setTimeout(() => stop(), 5000);
+    function stop() {
+      observer?.disconnect();
+      observer = null;
+      clearTimeout(timeout);
+    }
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      stop();
+    };
   }, [tvMode, pathname]);
 
   // Remember focus by href so returning to a page (Back from an item page to

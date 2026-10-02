@@ -35,14 +35,15 @@ export default async function SearchPage({
     <>
       <AppBar username={session.username} query={query} langloisMode={session.langloisMode} />
 
-      <TvSearchField initialQuery={query} />
-
       <div className="page-head">
         <h1>{query ? `Results for “${query}”` : "Search"}</h1>
         {!query ? (
           <p className="page-sub">Titles, people and genres: try &ldquo;Kubrick&rdquo; or &ldquo;horror&rdquo;.</p>
         ) : null}
       </div>
+
+      {/* TV only (renders nothing elsewhere): under the title, above results. */}
+      <TvSearchField initialQuery={query} />
 
       {!query ? null : matches.length === 0 ? (
         <div className="empty">No titles matched “{query}”.</div>

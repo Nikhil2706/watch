@@ -31,8 +31,18 @@ function isVisible(el: HTMLElement): boolean {
   return true;
 }
 
+/**
+ * Focusable, but never a D-pad stop. The favourite/rewatch toggles overlaid
+ * on each poster sit above the poster's own link, so pressing down into a
+ * row landed on a heart first, and one OK changed a list. On a TV they are
+ * state indicators only (tv.css); the film page has the real buttons.
+ */
+const DPAD_SKIP_SELECTOR = ".list-overlay button";
+
 export function getFocusableElements(root: ParentNode = document): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(isVisible);
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (el) => isVisible(el) && !el.matches(DPAD_SKIP_SELECTOR),
+  );
 }
 
 interface Rect {

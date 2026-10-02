@@ -52,7 +52,7 @@ export function TvSearchField({ initialQuery }: { initialQuery: string }) {
         onInsert={(text) => setQuery((q) => q + text)}
         onBackspace={() => setQuery((q) => q.slice(0, -1))}
       />
-      <div style={{ marginTop: 16 }}>
+      <div style={{ marginTop: 16, display: "flex", justifyContent: "center" }}>
         <button type="button" className="btn" onClick={submit}>
           Search
         </button>

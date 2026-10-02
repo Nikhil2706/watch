@@ -1,9 +1,10 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 
 import { NavProgress } from "@/components/NavProgress";
 import { OfflineResume } from "@/components/offline/OfflineResume";
 import { ScreenAgent } from "@/components/remote/ScreenAgent";
 import { TvProvider } from "@/components/tv/TvProvider";
+import { TV_LAYOUT_WIDTH } from "@/lib/tv/constants";
 import { resolveTvModeFromRequest } from "@/lib/tv/detect";
 
 import "./globals.css";
@@ -27,9 +28,16 @@ export const metadata: Metadata = {
   },
 };
 
-export const viewport = {
-  themeColor: "#06070a",
-};
+// TV mode lays the page out TV_LAYOUT_WIDTH px wide; see constants.ts.
+export async function generateViewport(): Promise<Viewport> {
+  const tvMode = await resolveTvModeFromRequest();
+  return tvMode
+    ? // initialScale explicitly undefined: Next's default adds
+      // initial-scale=1, which pins the WebView at 2x and shows only the
+      // top-left quarter of the 1920 page instead of fitting it to the screen.
+      { themeColor: "#06070a", width: TV_LAYOUT_WIDTH, initialScale: undefined }
+    : { themeColor: "#06070a", width: "device-width", initialScale: 1 };
+}
 
 export default async function RootLayout({
   children,

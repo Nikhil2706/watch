@@ -39,7 +39,17 @@ export function TvPairingLogin({
       setQrDataUrl(null);
 
       try {
-        const response = await fetch("/api/auth/device/start", { method: "POST" });
+        // One quiet retry: right after the TV app launches, the first request
+        // can fail while the network (or adb reverse, on a dev build) settles.
+        let response: Response;
+        try {
+          response = await fetch("/api/auth/device/start", { method: "POST" });
+          if (!response.ok) throw new Error("start failed");
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          if (cancelled) return;
+          response = await fetch("/api/auth/device/start", { method: "POST" });
+        }
         if (!response.ok) throw new Error("start failed");
         const data = (await response.json()) as { pairId: string; code: string };
         if (cancelled) return;
@@ -51,10 +61,17 @@ export function TvPairingLogin({
         // Client-side rendering, not a server route: the URL a QR code for
         // this encodes is no more sensitive than the code already shown as
         // plain text right next to it.
-        const QRCode = (await import("qrcode")).default;
-        const url = `${window.location.origin}/pair?code=${encodeURIComponent(data.code)}`;
-        const dataUrl = await QRCode.toDataURL(url, { margin: 1, width: 220 });
-        if (!cancelled) setQrDataUrl(dataUrl);
+        // Its own try: the QR code is a convenience next to the code itself.
+        // A failed chunk load here used to land in the catch below, so the TV
+        // said "Could not reach the server" and never started polling.
+        try {
+          const QRCode = (await import("qrcode")).default;
+          const url = `${window.location.origin}/pair?code=${encodeURIComponent(data.code)}`;
+          const dataUrl = await QRCode.toDataURL(url, { margin: 1, width: 220 });
+          if (!cancelled) setQrDataUrl(dataUrl);
+        } catch {
+          /* no QR code; the code and watch/pair are still on screen */
+        }
 
         let pollInFlight = false;
         pollTimer.current = setInterval(async () => {

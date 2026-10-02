@@ -9,6 +9,20 @@
 export const TV_MODE_COOKIE = "watch_tv";
 
 /**
+ * The CSS width a page is laid out at in TV mode — what tv.css is designed
+ * for. An Android TV WebView reports a 1080p screen as 960x540 at 2x, which
+ * made every TV size twice too big (header wrapped, one poster per screen).
+ * layout.tsx sends `<meta name="viewport" content="width=1920">` in TV mode;
+ * the Watch app turns wide-viewport support on for TVs (MainActivity.java)
+ * so the tag takes effect there, and TV browsers that honour it get the same.
+ */
+export const TV_LAYOUT_WIDTH = 1920;
+
+export function viewportContent(tvMode: boolean): string {
+  return tvMode ? `width=${TV_LAYOUT_WIDTH}` : "width=device-width, initial-scale=1";
+}
+
+/**
  * Fire TV, matched on Amazon's device model code.
  *
  * This used to be `/\baft[bmnst]\b/i`, which only matched a four-character

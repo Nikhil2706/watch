@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { clampTime, nextSpeed, PLAYER_SHORTCUTS, resolvePlayerKey } from "./player-keys.ts";
+import { clampTime, nextSpeed, PLAYER_SHORTCUTS, resolvePlayerKey, resolveTvRemoteKey } from "./player-keys.ts";
 
 test("YouTube's keys", () => {
   assert.deepEqual(resolvePlayerKey({ key: " " }), { kind: "toggle" });
@@ -56,4 +56,35 @@ test("speed stays within bounds and frame steps stay inside the film", () => {
 
 test("every shortcut in the help list resolves to something", () => {
   assert.ok(PLAYER_SHORTCUTS.length >= 15);
+});
+
+test("media keys: a remote's transport buttons, anywhere", () => {
+  assert.deepEqual(resolvePlayerKey({ key: "MediaPlayPause" }), { kind: "toggle" });
+  assert.deepEqual(resolvePlayerKey({ key: "MediaPause" }), { kind: "pause" });
+  assert.deepEqual(resolvePlayerKey({ key: "MediaFastForward" }), { kind: "seek", by: 10 });
+  assert.deepEqual(resolveTvRemoteKey("MediaRewind", "controls"), { kind: "seek", by: -10 });
+  assert.deepEqual(resolveTvRemoteKey("MediaPlay", "slider"), { kind: "play" });
+});
+
+test("TV remote on the video: OK plays/pauses, left/right jump 10 s, up/down open the bar", () => {
+  assert.deepEqual(resolveTvRemoteKey("Enter", "video"), { kind: "toggle" });
+  assert.deepEqual(resolveTvRemoteKey("ArrowLeft", "video"), { kind: "seek", by: -10 });
+  assert.deepEqual(resolveTvRemoteKey("ArrowRight", "video"), { kind: "seek", by: 10 });
+  assert.deepEqual(resolveTvRemoteKey("ArrowDown", "video"), { kind: "showControls" });
+  assert.deepEqual(resolveTvRemoteKey("ArrowUp", "video"), { kind: "showControls" });
+  assert.equal(resolveTvRemoteKey("k", "video"), null, "no letters on a remote; not TV keys");
+});
+
+test("TV remote in the control bar: left/right move, up leaves, OK presses the button", () => {
+  assert.deepEqual(resolveTvRemoteKey("ArrowRight", "controls"), { kind: "moveControl", direction: 1 });
+  assert.deepEqual(resolveTvRemoteKey("ArrowLeft", "controls"), { kind: "moveControl", direction: -1 });
+  assert.deepEqual(resolveTvRemoteKey("ArrowUp", "controls"), { kind: "leaveControls" });
+  assert.equal(resolveTvRemoteKey("Enter", "controls"), null);
+  assert.equal(resolveTvRemoteKey("ArrowDown", "controls"), null);
+});
+
+test("TV remote on a slider: left/right stay with the slider, up leaves the bar", () => {
+  assert.equal(resolveTvRemoteKey("ArrowLeft", "slider"), null);
+  assert.equal(resolveTvRemoteKey("ArrowRight", "slider"), null);
+  assert.deepEqual(resolveTvRemoteKey("ArrowUp", "slider"), { kind: "leaveControls" });
 });
