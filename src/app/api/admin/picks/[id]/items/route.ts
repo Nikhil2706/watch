@@ -37,10 +37,15 @@ export async function POST(
     const explicitImdbId = optionalString(body, "imdb_id") ?? null;
     const groupId = optionalString(body, "href")?.match(/^\/collection\/([^/?#]+)/)?.[1] ?? null;
 
+    const existing = listPickItems(id);
+    const alreadyThere = () => new ValidationError(`“${title.trim()}” is already in this pick.`);
+
     if (groupId) {
+      if (existing.some((i) => i.kind === "show" && i.group_id === groupId)) throw alreadyThere();
       addPickItem(id, { kind: "show", groupId, imdbId: explicitImdbId, rawTitle: title.trim() });
     } else {
       const imdbId = explicitImdbId ?? (await matchTitle(title, year)).imdbId;
+      if (imdbId && existing.some((i) => i.kind === "film" && i.imdb_id === imdbId)) throw alreadyThere();
       addPickItem(id, { kind: "film", imdbId, rawTitle: title.trim(), rawYear: year });
     }
     return Response.json(
