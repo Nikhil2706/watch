@@ -88,6 +88,43 @@ test("an unnumbered run of film headings is an unranked list", () => {
   assert.deepEqual(list.entries.map((e) => e.title), ["Heat", "Thief", "Collateral", "Manhunter", "Ali"]);
 });
 
+test("an empty heading between a title and its text does not end the entry", () => {
+  const spaced = page(
+    "The Best Movies of 2025",
+    ["Cloud", "The Shrouds", "Dracula", "The Mastermind", "Caught by the Tides"]
+      .map((t) => `<h2 id=""><em>${t} </em></h2><h3 id=""></h3>${P(`About ${t}.`)}`)
+      .join(""),
+  );
+  const list = parseRingerList(spaced);
+  assert.ok(list);
+  assert.deepEqual(list.entries[0]!.paragraphs, ["About Cloud."]);
+});
+
+test("a title split across two italics is one title; a second film after 'and' is not part of it", () => {
+  const list = parseRingerList(
+    page(
+      "Five Musicals",
+      `<h3 id=""><em>Les </em><em>Mis&eacute;rables</em> (2012)</h3>${P("One.")}
+       <h3 id=""><em>Dracula </em>and <em>Sinners </em><strong>(tie) </strong></h3>${P("Two.")}
+       <h3 id=""><em>Chicago</em> (2002)</h3>${P("Three.")}
+       <h3 id=""><em>Cabaret</em> (1972)</h3>${P("Four.")}
+       <h3 id=""><em>Hair</em> (1979)</h3>${P("Five.")}`,
+    ),
+  );
+  assert.ok(list);
+  assert.deepEqual(list.entries.map((e) => e.title).slice(0, 2), ["Les Misérables", "Dracula"]);
+});
+
+test("the same film named twice means the entries are not films", () => {
+  const coaches = page(
+    "Ranking the Best Football Coaches in Movie History",
+    ["The Little Giants", "Varsity Blues", "The Waterboy", "The Little Giants", "Wildcats", "The Program"]
+      .map((t) => `<h3 id=""><em>${t}</em> (1994)</h3><h2 id="">Some Coach</h2>${P("A coach.")}`)
+      .join(""),
+  );
+  assert.equal(parseRingerList(coaches), null);
+});
+
 test("a year-end headline gives the year its films came out", () => {
   assert.equal(listYearFromHeadline("The Best Movies of 2023"), 2023);
   assert.equal(listYearFromHeadline("The 10 Best Movies of 2026 (So Far)"), 2026);

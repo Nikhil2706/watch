@@ -52,24 +52,43 @@ interface Heading {
   rank: number | null;
   title: string | null;
   year: number | null;
+  /** An empty heading: a spacer the site puts between a title and its text. */
+  empty: boolean;
 }
+
+const EM_RUN = "((?:<em>[^<]*</em>\\s*)+)";
+const NUMBER_THEN_ITALIC = new RegExp(`^\\s*(\\d{1,3})\\.\\s*${EM_RUN}`);
+/** "25. Galaxy Quest" was once set with the number inside the italic. */
+const NUMBER_IN_ITALIC = /^\s*<em>\s*(\d{1,3})\.\s*([^<]*)<\/em>/;
+const ITALIC_FIRST = new RegExp(`^\\s*${EM_RUN}`);
 
 function readHeading($h: ReturnType<cheerio.CheerioAPI>): Heading {
   const text = clean($h.text());
-  const em = clean($h.find("em").first().text());
+  if (!text) return { rank: null, title: null, year: null, empty: true };
 
-  const numbered = text.match(/^(\d{1,3})\.\s*(.*)$/);
-  const rest = numbered ? numbered[2]! : text;
-  const rank = numbered ? Number.parseInt(numbered[1]!, 10) : null;
+  // Bold and line breaks are decoration around the title; the italic is the
+  // title. It must OPEN the heading (after the number, if there is one):
+  // that is what makes the film the entry's subject rather than something
+  // mentioned in passing. A title split across adjacent italics
+  // ("<em>Les </em><em>Misérables</em>") is read as one.
+  const markup = ($h.html() ?? "").replace(/<\/?(?:strong|b|br|span)[^>]*>/gi, "");
+  const numbered = markup.match(NUMBER_THEN_ITALIC) ?? markup.match(NUMBER_IN_ITALIC);
+  const plain = numbered ? null : markup.match(ITALIC_FIRST);
+  const titleMarkup = numbered?.[2] ?? plain?.[1];
 
-  // "25. Galaxy Quest" was once set with the number inside the italic.
-  const emTitle = clean(em.replace(/^\d{1,3}\.\s*/, ""));
-  // The italic must open the heading: that is what makes it the entry's
-  // subject rather than a film mentioned in passing.
-  const title = emTitle && rest.startsWith(emTitle) ? emTitle : null;
+  const title = titleMarkup ? clean(cheerio.load(`<i>${titleMarkup}</i>`).text()) : "";
+  const year = text.match(/\((\d{4})\)/)?.[1];
+  return {
+    rank: numbered ? Number.parseInt(numbered[1]!, 10) : null,
+    title: title || null,
+    year: year ? Number.parseInt(year, 10) : null,
+    empty: false,
+  };
+}
 
-  const year = rest.match(/\((\d{4})\)/)?.[1];
-  return { rank, title, year: year ? Number.parseInt(year, 10) : null };
+/** A film named twice means the entries are something else: its characters, its scenes. */
+function distinctTitles(entries: RingerListEntry[]): boolean {
+  return new Set(entries.map((e) => e.title.toLowerCase())).size === entries.length;
 }
 
 export function parseRingerList(html: string): ParsedRingerList | null {
@@ -94,6 +113,8 @@ export function parseRingerList(html: string): ParsedRingerList | null {
     }
 
     const heading = readHeading($(el));
+    // The 2025 best-of puts an empty heading between each title and its text.
+    if (heading.empty) return;
     if (!heading.title) {
       // Any other heading ends the entry before it: "Honorable Mentions",
       // the site's own "Keep Exploring".
@@ -109,11 +130,11 @@ export function parseRingerList(html: string): ParsedRingerList | null {
   if (ranked.length >= MIN_ENTRIES) {
     const seen = new Set<number>();
     const entries = ranked.filter((e) => !seen.has(e.rank!) && seen.add(e.rank!));
-    if (entries.length >= MIN_ENTRIES) {
+    if (entries.length >= MIN_ENTRIES && distinctTitles(entries)) {
       return { headline, author, ranked: true, entries: entries.sort((a, b) => a.rank! - b.rank!) };
     }
   }
-  if (ranked.length === 0 && unranked.length >= MIN_ENTRIES) {
+  if (ranked.length === 0 && unranked.length >= MIN_ENTRIES && distinctTitles(unranked)) {
     return { headline, author, ranked: false, entries: unranked };
   }
   return null;
