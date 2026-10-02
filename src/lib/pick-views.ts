@@ -2,7 +2,7 @@ import "server-only";
 
 import { episodeCode } from "./episode-key";
 import { getGroup, getGroupedPathMap, getGroupSeriesPoster } from "./library-curation";
-import { getItemsByImdbIds, getItemsByPaths, posterUrl } from "./media";
+import { getItemsByImdbIds, getItemsByPaths, posterUrl, stillUrl } from "./media";
 import { displayRank, orderForDisplay, showsOnHome, writeupPlainText } from "./pick-rank";
 import { listPickItems, listPicksForViewer, pickHref, type PickItem, type ViewerPick } from "./picks";
 import type { ResolvedSession } from "./session";
@@ -25,6 +25,11 @@ export interface PickTile {
   /** Beside the title, muted: a film's year, an episode's "S2 E22". */
   sub: string | null;
   posterSrc: string | null;
+  /**
+   * "still" for an episode: its own frame, uncropped, in a landscape tile
+   * wider than the portrait ones around it. Everything else is a poster.
+   */
+  shape: "poster" | "still";
   /** The number under the poster; null in an unranked pick. */
   rank: number | null;
   /** The writeup as plain text, for the clamped lines under the poster. */
@@ -111,6 +116,7 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
           title: group.groupName,
           sub: null,
           posterSrc: getGroupSeriesPoster(group.groupId) ?? posterUrl(file),
+          shape: "poster",
         });
         continue;
       }
@@ -127,9 +133,10 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
           // TMDB has not been matched for this show.
           title: named ? (show ? `${show.groupName}: ${named.name}` : named.name) : file.Name,
           sub: named ? episodeCode(named.seasonNumber, named.episodeNumber) : null,
-          // The show's poster: an episode's own art is a landscape still,
-          // and every tile in the row is a portrait.
-          posterSrc: (show ? getGroupSeriesPoster(show.groupId) : null) ?? posterUrl(file),
+          // The episode's own frame rather than the show's poster, which
+          // every episode of the show would share.
+          posterSrc: stillUrl(file, 640),
+          shape: "still",
         });
         continue;
       }
@@ -142,6 +149,7 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
         title: film.Name,
         sub: film.ProductionYear ? String(film.ProductionYear) : null,
         posterSrc: posterUrl(film),
+        shape: "poster",
       });
     }
 

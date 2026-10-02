@@ -78,7 +78,7 @@ export function PickRail({ tiles, ranked }: { tiles: PickTile[]; ranked: boolean
           <Link
             key={tile.key}
             href={tile.href}
-            className="pk-tile"
+            className={tile.shape === "still" ? "pk-tile is-still" : "pk-tile"}
             onTouchStart={(e) => onTouchStart(tile, e)}
             onTouchMove={onTouchMove}
             onTouchEnd={cancel}
@@ -95,7 +95,10 @@ export function PickRail({ tiles, ranked }: { tiles: PickTile[]; ranked: boolean
 
       {held ? (
         <div className="pk-held" role="dialog" aria-label={held.title} onClick={close}>
-          <Link href={held.href} className="pk-held-card" onClick={(e) => e.stopPropagation()}>
+          <Link
+            href={held.href}
+            className={held.shape === "still" ? "pk-held-card is-still" : "pk-held-card"}
+            onClick={(e) => e.stopPropagation()}>
             <TileFace tile={held} ranked={ranked} />
             <span className="pk-held-open">Open for the full writeup &rarr;</span>
           </Link>

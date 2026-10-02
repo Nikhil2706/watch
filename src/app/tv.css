@@ -584,6 +584,11 @@ html[data-tv="true"] .pk-tile:focus-visible {
   box-shadow: none;
 }
 
+html[data-tv="true"] .pk-tile.is-still:focus,
+html[data-tv="true"] .pk-tile.is-still:focus-visible {
+  width: calc(var(--pk-w) * 1.78 * 1.08);
+}
+
 html[data-tv="true"] .pk-tile:focus .pk-card {
   background: var(--surface);
   box-shadow:

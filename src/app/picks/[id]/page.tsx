@@ -74,7 +74,7 @@ export default async function PickPage({ params }: { params: Promise<{ id: strin
                 </span>
               ) : null}
               <Link
-                className="pk-list-art"
+                className={tile.shape === "still" ? "pk-list-art is-still" : "pk-list-art"}
                 href={tile.href}
                 // The TV lands on the first title, not on the back link.
                 data-tv-autofocus={index === 0 ? "true" : undefined}

@@ -5587,6 +5587,27 @@ html[data-in-app] .app-get {
   color: var(--warm);
 }
 
+/* An episode: its own frame, uncropped, in a landscape tile. The frame is as
+   tall as the tile is wide and sits on the posters' bottom edge, so the
+   number and the text under it line up with the films beside it. */
+.pk-tile.is-still {
+  width: calc(var(--pk-w) * 1.78);
+}
+
+.pk-tile.is-still .pk-art {
+  aspect-ratio: 16 / 9;
+  margin-top: calc(var(--pk-w) * 0.5);
+}
+
+.pk-held-card.is-still .pk-art,
+.pk-list-art.is-still {
+  aspect-ratio: 16 / 9;
+}
+
+.pk-held-card.is-still .pk-art {
+  margin-top: 0;
+}
+
 /*
  * The open tile. Wider, so the poster is larger; the number fills in; the
  * writeup runs to nine lines.
@@ -5614,6 +5635,10 @@ html[data-in-app] .app-get {
   .pk-tile:focus-visible {
     width: calc(var(--pk-w) * 1.3);
     outline: none;
+  }
+  .pk-tile.is-still:hover,
+  .pk-tile.is-still:focus-visible {
+    width: calc(var(--pk-w) * 1.78 * 1.2);
   }
   .pk-tile:hover .pk-card,
   .pk-tile:focus-visible .pk-card {
