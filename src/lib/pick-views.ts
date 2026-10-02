@@ -1,11 +1,13 @@
 import "server-only";
 
-import { getGroup, getGroupSeriesPoster } from "./library-curation";
+import { episodeCode } from "./episode-key";
+import { getGroup, getGroupedPathMap, getGroupSeriesPoster } from "./library-curation";
 import { getItemsByImdbIds, getItemsByPaths, posterUrl } from "./media";
 import { displayRank, orderForDisplay, showsOnHome, writeupPlainText } from "./pick-rank";
 import { listPickItems, listPicksForViewer, pickHref, type PickItem, type ViewerPick } from "./picks";
 import type { ResolvedSession } from "./session";
 import { itemHref } from "./slugs";
+import { episodeTilesForPaths } from "./tmdb-view";
 
 /**
  * A pick as one viewer sees it: its titles resolved to posters and links.
@@ -20,7 +22,8 @@ export interface PickTile {
   key: string;
   href: string;
   title: string;
-  year: number | null;
+  /** Beside the title, muted: a film's year, an episode's "S2 E22". */
+  sub: string | null;
   posterSrc: string | null;
   /** The number under the poster; null in an unranked pick. */
   rank: number | null;
@@ -63,6 +66,11 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
     ]),
   );
   const firstPaths = [...groups.values()].map((g) => g?.paths[0]).filter((p): p is string => !!p);
+  const episodePaths = all.filter((i) => i.kind === "episode" && i.item_path).map((i) => i.item_path!);
+  // TMDB's season and episode numbers and the episode's real title; the file
+  // itself is named after its filename.
+  const episodeNames = episodeTilesForPaths(episodePaths);
+  const showOfPath = episodePaths.length ? getGroupedPathMap() : new Map<string, { groupId: string; groupName: string }>();
 
   // One request each for every film and every show across all the picks.
   const [films, showFiles] = await Promise.all([
@@ -70,7 +78,7 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
       session,
       all.filter((i) => i.kind === "film" && i.imdb_id).map((i) => i.imdb_id!),
     ),
-    getItemsByPaths(session, firstPaths),
+    getItemsByPaths(session, [...firstPaths, ...episodePaths]),
   ]);
 
   return picks.map((pick) => {
@@ -101,8 +109,27 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
           ...base,
           href: `/collection/${group.groupId}`,
           title: group.groupName,
-          year: null,
+          sub: null,
           posterSrc: getGroupSeriesPoster(group.groupId) ?? posterUrl(file),
+        });
+        continue;
+      }
+
+      if (item.kind === "episode") {
+        const file = item.item_path ? showFiles.get(item.item_path) : undefined;
+        if (!file || !item.item_path) continue;
+        const show = showOfPath.get(item.item_path);
+        const named = episodeNames.get(item.item_path);
+        tiles.push({
+          ...base,
+          href: itemHref(file.Id, file.Name, file.ProductionYear),
+          // "The West Wing: Two Cathedrals"; the filename's own name when
+          // TMDB has not been matched for this show.
+          title: named ? (show ? `${show.groupName}: ${named.name}` : named.name) : file.Name,
+          sub: named ? episodeCode(named.seasonNumber, named.episodeNumber) : null,
+          // The show's poster: an episode's own art is a landscape still,
+          // and every tile in the row is a portrait.
+          posterSrc: (show ? getGroupSeriesPoster(show.groupId) : null) ?? posterUrl(file),
         });
         continue;
       }
@@ -113,7 +140,7 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
         ...base,
         href: itemHref(film.Id, film.Name, film.ProductionYear),
         title: film.Name,
-        year: film.ProductionYear ?? null,
+        sub: film.ProductionYear ? String(film.ProductionYear) : null,
         posterSrc: posterUrl(film),
       });
     }

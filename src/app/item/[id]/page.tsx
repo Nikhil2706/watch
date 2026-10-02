@@ -14,6 +14,7 @@ import { SpecialFeaturesRow } from "@/components/media/SpecialFeaturesRow";
 import { OfflineButton } from "@/components/offline/OfflineButton";
 import { versionLinksForPath } from "@/lib/film-versions";
 import { franchiseHeading } from "@/lib/home-shelves";
+import { episodeKey } from "@/lib/episode-key";
 import { pickMentionsForTitle } from "@/lib/picks";
 import { getRatingSummary } from "@/lib/community";
 import { getCachedContentWarning, toDisplaySignals } from "@/lib/content-warnings";
@@ -113,13 +114,15 @@ export default async function ItemPage({
   // never a scraped_articles.full_text.
   const imdbId = item.ProviderIds?.Imdb;
   const blurb = imdbId ? resolveBlurb(imdbId) : null;
-  const accolade = imdbId ? resolveAccolade(imdbId) : null;
+  // An episode has no IMDb id; in the curator's own lists it goes by its
+  // episode key instead (episode-key.ts).
+  const accolade = imdbId ? resolveAccolade(imdbId) : item.Path ? resolveAccolade(episodeKey(item.Path)) : null;
   const trivia = imdbId ? resolveTriviaForFilm(imdbId, 5, blurb?.text) : [];
   const ratingSummary = imdbId ? getRatingSummary(imdbId) : null;
   const usRating = ratingSummary && ratingSummary.count > 0 ? { average: ratingSummary.average!, count: ratingSummary.count } : null;
   const contentWarning = imdbId ? getCachedContentWarning(imdbId) : null;
   // Every pick this film is in that this viewer can see, with its writeup.
-  const pickMentions = imdbId ? pickMentionsForTitle(session.userId, { imdbId }) : [];
+  const pickMentions = pickMentionsForTitle(session.userId, { imdbId, path: item.Path });
   const contentWarningDisplay = contentWarning ? toDisplaySignals(contentWarning) : null;
 
   // "In this series" — every film Wikipedia's own film-series lists carry

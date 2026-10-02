@@ -3,8 +3,10 @@ import "server-only";
 import { getAdminMovies } from "./admin-library-cache";
 import { adminThumbUrl } from "./admin-thumb";
 import { asRows, getDb } from "./db";
-import { getGroup, getGroupSeriesPoster } from "./library-curation";
+import { episodeCode } from "./episode-key";
+import { getGroup, getGroupedPathMap, getGroupSeriesPoster } from "./library-curation";
 import type { PickItem } from "./picks";
+import { episodeTilesForPaths } from "./tmdb-view";
 
 /**
  * What the console's Picks tab needs that the viewer pages do not: every
@@ -28,6 +30,9 @@ export async function describePickItems(items: PickItem[]): Promise<AdminPickIte
   const movies = await getAdminMovies({ withMediaSources: false });
   const byImdb = new Map(movies.filter((m) => m.ProviderIds?.Imdb).map((m) => [m.ProviderIds!.Imdb!, m]));
   const byPath = new Map(movies.filter((m) => m.Path).map((m) => [m.Path!, m]));
+  const episodePaths = items.filter((i) => i.kind === "episode" && i.item_path).map((i) => i.item_path!);
+  const episodeNames = episodeTilesForPaths(episodePaths);
+  const showOfPath = getGroupedPathMap();
 
   return items.map((item) => {
     if (item.kind === "show") {
@@ -40,6 +45,22 @@ export async function describePickItems(items: PickItem[]): Promise<AdminPickIte
         displayYear: null,
         posterUrl: group
           ? getGroupSeriesPoster(group.groupId) ?? (file ? adminThumbUrl(file.Id, file.ImageTags?.Primary) : null)
+          : null,
+      };
+    }
+    if (item.kind === "episode") {
+      const file = item.item_path ? byPath.get(item.item_path) : undefined;
+      const named = item.item_path ? episodeNames.get(item.item_path) : undefined;
+      const show = item.item_path ? showOfPath.get(item.item_path) : undefined;
+      return {
+        ...item,
+        inLibrary: !!file,
+        displayTitle: named
+          ? `${show ? `${show.groupName}: ` : ""}${named.name} (${episodeCode(named.seasonNumber, named.episodeNumber)})`
+          : file?.Name ?? item.raw_title,
+        displayYear: null,
+        posterUrl: file
+          ? (show ? getGroupSeriesPoster(show.groupId) : null) ?? adminThumbUrl(file.Id, file.ImageTags?.Primary)
           : null,
       };
     }

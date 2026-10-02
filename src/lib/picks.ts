@@ -2,6 +2,8 @@ import "server-only";
 
 import { generateId } from "./crypto";
 import { asRow, asRows, getDb, transaction } from "./db";
+import { pathFromEpisodeKey } from "./episode-key";
+import { getGroupedPathMap } from "./library-curation";
 import { notifyUsers } from "./notifications";
 import { displayRank, orderForDisplay } from "./pick-rank";
 import { matchTitle } from "./scraping/match";
@@ -17,7 +19,7 @@ import { sanitizeRichText } from "./scraping/rich-text";
 
 export type PickAudience = "everyone" | "people";
 export type PickStatus = "draft" | "live";
-export type PickItemKind = "film" | "show";
+export type PickItemKind = "film" | "show" | "episode";
 
 export interface Pick {
   id: string;
@@ -45,6 +47,8 @@ export interface PickItem {
   kind: PickItemKind;
   imdb_id: string | null;
   group_id: string | null;
+  /** Episodes only: the file's path. */
+  item_path: string | null;
   raw_title: string;
   raw_year: number | null;
   writeup: string | null;
@@ -89,7 +93,7 @@ export function listPicks(): PickSummary[] {
         `SELECT p.*,
                 (SELECT COUNT(*) FROM pick_items i WHERE i.pick_id = p.id) AS item_count,
                 (SELECT COUNT(*) FROM pick_items i WHERE i.pick_id = p.id
-                    AND (i.imdb_id IS NOT NULL OR i.group_id IS NOT NULL)) AS matched_count,
+                    AND (i.imdb_id IS NOT NULL OR i.group_id IS NOT NULL OR i.item_path IS NOT NULL)) AS matched_count,
                 (SELECT COUNT(*) FROM pick_recipients r WHERE r.pick_id = p.id) AS recipient_count
            FROM picks p
           ORDER BY p.position DESC, p.created_at DESC`,
@@ -298,6 +302,7 @@ export interface PickItemInput {
   kind?: PickItemKind;
   imdbId?: string | null;
   groupId?: string | null;
+  itemPath?: string | null;
   rawTitle: string;
   rawYear?: number | null;
   rank?: number | null;
@@ -310,9 +315,9 @@ function insertItem(pickId: string, position: number, input: PickItemInput): str
   const id = generateId();
   getDb()
     .prepare(
-      `INSERT INTO pick_items (id, pick_id, position, rank, kind, imdb_id, group_id, raw_title, raw_year,
+      `INSERT INTO pick_items (id, pick_id, position, rank, kind, imdb_id, group_id, item_path, raw_title, raw_year,
                                writeup, writeup_source_label, writeup_source_url, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -322,6 +327,7 @@ function insertItem(pickId: string, position: number, input: PickItemInput): str
       input.kind ?? "film",
       input.imdbId ?? null,
       input.groupId ?? null,
+      input.itemPath ?? null,
       input.rawTitle,
       input.rawYear ?? null,
       cleanWriteup(input.writeup),
@@ -523,13 +529,23 @@ export function createPickFromAccolade(accoladeId: string): Pick | null {
     ranked: true,
     source: { kind: "accolade", id: accolade.id, label: accolade.name, url: null },
   });
+  const groups = getGroupedPathMap();
   entries.forEach((entry, position) => {
-    insertItem(pick.id, position, {
-      imdbId: entry.imdb_id,
-      rawTitle: entry.raw_title,
-      rawYear: entry.raw_year,
-      writeup: entry.blurb_text,
-    });
+    // An episode sits in an accolade under its episode key (episode-key.ts).
+    const path = pathFromEpisodeKey(entry.imdb_id);
+    insertItem(
+      pick.id,
+      position,
+      path
+        ? {
+            kind: "episode",
+            itemPath: path,
+            groupId: groups.get(path)?.groupId ?? null,
+            rawTitle: entry.raw_title,
+            writeup: entry.blurb_text,
+          }
+        : { imdbId: entry.imdb_id, rawTitle: entry.raw_title, rawYear: entry.raw_year, writeup: entry.blurb_text },
+    );
   });
   return getPick(pick.id)!;
 }
@@ -608,17 +624,20 @@ export interface PickMention {
  */
 export function pickMentionsForTitle(
   userId: string,
-  target: { imdbId?: string | null; groupId?: string | null },
+  target: { imdbId?: string | null; groupId?: string | null; path?: string | null },
 ): PickMention[] {
-  if (!target.imdbId && !target.groupId) return [];
+  if (!target.imdbId && !target.groupId && !target.path) return [];
 
   const mentions: PickMention[] = [];
   for (const pick of listPicksForViewer(userId)) {
     const ordered = orderForDisplay(listPickItems(pick.id), false);
+    // A show's page is asked for by group; a film's or an episode's page by
+    // whichever of the two it has — an IMDb id, or just its path.
     const index = ordered.findIndex((item) =>
       target.groupId
         ? item.kind === "show" && item.group_id === target.groupId
-        : item.kind === "film" && item.imdb_id === target.imdbId,
+        : (item.kind === "film" && !!target.imdbId && item.imdb_id === target.imdbId) ||
+          (item.kind === "episode" && !!target.path && item.item_path === target.path),
     );
     if (index === -1) continue;
     const item = ordered[index]!;

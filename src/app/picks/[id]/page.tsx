@@ -90,7 +90,7 @@ export default async function PickPage({ params }: { params: Promise<{ id: strin
               <div className="pk-list-body">
                 <h2>
                   <Link href={tile.href}>{tile.title}</Link>
-                  {tile.year ? <span className="pk-year"> {tile.year}</span> : null}
+                  {tile.sub ? <span className="pk-year"> {tile.sub}</span> : null}
                 </h2>
                 <Writeup
                   text={tile.writeup}

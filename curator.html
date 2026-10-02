@@ -1499,8 +1499,8 @@
           <div id="pkItems"></div>
 
           <div class="pk-add">
-            <label for="pkAddSearch">Add a film or show</label>
-            <input id="pkAddSearch" placeholder="Search your library…" spellcheck="false" style="width:100%">
+            <label for="pkAddSearch">Add a film, a show or an episode</label>
+            <input id="pkAddSearch" placeholder="Search your library — a film, a show, or an episode (west wing s02e22)" spellcheck="false" style="width:100%">
             <div id="pkAddResults" style="margin-top:6px"></div>
           </div>
 
@@ -3309,7 +3309,7 @@
           : "") +
         thumbHtml(it.posterUrl) +
         '<div><div class="pk-item-head"><div class="pk-item-title">' + esc(it.displayTitle) +
-        (it.displayYear ? ' <span>' + it.displayYear + '</span>' : "") + (it.kind === "show" ? ' <span>· show</span>' : "") + '</div>' +
+        (it.displayYear ? ' <span>' + it.displayYear + '</span>' : "") + (it.kind === "show" ? ' <span>· show</span>' : it.kind === "episode" ? ' <span>· episode</span>' : "") + '</div>' +
         '<div class="pk-inline"><button class="ghost pk-mini" data-pk-item-move="up" title="Move up">↑</button>' +
         '<button class="ghost pk-mini" data-pk-item-move="down" title="Move down">↓</button>' +
         '<button class="ghost pk-mini" data-pk-item-remove title="Remove from this pick">✕</button></div></div>' +
@@ -3513,7 +3513,7 @@
     var q = $("pkAddSearch").value.trim();
     if (q.length < 2) { $("pkAddResults").innerHTML = ""; return; }
     pkAddTimer = setTimeout(function () {
-      api("/api/admin/accolades/search?q=" + encodeURIComponent(q)).then(function (data) {
+      api("/api/admin/accolades/search?episodes=1&q=" + encodeURIComponent(q)).then(function (data) {
         var results = data.results || [];
         $("pkAddResults").innerHTML = results.length ? results.map(function (r) {
           return '<div class="ac-result-row nf-result" data-pk-add-imdb="' + esc(r.imdbId) + '" data-pk-add-name="' + esc(r.name) +
@@ -6231,7 +6231,8 @@
     var q = input.value.trim();
     if (q.length < 2 || !resultsEl) { if (resultsEl) resultsEl.innerHTML = ""; return; }
     input._acTimer = setTimeout(function () {
-      api("/api/admin/accolades/search?q=" + encodeURIComponent(q)).then(function (data) {
+      // episodes=1: a slot can hold one episode of a show as well as a film.
+      api("/api/admin/accolades/search?episodes=1&q=" + encodeURIComponent(q)).then(function (data) {
         if (input.value.trim() !== q) return; // typed on since
         var results = data.results || [];
         resultsEl.innerHTML = results.length

@@ -1,6 +1,8 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { describePickItems } from "@/lib/pick-admin";
 import { addPickItem, getPick, listPickItems, setPickItemOrder } from "@/lib/picks";
+import { pathFromEpisodeKey } from "@/lib/episode-key";
+import { getGroupedPathMap } from "@/lib/library-curation";
 import { matchTitle } from "@/lib/scraping/match";
 import { optionalInt, optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
@@ -14,7 +16,8 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
  *   { title, year?, imdb_id?, href? }
  *
  * `href` is what the console's library search hands back: "/collection/{id}"
- * marks a show, anything else a film. A title typed with no search result
+ * marks a show, anything else a film. An `imdb_id` that is an episode key
+ * (episode-key.ts) marks one episode of a show. A title typed with no search result
  * behind it is matched here, and kept unmatched if the library does not have
  * it — it joins the pick when it arrives.
  */
@@ -34,13 +37,25 @@ export async function POST(
     const title = optionalString(body, "title");
     if (!title || !title.trim()) throw new ValidationError("title is required.");
     const year = optionalInt(body, "year") ?? null;
-    const explicitImdbId = optionalString(body, "imdb_id") ?? null;
+    // Read whole: an episode key carries a file path, and optionalString
+    // cuts at 200 characters.
+    const explicitImdbId = typeof body.imdb_id === "string" && body.imdb_id.length <= 2000 ? body.imdb_id : null;
     const groupId = optionalString(body, "href")?.match(/^\/collection\/([^/?#]+)/)?.[1] ?? null;
 
     const existing = listPickItems(id);
     const alreadyThere = () => new ValidationError(`“${title.trim()}” is already in this pick.`);
 
-    if (groupId) {
+    // An episode arrives from the library search under its episode key.
+    const episodePath = pathFromEpisodeKey(explicitImdbId);
+    if (episodePath) {
+      if (existing.some((i) => i.kind === "episode" && i.item_path === episodePath)) throw alreadyThere();
+      addPickItem(id, {
+        kind: "episode",
+        itemPath: episodePath,
+        groupId: getGroupedPathMap().get(episodePath)?.groupId ?? null,
+        rawTitle: title.trim(),
+      });
+    } else if (groupId) {
       if (existing.some((i) => i.kind === "show" && i.group_id === groupId)) throw alreadyThere();
       addPickItem(id, { kind: "show", groupId, imdbId: explicitImdbId, rawTitle: title.trim() });
     } else {

@@ -16,7 +16,13 @@ export async function GET(request: Request): Promise<Response> {
   const denied = requireAdmin(request);
   if (denied) return denied;
 
-  const query = new URL(request.url).searchParams.get("q") ?? "";
-  const results = await searchLibraryForAdmin(query, 10);
+  const params = new URL(request.url).searchParams;
+  const query = params.get("q") ?? "";
+  // episodes=1: also offer single episodes of shows, each under its episode
+  // key (episode-key.ts) in place of an IMDb id. Asked for by the lists that
+  // can hold one — a pick, a built accolade — and not by the Films tab, which
+  // manages material that only films have.
+  const episodes = params.get("episodes") === "1";
+  const results = await searchLibraryForAdmin(query, episodes ? 30 : 10, { episodes });
   return Response.json({ results }, { headers: NO_STORE });
 }

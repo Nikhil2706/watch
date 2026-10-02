@@ -30,7 +30,7 @@
  * runVersionedMigrations() will not replay the set at all. The live database
  * is already at 40, so the other branch's v38 work would never have run here.
  */
-export const SCHEMA_VERSION = 48;
+export const SCHEMA_VERSION = 49;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1269,9 +1269,12 @@ CREATE TABLE IF NOT EXISTS pick_items (
   -- source, which keeps the source's own ranks (so they skip the films not
   -- in the library); NULL means "number by position".
   rank                 INTEGER,
-  kind                 TEXT NOT NULL DEFAULT 'film', -- 'film' | 'show'
+  kind                 TEXT NOT NULL DEFAULT 'film', -- 'film' | 'show' | 'episode'
   imdb_id              TEXT,
-  group_id             TEXT,                         -- shows: library_groups.group_id
+  group_id             TEXT,                         -- shows, and an episode's show: library_groups.group_id
+  -- Episodes: the file's path. An episode has no IMDb id, and a Jellyfin item
+  -- id does not survive a library rebuild; a path does.
+  item_path            TEXT,
   raw_title            TEXT NOT NULL,
   raw_year             INTEGER,
   writeup              TEXT,

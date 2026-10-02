@@ -392,6 +392,13 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "notifications") && !tableExists(db, "picks")) {
     db.exec("DELETE FROM notifications WHERE kind = 'curators_pick'");
   }
+
+  // v49: pick_items gained item_path, so a pick can hold one episode of a
+  // show. Only a database that created pick_items before the column existed
+  // needs this; SCHEMA_SQL creates it complete everywhere else.
+  if (tableExists(db, "pick_items") && !columnExists(db, "pick_items", "item_path")) {
+    db.exec("ALTER TABLE pick_items ADD COLUMN item_path TEXT");
+  }
 }
 
 /**
