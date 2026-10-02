@@ -30,7 +30,7 @@
  * runVersionedMigrations() will not replay the set at all. The live database
  * is already at 40, so the other branch's v38 work would never have run here.
  */
-export const SCHEMA_VERSION = 46;
+export const SCHEMA_VERSION = 47;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1227,4 +1227,15 @@ CREATE TABLE IF NOT EXISTS tmdb_images (
   fetched_at   INTEGER NOT NULL,
   PRIMARY KEY (path, size)
 ) STRICT;
+
+-- Pages a list scraper opened and found not to be a film list (v47). Only a
+-- few in a hundred of a site's articles are lists; this is what stops each
+-- run from fetching the other ninety-odd again.
+CREATE TABLE IF NOT EXISTS scrape_checked_urls (
+  url        TEXT PRIMARY KEY,
+  source_id  TEXT NOT NULL,
+  checked_at INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_scrape_checked_urls_source ON scrape_checked_urls(source_id);
 `;

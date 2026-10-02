@@ -40,6 +40,19 @@ export interface FilmMentionInput {
    * be duplicated once per accolade row instead of stored once.
    */
   skipCandidateExtraction?: boolean;
+  /**
+   * The text that is about this film and nothing else, when the source says
+   * so itself — a list whose every entry has its own paragraphs under its own
+   * heading. Replaces the guess windowTextAroundMention() makes for sources
+   * that do not, so an entry's passages are exactly its writeup.
+   */
+  windowText?: string;
+  /**
+   * Keeps the blurb passages but extracts no trivia. A list entry is one
+   * critic's argument for the film, and its sentences read as opinion; the
+   * film page shows trivia as fact.
+   */
+  skipTrivia?: boolean;
 }
 
 export interface ScrapedArticle {
@@ -142,7 +155,7 @@ export async function upsertScrapedArticle(
       ...m,
       linkId: generateId(),
       match: await matchTitle(m.rawTitle, m.rawYear ?? null),
-      window: windowTextAroundMention(article.fullText, m.rawTitle),
+      window: m.windowText ?? windowTextAroundMention(article.fullText, m.rawTitle),
     })),
   );
 
@@ -197,6 +210,8 @@ export async function upsertScrapedArticle(
         ).run(generateId(), mention.linkId, text, position);
       });
 
+      if (mention.skipTrivia) continue;
+
       splitIntoTriviaCandidates(mention.window).forEach((text, position) => {
         db.prepare(
           "INSERT INTO article_trivia_candidates (id, link_id, fact_text, position) VALUES (?, ?, ?, ?)",
@@ -209,6 +224,43 @@ export async function upsertScrapedArticle(
     articleId,
     matchedCount: resolved.filter((m) => m.match.confidence !== "unmatched").length,
   };
+}
+
+/**
+ * Drops the URLs a source already has stored, keeping the rest in order.
+ *
+ * A refresh is "fetch what is new", not "fetch everything again": re-saving
+ * an article replaces its mention rows, and a curator's locked accolade or
+ * blurb points at those rows by id. Skipping what is stored leaves every
+ * choice already made exactly where it is — and saves the requests.
+ */
+export function withoutStoredUrls(sourceId: string, urls: string[]): string[] {
+  const stored = new Set(
+    asRows<{ url: string }>(
+      getDb().prepare("SELECT url FROM scraped_articles WHERE source_id = ?").all(sourceId),
+    ).map((r) => r.url),
+  );
+  return urls.filter((url) => !stored.has(url));
+}
+
+/**
+ * URLs a list scraper has already opened and found not to be a list. Most of
+ * a site's articles are not, and without this every run would fetch all of
+ * them again to learn the same thing.
+ */
+export function withoutCheckedUrls(sourceId: string, urls: string[]): string[] {
+  const checked = new Set(
+    asRows<{ url: string }>(
+      getDb().prepare("SELECT url FROM scrape_checked_urls WHERE source_id = ?").all(sourceId),
+    ).map((r) => r.url),
+  );
+  return urls.filter((url) => !checked.has(url));
+}
+
+export function markUrlChecked(sourceId: string, url: string): void {
+  getDb()
+    .prepare("INSERT OR IGNORE INTO scrape_checked_urls (url, source_id, checked_at) VALUES (?, ?, ?)")
+    .run(url, sourceId, Date.now());
 }
 
 export function getArticle(articleId: string): ScrapedArticle | undefined {

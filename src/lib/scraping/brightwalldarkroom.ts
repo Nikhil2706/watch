@@ -3,7 +3,7 @@ import "server-only";
 import * as cheerio from "cheerio";
 
 import { logEvent, recordExternalApiCall } from "../events";
-import { upsertScrapedArticle, type FilmMentionInput } from "./articles";
+import { upsertScrapedArticle, withoutStoredUrls, type FilmMentionInput } from "./articles";
 
 /**
  * Bright Wall/Dark Room (brightwalldarkroom.com) — a film-essay magazine,
@@ -150,8 +150,12 @@ export interface BwdrRunResult {
   matchedCount: number;
 }
 
-export async function runBwdrScrape(limit = 10): Promise<BwdrRunResult> {
-  const urls = await discoverBwdrArticleUrls(limit);
+export async function runBwdrScrape(limit = 10, onlyNew = false): Promise<BwdrRunResult> {
+  // A refresh walks the whole listing and keeps only what is not stored yet;
+  // see withoutStoredUrls() for why stored articles are left alone.
+  const urls = onlyNew
+    ? withoutStoredUrls("brightwalldarkroom", await discoverBwdrArticleUrls(Number.MAX_SAFE_INTEGER)).slice(0, limit)
+    : await discoverBwdrArticleUrls(limit);
   let articlesProcessed = 0;
   let matchedCount = 0;
 
