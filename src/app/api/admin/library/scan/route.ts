@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { invalidateAdminMovies } from "@/lib/admin-library-cache";
 import { getDb } from "@/lib/db";
 import { JellyfinError, refreshLibrary } from "@/lib/jellyfin";
+import { relinkUnmatchedPickItems } from "@/lib/picks";
 import { relinkUnmatchedAccoladeEntries, relinkUnmatchedArticleLinks } from "@/lib/scraping/articles";
 import { relinkUnmatchedFilmSeriesEntries } from "@/lib/scraping/film-series";
 import { invalidateLibraryIndex } from "@/lib/scraping/match";
@@ -70,6 +71,9 @@ export async function POST(request: Request): Promise<Response> {
     );
     void relinkUnmatchedFilmSeriesEntries().catch((error) =>
       console.error("[admin/library/scan] film-series relink failed:", error),
+    );
+    void relinkUnmatchedPickItems().catch((error) =>
+      console.error("[admin/library/scan] pick relink failed:", error),
     );
 
     return Response.json(

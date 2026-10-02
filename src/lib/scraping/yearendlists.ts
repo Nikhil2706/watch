@@ -3,7 +3,7 @@ import "server-only";
 import * as cheerio from "cheerio";
 
 import { logEvent, recordExternalApiCall } from "../events";
-import { upsertScrapedArticle, type FilmMentionInput } from "./articles";
+import { upsertScrapedArticle, withoutStoredUrls, type FilmMentionInput } from "./articles";
 
 /**
  * yearendlists.com — an index of OTHER publications' year-end film lists
@@ -64,7 +64,7 @@ async function fetchHtml(path: string): Promise<string | null> {
  * (books, albums), and a looser `a[href^="/2025/"]` selector picks those up
  * too.
  */
-export async function discoverYearendlistsUrls(year: number, maxPages = 3): Promise<string[]> {
+export async function discoverYearendlistsUrls(year: number, maxPages = 12): Promise<string[]> {
   const urls = new Set<string>();
   let path: string | null = `/category/${year}-movies`;
   let page = 0;
@@ -115,6 +115,8 @@ export function parseListPage(html: string): ParsedList | null {
 }
 
 export interface YearendlistsRunResult {
+  /** Lists this year's category page links to. */
+  listsOnSite: number;
   listsProcessed: number;
   entriesFound: number;
   matchedCount: number;
@@ -126,8 +128,14 @@ export interface YearendlistsRunResult {
  * scraped_articles row (url = the list's own page), so re-running is a
  * normal upsert per list, not a giant merge.
  */
-export async function runYearendlistsScrape(year: number, maxPages = 3): Promise<YearendlistsRunResult> {
-  const urls = await discoverYearendlistsUrls(year, maxPages);
+export async function runYearendlistsScrape(year: number, maxPages = 12): Promise<YearendlistsRunResult> {
+  // A year's category runs to three pages of 25; the old cap of 3 pages was
+  // the whole of most years and one page short of the fullest. A published
+  // list does not change, so one already stored is not fetched again — see
+  // withoutStoredUrls() for what re-saving it would cost.
+  const discovered = await discoverYearendlistsUrls(year, maxPages);
+  const fresh = new Set(withoutStoredUrls("yearendlists", discovered.map((path) => `${BASE_URL}${path}`)));
+  const urls = discovered.filter((path) => fresh.has(`${BASE_URL}${path}`));
   let listsProcessed = 0;
   let entriesFound = 0;
   let matchedCount = 0;
@@ -164,5 +172,5 @@ export async function runYearendlistsScrape(year: number, maxPages = 3): Promise
     matchedCount += result.matchedCount;
   }
 
-  return { listsProcessed, entriesFound, matchedCount };
+  return { listsOnSite: discovered.length, listsProcessed, entriesFound, matchedCount };
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
+import { CURATOR_NAME } from "@/lib/curator-name";
 import { useCloseOnBack } from "@/lib/overlay-back";
 
 type NotificationKind =
@@ -49,7 +50,7 @@ function notificationText(n: NotificationItem): ReactNode {
     case "curators_pick":
       return (
         <>
-          Curator&apos;s Pick — Just For You: <b>{n.filmTitle}</b>
+          Picked for you by {CURATOR_NAME}: <b>{n.filmTitle}</b>
         </>
       );
     case "watch_party_live":
@@ -162,7 +163,7 @@ export function NotificationBell() {
         <div className="bell-dropdown">
           <div className="bell-dropdown-head">Notifications</div>
           {items.length === 0 ? (
-            <div className="notif-empty">Nothing yet — replies, new titles, and curator picks show up here.</div>
+            <div className="notif-empty">Nothing yet — replies, new titles and picks show up here.</div>
           ) : (
             items.map((n) => (
               <a

@@ -3,7 +3,7 @@ import "server-only";
 import * as cheerio from "cheerio";
 
 import { logEvent, recordExternalApiCall } from "../events";
-import { upsertScrapedArticle, type FilmMentionInput } from "./articles";
+import { upsertScrapedArticle, withoutStoredUrls, type FilmMentionInput } from "./articles";
 
 /**
  * David Bordwell's website on cinema (davidbordwell.net) — a film scholar's
@@ -134,8 +134,12 @@ export interface BordwellRunResult {
   matchedCount: number;
 }
 
-export async function runBordwellScrape(limit = 10): Promise<BordwellRunResult> {
-  const urls = await discoverBordwellPostUrls(limit);
+export async function runBordwellScrape(limit = 10, onlyNew = false): Promise<BordwellRunResult> {
+  // A refresh walks the whole listing and keeps only what is not stored yet;
+  // see withoutStoredUrls() for why stored articles are left alone.
+  const urls = onlyNew
+    ? withoutStoredUrls("davidbordwell", await discoverBordwellPostUrls(Number.MAX_SAFE_INTEGER)).slice(0, limit)
+    : await discoverBordwellPostUrls(limit);
   let postsProcessed = 0;
   let matchedCount = 0;
 

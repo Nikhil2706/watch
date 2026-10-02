@@ -5386,3 +5386,555 @@ html[data-in-app] .app-get {
     order: 99;
   }
 }
+
+/* ---------------------------------------------------------------- *
+ * Picks
+ *
+ * A pick is a titled list of films and shows. As a row (Home, the Picks
+ * page) each title is a poster with a few lines of its writeup beneath; a
+ * ranked pick puts the number under the poster, overlapping its bottom
+ * edge. The tile under the pointer or the focus widens, pushing its
+ * neighbours aside, and shows more of the text.
+ *
+ * "pk-" because "pick-" is already Choose for me's prefix.
+ * ---------------------------------------------------------------- */
+
+.pk-rows {
+  padding-top: 8px;
+}
+
+.pk-row {
+  position: relative;
+  z-index: 1;
+  margin: 0 0 30px;
+  --pk-w: 158px;
+  --pk-gap: 14px;
+  /* What sits under the poster in a closed tile: the part of the number that
+     hangs below it, one line of title, three of writeup. */
+  --pk-below: calc(var(--pk-w) * 0.21 + 5.4rem);
+  /* How far an open tile grows downwards. See .pk-rail. */
+  --pk-room: 14rem;
+}
+
+/* No number, so the posters stand further apart and the text has room. */
+.pk-row:not(.is-ranked) {
+  --pk-gap: 28px;
+  --pk-below: 5.6rem;
+}
+
+/* An open tile overlaps the row beneath it. Two pick rows in a row would
+   otherwise paint the lower one's heading over the upper one's open tile. */
+.pk-row:hover,
+.pk-row:focus-within {
+  z-index: 3;
+}
+
+.pk-head {
+  padding: 0 20px;
+  margin: 0 0 8px;
+}
+
+.pk-head h2 {
+  margin: 0;
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  font-size: 1.32rem;
+  line-height: 1.2;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
+}
+
+.pk-head h2 a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--warm-line);
+  text-underline-offset: 4px;
+}
+
+.pk-sub {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  max-width: 62ch;
+}
+
+.pk-source {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.pk-source a {
+  color: var(--accent);
+}
+
+.pk-for-you {
+  display: inline-block;
+  margin: 0 0 6px;
+  padding: 1px 10px;
+  border: 1px solid var(--warm-line);
+  border-radius: 999px;
+  color: var(--warm);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pk-rail {
+  gap: var(--pk-gap);
+  align-items: flex-start;
+  /* A tile changes width under the pointer; snapping would yank the row. */
+  scroll-snap-type: none;
+  padding-top: 10px;
+}
+
+.pk-tile {
+  display: block;
+  flex: 0 0 auto;
+  width: var(--pk-w);
+  color: inherit;
+  transition: width 0.18s ease;
+  /* Press-and-hold is ours on a phone (PickRail); keep the browser's own
+     long-press menu and text selection out of it. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.pk-card {
+  display: block;
+  border-radius: 12px;
+}
+
+.pk-art {
+  display: block;
+  position: relative;
+  aspect-ratio: 2 / 3;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  transition: border-color 0.18s ease;
+}
+
+.pk-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pk-art .fallback {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 10px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+/* The number: outlined in the brand's warm light, hollow until the tile
+   opens. It starts inside the poster and hangs below it. */
+.pk-num {
+  display: block;
+  position: relative;
+  margin: -0.44em 0 0 -0.03em;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-weight: 800;
+  font-size: calc(var(--pk-w) * 0.56);
+  line-height: 0.82;
+  letter-spacing: -0.06em;
+  font-variant-numeric: tabular-nums;
+  color: var(--bg);
+  -webkit-text-stroke: 2.5px var(--warm);
+  paint-order: stroke fill;
+  pointer-events: none;
+}
+
+.pk-name {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pk-row:not(.is-ranked) .pk-name {
+  margin-top: 10px;
+}
+
+.pk-year {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.pk-text {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pk-credit {
+  color: var(--warm);
+}
+
+/* An episode: its own frame, uncropped, in a landscape tile. The frame is as
+   tall as the tile is wide and sits on the posters' bottom edge, so the
+   number and the text under it line up with the films beside it. */
+.pk-tile.is-still {
+  width: calc(var(--pk-w) * 1.78);
+}
+
+.pk-tile.is-still .pk-art {
+  aspect-ratio: 16 / 9;
+  margin-top: calc(var(--pk-w) * 0.5);
+}
+
+.pk-held-card.is-still .pk-art,
+.pk-list-art.is-still {
+  aspect-ratio: 16 / 9;
+}
+
+.pk-held-card.is-still .pk-art {
+  margin-top: 0;
+}
+
+/*
+ * The open tile. Wider, so the poster is larger; the number fills in; the
+ * writeup runs to nine lines.
+ *
+ * It must not change the height of the row, or every row below would jump as
+ * the pointer crossed this one. So on devices that can open a tile, each tile
+ * keeps the height of a closed one and lets its contents run past it, and the
+ * rail carries --pk-room of bottom padding to be seen in, taken back with a
+ * negative margin so the page lays out as if it were not there. The rail
+ * itself ignores the pointer, so the row underneath that padding still
+ * answers to it; the tiles take it back.
+ */
+@media (hover: hover) {
+  .pk-rail {
+    padding-bottom: var(--pk-room);
+    margin-bottom: calc(-1 * var(--pk-room));
+    overflow-y: hidden;
+    pointer-events: none;
+  }
+  .pk-tile {
+    height: calc(var(--pk-w) * 1.5 + var(--pk-below));
+    pointer-events: auto;
+  }
+  .pk-tile:hover,
+  .pk-tile:focus-visible {
+    width: calc(var(--pk-w) * 1.3);
+    outline: none;
+  }
+  .pk-tile.is-still:hover,
+  .pk-tile.is-still:focus-visible {
+    width: calc(var(--pk-w) * 1.78 * 1.2);
+  }
+  .pk-tile:hover .pk-card,
+  .pk-tile:focus-visible .pk-card {
+    background: var(--surface);
+    box-shadow:
+      0 0 0 8px var(--surface),
+      0 0 0 9px var(--warm-line),
+      0 28px 50px -8px rgba(0, 0, 0, 0.85);
+  }
+  .pk-tile:hover .pk-art,
+  .pk-tile:focus-visible .pk-art {
+    border-color: var(--warm);
+  }
+  .pk-tile:hover .pk-num,
+  .pk-tile:focus-visible .pk-num {
+    color: var(--warm);
+  }
+  .pk-tile:hover .pk-name,
+  .pk-tile:focus-visible .pk-name {
+    white-space: normal;
+  }
+  .pk-tile:hover .pk-text,
+  .pk-tile:focus-visible .pk-text {
+    -webkit-line-clamp: 9;
+    line-clamp: 9;
+    color: #dbe0ea;
+  }
+}
+
+/* A phone has no hover: pressing and holding a tile lifts it into this card. */
+.pk-held {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(3, 4, 6, 0.82);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+.pk-held-card {
+  --pk-w: min(220px, 64vw);
+  display: block;
+  width: calc(var(--pk-w) + 30px);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 15px 15px 16px;
+  border: 1px solid var(--warm-line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 30px 60px -20px #000;
+  color: inherit;
+}
+
+.pk-held-card .pk-art {
+  border-color: var(--warm);
+}
+
+.pk-held-card .pk-num {
+  color: var(--warm);
+}
+
+.pk-held-card .pk-name {
+  white-space: normal;
+  font-size: 0.95rem;
+}
+
+.pk-held-card .pk-text {
+  -webkit-line-clamp: 10;
+  line-clamp: 10;
+  color: #dbe0ea;
+  font-size: 0.84rem;
+}
+
+.pk-held-open {
+  display: block;
+  margin-top: 10px;
+  color: var(--accent);
+  font-size: 0.8rem;
+}
+
+/* --- A title's own page: the picks it is in ----------------------- */
+
+.pk-panels {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 18px;
+}
+
+.pk-panel {
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top-color: var(--panel-edge);
+  border-left: 3px solid var(--warm);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+
+.pk-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.pk-panel-num {
+  font-weight: 800;
+  font-size: 2.5rem;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--bg);
+  -webkit-text-stroke: 1.5px var(--warm);
+  paint-order: stroke fill;
+}
+
+.pk-panel-kind {
+  display: block;
+  color: var(--warm);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pk-panel-title {
+  display: block;
+  margin-top: 2px;
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  font-size: 1.12rem;
+  line-height: 1.25;
+}
+
+.pk-panel-title:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--warm-line);
+  text-underline-offset: 4px;
+}
+
+.pk-panel-more {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--accent);
+  font-size: 0.86rem;
+}
+
+.writeup p {
+  margin: 0 0 0.75em;
+  max-width: 68ch;
+  color: #dbe0ea;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.writeup p:last-child {
+  margin-bottom: 0;
+}
+
+.writeup p.writeup-source {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.writeup-source a {
+  color: var(--accent);
+}
+
+/* --- A pick's own page -------------------------------------------- */
+
+.pk-back {
+  display: inline-block;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.pk-back:hover {
+  color: var(--text);
+}
+
+.pk-page-head .pk-for-you {
+  display: table;
+}
+
+.pk-list {
+  list-style: none;
+  margin: 14px 0 48px;
+  padding: 0 20px;
+  max-width: 940px;
+}
+
+.pk-entry-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  padding: 20px 0;
+  border-top: 1px solid var(--border);
+}
+
+.pk-list.is-ranked .pk-entry-row {
+  grid-template-columns: 4.4rem 96px minmax(0, 1fr);
+}
+
+.pk-list-num {
+  padding-top: 2px;
+  text-align: right;
+  font-weight: 800;
+  font-size: 3.2rem;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+  color: var(--bg);
+  -webkit-text-stroke: 2px var(--warm);
+  paint-order: stroke fill;
+}
+
+.pk-list-art {
+  display: block;
+  aspect-ratio: 2 / 3;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.pk-list-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pk-list-art .fallback {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 6px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.pk-list-body h2 {
+  margin: 0 0 8px;
+  font-size: 1.08rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.pk-list-body h2 a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 700px) {
+  .pk-row {
+    --pk-w: 124px;
+    --pk-gap: 12px;
+    margin-bottom: 26px;
+  }
+  .pk-row:not(.is-ranked) {
+    --pk-gap: 20px;
+  }
+  .pk-head {
+    padding: 0 14px;
+  }
+  .pk-head h2 {
+    font-size: 1.14rem;
+  }
+  .pk-num {
+    -webkit-text-stroke-width: 2px;
+  }
+  .pk-list {
+    padding: 0 14px;
+  }
+  .pk-entry-row {
+    grid-template-columns: 68px minmax(0, 1fr);
+    gap: 12px;
+    padding: 16px 0;
+  }
+  .pk-list.is-ranked .pk-entry-row {
+    grid-template-columns: 2.5rem 68px minmax(0, 1fr);
+  }
+  .pk-list-num {
+    font-size: 1.9rem;
+    -webkit-text-stroke-width: 1.5px;
+  }
+  .pk-panel {
+    padding: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pk-tile,
+  .pk-art {
+    transition: none;
+  }
+}
