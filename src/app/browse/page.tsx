@@ -161,6 +161,7 @@ export default async function BrowsePage({
               name="q"
               placeholder={dimMeta.placeholder}
               defaultValue={search}
+              enterKeyHint="search"
               spellCheck={false}
               autoComplete="off"
             />
@@ -177,9 +178,10 @@ export default async function BrowsePage({
               <div className="value-empty">No {dimMeta.label.toLowerCase()}s match &ldquo;{search}&rdquo;.</div>
             ) : (
               (dim === "director" || dim === "actor"
-                ? (filteredValues as typeof facets.directors).map((p) => (
+                ? (filteredValues as typeof facets.directors).map((p, i) => (
                     <Link
                       key={p.id}
+                      data-tv-autofocus={search && i === 0 ? "true" : undefined}
                       href={baseQuery({ value: p.name, q: undefined })}
                       className={`value-row${value === p.name ? " active" : ""}`}
                     >
@@ -199,9 +201,11 @@ export default async function BrowsePage({
                       <span className="vcount">{dim === "director" ? p.directorCount : p.actorCount}</span>
                     </Link>
                   ))
-                : (filteredValues as typeof facets.genres).map((f) => (
+                : (filteredValues as typeof facets.genres).map((f, i) => (
                     <Link
                       key={f.id}
+                      // TV: after filtering this list, focus its first match.
+                      data-tv-autofocus={search && i === 0 ? "true" : undefined}
                       // Must go through facetLinkValue, not f.name. For genres
                       // the two are identical, but for decades id is "1990" and
                       // name is "1990s" — linking the display name made every
