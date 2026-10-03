@@ -172,6 +172,8 @@ function TileFace({ tile, ranked }: { tile: PickTile; ranked: boolean }) {
         <span className="pk-num" aria-label={`Number ${tile.rank}`}>
           {tile.rank}
         </span>
+      ) : tile.label ? (
+        <span className="pk-word">{tile.label}</span>
       ) : null}
       <span className="pk-name">
         {tile.title}

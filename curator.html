@@ -351,6 +351,8 @@
              padding: 10px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; background: rgba(255, 255, 255, 0.015); }
   .pk-item.unranked { grid-template-columns: 18px 46px minmax(0, 1fr); }
   .pk-rank { width: 46px; padding: 5px 4px; text-align: center; font-weight: 700; color: var(--warm); border-color: var(--warm-line); }
+  .pk-item.labelled { grid-template-columns: 18px 104px 46px minmax(0, 1fr); }
+  .pk-word-in { width: 104px; padding: 5px 7px; font-weight: 700; color: var(--warm); border-color: var(--warm-line); }
   .pk-item .nf-thumb { width: 46px; height: 69px; }
   .pk-item-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
   .pk-item-title { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
@@ -380,6 +382,8 @@
     .pk-layout { grid-template-columns: minmax(0, 1fr); }
     .pk-item, .pk-item.unranked { grid-template-columns: 18px 40px minmax(0, 1fr); }
     .pk-item .pk-rank { grid-column: 2; grid-row: 2; width: 40px; }
+    .pk-item.labelled { grid-template-columns: 18px 40px minmax(0, 1fr); }
+    .pk-item .pk-word-in { grid-column: 2 / span 2; grid-row: 2; width: 100%; max-width: 160px; }
     .pk-item .nf-thumb { width: 40px; height: 60px; }
     .pk-editor-head { margin: -12px -12px 14px; padding: 10px 12px; border-radius: 12px 12px 0 0; }
   }
@@ -1537,10 +1541,11 @@
 
           <div class="pk-options">
             <div>
-              <label>Order</label>
+              <label>Under each poster</label>
               <div class="pk-seg" id="pkRankedSeg">
-                <button type="button" data-pk-ranked="1">Ranked</button>
-                <button type="button" data-pk-ranked="0">Unranked</button>
+                <button type="button" data-pk-under="number">A number</button>
+                <button type="button" data-pk-under="word">A word</button>
+                <button type="button" data-pk-under="nothing">Nothing</button>
               </div>
             </div>
             <div>
@@ -3547,7 +3552,7 @@
     $("pkSubtitle").value = p.subtitle || "";
     $("pkPinned").checked = !!p.pinned;
     $("pkRankedSeg").querySelectorAll("button").forEach(function (b) {
-      b.classList.toggle("on", b.getAttribute("data-pk-ranked") === String(p.ranked));
+      b.classList.toggle("on", b.getAttribute("data-pk-under") === (p.ranked ? "number" : p.labelled ? "word" : "nothing"));
     });
     $("pkAudienceSeg").querySelectorAll("button").forEach(function (b) {
       b.classList.toggle("on", b.getAttribute("data-pk-audience") === p.audience);
@@ -3589,7 +3594,7 @@
   }
 
   function pkRenderItems() {
-    var p = pk.current, ranked = !!p.ranked;
+    var p = pk.current, ranked = !!p.ranked, labelled = !ranked && !!p.labelled;
     var present = [], missing = [];
     pk.items.forEach(function (it, index) { (it.inLibrary ? present : missing).push({ it: it, index: index }); });
 
@@ -3598,12 +3603,15 @@
 
     $("pkItems").innerHTML = present.length ? present.map(function (row) {
       var it = row.it;
-      return '<div class="pk-item' + (ranked ? "" : " unranked") + '" draggable="true" data-pk-item="' + esc(it.id) + '">' +
+      return '<div class="pk-item' + (ranked ? "" : labelled ? " labelled" : " unranked") + '" draggable="true" data-pk-item="' + esc(it.id) + '">' +
         '<span class="pk-grip" title="Drag to reorder">⠿</span>' +
         (ranked
           ? '<input class="pk-rank" type="number" min="1" value="' + (it.rank === null ? "" : it.rank) + '" placeholder="' + (row.index + 1) +
             '" title="The number shown under the poster. Leave empty to number by position.">'
-          : "") +
+          : labelled
+            ? '<input class="pk-word-in" maxlength="12" value="' + esc(it.label || "") +
+              '" placeholder="Word" title="The word shown under the poster, up to 12 characters. Every word in the pick is set at the size the longest fits.">'
+            : "") +
         thumbHtml(it.posterUrl) +
         '<div><div class="pk-item-head"><div class="pk-item-title">' + esc(it.displayTitle) +
         (it.displayYear ? ' <span>' + it.displayYear + '</span>' : "") + (it.kind === "show" ? ' <span>· show</span>' : it.kind === "episode" ? ' <span>· episode</span>' : "") + '</div>' +
@@ -3652,8 +3660,8 @@
   });
   $("pkPinned").addEventListener("change", function () { pkPatch({ pinned: $("pkPinned").checked }); });
   $("pkRankedSeg").addEventListener("click", function (e) {
-    var b = e.target.closest("[data-pk-ranked]");
-    if (b) pkPatch({ ranked: b.getAttribute("data-pk-ranked") === "1" });
+    var b = e.target.closest("[data-pk-under]");
+    if (b) pkPatch({ under: b.getAttribute("data-pk-under") });
   });
   $("pkAudienceSeg").addEventListener("click", function (e) {
     var b = e.target.closest("[data-pk-audience]");
@@ -3712,13 +3720,15 @@
       writeup_source_url: label ? (credit.getAttribute("data-pk-credit-url") || null) : null
     };
     if (rankInput) body.rank = rankInput.value.trim() === "" ? null : Number(rankInput.value);
+    var wordInput = row.querySelector(".pk-word-in");
+    if (wordInput) body.label = wordInput.value.trim() || null;
     var mark = row.querySelector(".pk-saved");
     mark.className = "pk-saved"; mark.textContent = "Saving…";
     return api(pkItemUrl(id), { method: "PATCH", body: body }).then(function (data) {
       pk.items = pk.items.map(function (it) {
         if (it.id !== id) return it;
         var next = {}; for (var k in it) next[k] = it[k];
-        next.writeup = data.item.writeup; next.rank = data.item.rank;
+        next.writeup = data.item.writeup; next.rank = data.item.rank; next.label = data.item.label;
         next.writeup_source_label = data.item.writeup_source_label; next.writeup_source_url = data.item.writeup_source_url;
         return next;
       });
@@ -3733,7 +3743,7 @@
 
   $("pkItems").addEventListener("change", function (e) {
     var row = e.target.closest(".pk-item");
-    if (row && e.target.matches(".pk-writeup, .pk-credit, .pk-rank")) pkSaveItem(row);
+    if (row && e.target.matches(".pk-writeup, .pk-credit, .pk-rank, .pk-word-in")) pkSaveItem(row);
   });
 
   function pkReorderItems(ids) {

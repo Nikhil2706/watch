@@ -46,7 +46,8 @@ export async function GET(
 
 /**
  * PATCH /api/admin/picks/{id}
- *   { title?, subtitle?, ranked?, audience?, pinned?, recipients?: string[], status?: "live" | "draft" }
+ *   { title?, subtitle?, under?: "number" | "word" | "nothing", ranked?, audience?, pinned?,
+ *     recipients?: string[], status?: "live" | "draft" }
  *
  * One call saves the whole header of the editor. Publishing is `status:
  * "live"`; the people a personal pick is for are notified then, and anyone
@@ -84,7 +85,13 @@ export async function PATCH(
     // save already knows who they are when the audience change notifies.
     if (recipients !== undefined) setPickRecipients(id, recipients as string[]);
 
+    const under = body.under;
+    if (under !== undefined && under !== "number" && under !== "word" && under !== "nothing") {
+      throw new ValidationError("under must be number, word or nothing.");
+    }
+
     updatePick(id, {
+      under: under as "number" | "word" | "nothing" | undefined,
       title: title?.trim(),
       subtitle: body.subtitle === null ? null : optionalString(body, "subtitle"),
       ranked: optionalBoolean(body, "ranked"),

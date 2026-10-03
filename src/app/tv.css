@@ -635,7 +635,7 @@ html[data-tv="true"] .pk-row {
   margin: 0 0 40px;
 }
 
-html[data-tv="true"] .pk-row:not(.is-ranked) {
+html[data-tv="true"] .pk-row:not(.is-ranked):not(.is-labelled) {
   --pk-gap: 36px;
 }
 
@@ -691,7 +691,8 @@ html[data-tv="true"] .pk-tile:focus .pk-art {
   border-color: var(--warm);
 }
 
-html[data-tv="true"] .pk-tile:focus .pk-num {
+html[data-tv="true"] .pk-tile:focus .pk-num,
+html[data-tv="true"] .pk-tile:focus .pk-word {
   color: var(--warm);
 }
 

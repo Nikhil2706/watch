@@ -64,3 +64,26 @@ export function showsOnHome(
   if (pick.pinned) return true;
   return pick.publishedAt !== null && now - pick.publishedAt < HOME_WINDOW_MS;
 }
+
+/**
+ * A word under the poster in place of a number — a director's surname in an
+ * "Italian cinema starter pack". Short on purpose: every word in a pick is
+ * set at one size, the size at which the longest still fits the tile, so one
+ * long word makes all of them small.
+ */
+export const LABEL_MAX = 12;
+
+/** A typed word as stored: one line, trimmed, null when empty. Longer than LABEL_MAX is the caller's error to report. */
+export function cleanLabel(value: string | null | undefined): string | null {
+  const text = (value ?? "").replace(/\s+/g, " ").trim();
+  return text === "" ? null : text;
+}
+
+/**
+ * How many characters the type is sized for: the longest word among the
+ * tiles shown. Never fewer than five, or a pick of three-letter words would
+ * be set larger than the numbers are.
+ */
+export function labelFitLength(labels: ReadonlyArray<string | null | undefined>): number {
+  return Math.max(5, ...labels.map((l) => l?.length ?? 0));
+}

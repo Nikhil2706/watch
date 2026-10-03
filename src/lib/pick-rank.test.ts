@@ -3,6 +3,8 @@ import { test } from "node:test";
 
 import {
   HOME_WINDOW_MS,
+  cleanLabel,
+  labelFitLength,
   displayRank,
   orderForDisplay,
   showsOnHome,
@@ -58,4 +60,16 @@ test("Home shows a pick for a week, or for as long as it is pinned", () => {
   assert.equal(showsOnHome({ pinned: false, publishedAt: now - HOME_WINDOW_MS - 1 }, now), false);
   assert.equal(showsOnHome({ pinned: true, publishedAt: now - HOME_WINDOW_MS * 5 }, now), true);
   assert.equal(showsOnHome({ pinned: false, publishedAt: null }, now), false);
+});
+
+test("a typed word is kept on one line, and an empty one is no word", () => {
+  assert.equal(cleanLabel("  De   Sica \n"), "De Sica");
+  assert.equal(cleanLabel("   "), null);
+  assert.equal(cleanLabel(null), null);
+});
+
+test("every word in a pick is sized for its longest, and never larger than five characters would be", () => {
+  assert.equal(labelFitLength(["Bava", "Rossellini", null, "De Sica"]), 10);
+  assert.equal(labelFitLength(["Ray", "Ozu"]), 5);
+  assert.equal(labelFitLength([]), 5);
 });
