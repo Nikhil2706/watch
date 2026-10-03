@@ -36,3 +36,22 @@ export function splitSentences(text: string): string[] {
   }
   return sentences.map((s) => s.trim()).filter(Boolean);
 }
+
+/**
+ * True when a sentence holds one end of a quotation and not the other:
+ * `I realized I needed to raise the emotional stakes." Nolan worked on the
+ * script for nine to ten years.` is the tail of something Nolan said plus the
+ * sentence after it. The split is by sentence and a quotation can run across
+ * several, so its pieces arrive as "facts" that start or stop mid-speech.
+ * Apostrophes are left alone; only double quotation marks are counted.
+ */
+export function hasDanglingQuote(text: string): boolean {
+  const straight = (text.match(/"/g) ?? []).length;
+  if (straight % 2 === 1) return true;
+  let depth = 0;
+  for (const ch of text) {
+    if (ch === "\u201C") depth++;
+    else if (ch === "\u201D" && --depth < 0) return true;
+  }
+  return depth !== 0;
+}

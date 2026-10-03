@@ -4,6 +4,7 @@ import { generateId } from "../crypto";
 import { asRow, asRows, getDb } from "../db";
 import { sanitizeRichText } from "./rich-text";
 import { triviaCandidatesForFilm } from "./articles";
+import { hasDanglingQuote } from "./sentences";
 import { looksLikeWikiMarkup } from "./wiki-markup";
 
 /**
@@ -136,7 +137,11 @@ export function resolveTriviaForFilm(imdbId: string, randomLimit = 5, shownAbove
 
   const above = shownAbove ? flat(shownAbove) : "";
   const candidates = triviaCandidatesForFilm(imdbId).filter(
-    (c) => !looksLikeWikiMarkup(c.fact_text) && !(above && above.includes(flat(c.fact_text))),
+    (c) =>
+      !looksLikeWikiMarkup(c.fact_text) &&
+      // Stored before the splitter dropped them: half a quotation is not a fact.
+      !hasDanglingQuote(c.fact_text) &&
+      !(above && above.includes(flat(c.fact_text))),
   );
   if (candidates.length === 0) return [];
 

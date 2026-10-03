@@ -4,7 +4,7 @@ import { generateId } from "../crypto";
 import { asRow, asRows, getDb, transaction } from "../db";
 import { matchTitle } from "./match";
 import { normaliseTitle } from "../library-review";
-import { splitSentences } from "./sentences";
+import { hasDanglingQuote, splitSentences } from "./sentences";
 
 /**
  * Storage for one fetched article or one uploaded book's extracted text —
@@ -109,7 +109,8 @@ export function splitIntoTriviaCandidates(windowText: string): string[] {
   // and titles and stored facts starting "Vengeance did not fare well".
   return splitSentences(windowText)
     .filter((s) => s.length >= 30 && s.length <= 280)
-    .filter((s) => !/^["“]/.test(s));
+    .filter((s) => !/^["“]/.test(s))
+    .filter((s) => !hasDanglingQuote(s));
 }
 
 /**
