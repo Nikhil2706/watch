@@ -3,6 +3,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 
 import { env } from "./env";
+import { nearestFolder, outermostFolders } from "./library-folders";
 
 /**
  * Thin client for the Jellyfin REST API.
@@ -432,6 +433,55 @@ export async function refreshLibrary(): Promise<void> {
     token: env.jellyfinApiKey,
     expectJson: false,
   });
+}
+
+/**
+ * Re-reads only the folders these library paths are in, where
+ * refreshLibrary() walks all of it.
+ *
+ * A full scan costs the same two to three minutes of a busy CPU whether one
+ * film was added or none. Refreshing one folder Jellyfin already knows took
+ * a few seconds against the real library, and that folder is where a new
+ * film shows up: the film's own folder is not an item yet, so the nearest
+ * folder above it that is one gets re-read.
+ *
+ * `unresolved` is every path with no such folder — a file put straight into
+ * the library root, whose parent is the library itself. Nothing is refreshed
+ * unless every path resolves; the caller falls back to a full scan, which is
+ * the only thing that covers them all.
+ *
+ * Fire-and-forget on Jellyfin's side, like the full scan.
+ */
+export async function refreshLibraryFolders(
+  paths: string[],
+): Promise<{ refreshed: string[]; unresolved: string[] }> {
+  const data = await jellyfinFetch<{ Items: Array<{ Id: string; Path?: string }> }>(
+    "/Items?Recursive=true&IncludeItemTypes=Folder&Fields=Path&Limit=5000",
+    { token: env.jellyfinApiKey, timeoutMs: 30_000 },
+  );
+  // The library root is a folder to Jellyfin too, and re-reading that is a
+  // full scan under another name — so it does not count as one here.
+  const known = data.Items.filter((f) => f.Path !== env.mediaLibraryPath);
+  const found = paths.map((path) => ({ path, folder: nearestFolder(path, known) }));
+  const unresolved = found.filter((f) => !f.folder).map((f) => f.path);
+  if (unresolved.length > 0) return { refreshed: [], unresolved };
+
+  const folders = outermostFolders(found.map((f) => f.folder!));
+  const params = new URLSearchParams({
+    Recursive: "true",
+    MetadataRefreshMode: "Default",
+    ImageRefreshMode: "Default",
+    ReplaceAllMetadata: "false",
+    ReplaceAllImages: "false",
+  });
+  for (const folder of folders) {
+    await jellyfinFetch<void>(`/Items/${encodeURIComponent(folder.Id)}/Refresh?${params.toString()}`, {
+      method: "POST",
+      token: env.jellyfinApiKey,
+      expectJson: false,
+    });
+  }
+  return { refreshed: folders.map((f) => f.Path!), unresolved: [] };
 }
 
 /**

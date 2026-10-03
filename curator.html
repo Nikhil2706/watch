@@ -915,6 +915,7 @@
           </select>
           <button class="ghost" id="lwSelectAll">Select all shown</button>
           <button class="ghost" id="lwScan">Scan folder</button>
+          <input type="text" id="lwScanPath" placeholder="Only this folder — Horror/New Film (optional)" title="Where the new files are: the part under the library, or the full path. Empty scans the whole library." style="min-width:260px">
           <button class="ghost" id="lwSuggestFeatures">Suggest special features</button>
           <span class="muted" id="lwScanAge"></span>
         </div>
@@ -4400,8 +4401,12 @@
     btn.disabled = true;
     var before = lw.items.length;
     btn.textContent = "Scanning…";
-    api("/api/admin/library/scan", { method: "POST" })
-      .then(function () {
+    // One folder is re-read in seconds; the whole library takes minutes.
+    var only = $("lwScanPath").value.trim();
+    var wholeLibrary = false;
+    api("/api/admin/library/scan", { method: "POST", body: only ? { folders: [only] } : null })
+      .then(function (data) {
+        wholeLibrary = !!only && !!data && data.scope === "library";
         // Jellyfin's scan is fire-and-forget, so wait a beat before asking
         // what changed rather than reporting on the library as it was.
         return new Promise(function (resolve) { setTimeout(resolve, 4000); });
@@ -4412,7 +4417,9 @@
         var needing = lw.rows.filter(function (r) { return r.needsDecision; }).length;
         show("ok", added > 0
           ? added + " new file" + (added === 1 ? "" : "s") + " picked up. " + needing + " need a decision."
-          : "Scan finished — nothing new. " + needing + " still need a decision.");
+          : wholeLibrary
+            ? "Jellyfin has no folder above that one yet, so the whole library is being scanned — new files show up in a few minutes."
+            : "Scan finished — nothing new. " + needing + " still need a decision.");
       })
       .catch(function (e) { show("err", e.message); })
       .then(function () { btn.disabled = false; btn.textContent = "Scan folder"; });
