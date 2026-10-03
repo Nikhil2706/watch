@@ -890,15 +890,94 @@ function moveSidecars(sourcePath, outputPath) {
   return moved;
 }
 
-async function refreshJellyfin() {
+/*
+ * Files this run has put into the library that Jellyfin has not been told
+ * about yet.
+ *
+ * Every finished job used to ask for a full library scan of its own — two to
+ * three minutes of a busy CPU each, so a queue of eight films meant eight
+ * scans back to back, the first seven of them for nothing. They are collected
+ * here instead and reported once the queue is empty, or after
+ * LIBRARY_REFRESH_AFTER_MS when a long queue would otherwise keep a finished
+ * film out of sight for hours.
+ */
+const LIBRARY_REFRESH_AFTER_MS = 10 * 60 * 1000;
+const pendingLibraryPaths = new Set();
+let pendingLibrarySince = 0;
+
+function noteLibraryChange(path) {
+  if (pendingLibraryPaths.size === 0) pendingLibrarySince = Date.now();
+  pendingLibraryPaths.add(path);
+}
+
+async function flushLibraryChanges(force) {
+  if (pendingLibraryPaths.size === 0) return;
+  if (!force && Date.now() - pendingLibrarySince < LIBRARY_REFRESH_AFTER_MS) return;
+  const paths = [...pendingLibraryPaths];
+  pendingLibraryPaths.clear();
+  await refreshJellyfin(paths);
+}
+
+/**
+ * The folders Jellyfin already knows that hold these files, outermost only —
+ * or null when any file has none (it sits in the library root), which only a
+ * full scan covers. The same rule as src/lib/library-folders.ts, restated
+ * because this script runs on its own.
+ */
+async function jellyfinFoldersFor(paths, headers) {
+  const response = await fetch(
+    `${JELLYFIN_URL}/Items?Recursive=true&IncludeItemTypes=Folder&Fields=Path&Limit=5000`,
+    { headers, signal: AbortSignal.timeout(30_000) },
+  );
+  if (!response.ok) throw new Error(`folder list -> ${response.status}`);
+  // Not the library root: it is a folder to Jellyfin too, and re-reading it
+  // is a full scan under another name.
+  const folders = ((await response.json()).Items ?? []).filter((f) => f.Path && f.Path !== LIBRARY);
+  const within = (path, root) => path === root || path.startsWith(root + "/");
+
+  const chosen = new Map();
+  for (const path of paths) {
+    let best = null;
+    for (const folder of folders) {
+      if (within(path, folder.Path) && (!best || folder.Path.length > best.Path.length)) best = folder;
+    }
+    if (!best) return null;
+    chosen.set(best.Path, best);
+  }
+  const unique = [...chosen.values()];
+  return unique.filter((f) => !unique.some((other) => other !== f && within(f.Path, other.Path)));
+}
+
+async function refreshJellyfin(paths = []) {
   if (!JELLYFIN_API_KEY) {
     log("JELLYFIN_API_KEY not set — skipping library refresh");
     return;
   }
+  const headers = { Authorization: `MediaBrowser Token="${JELLYFIN_API_KEY}"` };
+  // Only the folders the files went into, when Jellyfin knows them: seconds,
+  // where the full scan below takes minutes.
+  try {
+    const folders = paths.length > 0 ? await jellyfinFoldersFor(paths, headers) : null;
+    if (folders) {
+      const query = "Recursive=true&MetadataRefreshMode=Default&ImageRefreshMode=Default&ReplaceAllMetadata=false&ReplaceAllImages=false";
+      for (const folder of folders) {
+        const response = await fetch(`${JELLYFIN_URL}/Items/${folder.Id}/Refresh?${query}`, {
+          method: "POST",
+          headers,
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!response.ok) throw new Error(`refresh of ${folder.Path} -> ${response.status}`);
+      }
+      log(`library refresh -> ${folders.length} folder(s): ${folders.map((f) => f.Path).join(", ")}`);
+      return;
+    }
+  } catch (error) {
+    log("folder refresh failed, scanning the whole library:", error.message);
+  }
   try {
     const response = await fetch(`${JELLYFIN_URL}/Library/Refresh`, {
       method: "POST",
-      headers: { Authorization: `MediaBrowser Token="${JELLYFIN_API_KEY}"` },
+      headers,
       signal: AbortSignal.timeout(15_000),
     });
     log(`library refresh -> ${response.status}`);
@@ -946,7 +1025,7 @@ async function processOne() {
       moveSidecars(job.source_path, output);
       finishJob.run("skipped", output, statSync(output).size, null, 100, Date.now(), job.id);
       log(`moved without re-encoding: ${job.title}`);
-      await refreshJellyfin();
+      noteLibraryChange(output);
     } catch (error) {
       finishJob.run("failed", null, null, `Move failed: ${error.message}`, 0, Date.now(), job.id);
       logWorkerFailure(`Move failed for "${job.title}"`, { title: job.title, sourcePath: job.source_path, error: error.message });
@@ -998,7 +1077,7 @@ async function processOne() {
       `done "${job.title}": ${(job.bytes_in / 1e9).toFixed(2)}GB -> ${(outSize / 1e9).toFixed(2)}GB` +
         (subs ? ` (+${subs} subtitle file(s))` : ""),
     );
-    await refreshJellyfin();
+    noteLibraryChange(result.output);
   } catch (error) {
     finishJob.run("failed", null, null, `Publish failed: ${error.message}`, 0, Date.now(), job.id);
     logWorkerFailure(`Publish failed for "${job.title}"`, { title: job.title, sourcePath: job.source_path, error: error.message });
@@ -1202,8 +1281,11 @@ if (WORKER_MODE === "watch") {
     // and starve the transcoder serving anyone actually watching.
     let worked = await processOne();
     while (worked && !stopping) {
+      await flushLibraryChanges(false);
       worked = await processOne();
     }
+    // One report for the whole batch, now that the queue is empty.
+    await flushLibraryChanges(true);
     let workedDownload = await processDownloadJob();
     while (workedDownload && !stopping) {
       workedDownload = await processDownloadJob();
@@ -1233,8 +1315,10 @@ if (WORKER_MODE === "watch") {
       await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
       continue;
     }
+    await flushLibraryChanges(false);
     worked = await processOne();
   }
+  await flushLibraryChanges(true);
 
   let workedDownload = await processDownloadJob();
   while (workedDownload && !stopping) {

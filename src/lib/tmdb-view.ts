@@ -445,12 +445,19 @@ interface RawEpisode {
  * Returns null for the ~60 files with no still link (19 unparsed names, 3
  * numbering mismatches, 39 episodes TMDB has no still for), which correctly
  * fall back to the filename-parsed label.
+ *
+ * `groups` is for a caller locating many files at once: getGroupedPathMap()
+ * reads the whole library_groups table, and doing that once per file made a
+ * lookup over every episode in the library take four seconds.
  */
-function episodeLocator(path: string): { tmdbId: number; season: number; episode: number } | null {
+function episodeLocator(
+  path: string,
+  groups: ReturnType<typeof getGroupedPathMap> = getGroupedPathMap(),
+): { tmdbId: number; season: number; episode: number } | null {
   const still = getLink("still", path);
   if (!still || still.season === null || still.episode === null) return null;
 
-  const group = getGroupedPathMap().get(path);
+  const group = groups.get(path);
   if (!group) return null;
 
   const showLink = getLink("group", group.groupId);
@@ -549,8 +556,9 @@ export function episodeTilesForPaths(paths: string[]): Map<string, EpisodeTile> 
     return episodes;
   };
 
+  const groups = getGroupedPathMap();
   for (const path of paths) {
-    const link = episodeLocator(path);
+    const link = episodeLocator(path, groups);
     if (!link) continue;
     const raw = seasonFor(link.tmdbId, link.season).find(
       (e) => e.episode_number === link.episode,

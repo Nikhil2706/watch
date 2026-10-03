@@ -337,7 +337,7 @@ export function TvProvider({
       // down for the whole page left that panel unreachable from a remote.
       if (playerOpen) {
         const target = event.target as Element | null;
-        if (!target || target === document.body || target.closest(".player-stage")) return;
+        if (!target || target === document.body || target.closest(".player-stage, .player-bar")) return;
       }
 
       const direction = KEY_TO_DIRECTION[event.key];
@@ -375,35 +375,54 @@ export function TvProvider({
     const back = cameBack.current || isBackForwardLoad();
     cameBack.current = false;
 
-    const frame = requestAnimationFrame(() => {
-      const stored = back ? sessionStorage.getItem(`tvFocus:${pathname}`) : null;
+    // Read NOW, before anything on this page takes focus. The observer below
+    // used to fire first on Back, focus the page's default ("Genre" on
+    // Browse), and that focus was recorded as the last one — so the restore
+    // step read "Genre" back and the tile you came from was forgotten.
+    const stored = back ? sessionStorage.getItem(`tvFocus:${pathname}`) : null;
+    // The remembered card may not be in the DOM on the first frame (a long
+    // grid still rendering): wait this long for it before settling for the
+    // page's default.
+    const waitForStoredUntil = Date.now() + 1500;
+
+    /** Puts focus where it belongs; false while still waiting for the remembered card. */
+    function land(): boolean {
       if (stored) {
-        const byHref = document.querySelector<HTMLElement>(
-          `a[href="${CSS.escape(stored)}"]`,
-        );
+        const byHref = document.querySelector<HTMLElement>(`a[href="${CSS.escape(stored)}"]`);
         if (byHref) {
           byHref.focus();
           scrollFocusedIntoView(byHref, "down");
-          return;
+          return true;
         }
+        if (Date.now() < waitForStoredUntil) return false;
       }
-
       focusTvAutofocusTarget();
+      return !nothingFocused();
+    }
+
+    let landed = false;
+    const frame = requestAnimationFrame(() => {
+      landed = land();
     });
 
     // Content that streams in after the first frame (Browse's grid, a
     // Suspense boundary) had nothing to focus yet: keep trying for a few
-    // seconds, until something is focused.
+    // seconds, until focus has landed.
     let observer: MutationObserver | null = new MutationObserver(() => {
-      if (!nothingFocused()) return stop();
-      focusTvAutofocusTarget();
-      if (!nothingFocused()) stop();
+      if (landed && !nothingFocused()) return stop();
+      landed = land();
+      if (landed) stop();
     });
+    // If nothing mutates again, the wait for the remembered card still ends.
+    const settle = setTimeout(() => {
+      if (!landed) landed = land();
+    }, 1600);
     const timeout = setTimeout(() => stop(), 5000);
     function stop() {
       observer?.disconnect();
       observer = null;
       clearTimeout(timeout);
+      clearTimeout(settle);
     }
     observer.observe(document.body, { childList: true, subtree: true });
 

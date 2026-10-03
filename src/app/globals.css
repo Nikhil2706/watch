@@ -5680,6 +5680,53 @@ html[data-in-app] .app-get {
   }
 }
 
+/* Arrows to move along a pick that runs off the screen, for a mouse. They sit
+   level with the middle of the posters and show while the pointer is on the
+   row; PickRail only renders the one whose end has more to show. */
+.pk-rail-wrap {
+  position: relative;
+}
+
+.pk-arrow {
+  display: none;
+}
+
+@media (hover: hover) {
+  .pk-arrow {
+    position: absolute;
+    z-index: 4;
+    top: calc(10px + var(--pk-w) * 0.75 - 23px);
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    padding: 0 0 4px;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: rgba(18, 21, 28, 0.94);
+    box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.8);
+    color: var(--text);
+    font-size: 1.9rem;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.55;
+    transition: opacity 0.15s ease, border-color 0.15s ease;
+  }
+  .pk-row:hover .pk-arrow {
+    opacity: 1;
+  }
+  .pk-arrow:hover {
+    border-color: var(--warm);
+    color: var(--warm);
+  }
+  .pk-arrow-left {
+    left: 8px;
+  }
+  .pk-arrow-right {
+    right: 8px;
+  }
+}
+
 /* A phone has no hover: pressing and holding a tile lifts it into this card. */
 .pk-held {
   position: fixed;

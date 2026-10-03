@@ -30,7 +30,7 @@
  * runVersionedMigrations() will not replay the set at all. The live database
  * is already at 40, so the other branch's v38 work would never have run here.
  */
-export const SCHEMA_VERSION = 49;
+export const SCHEMA_VERSION = 50;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1308,4 +1308,52 @@ CREATE TABLE IF NOT EXISTS scrape_checked_urls (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_scrape_checked_urls_source ON scrape_checked_urls(source_id);
+
+-- Scheduled jobs (v50): what runs on a schedule, when, and what happened.
+-- Times are the curator's wall clock, India Standard Time; next_run_at is an
+-- ordinary UTC millisecond instant worked out from them (job-schedule.ts).
+CREATE TABLE IF NOT EXISTS scheduled_jobs (
+  id              TEXT PRIMARY KEY,
+  kind            TEXT NOT NULL,              -- a key of job-kinds.ts
+  label           TEXT NOT NULL,
+  params          TEXT NOT NULL DEFAULT '{}', -- JSON, the kind's own settings
+  cadence         TEXT NOT NULL,              -- 'daily' | 'weekly' | 'monthly'
+  hour            INTEGER NOT NULL,
+  minute          INTEGER NOT NULL,
+  weekday         INTEGER,                    -- weekly: 0 = Sunday
+  month_day       INTEGER,                    -- monthly: 1-31, clamped to the month
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  skip_if_playing INTEGER NOT NULL DEFAULT 0,
+  builtin         INTEGER NOT NULL DEFAULT 0,
+  runner          TEXT NOT NULL DEFAULT 'gate', -- 'gate' | 'host'
+  next_run_at     INTEGER NOT NULL,
+  waiting_since   INTEGER,
+  run_requested   INTEGER NOT NULL DEFAULT 0,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS job_runs (
+  id          TEXT PRIMARY KEY,
+  job_id      TEXT NOT NULL REFERENCES scheduled_jobs(id) ON DELETE CASCADE,
+  trigger     TEXT NOT NULL,                  -- 'schedule' | 'manual'
+  status      TEXT NOT NULL,                  -- 'running' | 'done' | 'failed'
+  started_at  INTEGER NOT NULL,
+  finished_at INTEGER,
+  summary     TEXT,
+  error       TEXT
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_job_runs_job ON job_runs(job_id, started_at DESC);
+
+-- The blurb and accolade a film is showing when the curator has not locked
+-- one (v50). A rotation job moves these on; a film with no row here behaves
+-- as it did before there were any. See rotation.ts.
+CREATE TABLE IF NOT EXISTS film_rotation (
+  imdb_id            TEXT PRIMARY KEY,
+  blurb_candidate_id TEXT,
+  accolade_ref       TEXT,   -- 'link:{id}' | 'entry:{id}'
+  blurb_at           INTEGER,
+  accolade_at        INTEGER
+) STRICT;
 `;

@@ -33,6 +33,9 @@ import {
  */
 const PLAYER_SIDE_PANEL = ".party-room-side:not([hidden]), .party-chat-away";
 
+/** The "‹ Back / title" bar above the player (the watch page and the party room). */
+const PLAYER_TOP_BAR = ".player-bar";
+
 // The Plyr layout rather than Vidstack's default: a single slim control bar
 // instead of a large translucent panel, which suits a phone and does not fight
 // the artwork.
@@ -367,8 +370,9 @@ export function Player({
     controls?.pause();
   }
 
-  /** TV remote: on the video, or in the control bar. */
+  /** TV remote: on the "‹ Back" bar above the video, on the video, or in the control bar. */
   function tvZone(target: HTMLElement | null): TvFocusZone {
+    if (target?.closest?.(PLAYER_TOP_BAR)) return "topbar";
     if (!target?.closest?.(".plyr__controls")) return "video";
     return target.getAttribute("role") === "slider" ? "slider" : "controls";
   }
@@ -383,6 +387,25 @@ export function Player({
       case "leaveControls":
         focusVideo();
         return;
+      case "focusTopBar": {
+        // The bar above the video shows only while the controls do (tv.css),
+        // so they are held up for as long as focus is on it.
+        const back = document.querySelector<HTMLElement>(`${PLAYER_TOP_BAR} a, ${PLAYER_TOP_BAR} button`);
+        if (!back) return;
+        holdControls();
+        // The bar is still hidden on this frame when the controls were not
+        // showing, and a hidden link cannot take focus: keep trying for a
+        // few frames. If it never shows, let the controls idle out again.
+        let tries = 0;
+        const tryFocus = () => {
+          back.focus();
+          if (document.activeElement === back) return;
+          if (++tries < 20) requestAnimationFrame(tryFocus);
+          else player.current?.controls.resume();
+        };
+        tryFocus();
+        return;
+      }
       case "moveControl": {
         const controls = barControls();
         const i = target ? controls.indexOf(target) : -1;
@@ -440,8 +463,10 @@ export function Player({
         }
         return;
       }
-      // Anything outside the player (the bar's Back link) keeps its keys.
-      if (target && !target.closest(".player-stage") && target !== document.body) return;
+      // Anything else outside the player (a watch party's side panel) keeps
+      // its keys; the "‹ Back" bar above the video is part of the player's
+      // own up/down order.
+      if (target && !target.closest(`.player-stage, ${PLAYER_TOP_BAR}`) && target !== document.body) return;
       const zone = tvZone(target);
       const tvAction = resolveTvRemoteKey(event.key, zone);
       if (!tvAction) {
@@ -643,7 +668,7 @@ export function Player({
       menuButton.focus();
       return true;
     }
-    if (document.activeElement?.closest(`.plyr__controls, ${PLAYER_SIDE_PANEL}`)) {
+    if (document.activeElement?.closest(`.plyr__controls, ${PLAYER_SIDE_PANEL}, ${PLAYER_TOP_BAR}`)) {
       focusVideo();
       return true;
     }

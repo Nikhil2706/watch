@@ -29,14 +29,21 @@ LOG=/var/log/jellyfin-gate-backup.log
 MAX_AGE_DAYS=7
 
 log() { echo "[$(date -Is)] $*" >> "$LOG"; }
+# The last line this prints is what the console's job history shows.
+say() { log "$*"; echo "$*"; }
+# Set by scripts/host-jobs.sh when the curator pressed "Run now": take a
+# backup regardless of how recent the last one is or who is watching.
+FORCE="${JFG_FORCE:-0}"
 
 # --- is one actually due? ---------------------------------------------------
 NEWEST=$(ls -1d "$DEST_ROOT"/20* 2>/dev/null | sort | tail -1)
 if [ -n "$NEWEST" ] && [ -f "$NEWEST/MANIFEST.txt" ]; then
   AGE_DAYS=$(( ( $(date +%s) - $(stat -c %Y "$NEWEST/MANIFEST.txt") ) / 86400 ))
-  if [ "$AGE_DAYS" -lt "$MAX_AGE_DAYS" ]; then
-    # Quiet on purpose: this is the ordinary outcome six days in seven, and a
-    # log line a day about nothing happening is how a log stops being read.
+  if [ "$AGE_DAYS" -lt "$MAX_AGE_DAYS" ] && [ "$FORCE" != "1" ]; then
+    # Quiet in the log on purpose: this is the ordinary outcome six days in
+    # seven, and a log line a day about nothing happening is how a log stops
+    # being read.
+    echo "Not due: the newest backup is $AGE_DAYS day(s) old."
     exit 0
   fi
   log "newest backup is $AGE_DAYS days old — one is due"
@@ -51,7 +58,7 @@ fi
 # backup that keeps deferring itself because the machine is mildly busy is a
 # backup that never happens, which is the failure this file exists to prevent.
 if ! docker ps --format '{{.Names}}' | grep -q '^jellyfin-gate$'; then
-  log "gate is not running — will retry tomorrow"
+  say "The site is not running — will retry at the next scheduled time."
   exit 0
 fi
 
@@ -60,8 +67,8 @@ PLAYING=$(docker exec jellyfin curl -sS --max-time 20 \
   "http://127.0.0.1:8096/Sessions?api_key=$KEY" 2>/dev/null \
   | grep -o '"NowPlayingItem"' | wc -l)
 
-if [ "${PLAYING:-0}" -gt 0 ]; then
-  log "someone is watching ($PLAYING stream(s)) — will retry tomorrow"
+if [ "${PLAYING:-0}" -gt 0 ] && [ "$FORCE" != "1" ]; then
+  say "Someone is watching ($PLAYING stream(s)) — will retry at the next scheduled time."
   exit 0
 fi
 
@@ -74,7 +81,8 @@ log "starting backup"
 # Its sibling, wherever this copy lives (scripts/ in the repo, /usr/local/bin
 # once installed).
 if bash "$(dirname "$0")/backup-to-e.sh" >> "$LOG" 2>&1; then
-  log "BACKUP OK"
+  say "Backup taken."
 else
-  log "BACKUP FAILED — the boot disk is failing, so this needs a look"
+  say "BACKUP FAILED — the boot disk is failing, so this needs a look. See $LOG."
+  exit 1
 fi

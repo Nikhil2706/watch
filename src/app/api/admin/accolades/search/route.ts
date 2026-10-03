@@ -23,6 +23,8 @@ export async function GET(request: Request): Promise<Response> {
   // can hold one — a pick, a built accolade — and not by the Films tab, which
   // manages material that only films have.
   const episodes = params.get("episodes") === "1";
-  const results = await searchLibraryForAdmin(query, episodes ? 30 : 10, { episodes });
+  // With episodes the limit is theirs, and the films and shows ahead of them
+  // are capped separately — see searchLibraryForAdmin.
+  const results = await searchLibraryForAdmin(query, episodes ? 40 : 10, { episodes });
   return Response.json({ results }, { headers: NO_STORE });
 }

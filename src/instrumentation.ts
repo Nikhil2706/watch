@@ -33,7 +33,7 @@ export async function register(): Promise<void> {
   // restart once the previous warm-up's 12-hour cache entry has lapsed.
   void warmBrowseCache();
 
-  void startAutoScrapeLoop();
+  void startSchedulerLoop();
   void startLibraryNotifyLoop();
   void startTvNotifyLoop();
   void startPartyScheduleLoop();
@@ -44,7 +44,7 @@ export async function register(): Promise<void> {
 
 declare global {
   // eslint-disable-next-line no-var
-  var __jellyfinGateAutoScrapeTimer: ReturnType<typeof setInterval> | undefined;
+  var __jellyfinGateSchedulerTimer: ReturnType<typeof setInterval> | undefined;
   // eslint-disable-next-line no-var
   var __jellyfinGateLibraryNotifyTimer: ReturnType<typeof setInterval> | undefined;
   // eslint-disable-next-line no-var
@@ -60,28 +60,32 @@ declare global {
 }
 
 /**
- * The OMDb/Wikipedia catch-up loops used to fire unconditionally every 10
- * minutes for as long as the process ran. They now only do real work on a
- * curator's "Scrape now" click (src/app/api/admin/scrape/run-now/route.ts)
- * or once a week, Wednesday 5:30am — see src/lib/scrape-schedule.ts. This
- * loop just checks the clock every 10 minutes and calls through when the
- * window is open; the check itself is nearly free.
+ * The scheduled jobs (src/lib/scheduler.ts): the weekly catch-up scrape, the
+ * TMDB refresh, and whatever the curator has added in the console's Health
+ * tab. Once a minute this starts every site job whose time has come.
+ *
+ * It replaces a loop that checked for "Wednesday, 5:30-5:39" every ten
+ * minutes and remembered in a variable whether it had already run — which a
+ * restart forgot. The schedule and the record of each run are rows now.
  */
-async function startAutoScrapeLoop(): Promise<void> {
-  if (globalThis.__jellyfinGateAutoScrapeTimer) return;
+async function startSchedulerLoop(): Promise<void> {
+  if (globalThis.__jellyfinGateSchedulerTimer) return;
 
   try {
-    const { runAutoScrapePassIfScheduled } = await import("./lib/scrape-schedule");
-    globalThis.__jellyfinGateAutoScrapeTimer = setInterval(() => {
-      void runAutoScrapePassIfScheduled()
-        .then((result) => {
-          if (result) console.log("[boot] weekly auto-scrape pass finished:", result);
+    const { ensureBuiltinJobs, failInterruptedGateRuns, runSchedulerTick } = await import("./lib/scheduler");
+    ensureBuiltinJobs();
+    const cut = failInterruptedGateRuns();
+    if (cut > 0) console.log(`[boot] ${cut} job run(s) were cut off by the restart`);
+    globalThis.__jellyfinGateSchedulerTimer = setInterval(() => {
+      void runSchedulerTick()
+        .then((started) => {
+          if (started > 0) console.log(`[jobs] started ${started} scheduled job(s)`);
         })
-        .catch((error) => console.error("[boot] weekly auto-scrape pass failed:", error));
-    }, 10 * 60 * 1000);
-    console.log("[boot] auto-scrape schedule loop started (Wednesday 5:30am, or manual trigger)");
+        .catch((error) => console.error("[jobs] scheduler tick failed:", error));
+    }, 60 * 1000);
+    console.log("[boot] scheduler loop started");
   } catch (error) {
-    console.error("[boot] auto-scrape schedule loop failed to start (still runnable manually via the console):", error);
+    console.error("[boot] scheduler loop failed to start (jobs still run from the console's Run now):", error);
   }
 }
 

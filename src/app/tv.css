@@ -706,6 +706,12 @@ html[data-tv="true"] .pk-tile:focus .pk-text {
   color: #dbe0ea;
 }
 
+/* The remote's focus moves along the row and scrolls it; a pointer's arrows
+   would only be two more things for the D-pad to land on. */
+html[data-tv="true"] .pk-arrow {
+  display: none;
+}
+
 html[data-tv="true"] .pk-list {
   padding: 0 48px;
   max-width: 1300px;

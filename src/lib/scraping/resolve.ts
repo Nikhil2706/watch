@@ -9,6 +9,7 @@ import {
 } from "./articles";
 import { curatorAccoladeMentionsForFilm, getCuratorAccoladeEntry } from "./curator-accolades";
 import { getLock } from "./locks";
+import { getRotation } from "../rotation";
 import { looksLikeWikiMarkup } from "./wiki-markup";
 
 /**
@@ -59,7 +60,14 @@ export function resolveBlurb(imdbId: string): ResolvedBlurb | null {
   // passages that are raw wiki markup (see wiki-markup.ts).
   const candidates = blurbCandidatesForFilm(imdbId).filter((c) => !looksLikeWikiMarkup(c.passage_text));
   if (candidates.length === 0) return null;
-  const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
+  // Once a "Rotate blurbs" job has run, the film shows the passage it was
+  // given until the next rotation — the same one for everyone. Until then,
+  // or if that passage has since gone, it is drawn afresh on each visit as
+  // it always was.
+  const rotated = getRotation(imdbId)?.blurb_candidate_id;
+  const pick =
+    (rotated ? candidates.find((c) => c.id === rotated) : undefined) ??
+    candidates[Math.floor(Math.random() * candidates.length)]!;
   return {
     text: pick.passage_text,
     sourceLabel: pick.source_name,
@@ -115,6 +123,19 @@ export function resolveAccolade(imdbId: string): ResolvedAccolade | null {
   if (lock?.locked_accolade_link_id) {
     const mention = getAccoladeMention(lock.locked_accolade_link_id);
     if (mention) return fromMention(mention, true);
+  }
+
+  // The accolade a "Rotate accolades" job last gave this film, if it still
+  // exists. With no rotation running, the most prominent one below.
+  const rotatedRef = getRotation(imdbId)?.accolade_ref;
+  if (rotatedRef?.startsWith("link:")) {
+    const mention = getAccoladeMention(rotatedRef.slice(5));
+    if (mention && mention.imdb_id === imdbId) return fromMention(mention, false);
+  } else if (rotatedRef?.startsWith("entry:")) {
+    const entry = getCuratorAccoladeEntry(rotatedRef.slice(6));
+    if (entry && entry.imdb_id === imdbId) {
+      return { badge: `#${entry.slot + 1}`, detail: entry.accolade_name, locked: false, sourceUrl: null };
+    }
   }
 
   const scraped = accoladeMentionsForFilm(imdbId);
