@@ -41,6 +41,42 @@ export function PickRail({ tiles, ranked }: { tiles: PickTile[]; ranked: boolean
 
   useEffect(() => cancel, [cancel]);
 
+  // With a mouse there is no way to move along a row that runs off the
+  // screen: no scrollbar is drawn, and a wheel only scrolls the page. So the
+  // row gets an arrow at whichever end has more to show. A phone swipes and a
+  // TV's focus scrolls the row itself, and neither is shown these (globals.css).
+  const rail = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState({ left: false, right: false });
+
+  useEffect(() => {
+    const el = rail.current;
+    if (!el) return;
+    const measure = () => {
+      const max = el.scrollWidth - el.clientWidth;
+      setMore((was) => {
+        const next = { left: el.scrollLeft > 4, right: el.scrollLeft < max - 4 };
+        return was.left === next.left && was.right === next.right ? was : next;
+      });
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    // A tile widening under the pointer changes how much there is to scroll.
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    for (const child of Array.from(el.children)) observer.observe(child);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      observer.disconnect();
+    };
+  }, [tiles.length]);
+
+  function page(direction: 1 | -1) {
+    const el = rail.current;
+    if (!el) return;
+    // Most of a screenful, so the last tile seen is still in view after.
+    el.scrollBy({ left: direction * el.clientWidth * 0.8, behavior: "smooth" });
+  }
+
   function onTouchStart(tile: PickTile, event: React.TouchEvent) {
     const touch = event.touches[0];
     if (!touch || event.touches.length > 1) return;
@@ -73,7 +109,19 @@ export function PickRail({ tiles, ranked }: { tiles: PickTile[]; ranked: boolean
 
   return (
     <>
-      <div className="row-scroll pk-rail">
+      <div className="pk-rail-wrap">
+      {/* Not Tab stops: the tiles are, and tabbing to one scrolls it into view. */}
+      {more.left ? (
+        <button type="button" className="pk-arrow pk-arrow-left" tabIndex={-1} aria-label="Earlier in this pick" onClick={() => page(-1)}>
+          &#8249;
+        </button>
+      ) : null}
+      {more.right ? (
+        <button type="button" className="pk-arrow pk-arrow-right" tabIndex={-1} aria-label="More of this pick" onClick={() => page(1)}>
+          &#8250;
+        </button>
+      ) : null}
+      <div className="row-scroll pk-rail" ref={rail}>
         {tiles.map((tile) => (
           <Link
             key={tile.key}
@@ -91,6 +139,7 @@ export function PickRail({ tiles, ranked }: { tiles: PickTile[]; ranked: boolean
             <TileFace tile={tile} ranked={ranked} />
           </Link>
         ))}
+      </div>
       </div>
 
       {held ? (
