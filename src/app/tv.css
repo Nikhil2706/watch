@@ -341,9 +341,49 @@ html[data-tv="true"] .player-stage video {
   max-height: calc(100dvh - 72px);
 }
 
+/* On the film's own player page (not a watch party, whose bar sits above a
+   grid) the "‹ Back / title" bar lies over the top of the video and comes
+   and goes with the control bar: it used to stay up for the whole film
+   while the controls below it hid. Vidstack marks the player with
+   data-controls while its controls are showing. The video gets the full
+   height of the screen in return. */
+html[data-tv="true"] .player-page:has(.player-stage):not(:has(.party-room-grid)) {
+  position: relative;
+}
+
+html[data-tv="true"] .player-page:has(.player-stage):not(:has(.party-room-grid)) .player-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0));
+  transition: opacity 0.25s ease, visibility 0s linear 0s;
+}
+
+html[data-tv="true"] .player-page:has(.vds-player:not([data-controls])):not(:has(.party-room-grid)) .player-bar {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.25s ease, visibility 0s linear 0.25s;
+}
+
+html[data-tv="true"] .player-page:not(:has(.party-room-grid)) .vds-player,
+html[data-tv="true"] .player-page:not(:has(.party-room-grid)) .vds-player video,
+html[data-tv="true"] .player-page:not(:has(.party-room-grid)) .player-stage video {
+  max-height: 100dvh;
+}
+
 /* The player already fills a TV screen, and real fullscreen dropped the page
    back to the WebView's 960 px layout. */
 html[data-tv="true"] .plyr__controls [data-plyr="fullscreen"] {
+  display: none;
+}
+
+/* A TV's volume is its remote's volume buttons: no mute button or volume
+   slider in the control bar. */
+html[data-tv="true"] .plyr__controls [data-plyr="mute"],
+html[data-tv="true"] .plyr__controls .plyr__volume,
+html[data-tv="true"] .plyr__controls [data-media-volume-slider] {
   display: none;
 }
 
