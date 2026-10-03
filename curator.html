@@ -384,6 +384,32 @@
     .pk-editor-head { margin: -12px -12px 14px; padding: 10px 12px; border-radius: 12px 12px 0 0; }
   }
 
+  /* ---- Scheduled jobs (Health tab) ---- */
+  .job { border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; margin-bottom: 8px; background: rgba(255, 255, 255, 0.015); }
+  .job.off { opacity: 0.62; }
+  .job-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .job-name { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+  .job-when { font-size: 13px; margin-top: 2px; }
+  .job-meta { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; overflow-wrap: anywhere; }
+  .job-meta .ok { color: var(--ok); }
+  .job-meta .bad { color: #ffb3bc; }
+  .job-meta .wait { color: var(--warm); }
+  .job-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .job-actions button { padding: 5px 11px; font-size: 12.5px; }
+  .job-edit { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .job-when-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+  .job-when-row > div { flex: 0 1 auto; }
+  .job-when-row select, .job-when-row input { padding: 7px 9px; }
+  .job-when-row input[type="time"] { color-scheme: dark; }
+  .job-form { margin-top: 12px; padding: 12px; border: 1px solid var(--warm-line); border-radius: 10px; }
+  .job-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .job-history { margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .job-history div { padding: 3px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+  .job-always { margin-top: 12px; font-size: 13px; }
+  .job-always summary { cursor: pointer; color: var(--muted); }
+  .job-always-row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-top: 1px solid var(--border); }
+  .job-always-row span:last-child { color: var(--muted); text-align: right; }
+
   .rv-group {
     border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px;
     background: rgba(255, 255, 255, 0.015);
@@ -1365,6 +1391,43 @@
       <div id="healthIssues"></div>
     </div>
 
+    <div class="card" id="jobsCard">
+      <div class="row" style="align-items:center">
+        <div style="flex:1">
+          <div class="card-title">Scheduled jobs</div>
+          <div class="note" style="margin-top:2px">Everything that runs on a schedule. Times are India time.</div>
+        </div>
+        <div style="flex:0 0 auto"><button id="jobNew">New job</button></div>
+      </div>
+
+      <div id="jobForm" class="job-form" hidden>
+        <div class="job-form-grid">
+          <div>
+            <label for="jobKind">What it does</label>
+            <select id="jobKind" style="width:100%"></select>
+          </div>
+          <div id="jobParamWrap" hidden>
+            <label for="jobParam" id="jobParamLabel"></label>
+            <select id="jobParam" style="width:100%"></select>
+          </div>
+        </div>
+        <div class="note" id="jobKindNote" style="margin:6px 0 12px"></div>
+        <div id="jobFormWhen"></div>
+        <div class="job-actions" style="margin-top:12px">
+          <button id="jobCreate">Create job</button>
+          <button id="jobCancel" class="ghost">Cancel</button>
+        </div>
+      </div>
+
+      <div id="jobList" style="margin-top:12px"><div class="muted">Loading…</div></div>
+
+      <details class="job-always">
+        <summary>Runs on its own, not schedulable</summary>
+        <div class="note" style="margin:6px 0">Each of these is part of a feature working at all, so there is no time to set.</div>
+        <div id="jobAlwaysOn"></div>
+      </details>
+    </div>
+
     <div class="card">
       <div class="card-title">Storage breakdown</div>
       <div class="note" style="margin-top:2px">What's actually using disk — your data vs. the app running it.</div>
@@ -1382,8 +1445,8 @@
       <div class="note" id="scrapeNowNote" style="margin-top:2px;display:none"></div>
       <div id="healthApiList" style="margin-top:10px"></div>
       <div class="note" style="margin-top:10px">
-        The OMDb/Wikipedia catch-up rows below only do real work when you click "Scrape now" or automatically
-        once a week, Wednesday 5:30am — not continuously.
+        The OMDb/Wikipedia catch-up rows below only do real work when you click "Scrape now" or when the
+        catch-up job under Scheduled jobs runs — not continuously.
       </div>
     </div>
 
@@ -2511,7 +2574,7 @@
     });
   }
 
-  $("healthRefresh").addEventListener("click", function () { loadHealth(); loadEvents(); });
+  $("healthRefresh").addEventListener("click", function () { loadHealth(); loadEvents(); jobLoad(); });
 
   $("scrapeNow").addEventListener("click", function () {
     var btn = $("scrapeNow");
@@ -3051,8 +3114,225 @@
   document.querySelector('.tab-btn[data-tab="health"]').addEventListener("click", function () {
     loadHealth();
     loadEvents();
+    jobLoad();
     if (healthTimer) clearInterval(healthTimer);
     healthTimer = setInterval(function () { loadHealth(); loadEvents(); }, 30000);
+  });
+
+  /* ================================================================
+   * Health tab — scheduled jobs
+   *
+   * Every job the site or this computer runs on a schedule: when, what
+   * happened last time, Run now, Pause, Reschedule; and New job. Times
+   * are shown and entered in India time whatever this device's clock is
+   * set to, because that is what the schedule is kept in.
+   * ================================================================ */
+  var jobs = { list: [], kinds: [], editing: null, timer: null };
+  var JOB_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  function jobTime(ms) {
+    if (!ms) return "—";
+    return new Date(ms).toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true
+    });
+  }
+
+  function jobAgo(ms) {
+    var min = Math.round((Date.now() - ms) / 60000);
+    if (min < 1) return "just now";
+    if (min < 60) return min + " min ago";
+    var hr = Math.round(min / 60);
+    if (hr < 24) return hr + " h ago";
+    return Math.round(hr / 24) + " d ago";
+  }
+
+  /* The "when" controls, shared by the new-job form and a job's Reschedule. */
+  function jobWhenHtml(prefix, sch) {
+    sch = sch || { cadence: "weekly", hour: 9, minute: 0, weekday: 4, monthDay: 1 };
+    var days = JOB_DAYS.map(function (d, i) {
+      return '<option value="' + i + '"' + (i === (sch.weekday == null ? 4 : sch.weekday) ? " selected" : "") + '>' + d + '</option>';
+    }).join("");
+    var dates = "";
+    for (var n = 1; n <= 31; n++) dates += '<option value="' + n + '"' + (n === (sch.monthDay || 1) ? " selected" : "") + '>' + n + '</option>';
+    var hh = String(sch.hour).padStart(2, "0"), mm = String(sch.minute).padStart(2, "0");
+    return '<div class="job-when-row" data-job-when="' + prefix + '">' +
+      '<div><label>How often</label><select data-w="cadence">' +
+      ["daily", "weekly", "monthly"].map(function (c) {
+        return '<option value="' + c + '"' + (c === sch.cadence ? " selected" : "") + '>' +
+          { daily: "Every day", weekly: "Every week", monthly: "Every month" }[c] + '</option>';
+      }).join("") + '</select></div>' +
+      '<div data-w-show="weekly"><label>On</label><select data-w="weekday">' + days + '</select></div>' +
+      '<div data-w-show="monthly"><label>On the</label><select data-w="month_day">' + dates + '</select></div>' +
+      '<div><label>At (India time)</label><input type="time" data-w="time" value="' + hh + ':' + mm + '"></div>' +
+      '</div>';
+  }
+
+  function jobWhenSync(row) {
+    var cadence = row.querySelector('[data-w="cadence"]').value;
+    row.querySelectorAll("[data-w-show]").forEach(function (el) {
+      el.hidden = el.getAttribute("data-w-show") !== cadence;
+    });
+  }
+
+  function jobWhenRead(row) {
+    var time = (row.querySelector('[data-w="time"]').value || "").split(":");
+    return {
+      cadence: row.querySelector('[data-w="cadence"]').value,
+      hour: Number(time[0]), minute: Number(time[1]),
+      weekday: Number(row.querySelector('[data-w="weekday"]').value),
+      month_day: Number(row.querySelector('[data-w="month_day"]').value)
+    };
+  }
+
+  function jobLastLine(j) {
+    var r = j.runs[0];
+    if (j.running) return '<span class="wait">Running now</span>, started ' + jobAgo(r.started_at);
+    if (j.runRequested) return '<span class="wait">Queued</span> — starts on this computer within a minute';
+    if (!r) return "Has not run yet";
+    var when = jobAgo(r.started_at) + (r.trigger === "manual" ? ", run by hand" : "");
+    return r.status === "failed"
+      ? '<span class="bad">Failed</span> ' + when + ': ' + esc(r.error || "no reason given")
+      : '<span class="ok">Done</span> ' + when + (r.summary ? ': ' + esc(r.summary) : "");
+  }
+
+  function jobRender() {
+    var el = $("jobList");
+    if (!jobs.list.length) { el.innerHTML = '<div class="muted">No jobs.</div>'; return; }
+    el.innerHTML = jobs.list.map(function (j) {
+      var next = !j.enabled ? "Paused"
+        : j.waitingSince ? '<span class="wait">Waiting — someone is watching.</span> Looks again ' + jobTime(j.nextRunAt)
+        : "Next: " + jobTime(j.nextRunAt);
+      var edit = jobs.editing === j.id
+        ? '<div class="job-edit">' + jobWhenHtml(j.id, j.schedule) +
+          '<label class="pk-check" style="margin-top:10px"><input type="checkbox" data-job-polite' + (j.skipIfPlaying ? " checked" : "") +
+          '> Wait if someone is watching</label>' +
+          '<div class="job-actions" style="margin-top:10px"><button data-job-save>Save</button>' +
+          '<button class="ghost" data-job-cancel>Cancel</button>' +
+          (j.builtin ? "" : '<button class="danger" data-job-delete>Delete job</button>') + '</div>' +
+          (j.runs.length ? '<div class="job-history">' + j.runs.map(function (r) {
+            return '<div>' + jobTime(r.started_at) + ' — ' + (r.status === "running" ? "running" : r.status === "failed"
+              ? '<span class="bad">failed</span>: ' + esc(r.error || "") : esc(r.summary || "done")) + '</div>';
+          }).join("") + '</div>' : "") + '</div>'
+        : "";
+      return '<div class="job' + (j.enabled ? "" : " off") + '" data-job="' + esc(j.id) + '">' +
+        '<div class="job-top"><div style="min-width:0;flex:1 1 260px">' +
+        '<div class="job-name">' + esc(j.label) + (j.runner === "host" ? ' <span class="muted">· on this computer</span>' : "") + '</div>' +
+        '<div class="job-when">' + esc(j.scheduleText) + '</div>' +
+        '<div class="job-meta">' + next + '<br>' + jobLastLine(j) + '</div></div>' +
+        '<div class="job-actions">' +
+        '<button data-job-run' + (j.running || j.runRequested ? " disabled" : "") + '>Run now</button>' +
+        '<button class="ghost" data-job-edit>Reschedule</button>' +
+        '<button class="ghost" data-job-toggle>' + (j.enabled ? "Pause" : "Resume") + '</button>' +
+        '</div></div>' + edit + '</div>';
+    }).join("");
+    el.querySelectorAll("[data-job-when]").forEach(jobWhenSync);
+  }
+
+  function jobLoad() {
+    return api("/api/admin/schedule").then(function (data) {
+      jobs.list = data.jobs || [];
+      jobs.kinds = data.kinds || [];
+      jobRender();
+      $("jobAlwaysOn").innerHTML = (data.alwaysOn || []).map(function (a) {
+        return '<div class="job-always-row"><span>' + esc(a.label) + '</span><span>' + esc(a.every) + ' · ' + esc(a.where) + '</span></div>';
+      }).join("");
+      // While anything is running or queued, look again shortly so "Running
+      // now" turns into its result without a manual refresh.
+      clearTimeout(jobs.timer);
+      if (jobs.list.some(function (j) { return j.running || j.runRequested; }) && !jobs.editing) {
+        jobs.timer = setTimeout(jobLoad, 15000);
+      }
+    }).catch(function (e) { $("jobList").innerHTML = '<div class="muted">' + esc(e.message) + '</div>'; });
+  }
+
+  $("jobList").addEventListener("change", function (e) {
+    var row = e.target.closest("[data-job-when]");
+    if (row) jobWhenSync(row);
+  });
+
+  $("jobList").addEventListener("click", function (e) {
+    var card = e.target.closest("[data-job]");
+    if (!card) return;
+    var id = card.getAttribute("data-job");
+    var job = jobs.list.filter(function (j) { return j.id === id; })[0];
+    var url = "/api/admin/schedule/" + encodeURIComponent(id);
+
+    if (e.target.closest("[data-job-run]")) {
+      api(url, { method: "POST" }).then(function (r) {
+        show("ok", (r && r.message) || "Started “" + job.label + "”.");
+        jobLoad();
+      }).catch(function (err) { show("err", err.message); });
+    } else if (e.target.closest("[data-job-toggle]")) {
+      api(url, { method: "PATCH", body: { enabled: !job.enabled } }).then(function () {
+        show("ok", job.enabled ? "Paused. It will not run until you resume it." : "Resumed.");
+        jobLoad();
+      }).catch(function (err) { show("err", err.message); });
+    } else if (e.target.closest("[data-job-edit]")) {
+      jobs.editing = jobs.editing === id ? null : id;
+      jobRender();
+    } else if (e.target.closest("[data-job-cancel]")) {
+      jobs.editing = null;
+      jobRender();
+    } else if (e.target.closest("[data-job-save]")) {
+      var body = jobWhenRead(card.querySelector("[data-job-when]"));
+      body.skip_if_playing = card.querySelector("[data-job-polite]").checked;
+      api(url, { method: "PATCH", body: body }).then(function () {
+        jobs.editing = null;
+        show("ok", "Rescheduled.");
+        jobLoad();
+      }).catch(function (err) { show("err", err.message); });
+    } else if (e.target.closest("[data-job-delete]")) {
+      if (!confirm("Delete “" + job.label + "”? It stops running and its history goes with it.")) return;
+      api(url, { method: "DELETE" }).then(function () {
+        jobs.editing = null;
+        show("ok", "Deleted.");
+        jobLoad();
+      }).catch(function (err) { show("err", err.message); });
+    }
+  });
+
+  /* ---- new job ---- */
+  function jobFormSync() {
+    var kind = jobs.kinds.filter(function (k) { return k.kind === $("jobKind").value; })[0];
+    if (!kind) return;
+    $("jobKindNote").textContent = kind.description + (kind.runner === "host" ? " " : "");
+    var field = kind.params[0];
+    $("jobParamWrap").hidden = !field;
+    if (field) {
+      $("jobParamLabel").textContent = field.label;
+      $("jobParam").innerHTML = field.options.map(function (o) {
+        return '<option value="' + esc(o.value) + '">' + esc(o.label) + '</option>';
+      }).join("");
+      $("jobParam").setAttribute("data-name", field.name);
+    }
+  }
+
+  $("jobNew").addEventListener("click", function () {
+    $("jobForm").hidden = !$("jobForm").hidden;
+    if ($("jobForm").hidden) return;
+    $("jobKind").innerHTML = jobs.kinds.map(function (k) {
+      return '<option value="' + esc(k.kind) + '">' + esc(k.label) + '</option>';
+    }).join("");
+    $("jobFormWhen").innerHTML = jobWhenHtml("new");
+    jobWhenSync($("jobFormWhen").querySelector("[data-job-when]"));
+    jobFormSync();
+  });
+  $("jobKind").addEventListener("change", jobFormSync);
+  $("jobFormWhen").addEventListener("change", function (e) {
+    var row = e.target.closest("[data-job-when]");
+    if (row) jobWhenSync(row);
+  });
+  $("jobCancel").addEventListener("click", function () { $("jobForm").hidden = true; });
+  $("jobCreate").addEventListener("click", function () {
+    var body = jobWhenRead($("jobFormWhen").querySelector("[data-job-when]"));
+    body.kind = $("jobKind").value;
+    body.params = {};
+    if (!$("jobParamWrap").hidden) body.params[$("jobParam").getAttribute("data-name")] = $("jobParam").value;
+    api("/api/admin/schedule", { method: "POST", body: body }).then(function (r) {
+      $("jobForm").hidden = true;
+      show("ok", "Created: " + r.job.label + ". " + r.job.scheduleText + ".");
+      jobLoad();
+    }).catch(function (err) { show("err", err.message); });
   });
 
   /* ================================================================

@@ -10,7 +10,7 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
  * POST /api/admin/scrape/run-now
  *
  * Manually starts a full OMDb + Wikipedia catch-up pass — the same one the
- * Wednesday 5:30am schedule runs automatically (src/lib/scrape-schedule.ts).
+ * scheduled "catch-up" job runs (src/lib/scheduler.ts, weekly by default).
  * A pass can take several minutes on a large backlog, so this fires it and
  * returns immediately rather than holding the request open; progress shows
  * up on the Health tab's existing "OMDb catch-up" / "Wikipedia catch-up"
