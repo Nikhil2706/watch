@@ -941,6 +941,7 @@
           </select>
           <button class="ghost" id="lwSelectAll">Select all shown</button>
           <button class="ghost" id="lwScan">Scan folder</button>
+          <input type="text" id="lwScanPath" placeholder="Only this folder — Horror/New Film (optional)" title="Where the new files are: the part under the library, or the full path. Empty scans the whole library." style="min-width:260px">
           <button class="ghost" id="lwSuggestFeatures">Suggest special features</button>
           <span class="muted" id="lwScanAge"></span>
         </div>
@@ -3817,13 +3818,17 @@
     if (q.length < 2) { $("pkAddResults").innerHTML = ""; return; }
     pkAddTimer = setTimeout(function () {
       api("/api/admin/accolades/search?episodes=1&q=" + encodeURIComponent(q)).then(function (data) {
+        if ($("pkAddSearch").value.trim() !== q) return; // typed on since
         var results = data.results || [];
         $("pkAddResults").innerHTML = results.length ? results.map(function (r) {
           return '<div class="ac-result-row nf-result" data-pk-add-imdb="' + esc(r.imdbId) + '" data-pk-add-name="' + esc(r.name) +
             '" data-pk-add-year="' + (r.year || "") + '" data-pk-add-href="' + esc(r.href) + '">' + thumbHtml(r.posterUrl) +
             '<span class="nf-result-name">' + esc(r.name) + ' <span class="ac-r-year">' + (r.year || "") + '</span></span></div>';
         }).join("") : '<div class="muted" style="padding:6px 0">No matches in the library.</div>';
-      }).catch(function (e) { $("pkAddResults").innerHTML = '<div class="muted">' + esc(e.message) + '</div>'; });
+      }).catch(function (e) {
+        if ($("pkAddSearch").value.trim() !== q) return;
+        $("pkAddResults").innerHTML = '<div class="muted">' + esc(e.message) + '</div>';
+      });
     }, 250);
   });
 
@@ -4676,8 +4681,12 @@
     btn.disabled = true;
     var before = lw.items.length;
     btn.textContent = "Scanning…";
-    api("/api/admin/library/scan", { method: "POST" })
-      .then(function () {
+    // One folder is re-read in seconds; the whole library takes minutes.
+    var only = $("lwScanPath").value.trim();
+    var wholeLibrary = false;
+    api("/api/admin/library/scan", { method: "POST", body: only ? { folders: [only] } : null })
+      .then(function (data) {
+        wholeLibrary = !!only && !!data && data.scope === "library";
         // Jellyfin's scan is fire-and-forget, so wait a beat before asking
         // what changed rather than reporting on the library as it was.
         return new Promise(function (resolve) { setTimeout(resolve, 4000); });
@@ -4688,7 +4697,9 @@
         var needing = lw.rows.filter(function (r) { return r.needsDecision; }).length;
         show("ok", added > 0
           ? added + " new file" + (added === 1 ? "" : "s") + " picked up. " + needing + " need a decision."
-          : "Scan finished — nothing new. " + needing + " still need a decision.");
+          : wholeLibrary
+            ? "Jellyfin has no folder above that one yet, so the whole library is being scanned — new files show up in a few minutes."
+            : "Scan finished — nothing new. " + needing + " still need a decision.");
       })
       .catch(function (e) { show("err", e.message); })
       .then(function () { btn.disabled = false; btn.textContent = "Scan folder"; });

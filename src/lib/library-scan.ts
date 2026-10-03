@@ -2,7 +2,7 @@ import "server-only";
 
 import { invalidateAdminMovies } from "./admin-library-cache";
 import { getDb } from "./db";
-import { refreshLibrary } from "./jellyfin";
+import { refreshLibrary, refreshLibraryFolders } from "./jellyfin";
 import { relinkUnmatchedPickItems } from "./picks";
 import { relinkUnmatchedAccoladeEntries, relinkUnmatchedArticleLinks } from "./scraping/articles";
 import { relinkUnmatchedFilmSeriesEntries } from "./scraping/film-series";
@@ -15,14 +15,24 @@ import { promoteSubtitles } from "./subtitle-promotion";
  * Subtitle promotion first: any newly-dropped Subs folder should be flattened
  * into place before Jellyfin re-reads the folder, so the same scan that
  * notices a new file also notices its captions.
+ *
+ * `folders` (library paths, already validated by the caller) narrows the scan
+ * to where new files were put, which takes seconds where the whole library
+ * takes minutes. If Jellyfin has no folder item for any of them, the whole
+ * library is scanned instead; `scanned` says which folders were re-read, and
+ * is empty for a full scan.
  */
-export async function scanLibraryNow(): Promise<{ subtitlesPromoted: number }> {
+export async function scanLibraryNow(
+  folders: string[] = [],
+): Promise<{ subtitlesPromoted: number; scanned: string[] }> {
   const subtitles = await promoteSubtitles();
   if (subtitles.failed.length > 0) {
     console.error("[library-scan] subtitle promotion failures:", subtitles.failed);
   }
 
-  await refreshLibrary();
+  let scanned: string[] = [];
+  if (folders.length > 0) scanned = (await refreshLibraryFolders(folders)).refreshed;
+  if (scanned.length === 0) await refreshLibrary();
   // A scan is the whole point at which "what is in the library" changes, so
   // the cached listing must not answer for the next minute with the old one.
   invalidateAdminMovies();
@@ -52,5 +62,5 @@ export async function scanLibraryNow(): Promise<{ subtitlesPromoted: number }> {
   void relinkUnmatchedFilmSeriesEntries().catch((error) => console.error("[library-scan] film-series relink failed:", error));
   void relinkUnmatchedPickItems().catch((error) => console.error("[library-scan] pick relink failed:", error));
 
-  return { subtitlesPromoted: subtitles.promoted.length };
+  return { subtitlesPromoted: subtitles.promoted.length, scanned };
 }

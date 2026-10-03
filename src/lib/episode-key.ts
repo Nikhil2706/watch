@@ -10,6 +10,11 @@
  *
  * Picks store the path in a column of its own (pick_items.item_path); this
  * key is how the console hands an episode to either.
+ *
+ * A film Jellyfin has no IMDb id for goes by the same key, for the same
+ * reason: its path is the only name it has that lasts. It is stored exactly
+ * as an episode is (kind "episode", no group), and the places that show one
+ * tell the two apart by whether the file belongs to a show.
  */
 const PREFIX = "ep:";
 

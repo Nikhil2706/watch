@@ -4,7 +4,8 @@ import { getAdminMovies } from "./admin-library-cache";
 import { adminThumbUrl } from "./admin-thumb";
 import { asRows, getDb } from "./db";
 import { episodeCode } from "./episode-key";
-import { getGroup, getGroupedPathMap, getGroupSeriesPoster } from "./library-curation";
+import { getAlternateVersionPathSet } from "./film-versions";
+import { getExcludedPathSet, getGroup, getGroupedPathMap, getGroupSeriesPoster } from "./library-curation";
 import type { PickItem } from "./picks";
 import { episodeTilesForPaths } from "./tmdb-view";
 
@@ -28,7 +29,14 @@ export interface AdminPickItem extends PickItem {
 
 export async function describePickItems(items: PickItem[]): Promise<AdminPickItem[]> {
   const movies = await getAdminMovies({ withMediaSources: false });
-  const byImdb = new Map(movies.filter((m) => m.ProviderIds?.Imdb).map((m) => [m.ProviderIds!.Imdb!, m]));
+  // Two files of one film share its IMDb id; the one the site lists is the one to show.
+  const alternateVersions = getAlternateVersionPathSet();
+  const excluded = getExcludedPathSet();
+  const byImdb = new Map(
+    movies
+      .filter((m) => m.ProviderIds?.Imdb && !(m.Path && (alternateVersions.has(m.Path) || excluded.has(m.Path))))
+      .map((m) => [m.ProviderIds!.Imdb!, m]),
+  );
   const byPath = new Map(movies.filter((m) => m.Path).map((m) => [m.Path!, m]));
   const episodePaths = items.filter((i) => i.kind === "episode" && i.item_path).map((i) => i.item_path!);
   const episodeNames = episodeTilesForPaths(episodePaths);
@@ -58,7 +66,8 @@ export async function describePickItems(items: PickItem[]): Promise<AdminPickIte
         displayTitle: named
           ? `${show ? `${show.groupName}: ` : ""}${named.name} (${episodeCode(named.seasonNumber, named.episodeNumber)})`
           : file?.Name ?? item.raw_title,
-        displayYear: null,
+        // A film that goes by its file (episode-key.ts) has a year; an episode does not show one.
+        displayYear: show ? null : file?.ProductionYear ?? null,
         posterUrl: file
           ? (show ? getGroupSeriesPoster(show.groupId) : null) ?? adminThumbUrl(file.Id, file.ImageTags?.Primary)
           : null,
