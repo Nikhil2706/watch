@@ -47,7 +47,7 @@ const MEDIA_KEYS: Record<string, PlayerAction> = {
  * Where focus is when a TV remote key arrives in the player: on the video
  * itself, on a button in the control bar, or on one of its sliders.
  */
-export type TvFocusZone = "video" | "controls" | "slider";
+export type TvFocusZone = "video" | "controls" | "slider" | "topbar";
 
 export type TvRemoteAction =
   | PlayerAction
@@ -55,16 +55,21 @@ export type TvRemoteAction =
   | { kind: "showControls" }
   /** Leave the control bar: focus back on the video. */
   | { kind: "leaveControls" }
+  /** Focus the "‹ Back" link in the bar above the video. */
+  | { kind: "focusTopBar" }
   /** Move along the control bar. */
   | { kind: "moveControl"; direction: 1 | -1 };
 
 /**
  * A TV remote has arrows, OK, Back and (sometimes) transport keys — no
  * letters, so the keyboard layout above leaves subtitles and settings out
- * of reach. On a TV, on the video: OK plays/pauses, left/right jump 10 s,
- * up/down open the control bar. In the bar: left/right move between
- * controls (a slider keeps left/right for itself), up leaves it. Returns
- * null to leave the key alone (OK on a button presses it).
+ * of reach. The screen reads top to bottom — "‹ Back" bar, video, control
+ * bar — and the keys follow it. On the video: OK plays/pauses, left/right
+ * jump 10 s, down opens the control bar, up goes to "‹ Back". In the control
+ * bar: left/right move between controls (a slider keeps left/right for
+ * itself), up returns to the video. On "‹ Back": down returns to the video,
+ * OK leaves the film. Returns null to leave the key alone (OK on a button
+ * or link presses it).
  */
 export function resolveTvRemoteKey(key: string, zone: TvFocusZone): TvRemoteAction | null {
   const media = MEDIA_KEYS[key];
@@ -78,10 +83,14 @@ export function resolveTvRemoteKey(key: string, zone: TvFocusZone): TvRemoteActi
       case "ArrowRight":
         return { kind: "seek", by: 10 };
       case "ArrowUp":
+        return { kind: "focusTopBar" };
       case "ArrowDown":
         return { kind: "showControls" };
     }
     return null;
+  }
+  if (zone === "topbar") {
+    return key === "ArrowDown" ? { kind: "leaveControls" } : null;
   }
   if (key === "ArrowUp") return { kind: "leaveControls" };
   if (zone === "controls" && (key === "ArrowLeft" || key === "ArrowRight")) {
