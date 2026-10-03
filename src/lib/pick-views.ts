@@ -125,13 +125,26 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
         const file = item.item_path ? showFiles.get(item.item_path) : undefined;
         if (!file || !item.item_path) continue;
         const show = showOfPath.get(item.item_path);
+        // A film with no IMDb id is kept by its file, as an episode is
+        // (episode-key.ts). It belongs to no show, and is a film on the page.
+        if (!show) {
+          tiles.push({
+            ...base,
+            href: itemHref(file.Id, file.Name, file.ProductionYear),
+            title: file.Name,
+            sub: file.ProductionYear ? String(file.ProductionYear) : null,
+            posterSrc: posterUrl(file),
+            shape: "poster",
+          });
+          continue;
+        }
         const named = episodeNames.get(item.item_path);
         tiles.push({
           ...base,
           href: itemHref(file.Id, file.Name, file.ProductionYear),
           // "The West Wing: Two Cathedrals"; the filename's own name when
           // TMDB has not been matched for this show.
-          title: named ? (show ? `${show.groupName}: ${named.name}` : named.name) : file.Name,
+          title: named ? `${show.groupName}: ${named.name}` : file.Name,
           sub: named ? episodeCode(named.seasonNumber, named.episodeNumber) : null,
           // The episode's own frame rather than the show's poster, which
           // every episode of the show would share.

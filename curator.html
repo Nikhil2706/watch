@@ -3537,13 +3537,17 @@
     if (q.length < 2) { $("pkAddResults").innerHTML = ""; return; }
     pkAddTimer = setTimeout(function () {
       api("/api/admin/accolades/search?episodes=1&q=" + encodeURIComponent(q)).then(function (data) {
+        if ($("pkAddSearch").value.trim() !== q) return; // typed on since
         var results = data.results || [];
         $("pkAddResults").innerHTML = results.length ? results.map(function (r) {
           return '<div class="ac-result-row nf-result" data-pk-add-imdb="' + esc(r.imdbId) + '" data-pk-add-name="' + esc(r.name) +
             '" data-pk-add-year="' + (r.year || "") + '" data-pk-add-href="' + esc(r.href) + '">' + thumbHtml(r.posterUrl) +
             '<span class="nf-result-name">' + esc(r.name) + ' <span class="ac-r-year">' + (r.year || "") + '</span></span></div>';
         }).join("") : '<div class="muted" style="padding:6px 0">No matches in the library.</div>';
-      }).catch(function (e) { $("pkAddResults").innerHTML = '<div class="muted">' + esc(e.message) + '</div>'; });
+      }).catch(function (e) {
+        if ($("pkAddSearch").value.trim() !== q) return;
+        $("pkAddResults").innerHTML = '<div class="muted">' + esc(e.message) + '</div>';
+      });
     }, 250);
   });
 
