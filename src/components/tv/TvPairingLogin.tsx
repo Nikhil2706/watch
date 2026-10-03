@@ -132,7 +132,10 @@ export function TvPairingLogin({
             {code}
           </div>
           <p className="tv-pair-status">
-            Open <span className="tv-pair-url">watch/pair</span> on your phone or computer,
+            {/* The real address: "watch/pair" is not something a guest can
+                type. Rendered only after the client fetch, so no hydration
+                mismatch. */}
+            Open <span className="tv-pair-url">{window.location.host}/pair</span> on your phone or computer,
             sign in, and enter this code — or scan it below.
           </p>
           {qrDataUrl ? (

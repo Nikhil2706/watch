@@ -36,8 +36,13 @@ function isVisible(el: HTMLElement): boolean {
  * on each poster sit above the poster's own link, so pressing down into a
  * row landed on a heart first, and one OK changed a list. On a TV they are
  * state indicators only (tv.css); the film page has the real buttons.
+ *
+ * Links out of the site ("Read on Wikipedia", "Powered by DoesTheDogDie")
+ * are skipped too: a TV has no browser to hand them to, so OK did nothing.
+ * YouTube is the exception — the trailer opens in the TV's YouTube app.
  */
-const DPAD_SKIP_SELECTOR = ".list-overlay button";
+const DPAD_SKIP_SELECTOR =
+  '.list-overlay button, a[target="_blank"]:not([href*="youtube.com"]):not([href*="youtu.be"])';
 
 export function getFocusableElements(root: ParentNode = document): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
@@ -45,7 +50,7 @@ export function getFocusableElements(root: ParentNode = document): HTMLElement[]
   );
 }
 
-interface Rect {
+export interface Rect {
   top: number;
   left: number;
   right: number;
@@ -64,6 +69,63 @@ function rectOf(el: HTMLElement): Rect {
     centerX: r.left + r.width / 2,
     centerY: r.top + r.height / 2,
   };
+}
+
+const EPSILON = 4;
+
+/** How far apart two spans are on one axis; 0 when they overlap. */
+function gapBetween(aMin: number, aMax: number, bMin: number, bMax: number): number {
+  return Math.max(0, Math.max(aMin, bMin) - Math.min(aMax, bMax));
+}
+
+/**
+ * How good `rect` is as the next stop from `current` going `direction`;
+ * lower is better, null when it is not in that direction at all. Pure, so
+ * it is tested without a DOM.
+ *
+ * Up/down measures sideways drift as the GAP between the two elements'
+ * horizontal spans, not the distance between their centres. Centres made a
+ * wide target directly below (a comment box, a search field) look far away —
+ * its centre is half a screen to the right — so "down" from the rating stars
+ * skipped the comment box for a poster further down. Anything that overlaps
+ * the current column now counts as aligned, nearest first; the centre is
+ * only a tie-break between equally aligned candidates.
+ */
+export function scoreCandidate(current: Rect, rect: Rect, direction: Direction): number | null {
+  let primaryDistance: number;
+  let secondaryDistance: number;
+  let tieBreak = 0;
+
+  if (direction === "right") {
+    if (rect.left < current.right - EPSILON) return null;
+    const rowHeight = Math.max(current.bottom - current.top, rect.bottom - rect.top);
+    if (Math.abs(rect.centerY - current.centerY) > rowHeight * 1.2) return null;
+    primaryDistance = rect.left - current.right;
+    secondaryDistance = Math.abs(rect.centerY - current.centerY);
+  } else if (direction === "left") {
+    if (rect.right > current.left + EPSILON) return null;
+    const rowHeight = Math.max(current.bottom - current.top, rect.bottom - rect.top);
+    if (Math.abs(rect.centerY - current.centerY) > rowHeight * 1.2) return null;
+    primaryDistance = current.left - rect.right;
+    secondaryDistance = Math.abs(rect.centerY - current.centerY);
+  } else if (direction === "down") {
+    if (rect.top < current.bottom - EPSILON) return null;
+    primaryDistance = rect.top - current.bottom;
+    secondaryDistance = gapBetween(current.left, current.right, rect.left, rect.right);
+    tieBreak = Math.abs(rect.centerX - current.centerX);
+  } else {
+    if (rect.bottom > current.top + EPSILON) return null;
+    primaryDistance = current.top - rect.bottom;
+    secondaryDistance = gapBetween(current.left, current.right, rect.left, rect.right);
+    tieBreak = Math.abs(rect.centerX - current.centerX);
+  }
+
+  // Secondary axis weighted higher than primary: prefer a slightly farther
+  // candidate that stays roughly aligned over a closer one that veers off,
+  // which is what keeps up/down feel like moving between "columns" of a
+  // grid rather than diagonal-jumping to whatever is nearest as the crow
+  // flies.
+  return primaryDistance + secondaryDistance * 2 + tieBreak * 0.05;
 }
 
 /**
@@ -86,45 +148,12 @@ export function findNextFocusable(
   const currentRect = rectOf(current);
   const candidates = getFocusableElements(root).filter((el) => el !== current);
 
-  const EPSILON = 4;
   let best: HTMLElement | null = null;
   let bestScore = Infinity;
 
   for (const candidate of candidates) {
-    const rect = rectOf(candidate);
-
-    let primaryDistance: number;
-    let secondaryDistance: number;
-
-    if (direction === "right") {
-      if (rect.left < currentRect.right - EPSILON) continue;
-      const rowHeight = Math.max(currentRect.bottom - currentRect.top, rect.bottom - rect.top);
-      if (Math.abs(rect.centerY - currentRect.centerY) > rowHeight * 1.2) continue;
-      primaryDistance = rect.left - currentRect.right;
-      secondaryDistance = Math.abs(rect.centerY - currentRect.centerY);
-    } else if (direction === "left") {
-      if (rect.right > currentRect.left + EPSILON) continue;
-      const rowHeight = Math.max(currentRect.bottom - currentRect.top, rect.bottom - rect.top);
-      if (Math.abs(rect.centerY - currentRect.centerY) > rowHeight * 1.2) continue;
-      primaryDistance = currentRect.left - rect.right;
-      secondaryDistance = Math.abs(rect.centerY - currentRect.centerY);
-    } else if (direction === "down") {
-      if (rect.top < currentRect.bottom - EPSILON) continue;
-      primaryDistance = rect.top - currentRect.bottom;
-      secondaryDistance = Math.abs(rect.centerX - currentRect.centerX);
-    } else {
-      if (rect.bottom > currentRect.top + EPSILON) continue;
-      primaryDistance = currentRect.top - rect.bottom;
-      secondaryDistance = Math.abs(rect.centerX - currentRect.centerX);
-    }
-
-    // Secondary axis weighted higher than primary: prefer a slightly farther
-    // candidate that stays roughly aligned over a closer one that veers off,
-    // which is what keeps up/down feel like moving between "columns" of a
-    // grid rather than diagonal-jumping to whatever is nearest as the crow
-    // flies.
-    const score = primaryDistance + secondaryDistance * 2;
-    if (score < bestScore) {
+    const score = scoreCandidate(currentRect, rectOf(candidate), direction);
+    if (score !== null && score < bestScore) {
       bestScore = score;
       best = candidate;
     }

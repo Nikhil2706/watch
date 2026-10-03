@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { TvKeyboard } from "@/components/tv/TvKeyboard";
-import { focusTvAutofocusTarget } from "@/components/tv/TvProvider";
+import { focusTvAutofocusTarget, useTvBack } from "@/components/tv/TvProvider";
+import { focusFieldForTyping } from "@/lib/tv/tv-fields";
 
 /**
- * Fallback TV login: large D-pad-focusable fields plus the shared on-screen
- * keyboard (TvKeyboard.tsx), for when pairing (TvPairingLogin.tsx) isn't
- * what someone wants — a TV with no phone handy, or a remote with a
- * physical keyboard already attached, which types into these fields
- * normally alongside the on-screen one.
+ * Fallback TV login: large D-pad-focusable fields, for when pairing
+ * (TvPairingLogin.tsx) isn't what someone wants — a TV with no phone handy.
+ * Typing uses the TV's own system keyboard, the one every other app on it
+ * uses: OK on a field opens it (lib/tv/tv-fields.ts), its Enter key moves
+ * from the username to the password and then signs in.
  *
  * Posts to the exact same /api/auth/login as the ordinary LoginForm — this
  * is a different shell around the same request, not a different auth path.
@@ -18,7 +18,7 @@ import { focusTvAutofocusTarget } from "@/components/tv/TvProvider";
 export function TvPasswordLogin({ next, onUsePairing }: { next: string; onUsePairing?: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [activeField, setActiveField] = useState<"username" | "password">("username");
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -30,15 +30,13 @@ export function TvPasswordLogin({ next, onUsePairing }: { next: string; onUsePai
     focusTvAutofocusTarget();
   }, []);
 
-  function insert(text: string) {
-    if (activeField === "username") setUsername((v) => v + text);
-    else setPassword((v) => v + text);
-  }
-
-  function backspace() {
-    if (activeField === "username") setUsername((v) => v.slice(0, -1));
-    else setPassword((v) => v.slice(0, -1));
-  }
+  // Back returns to the pairing code this form was opened from, rather than
+  // leaving the app.
+  useTvBack(() => {
+    if (!onUsePairing) return false;
+    onUsePairing();
+    return true;
+  });
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -85,7 +83,13 @@ export function TvPasswordLogin({ next, onUsePairing }: { next: string; onUsePai
             id="tv-username"
             value={username}
             data-tv-autofocus="true"
-            onFocus={() => setActiveField("username")}
+            // The keyboard's Enter here means "next field", not "submit".
+            enterKeyHint="next"
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || !passwordRef.current) return;
+              event.preventDefault();
+              focusFieldForTyping(passwordRef.current);
+            }}
             onChange={(event) => setUsername(event.target.value)}
             autoComplete="username"
             autoCapitalize="none"
@@ -103,8 +107,9 @@ export function TvPasswordLogin({ next, onUsePairing }: { next: string; onUsePai
           <input
             id="tv-password"
             type="password"
+            ref={passwordRef}
             value={password}
-            onFocus={() => setActiveField("password")}
+            enterKeyHint="go"
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="current-password"
             required
@@ -112,8 +117,6 @@ export function TvPasswordLogin({ next, onUsePairing }: { next: string; onUsePai
           />
         </div>
       </div>
-
-      <TvKeyboard onInsert={insert} onBackspace={backspace} />
 
       <button type="submit" className="auth-submit" style={{ marginTop: 18 }} disabled={pending}>
         {pending ? (

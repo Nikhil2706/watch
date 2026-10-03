@@ -409,6 +409,85 @@ html[data-tv="true"] .plyr__time {
   font-size: 1rem;
 }
 
+/* --- Watch party room --------------------------------------------------- */
+
+/* The panel beside the player (chat, guest links, End) at TV size: it was a
+   360 px desktop sidebar with 14-16 px text and an 8x18 px menu button.
+   Reached with right past the control bar's last button (Player.tsx). */
+html[data-tv="true"] .party-room-grid {
+  grid-template-columns: minmax(0, 1fr) 480px;
+}
+
+html[data-tv="true"] .party-room-side,
+html[data-tv="true"] .party-room-side :is(p, span, input, button, li) {
+  font-size: 0.9rem;
+}
+
+html[data-tv="true"] .party-room-side h3,
+html[data-tv="true"] .party-room-side .party-chat-title {
+  font-size: 1rem;
+}
+
+html[data-tv="true"] .party-room-side button {
+  min-height: 44px;
+  padding: 8px 16px;
+}
+
+html[data-tv="true"] .party-room-side .party-menu-btn {
+  min-width: 44px;
+}
+
+html[data-tv="true"] .party-room-side input {
+  min-height: 52px;
+  padding: 10px 14px;
+}
+
+/* Chat moved to a phone: the player takes the whole width again (the two-
+   column rule above would otherwise keep an empty 480 px column). */
+html[data-tv="true"] .party-room-grid.chat-detached {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* "Chat is on your other screen · Bring it back": reached with right past
+   the control bar, like the panel it replaces. */
+html[data-tv="true"] .party-chat-away {
+  font-size: 0.9rem;
+  padding: 12px 18px;
+}
+
+html[data-tv="true"] .party-chat-away button {
+  font-size: 0.9rem;
+  min-height: 44px;
+  padding: 8px 18px;
+}
+
+/* QR codes someone scans from the sofa: 116-140 px was a phone-at-arm's-
+   length size. */
+html[data-tv="true"] .party-chat-qr img {
+  width: 220px;
+  height: 220px;
+}
+
+html[data-tv="true"] .party-guest-qr {
+  height: 260px;
+  object-fit: contain;
+}
+
+/* Nothing a TV can do with either: its clipboard goes nowhere, and the app
+   has no tabs. The QR is the way to hand a link to someone. */
+html[data-tv="true"] .party-guest-row > button:first-of-type,
+html[data-tv="true"] .party-chat-head-actions > .party-chat-move:last-child {
+  display: none;
+}
+
+html[data-tv="true"] .party-ended-card {
+  max-width: 640px;
+}
+
+html[data-tv="true"] .party-ended-card p {
+  font-size: 0.95rem;
+}
+
 /* --- Browse & cast ------------------------------------------------------ */
 
 /* The phone's show/hide-filters checkbox: invisible, but still focusable, so
@@ -439,6 +518,12 @@ html[data-tv="true"] .cast-card:focus .cast-photo {
 }
 
 /* --- TV login / pairing ------------------------------------------------ */
+
+/* "Use this phone as a remote" is not for the television itself. */
+html[data-tv="true"] .auth-remote-links a[href*="remote"],
+html[data-tv="true"] .auth-remote-links span {
+  display: none;
+}
 
 .tv-pair {
   display: grid;
@@ -490,41 +575,6 @@ html[data-tv="true"] .cast-card:focus .cast-photo {
   text-decoration: underline;
   font-size: 0.95rem;
   padding: 10px;
-}
-
-/* On-screen keyboard, used when TV mode falls back to username/password. */
-.tv-keyboard {
-  display: grid;
-  gap: 10px;
-  margin-top: 18px;
-}
-
-.tv-keyboard-row {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-}
-
-.tv-keyboard-key {
-  min-width: 48px;
-  height: 48px;
-  padding: 0 10px;
-  border-radius: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text);
-  font-size: 1.1rem;
-  font-weight: 500;
-}
-
-.tv-keyboard-key.wide {
-  min-width: 96px;
-  font-size: 0.85rem;
-}
-
-.tv-keyboard-key.active {
-  background: var(--accent);
-  color: #fff;
 }
 
 /* --- Picks -------------------------------------------------------------- */
@@ -632,6 +682,132 @@ html[data-tv="true"] .pk-list.is-ranked .pk-entry-row {
 
 html[data-tv="true"] .pk-panels {
   max-width: 1100px;
+}
+
+/* --- Remote-sized targets and couch-sized text (audit, every page) -------- */
+
+/* Header: the wordmark link (106x23) and the bell (31x31) were the smallest
+   things to land on; the bell's count was 12 px. */
+html[data-tv="true"] .appbar .brand {
+  padding: 8px 6px;
+}
+
+html[data-tv="true"] .bell-btn {
+  padding: 10px;
+}
+
+html[data-tv="true"] .bell-badge {
+  min-width: 22px;
+  height: 22px;
+  font-size: 0.8rem;
+}
+
+/* Rating stars: each half-star is its own stop (left/right move half a
+   star). At 24 px a half was a 12x24 target with a ring to match. */
+html[data-tv="true"] .star-picker {
+  --star-size: 44px !important;
+}
+
+/* A preview of what OK will set: the stars fill up to the focused half,
+   as hovering does with a mouse. */
+html[data-tv="true"] .star-picker .star:has(~ .star .star-hit:focus) .star-fill,
+html[data-tv="true"] .star-picker .star:has(.star-hit-right:focus) .star-fill {
+  clip-path: inset(0 0 0 0);
+}
+
+html[data-tv="true"] .star-picker .star:has(.star-hit-left:focus) .star-fill {
+  clip-path: inset(0 50% 0 0);
+}
+
+html[data-tv="true"] .star-picker:has(.star-hit:focus) .star:has(.star-hit:focus) ~ .star .star-fill {
+  clip-path: inset(0 100% 0 0);
+}
+
+/* Links out of the site read as plain text on a TV: there is no browser to
+   open them in, and the D-pad skips them (spatial-nav.ts). The trailer's
+   YouTube link is a button and stays. */
+html[data-tv="true"] a[target="_blank"]:not([href*="youtube.com"]):not([href*="youtu.be"]) {
+  color: inherit;
+  text-decoration: none;
+  pointer-events: none;
+}
+
+/* Film page: the Post button, the links under quotes and content notes, the
+   version label. */
+html[data-tv="true"] .btn-post {
+  font-size: 0.9rem;
+  padding: 10px 22px;
+}
+
+html[data-tv="true"] .blurb-link,
+html[data-tv="true"] .content-warning-attribution a {
+  display: inline-block;
+  padding: 8px 0;
+}
+
+html[data-tv="true"] .version-picker > span:first-child,
+html[data-tv="true"] .season-meta,
+html[data-tv="true"] .person-facts,
+html[data-tv="true"] .subtitle-label + span {
+  font-size: 0.9rem;
+}
+
+/* Picks rows: written for the 960x540 page this TV used to get, so at the
+   real 1920x1080 the tiles were small and their text 13-16 px. */
+html[data-tv="true"] .pk-row {
+  --pk-w: 210px;
+  --pk-room: 14rem;
+}
+
+html[data-tv="true"] .pk-for-you {
+  font-size: 0.8rem;
+  padding: 3px 12px;
+}
+
+html[data-tv="true"] .pk-name {
+  font-size: 1rem;
+}
+
+html[data-tv="true"] .pk-text,
+html[data-tv="true"] .pk-source {
+  font-size: 0.9rem;
+}
+
+/* A pick's page: "‹ Picks" and the titles in its list. */
+html[data-tv="true"] .pk-back {
+  display: inline-block;
+  padding: 10px 4px;
+  font-size: 0.9rem;
+}
+
+/* Next's built-in 404 text. */
+html[data-tv="true"] .not-found-tv h1 {
+  font-size: 2rem;
+}
+
+/* A comment's Reply / Edit / Delete were 18 px-tall text at 15 px. */
+html[data-tv="true"] .comment-actions button {
+  font-size: 0.9rem;
+  min-height: 40px;
+  padding: 6px 12px;
+}
+
+/* A pick's page: the title links in its list were 26 px tall. */
+html[data-tv="true"] .pk-list-body a {
+  display: inline-block;
+  padding: 6px 0;
+}
+
+/* Chat moved to a phone: leave room under the player for the "Bring it
+   back" bar, which otherwise sat below the bottom of the screen. */
+html[data-tv="true"] .party-room-grid.chat-detached .vds-player,
+html[data-tv="true"] .party-room-grid.chat-detached .vds-player video {
+  max-height: calc(100dvh - 72px - 120px);
+}
+
+/* "Read on Wikipedia →" goes nowhere on a TV; the quote keeps its "— Wikipedia". */
+html[data-tv="true"] .blurb-link {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

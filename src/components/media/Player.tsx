@@ -15,6 +15,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { useTvBack, useTvMode } from "@/components/tv/TvProvider";
+import { getFocusableElements } from "@/lib/tv/spatial-nav";
 import {
   clampTime,
   nextSpeed,
@@ -24,6 +25,13 @@ import {
   type PlayerAction,
   type TvFocusZone,
 } from "@/lib/player-keys";
+
+/**
+ * What sits beside the player in a watch party room (PartyRoomClient): the
+ * chat / guest links / End panel, or, once chat has moved to a phone, the
+ * bar that brings it back.
+ */
+const PLAYER_SIDE_PANEL = ".party-room-side:not([hidden]), .party-chat-away";
 
 // The Plyr layout rather than Vidstack's default: a single slim control bar
 // instead of a large translucent panel, which suits a phone and does not fight
@@ -306,7 +314,9 @@ export function Player({
         flashOsd("Speed 1×");
         break;
       case "next":
-        if (nextHref) window.location.assign(nextHref);
+        // replace, not assign: Back from the next episode should leave the
+        // player, not reopen (and restart) the episode before it.
+        if (nextHref) window.location.replace(nextHref);
         else flashOsd("No next episode");
         break;
       case "help":
@@ -377,7 +387,23 @@ export function Player({
         const controls = barControls();
         const i = target ? controls.indexOf(target) : -1;
         const next = controls[i + action.direction];
-        if (next) next.focus();
+        if (next) {
+          next.focus();
+          holdControls();
+          return;
+        }
+        // Right past the last button, in a watch party: into the panel
+        // beside the player (chat, guest links, End). TvProvider moves the
+        // D-pad through it from there; left or Back comes back to the video.
+        if (action.direction === 1) {
+          const first = Array.from(document.querySelectorAll(PLAYER_SIDE_PANEL))
+            .flatMap((panel) => getFocusableElements(panel))[0];
+          if (first) {
+            player.current?.controls.resume();
+            first.focus();
+            return;
+          }
+        }
         holdControls();
         return;
       }
@@ -572,7 +598,7 @@ export function Player({
       menuButton.focus();
       return true;
     }
-    if (document.activeElement?.closest(".plyr__controls")) {
+    if (document.activeElement?.closest(`.plyr__controls, ${PLAYER_SIDE_PANEL}`)) {
       focusVideo();
       return true;
     }

@@ -3652,6 +3652,12 @@ html[data-tv="true"] .appbar-more {
   }
 }
 
+/* `hidden` has to win: display:flex above outranks the attribute's own
+   display:none, so "Done — hide chat here" left the whole panel on screen. */
+.party-room-side[hidden] {
+  display: none;
+}
+
 /* Chat's own header — only rendered when chat is docked beside a player, so
    it can be sent somewhere else. */
 .party-chat-head {

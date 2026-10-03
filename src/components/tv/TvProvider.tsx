@@ -20,6 +20,7 @@ import {
 } from "@/lib/tv/spatial-nav";
 import { TV_MODE_COOKIE, viewportContent } from "@/lib/tv/constants";
 import { installAppBack, registerBackHandler } from "@/lib/overlay-back";
+import { holdKeyboard, isTvTextField, keyboardHeld, openKeyboard, releaseField } from "@/lib/tv/tv-fields";
 
 /**
  * Root of the TV experience: detects/upgrades TV mode, and — only while TV
@@ -108,6 +109,23 @@ function isBackForwardLoad(): boolean {
   return entry?.type === "back_forward";
 }
 
+/** The focusable whose centre is nearest a point in page coordinates. */
+function nearestFocusable(x: number, y: number): HTMLElement | null {
+  let best: HTMLElement | null = null;
+  let bestDistance = Infinity;
+  for (const el of getFocusableElements()) {
+    const rect = el.getBoundingClientRect();
+    const dx = rect.left + rect.width / 2 + window.scrollX - x;
+    const dy = rect.top + rect.height / 2 + window.scrollY - y;
+    const distance = dx * dx + dy * dy;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = el;
+    }
+  }
+  return best;
+}
+
 /** Nothing (or only <body>) has focus — arrow keys would have no anchor. */
 function nothingFocused(): boolean {
   const active = document.activeElement;
@@ -150,6 +168,24 @@ export function TvProvider({
   const pathname = usePathname();
   const lastMoveDirection = useRef<Direction>("down");
   const cameBack = useRef(false);
+  /** Where focus last was, in page coordinates — see moveFocus. */
+  const lastFocusSpot = useRef<{ x: number; y: number; path: string } | null>(null);
+
+  useEffect(() => {
+    if (!tvMode) return;
+    function onFocusIn(event: FocusEvent) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || target === document.body) return;
+      const rect = target.getBoundingClientRect();
+      lastFocusSpot.current = {
+        x: rect.left + rect.width / 2 + window.scrollX,
+        y: rect.top + rect.height / 2 + window.scrollY,
+        path: window.location.pathname,
+      };
+    }
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, [tvMode]);
 
   // Refine the server's guess once the browser can actually answer
   // hover/pointer questions. Only overrides when there is no explicit
@@ -182,6 +218,42 @@ export function TvProvider({
     };
   }, []);
 
+  // Text fields and the system keyboard (tv-fields.ts): focus alone keeps
+  // the keyboard closed, OK opens it. Capture phase, so it also covers
+  // focus moved by the WebView itself and runs before a form sees Enter.
+  useEffect(() => {
+    if (!tvMode) return;
+    function onFocusIn(event: FocusEvent) {
+      if (isTvTextField(event.target)) holdKeyboard(event.target);
+    }
+    function onFocusOut(event: FocusEvent) {
+      const field = event.target;
+      if (!isTvTextField(field)) return;
+      // Only when focus really went elsewhere. The keyboard's own window
+      // opening blurs the page for a moment with the field still the active
+      // element; treating that as leaving would close the keyboard again.
+      queueMicrotask(() => {
+        if (document.activeElement !== field) releaseField(field);
+      });
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Enter" || !isTvTextField(event.target) || !keyboardHeld(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openKeyboard(event.target);
+    }
+    document.addEventListener("focusin", onFocusIn, true);
+    document.addEventListener("focusout", onFocusOut, true);
+    window.addEventListener("keydown", onKeyDown, true);
+    // A field focused before this ran (a page's autofocus).
+    if (isTvTextField(document.activeElement)) holdKeyboard(document.activeElement);
+    return () => {
+      document.removeEventListener("focusin", onFocusIn, true);
+      document.removeEventListener("focusout", onFocusOut, true);
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [tvMode]);
+
   // The Android app's Back asks the page first on every page, not only once
   // a menu has opened (overlay-back.ts).
   useEffect(() => {
@@ -202,11 +274,21 @@ export function TvProvider({
 
   const moveFocus = useCallback((direction: Direction) => {
     const active = document.activeElement;
-    // Focus lost (the focused element was removed, or the page never had
-    // one): the first press lands on the page's default instead of doing
-    // nothing, which from a couch reads as a dead remote.
+    // Focus lost: the first press lands somewhere instead of doing nothing,
+    // which from a couch reads as a dead remote. If focus was somewhere on
+    // this page a moment ago (the Post button that just disabled itself, a
+    // comment that was deleted, a panel that closed), resume from the
+    // nearest thing to that spot — not from the top of the page. Otherwise
+    // (the page never had focus) the page's default.
     if (nothingFocused() || !(active instanceof HTMLElement)) {
-      focusTvAutofocusTarget();
+      const last = lastFocusSpot.current;
+      const nearest = last && last.path === window.location.pathname ? nearestFocusable(last.x, last.y) : null;
+      if (nearest) {
+        nearest.focus();
+        scrollFocusedIntoView(nearest, direction);
+      } else {
+        focusTvAutofocusTarget();
+      }
       return;
     }
     const next = findNextFocusable(active, direction);
@@ -226,7 +308,12 @@ export function TvProvider({
     function onKeyDown(event: KeyboardEvent) {
       const playerOpen = document.body.dataset.tvPlayerOpen === "true";
 
-      if (event.key === "Escape" || (playerOpen && event.key === "Backspace")) {
+      // (A party room has text fields beside the player — chat, a guest's
+      // name — where Backspace must stay Backspace.)
+      if (
+        event.key === "Escape" ||
+        (playerOpen && event.key === "Backspace" && !isTextEditable(event.target as Element | null))
+      ) {
         // Backspace-as-Back only inside the player: some TV browsers send it
         // for the remote's Back button, and nowhere else in the app is a
         // literal Backspace keystroke meaningful (no free-text field relies
@@ -244,11 +331,22 @@ export function TvProvider({
         return;
       }
 
-      if (playerOpen) return;
+      // The player owns the arrows only while focus is on it. A watch party
+      // has a panel beside the player (chat, guest links, End); with focus
+      // there, the D-pad moves through it as on any other page — standing
+      // down for the whole page left that panel unreachable from a remote.
+      if (playerOpen) {
+        const target = event.target as Element | null;
+        if (!target || target === document.body || target.closest(".player-stage")) return;
+      }
 
       const direction = KEY_TO_DIRECTION[event.key];
       if (!direction) return;
-      if ((direction === "left" || direction === "right") && isTextEditable(document.activeElement)) return;
+      // Left/right belong to the caret while someone is typing — not while
+      // the field is merely focused with the keyboard held closed.
+      const active = document.activeElement;
+      const typing = isTextEditable(active) && !(isTvTextField(active) && keyboardHeld(active));
+      if ((direction === "left" || direction === "right") && typing) return;
       event.preventDefault();
       moveFocus(direction);
     }
