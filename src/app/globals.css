@@ -1373,6 +1373,12 @@ a.curator-card:hover {
   cursor: none;
 }
 
+/* Captions on the picture's bottom edge, not the stage's: see the
+   --caption-lift effect in Player.tsx. */
+.player-stage .plyr__captions {
+  bottom: var(--caption-lift, 0px);
+}
+
 .player-note {
   margin: 8px 0 0;
   padding: 0 16px;
@@ -5849,6 +5855,13 @@ html[data-in-app] .app-get {
   grid-template-columns: 4.4rem 96px minmax(0, 1fr);
 }
 
+/* "100" at the full size ran out of its column and over the poster (a
+   converted list keeps its original ranks, so 100 is common). */
+.pk-list-num.is-wide {
+  font-size: 2.1rem;
+  padding-top: 10px;
+}
+
 .pk-list-num {
   padding-top: 2px;
   text-align: right;
@@ -5932,6 +5945,11 @@ html[data-in-app] .app-get {
   .pk-list-num {
     font-size: 1.9rem;
     -webkit-text-stroke-width: 1.5px;
+  }
+  .pk-list-num.is-wide {
+    font-size: 1.3rem;
+    padding-top: 7px;
+    -webkit-text-stroke-width: 1.2px;
   }
   .pk-panel {
     padding: 14px;

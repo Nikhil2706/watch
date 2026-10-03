@@ -500,6 +500,51 @@ export function Player({
   const [isPaused, setIsPaused] = useState(true);
   const [centerButtonVisible, setCenterButtonVisible] = useState(false);
   const [seekFlash, setSeekFlash] = useState<"back" | "forward" | null>(null);
+  /*
+   * Subtitles sit on the picture, wherever the picture is.
+   *
+   * The layout layer (controls and captions) is anchored to the whole stage,
+   * while the video takes its own shape in the middle of it. On a desk the
+   * two are nearly the same box. On a phone held upright the stage is the
+   * full height and the picture a 150px band across the middle, so captions
+   * drawn at the bottom of the layer sat 250px below the picture they
+   * belong to. The gap between the two bottoms is measured here and handed
+   * to CSS (--caption-lift); the controls stay at the bottom, in thumb reach.
+   */
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || typeof ResizeObserver === "undefined") return;
+    const watched = new Set<Element>();
+    const observer = new ResizeObserver(() => place());
+    function place() {
+      if (!stage) return;
+      const video = stage.querySelector("video");
+      const layer = stage.querySelector(".plyr");
+      if (!video || !layer) return;
+      for (const el of [video, layer]) {
+        if (!watched.has(el)) {
+          watched.add(el);
+          observer.observe(el);
+        }
+      }
+      const gap = layer.getBoundingClientRect().bottom - video.getBoundingClientRect().bottom;
+      stage.style.setProperty("--caption-lift", `${Math.max(0, Math.round(gap))}px`);
+    }
+    observer.observe(stage);
+    // Media events don't bubble, so they are caught on the way down. These
+    // are the moments the picture's size becomes known or changes.
+    stage.addEventListener("loadedmetadata", place, true);
+    stage.addEventListener("resize", place, true);
+    document.addEventListener("fullscreenchange", place);
+    place();
+    return () => {
+      observer.disconnect();
+      stage.removeEventListener("loadedmetadata", place, true);
+      stage.removeEventListener("resize", place, true);
+      document.removeEventListener("fullscreenchange", place);
+    };
+  }, []);
+
   const pendingTapZone = useRef<"left" | "center" | "right" | null>(null);
   const pendingTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const centerHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

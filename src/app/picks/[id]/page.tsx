@@ -69,7 +69,11 @@ export default async function PickPage({ params }: { params: Promise<{ id: strin
           {pick.tiles.map((tile, index) => (
             <li key={tile.key} className="pk-entry-row">
               {pick.ranked && tile.rank !== null ? (
-                <span className="pk-list-num" aria-label={`Number ${tile.rank}`}>
+                <span
+                  // Three digits are wider than the number column at full size.
+                  className={tile.rank >= 100 ? "pk-list-num is-wide" : "pk-list-num"}
+                  aria-label={`Number ${tile.rank}`}
+                >
                   {tile.rank}
                 </span>
               ) : null}
