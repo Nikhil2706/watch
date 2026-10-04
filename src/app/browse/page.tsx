@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { ExpandableBio } from "@/components/media/ExpandableBio";
 import { AppBar } from "@/components/AppBar";
 import { PosterCard } from "@/components/media/PosterCard";
+import { RevealGrid } from "@/components/RevealGrid";
 import {
   buildBrowseData,
   facetLinkValue,
@@ -291,7 +292,12 @@ export default async function BrowsePage({
               <PickButton label="Choose something for me" className="btn ghost" />
             </div>
           ) : (
-            <div className="grid">
+            <RevealGrid
+              // Keyed as well: another filter is another list, and starts short.
+              key={`${dim}:${value ?? ""}:${sort}`}
+              className="grid"
+              storageKey={`browse:${dim}:${value ?? ""}:${sort}`}
+            >
               {sorted.map((m) =>
                 m.isGroup ? (
                   <PosterCard
@@ -306,7 +312,7 @@ export default async function BrowsePage({
                   <PosterCard key={m.item.Id} item={m.item} lists={lists.get(m.item.Id)} />
                 ),
               )}
-            </div>
+            </RevealGrid>
           )}
         </main>
       </div>

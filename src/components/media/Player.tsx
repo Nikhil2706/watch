@@ -15,6 +15,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { useTvBack, useTvMode } from "@/components/tv/TvProvider";
+import { captionFontPx } from "@/lib/caption-size";
 import { getFocusableElements } from "@/lib/tv/spatial-nav";
 import {
   clampTime,
@@ -552,8 +553,12 @@ export function Player({
           observer.observe(el);
         }
       }
-      const gap = layer.getBoundingClientRect().bottom - video.getBoundingClientRect().bottom;
+      const box = video.getBoundingClientRect();
+      const gap = layer.getBoundingClientRect().bottom - box.bottom;
       stage.style.setProperty("--caption-lift", `${Math.max(0, Math.round(gap))}px`);
+      // And at one size against the picture on every screen (caption-size.ts).
+      const size = captionFontPx(box, { width: video.videoWidth, height: video.videoHeight });
+      stage.style.setProperty("--caption-size", `${size}px`);
     }
     observer.observe(stage);
     // Media events don't bubble, so they are caught on the way down. These
