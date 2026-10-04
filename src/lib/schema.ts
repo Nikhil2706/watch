@@ -30,7 +30,7 @@
  * runVersionedMigrations() will not replay the set at all. The live database
  * is already at 40, so the other branch's v38 work would never have run here.
  */
-export const SCHEMA_VERSION = 50;
+export const SCHEMA_VERSION = 51;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1237,6 +1237,9 @@ CREATE TABLE IF NOT EXISTS picks (
   title        TEXT NOT NULL,
   subtitle     TEXT,
   ranked       INTEGER NOT NULL DEFAULT 0,
+  -- A word under each poster instead of a number (v51): pick_items.label.
+  -- Never set together with ranked.
+  labelled     INTEGER NOT NULL DEFAULT 0,
   audience     TEXT NOT NULL DEFAULT 'everyone', -- 'everyone' | 'people'
   status       TEXT NOT NULL DEFAULT 'draft',    -- 'draft' | 'live'
   -- Home shows a pick for a week after it is first published; pinned keeps it
@@ -1269,6 +1272,8 @@ CREATE TABLE IF NOT EXISTS pick_items (
   -- source, which keeps the source's own ranks (so they skip the films not
   -- in the library); NULL means "number by position".
   rank                 INTEGER,
+  -- The word shown in a labelled pick; NULL shows nothing under that poster.
+  label                TEXT,
   kind                 TEXT NOT NULL DEFAULT 'film', -- 'film' | 'show' | 'episode'
   imdb_id              TEXT,
   group_id             TEXT,                         -- shows, and an episode's show: library_groups.group_id

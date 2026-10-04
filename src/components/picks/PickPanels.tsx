@@ -26,6 +26,7 @@ export function PickPanels({ mentions }: { mentions: PickMention[] }) {
             <div>
               <span className="pk-panel-kind">
                 {m.personal ? `Picked for you by ${CURATOR_NAME}` : "In a pick"}
+                {m.label ? ` · ${m.label}` : ""}
               </span>
               <Link className="pk-panel-title" href={pickHref(m.pickId)}>
                 {m.pickTitle}

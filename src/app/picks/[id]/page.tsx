@@ -92,6 +92,7 @@ export default async function PickPage({ params }: { params: Promise<{ id: strin
                 )}
               </Link>
               <div className="pk-list-body">
+                {tile.label ? <span className="pk-list-word">{tile.label}</span> : null}
                 <h2>
                   <Link href={tile.href}>{tile.title}</Link>
                   {tile.sub ? <span className="pk-year"> {tile.sub}</span> : null}

@@ -5,7 +5,7 @@ import { asRow, asRows, getDb, transaction } from "./db";
 import { pathFromEpisodeKey } from "./episode-key";
 import { getGroupedPathMap } from "./library-curation";
 import { notifyUsers } from "./notifications";
-import { displayRank, orderForDisplay } from "./pick-rank";
+import { cleanLabel, displayRank, orderForDisplay } from "./pick-rank";
 import { matchTitle } from "./scraping/match";
 import { sanitizeRichText } from "./scraping/rich-text";
 
@@ -26,6 +26,8 @@ export interface Pick {
   title: string;
   subtitle: string | null;
   ranked: number;
+  /** A typed word under each poster instead of a number. Never 1 together with ranked. */
+  labelled: number;
   audience: PickAudience;
   status: PickStatus;
   pinned: number;
@@ -44,6 +46,8 @@ export interface PickItem {
   pick_id: string;
   position: number;
   rank: number | null;
+  /** The word shown under the poster in a labelled pick. */
+  label: string | null;
   kind: PickItemKind;
   imdb_id: string | null;
   group_id: string | null;
@@ -157,6 +161,8 @@ export interface PickPatch {
   title?: string;
   subtitle?: string | null;
   ranked?: boolean;
+  /** What sits under each poster. Replaces `ranked` when given: the two are one choice. */
+  under?: "number" | "word" | "nothing";
   audience?: PickAudience;
   pinned?: boolean;
 }
@@ -167,12 +173,19 @@ export function updatePick(id: string, patch: PickPatch): Pick | undefined {
 
   getDb()
     .prepare(
-      `UPDATE picks SET title = ?, subtitle = ?, ranked = ?, audience = ?, pinned = ?, updated_at = ? WHERE id = ?`,
+      `UPDATE picks SET title = ?, subtitle = ?, ranked = ?, labelled = ?, audience = ?, pinned = ?, updated_at = ? WHERE id = ?`,
     )
     .run(
       patch.title ?? current.title,
       patch.subtitle === undefined ? current.subtitle : patch.subtitle?.trim() || null,
-      patch.ranked === undefined ? current.ranked : patch.ranked ? 1 : 0,
+      patch.under !== undefined
+        ? patch.under === "number" ? 1 : 0
+        : patch.ranked === undefined ? current.ranked : patch.ranked ? 1 : 0,
+      // Choosing a number (by either route) turns the words off; they are
+      // kept on the titles, so switching back brings them back.
+      patch.under !== undefined
+        ? patch.under === "word" ? 1 : 0
+        : patch.ranked ? 0 : current.labelled,
       patch.audience ?? current.audience,
       patch.pinned === undefined ? current.pinned : patch.pinned ? 1 : 0,
       Date.now(),
@@ -355,6 +368,8 @@ export interface PickItemPatch {
   writeupSourceUrl?: string | null;
   /** undefined leaves it; null clears a converted rank back to "number by position". */
   rank?: number | null;
+  /** undefined leaves it; null or "" removes the word. */
+  label?: string | null;
 }
 
 export function updatePickItem(pickId: string, itemId: string, patch: PickItemPatch): PickItem | undefined {
@@ -365,7 +380,7 @@ export function updatePickItem(pickId: string, itemId: string, patch: PickItemPa
 
   getDb()
     .prepare(
-      `UPDATE pick_items SET writeup = ?, writeup_source_label = ?, writeup_source_url = ?, rank = ? WHERE id = ?`,
+      `UPDATE pick_items SET writeup = ?, writeup_source_label = ?, writeup_source_url = ?, rank = ?, label = ? WHERE id = ?`,
     )
     .run(
       patch.writeup === undefined ? current.writeup : cleanWriteup(patch.writeup),
@@ -374,6 +389,7 @@ export function updatePickItem(pickId: string, itemId: string, patch: PickItemPa
         : patch.writeupSourceLabel?.trim() || null,
       patch.writeupSourceUrl === undefined ? current.writeup_source_url : patch.writeupSourceUrl?.trim() || null,
       patch.rank === undefined ? current.rank : patch.rank,
+      patch.label === undefined ? current.label : cleanLabel(patch.label),
       itemId,
     );
   touch(pickId);
@@ -612,6 +628,8 @@ export interface PickMention {
   personal: boolean;
   /** The number this title carries in a ranked pick; null in an unranked one. */
   rank: number | null;
+  /** The word it carries in a labelled pick; null otherwise. */
+  label: string | null;
   writeup: string | null;
   writeupSourceLabel: string | null;
   writeupSourceUrl: string | null;
@@ -646,6 +664,7 @@ export function pickMentionsForTitle(
       pickTitle: pick.title,
       personal: pick.personal,
       rank: pick.ranked === 1 ? displayRank(item.rank, index) : null,
+      label: pick.labelled === 1 ? item.label : null,
       writeup: item.writeup,
       writeupSourceLabel: item.writeup_source_label,
       writeupSourceUrl: item.writeup_source_url,

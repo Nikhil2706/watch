@@ -5477,7 +5477,7 @@ html[data-in-app] .app-get {
 }
 
 /* No number, so the posters stand further apart and the text has room. */
-.pk-row:not(.is-ranked) {
+.pk-row:not(.is-ranked):not(.is-labelled) {
   --pk-gap: 28px;
   --pk-below: 5.6rem;
 }
@@ -5611,6 +5611,55 @@ html[data-in-app] .app-get {
   pointer-events: none;
 }
 
+/* A word in the number's place: a director's surname, a year. The same
+   outlined warm type, but every word in a pick at ONE size — the size at
+   which the longest of them fits the tile (--pk-fit is its character count,
+   set on the row). Sized per word, "Bava" would shout and "Rossellini"
+   whisper. Never larger than the numbers. */
+.pk-word {
+  display: block;
+  position: relative;
+  margin: -0.52em 0 0 -0.03em;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-weight: 800;
+  font-size: min(calc(var(--pk-w) * 0.56), calc(var(--pk-w) * 1.9 / var(--pk-fit, 10)));
+  line-height: 0.9;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
+  color: var(--bg);
+  /* Thinner than the numbers' outline: at this size theirs would fill the
+     letters in. */
+  -webkit-text-stroke: 1.25px var(--warm);
+  paint-order: stroke fill;
+  pointer-events: none;
+}
+
+.pk-row.is-labelled {
+  /* The part of a word that hangs below the poster. */
+  --pk-hang: calc(var(--pk-w) * 0.72 / var(--pk-fit, 10));
+  --pk-below: calc(var(--pk-hang) + 5.5rem);
+}
+
+/* A title with no word typed keeps its name on the same line as the others'. */
+.pk-row.is-labelled .pk-art + .pk-name {
+  margin-top: calc(8px + var(--pk-hang));
+}
+
+.pk-held-card .pk-word {
+  color: var(--warm);
+}
+
+.pk-list-word {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--warm);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+
 .pk-name {
   display: block;
   margin-top: 8px;
@@ -5622,7 +5671,7 @@ html[data-in-app] .app-get {
   text-overflow: ellipsis;
 }
 
-.pk-row:not(.is-ranked) .pk-name {
+.pk-row:not(.is-ranked):not(.is-labelled) .pk-name {
   margin-top: 10px;
 }
 
@@ -5713,7 +5762,9 @@ html[data-in-app] .app-get {
     border-color: var(--warm);
   }
   .pk-tile:hover .pk-num,
-  .pk-tile:focus-visible .pk-num {
+  .pk-tile:focus-visible .pk-num,
+  .pk-tile:hover .pk-word,
+  .pk-tile:focus-visible .pk-word {
     color: var(--warm);
   }
   .pk-tile:hover .pk-name,
@@ -6014,7 +6065,7 @@ html[data-in-app] .app-get {
     --pk-gap: 12px;
     margin-bottom: 26px;
   }
-  .pk-row:not(.is-ranked) {
+  .pk-row:not(.is-ranked):not(.is-labelled) {
     --pk-gap: 20px;
   }
   .pk-head {
