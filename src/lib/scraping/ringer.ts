@@ -4,6 +4,7 @@ import * as cheerio from "cheerio";
 
 import { logEvent, recordExternalApiCall } from "../events";
 import { upsertScrapedArticle, withoutStoredUrls, type FilmMentionInput } from "./articles";
+import { isRingerMovieUrl, isRingerReviewUrl, ringerReviewFilmTitle } from "./ringer-urls";
 
 /**
  * The Ringer (theringer.com) — a movie/TV/sports/culture site; per your
@@ -24,11 +25,13 @@ import { upsertScrapedArticle, withoutStoredUrls, type FilmMentionInput } from "
  * `'The End of Oak Street' Is All Bite` has it quoted, but `Steven
  * Spielberg Is Still Searching for Truth` — a review of "Disclosure Day"
  * — doesn't mention the title at all). The URL slug is far more
- * consistent: every review URL is `/YYYY/MM/DD/movies/{film-slug}-review-
- * {other stuff}`, and the part before "-review-" is the film title with
- * hyphens for spaces — confirmed against four real review URLs, all four
- * matched (including one, "I Love Boosters", that also happened to be
- * separately confirmable via its quoted headline).
+ * consistent: a review URL is `/YYYY/MM/DD/movies/{film-slug}-review-
+ * {other stuff}` or simply `…/{film-slug}-review`, and the part before
+ * "-review" is the film title with hyphens for spaces — confirmed against
+ * four real review URLs, all four matched (including one, "I Love
+ * Boosters", that also happened to be separately confirmable via its quoted
+ * headline). The rule itself, and the second shape it used to miss, are in
+ * ringer-urls.ts.
  *
  * URL discovery goes through the sitemap, not /topic/movies: that listing
  * page is JS-rendered (infinite scroll, no server-side pagination or
@@ -84,8 +87,6 @@ async function fetchUrl(url: string): Promise<string | null> {
   }
 }
 
-const MOVIE_REVIEW_URL = /^https:\/\/www\.theringer\.com\/\d{4}\/\d{2}\/\d{2}\/movies\/.+-review-/;
-
 /**
  * Movie REVIEW URLs, discovered by walking the site's own sitemap rather
  * than the JS-rendered /topic/movies listing (see the file header comment
@@ -94,10 +95,8 @@ const MOVIE_REVIEW_URL = /^https:\/\/www\.theringer\.com\/\d{4}\/\d{2}\/\d{2}\/m
  * movie reviews doesn't get skipped just because an earlier one was dense.
  */
 export async function discoverRingerReviewUrls(limit = 10): Promise<string[]> {
-  return walkSitemap((loc) => MOVIE_REVIEW_URL.test(loc), limit);
+  return walkSitemap(isRingerReviewUrl, limit);
 }
-
-const MOVIE_ARTICLE_URL = /^https:\/\/www\.theringer\.com\/\d{4}\/\d{2}\/\d{2}\/movies\/[^/]+$/;
 
 /**
  * Every article filed under /movies/ that is NOT a review — the pool
@@ -106,7 +105,7 @@ const MOVIE_ARTICLE_URL = /^https:\/\/www\.theringer\.com\/\d{4}\/\d{2}\/\d{2}\/
  */
 export async function discoverRingerMovieUrls(): Promise<string[]> {
   const urls = await walkSitemap(
-    (loc) => MOVIE_ARTICLE_URL.test(loc) && !MOVIE_REVIEW_URL.test(loc),
+    (loc) => isRingerMovieUrl(loc) && !isRingerReviewUrl(loc),
     Number.MAX_SAFE_INTEGER,
   );
   return urls.sort().reverse();
@@ -134,15 +133,6 @@ async function walkSitemap(keep: (loc: string) => boolean, limit: number): Promi
   return [...urls].slice(0, limit);
 }
 
-function slugToTitle(url: string): string | null {
-  const match = url.match(/\/movies\/([^/]+)-review-/);
-  if (!match?.[1]) return null;
-  return match[1]
-    .split("-")
-    .map((w) => (w.length > 0 ? w[0]!.toUpperCase() + w.slice(1) : w))
-    .join(" ");
-}
-
 export interface ParsedRingerReview {
   headline: string;
   author: string | null;
@@ -165,7 +155,7 @@ export function parseRingerReview(html: string, url: string): ParsedRingerReview
     .join("\n\n");
   if (!bodyText) return null;
 
-  const filmTitle = slugToTitle(url) ?? headline;
+  const filmTitle = ringerReviewFilmTitle(url) ?? headline;
 
   return { headline, author, filmTitle, bodyText };
 }
