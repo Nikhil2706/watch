@@ -4,6 +4,7 @@ import * as cheerio from "cheerio";
 
 import { logEvent, recordExternalApiCall } from "../events";
 import { upsertScrapedArticle, withoutStoredUrls, type FilmMentionInput } from "./articles";
+import { isRingerTvUrl } from "./ringer-tv-match";
 import { isRingerMovieUrl, isRingerReviewUrl, ringerReviewFilmTitle } from "./ringer-urls";
 
 /**
@@ -108,6 +109,12 @@ export async function discoverRingerMovieUrls(): Promise<string[]> {
     (loc) => isRingerMovieUrl(loc) && !isRingerReviewUrl(loc),
     Number.MAX_SAFE_INTEGER,
   );
+  return urls.sort().reverse();
+}
+
+/** Every article filed under /tv/, newest first — the pool ringer-tv.ts reads through. */
+export async function discoverRingerTvUrls(): Promise<string[]> {
+  const urls = await walkSitemap(isRingerTvUrl, Number.MAX_SAFE_INTEGER);
   return urls.sort().reverse();
 }
 

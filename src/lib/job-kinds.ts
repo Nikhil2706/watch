@@ -98,6 +98,18 @@ const KINDS: JobKind[] = [
     },
   },
   {
+    kind: "ringer_tv",
+    label: "Scrape The Ringer's TV writing",
+    description: "Reads the TV articles not yet stored: reviews, recaps and rankings, linked to the shows and episodes in the library.",
+    runner: "gate",
+    politeByDefault: false,
+    run: async () => {
+      const { runRingerTvScrape } = await import("./scraping/ringer-tv");
+      const r = await runRingerTvScrape(NO_LIMIT);
+      return `${r.read} articles read, ${r.lists} lists, ${r.matchedArticles} about a show in the library, ${r.matchedEpisodes} about one episode`;
+    },
+  },
+  {
     kind: "critic_lists",
     label: "Scrape a critics' site's lists",
     description: "Reverse Shot's yearly best-of features, or the yearly ten-best posts on David Bordwell's site, with each film's text. Lists already stored are skipped.",
