@@ -37,7 +37,9 @@ export async function POST(
     // Read whole: an episode's key (episode-key.ts) carries a file path, and
     // optionalString cuts at 200 characters.
     const explicitImdbId =
-      typeof body.imdb_id === "string" && body.imdb_id.length <= 2000 ? body.imdb_id : undefined;
+      typeof body.imdb_id === "string" && body.imdb_id.length > 0 && body.imdb_id.length <= 2000
+        ? body.imdb_id
+        : undefined;
     const blurbText = optionalString(body, "blurb_text");
 
     const insertAtPosition = optionalInt(body, "insert_at");

@@ -21,7 +21,9 @@ export default async function AppPage() {
   return (
     <main className="app-page">
       <p style={{ margin: "0 0 18px" }}>
-        <Link href="/">← Watch</Link>
+        <Link href="/" data-tv-autofocus="true">
+          ← Watch
+        </Link>
       </p>
       <h1>Get the app</h1>
       <p className="page-sub">

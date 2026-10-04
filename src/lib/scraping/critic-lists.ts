@@ -142,7 +142,17 @@ function storedListUrls(sourceId: string): Set<string> {
   );
 }
 
-export async function runCriticListScrape(source: CriticListSource, onProgress?: Progress): Promise<CriticListRunResult> {
+/**
+ * `refresh` reads every list again, stored or not — for after the parser has
+ * changed. A stored list the parser no longer reads as one was stored wrongly
+ * (the first version took a 1925 post's section headings for its films), and
+ * is removed; the review scraper keeps the post itself.
+ */
+export async function runCriticListScrape(
+  source: CriticListSource,
+  onProgress?: Progress,
+  options: { refresh?: boolean } = {},
+): Promise<CriticListRunResult> {
   const site = SITES[source];
   let pagesRead = 0;
   let listsFound = 0;
@@ -154,7 +164,7 @@ export async function runCriticListScrape(source: CriticListSource, onProgress?:
   const candidates = (await site.discover(() => {
     pagesRead++;
     report();
-  })).filter((url) => !stored.has(url));
+  })).filter((url) => options.refresh || !stored.has(url));
 
   for (const url of candidates) {
     const html = await site.fetch(url);
@@ -165,6 +175,11 @@ export async function runCriticListScrape(source: CriticListSource, onProgress?:
 
     const list = site.parse(html);
     if (!list) {
+      if (stored.has(url)) {
+        getDb()
+          .prepare("DELETE FROM scraped_articles WHERE url = ? AND source_id = ? AND article_type = 'accolade'")
+          .run(url, site.sourceId);
+      }
       report();
       continue;
     }

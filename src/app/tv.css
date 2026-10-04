@@ -519,6 +519,17 @@ html[data-tv="true"] .party-ended-card p {
   font-size: 0.95rem;
 }
 
+/* The way out of a header-less page (TvWayHome.tsx). */
+.tv-way-home {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin: 0;
+  padding: 28px 48px;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
 /* --- Browse & cast ------------------------------------------------------ */
 
 /* The phone's show/hide-filters checkbox: invisible, but still focusable, so

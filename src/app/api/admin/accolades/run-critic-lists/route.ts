@@ -26,7 +26,7 @@ function isSource(value: string | undefined): value is CriticListSource {
 }
 
 /**
- * POST /api/admin/accolades/run-critic-lists   { source: "reverseshot" | "bordwell" }
+ * POST /api/admin/accolades/run-critic-lists   { source: "reverseshot" | "bordwell", refresh? }
  * GET  /api/admin/accolades/run-critic-lists   what is running, and what is stored
  *
  * Reverse Shot's yearly best-of features and the yearly ten-best posts on
@@ -41,10 +41,14 @@ export async function POST(request: Request): Promise<Response> {
   if (denied) return denied;
 
   let source: CriticListSource;
+  // refresh: read every list again, stored or not — after a change to the parser.
+  let refresh = false;
   try {
-    const raw = optionalString(await readJsonBody(request), "source");
+    const body = await readJsonBody(request);
+    const raw = optionalString(body, "source");
     if (!isSource(raw)) throw new ValidationError('source must be "reverseshot" or "bordwell".');
     source = raw;
+    refresh = body.refresh === true;
   } catch (error) {
     if (error instanceof ValidationError) {
       return Response.json({ error: "invalid_request", message: error.message }, { status: 400, headers: NO_STORE });
@@ -65,7 +69,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const update = getDb().prepare("UPDATE scrape_jobs SET found_count = ?, matched_count = ? WHERE id = ?");
 
-  void runCriticListScrape(source, ({ listsFound, matchedCount }) => update.run(listsFound, matchedCount, job.id))
+  void runCriticListScrape(source, ({ listsFound, matchedCount }) => update.run(listsFound, matchedCount, job.id), { refresh })
     .then((result) => {
       markScrapeJobDone(job.id, result.listsFound, result.matchedCount);
       console.log(`[admin/accolades/run-critic-lists] ${source} done:`, JSON.stringify(result));

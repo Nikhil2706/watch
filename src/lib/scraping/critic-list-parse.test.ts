@@ -72,7 +72,7 @@ test("Bordwell: a film is a paragraph that is only its bold title", () => {
   assert.ok(list.entries.every((e) => e.rank === null && e.paragraphs.length === 2));
 });
 
-test("Bordwell: the older posts number their films, and the opening caption is not film one", () => {
+test("Bordwell: numbered films are still not ranked, and the opening caption is not film one", () => {
   const list = parseBordwellTenBest(
     bordwell(
       `<p><em><strong>Dragnet Girl</strong></em></p><p><strong>Kristin here:</strong></p><p>${LONG}</p>` +
@@ -81,11 +81,58 @@ test("Bordwell: the older posts number their films, and the opening caption is n
     ),
   );
   assert.ok(list);
-  assert.equal(list.ranked, true);
+  assert.equal(list.ranked, false);
   assert.deepEqual(
     list.entries.map((e) => [e.rank, e.title, e.paragraphs.length]),
-    FILMS.map((f, i) => [i + 1, f, 1]),
+    FILMS.map((f) => [null, f, 1]),
   );
+});
+
+test("Bordwell: a director or a year in brackets is not part of the title", () => {
+  const list = parseBordwellTenBest(
+    bordwell(
+      `<p><strong>Kristin here:</strong></p>` +
+        FILMS.map((f, i) =>
+          i % 2
+            ? `<p><strong><em>${f}</em> (dir. Some Body)</strong></p><p>${LONG}</p>`
+            : `<p><strong><em>${f}</em> (aka Another Name) (Some Body)</strong></p><p>${LONG}</p>`,
+        ).join(""),
+    ),
+  );
+  assert.ok(list);
+  assert.deepEqual(list.entries.map((e) => e.title), FILMS);
+});
+
+test("Bordwell: bold italics inside the paragraph that discusses the film", () => {
+  const list = parseBordwellTenBest(
+    bordwell(
+      `<p><strong>Kristin here:</strong></p><p><strong>The Russians are coming</strong></p>` +
+        FILMS.map((f) => `<p>Somebody&#8217;s <strong><em>${f}</em></strong> was ${LONG}</p><p>${LONG}</p>`).join("") +
+        // A quotation set whole in bold, with one foreign word in italics, is not a film.
+        `<p><strong>${LONG} A <em>cinéaste</em> would say so. ${LONG}</strong></p>` +
+        // Handing the keyboard over does not start the post again.
+        `<p><strong>David here:</strong></p><p>${LONG}</p>`,
+    ),
+  );
+  assert.ok(list);
+  assert.deepEqual(list.entries.map((e) => e.title), FILMS);
+  assert.equal(list.entries[0]!.paragraphs.length, 2);
+});
+
+test("Bordwell: a still's caption follows the paragraphs about its film", () => {
+  const list = parseBordwellTenBest(
+    bordwell(
+      `<p><strong>Kristin here:</strong></p><p>${LONG}</p>` +
+        FILMS.map(
+          (f) => `<p><strong>A section heading</strong></p><p>${LONG}</p><p>${LONG}</p><p><em><strong>${f}</strong> (1933).</em></p>`,
+        ).join("") +
+        // A still from another year is a comparison.
+        `<p><em>An Older Film</em> (1919).</p><p><strong>Some runners-up</strong></p><p><em>Also Ran</em> (1933).</p><p>${LONG}</p>`,
+    ),
+  );
+  assert.ok(list);
+  assert.deepEqual(list.entries.map((e) => e.title), FILMS);
+  assert.ok(list.entries.every((e) => e.paragraphs.length === 2));
 });
 
 test("Bordwell: an ordinary post is not a list", () => {

@@ -73,3 +73,35 @@ Steps:
 4. **Confirm the "clean" path too** — upload something real and small, run
    the scanner, confirm it shows `status: clean` and the Approve button in
    the curator's Uploads tab becomes available.
+
+# Console on the home Wi-Fi after a restart
+
+The curator console runs inside WSL and is published on the PC's
+`localhost:3200`. Other devices reach it at `<the PC's Wi-Fi address>:3200`
+through a Windows portproxy and a firewall rule (set up once, as
+administrator, by `open-console-on-wifi.ps1` in the host's `jellyfin-gate`
+folder). That forward does not always come up after a reboot, and getting it
+back used to take `Restart-Service iphlpsvc` in an administrator PowerShell.
+
+`console-forward.js` is the fallback, and needs no administrator. Every 20
+seconds, if nothing is listening on the Wi-Fi address, it takes the port
+itself and passes connections to `localhost:3200`; while Windows' own forward
+is working it stands by. It opens nothing by itself: the same firewall rule
+lets either forward through.
+
+It runs hidden at logon from a scheduled task, like the tunnel and the WSL
+keepalive. Copy both files beside them and register the task once, in an
+ordinary (not administrator) PowerShell:
+
+```powershell
+$action = New-ScheduledTaskAction -Execute 'C:\Windows\System32\wscript.exe' -Argument '"C:\Users\HP\jellyfin-gate\console-forward.vbs"'
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+Register-ScheduledTask -TaskName 'JellyfinGateConsoleForward' -Action $action -Trigger $trigger -Settings $settings
+```
+
+State, 2026-10-04: registered on the HP and standing by. The forwarding was
+tested on a spare local port. It has not yet been through a boot where
+Windows' own forward failed, and whether Windows Firewall asks about
+`node.exe` the first time it takes the port is not known. Its log is
+`console-forward.log` beside the script.

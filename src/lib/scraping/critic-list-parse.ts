@@ -65,16 +65,37 @@ export function parseReverseShotBestOf(html: string): ParsedCriticList | null {
 
     const numbered = text.match(/^(\d{1,2})\s*\.\s*/);
     const bold = $p.find("strong, b");
+    if (numbered && bold.length === 0) {
+      // 2014 set its titles in nothing at all: "1. Boyhood<br />Without
+      // wishing to indulge in hyperbole…". The title is the first line.
+      const firstLine = tidy(cheerio.load(($p.html() ?? "").split(/<br\s*\/?>/i)[0] ?? "").text())
+        .replace(/^\d{1,2}\s*\.\s*/, "")
+        .replace(/\s*\(tie\)\s*$/i, "")
+        .trim();
+      if (firstLine && firstLine.length <= 80 && firstLine.length < text.length - 40) {
+        const rest = text.slice(numbered[0].length);
+        const capsule = rest.startsWith(firstLine) ? rest.slice(firstLine.length).replace(/^\s*\(tie\)/i, "").trim() : rest;
+        current = { rank: Number(numbered[1]), title: firstLine, paragraphs: capsule ? [capsule] : [] };
+        entries.push(current);
+        return;
+      }
+    }
     if (numbered && bold.length > 0) {
       // The title is the link when the film was reviewed, else whatever is
       // bold once the number is taken off.
-      const linked = tidy(bold.find("a").first().text());
-      const fromBold = tidy(bold.text()).replace(/^\d{1,2}\s*\.?\s*/, "");
-      const title = linked || fromBold;
+      // The entry's own number can sit outside the bold, inside it or inside
+      // the link ("1. Days"). Only that number and its full stop come off:
+      // "2046" and "4 Months, 3 Weeks and 2 Days" keep theirs.
+      const rank = Number(numbered[1]);
+      const ownNumber = new RegExp(`^${rank}\\s*\\.\\s*`);
+      const tie = /\s*\(tie\)\s*/i;
+      const linked = tidy(bold.find("a").first().text()).replace(ownNumber, "");
+      const fromBold = tidy(bold.text()).replace(ownNumber, "");
+      const title = (linked || fromBold).replace(tie, " ").trim();
       if (title) {
-        let capsule = text.slice(numbered[0].length);
-        if (capsule.startsWith(title)) capsule = capsule.slice(title.length).trim();
-        current = { rank: Number(numbered[1]), title, paragraphs: capsule ? [capsule] : [] };
+        let capsule = text.slice(numbered[0].length).replace(ownNumber, "");
+        if (capsule.startsWith(title)) capsule = capsule.slice(title.length).replace(/^\s*\(tie\)/i, "").trim();
+        current = { rank, title, paragraphs: capsule ? [capsule] : [] };
         entries.push(current);
         return;
       }
@@ -88,82 +109,155 @@ export function parseReverseShotBestOf(html: string): ParsedCriticList | null {
 }
 
 /**
- * "The ten best films of … 1933". Each film has a paragraph to itself that is
- * nothing but its title in bold, numbered in the older posts and not in the
- * newer:
+ * "The ten best films of … 1933". Never ranked, even where numbered ("the
+ * list isn't in rank order"), and laid out four ways over the years, all
+ * confirmed against the real posts for 1918 to 1935:
  *
- *     <p><em><strong>Passing Fancy</strong></em></p>
- *     <p><strong><em>1. La passion de Jeanne d'Arc.</em></strong></p>
+ *   1. A paragraph that is nothing but the film's title in italics, with an
+ *      optional bracket after it — the director, or the year under a still:
+ *        <p><em><strong>Passing Fancy</strong></em></p>
+ *        <p><strong><em>Lucky Star</em> (dir. Frank Borzage)</strong></p>
+ *        <p><em>The Joyless Street</em> (1925).</p>
+ *      (1920, 1925, 1928 onwards.)
+ *   2. The title in bold italics inside the paragraph that discusses it
+ *      (1926): "Vsevolod Pudovkin's <strong><em>Mother</em></strong> was …"
+ *   3. A numbered paragraph whose first italic is the film (1918):
+ *      "6. <em>Hell Bent</em>, by John Ford, was long thought …"
  *
- * Stills follow, then the prose, up to the next such paragraph. A bold title
- * with a year after it ("Dragnet Girl (1933).") is the caption of the still
- * above it, and "Kristin here" opens the post in bold without being a film.
- * The same title standing alone a second time is a closing still.
+ * What follows a film, up to the next one, is what is said about it. A bold
+ * paragraph that is not italic is a section heading ("Hollywood, comic") and
+ * ends the film before it. "Kristin here" opens the post; a title above that
+ * line is the caption of the opening still. Runners-up end the list.
+ *
+ * In the years laid out by section (1921 to 1925, 1927, 1930) the films are
+ * only named under their stills, so those come out as the films pictured:
+ * usually close to the ten, not always exactly them.
  */
 export function parseBordwellTenBest(html: string): ParsedCriticList | null {
   const $ = cheerio.load(html);
   const headline = tidy($("title").first().text()).replace(/^Observations on film art\s*:\s*/i, "");
   if (!headline) return null;
+  const listYear = yearIn(headline);
 
   const bare = (text: string) => text.replace(/[\s.,:;–—-]+$/, "").trim();
+  /** Takes "(dir. X)", "(Jean Vigo)" or "(1925)." off the end, as often as it is there. */
+  const unbracket = (text: string): { core: string; year: number | null } => {
+    let core = text.trim();
+    let year: number | null = null;
+    for (;;) {
+      const m = /\s*\(([^()]*)\)\s*\.?$/.exec(core);
+      if (!m) break;
+      if (/^(18|19|20)\d{2}$/.test(m[1]!.trim())) year = Number(m[1]!.trim());
+      core = core.slice(0, m.index);
+    }
+    return { core: bare(core), year };
+  };
+
   const entries: CriticListEntry[] = [];
   const byTitle = new Map<string, CriticListEntry>();
   let current: CriticListEntry | null = null;
+  let finished = false;
+  // Prose since the last section heading that no film has claimed yet. In the
+  // years laid out by section the still, and the title under it, come after
+  // the paragraphs about the film; null until a section heading is seen, so
+  // a post's introduction is never handed to its first film.
+  let unclaimed: string[] | null = null;
+
+  const film = (title: string): void => {
+    const key = title.toLowerCase();
+    const known = byTitle.get(key);
+    if (known) {
+      // Named again (its still, further down): what follows is still about it.
+      current = known;
+      return;
+    }
+    current = { rank: null, title, paragraphs: unclaimed ?? [] };
+    if (unclaimed) unclaimed = [];
+    byTitle.set(key, current);
+    entries.push(current);
+  };
 
   $(".entry p").each((_, el) => {
+    if (finished) return;
     const $p = $(el);
     const text = tidy($p.text());
     if (!text) return;
 
-    const bold = tidy($p.find("strong, b").text());
-    if (bold) {
-      if (/\bhere\b/i.test(bold) && text.length <= bold.length + 5) {
-        // "Kristin here:" — the post starts now. A title above this line was
-        // the caption of the opening still, and what follows is the
-        // introduction, not that film's text.
+    if (/^(kristin|kt|db|david)\b[^.]{0,40}\bhere\b/i.test(text) && text.length <= 60) {
+      // The post starts now: whatever was named above is the opening still.
+      // Later in a post the same words only hand the keyboard over.
+      if (!entries.some((e) => e.paragraphs.length > 0)) {
         entries.length = 0;
         byTitle.clear();
         current = null;
+      }
+      return;
+    }
+    if (/runners?[\s-]?ups?\b/i.test(text.slice(0, 40))) {
+      finished = true;
+      return;
+    }
+
+    const bold = tidy($p.find("strong, b").text());
+    const italic = tidy($p.find("em, i").first().text());
+    const short = text.length <= 110;
+
+    // 1. The paragraph is the title.
+    if (short && italic) {
+      const numbered = text.replace(/^\d{1,2}\s*\.\s*/, "");
+      const whole = unbracket(numbered);
+      const part = unbracket(italic.replace(/^\d{1,2}\s*\.\s*/, ""));
+      if (whole.core && whole.core === part.core) {
+        // A still from another year is a comparison, not an entry.
+        if (whole.year !== null && listYear !== null && Math.abs(whole.year - listYear) > 1) return;
+        film(whole.core);
         return;
       }
-      const standsAlone = bare(text) === bare(bold) && bold.length <= 90 && !/\bhere\b/i.test(bold);
-      if (!standsAlone) {
-        // A caption, the opening line, or bold inside prose. Prose belongs to
-        // the film being discussed; a caption is neither kept nor a break.
-        if (current && text.length > bold.length + 60) current.paragraphs.push(text);
-        return;
-      }
-      const numbered = bare(bold).match(/^(\d{1,2})\s*\.\s*(.+)$/);
-      const title = bare(numbered ? numbered[2]! : bold);
-      const rank = numbered ? Number(numbered[1]) : null;
-      const key = title.toLowerCase();
-      const known = byTitle.get(key);
-      if (known && known.paragraphs.length > 0) {
-        current = null;
-        return;
-      }
-      if (known) {
-        // Named once above as a still's caption, before anything was said.
-        known.rank = rank;
-        current = known;
-        return;
-      }
-      current = { rank, title, paragraphs: [] };
-      byTitle.set(key, current);
-      entries.push(current);
+    }
+    // A bold paragraph that is not a title: a section heading.
+    if (short && bold && bare(bold) === bare(text)) {
+      current = null;
+      unclaimed = [];
+      return;
+    }
+    // 2. Bold italics inside the paragraph that discusses the film: a short
+    // run of bold that is italic through and through. (A whole paragraph set
+    // in bold, with a foreign word in italics, is a quotation.)
+    let boldItalic = "";
+    $p.find("strong, b").each((_, node) => {
+      if (boldItalic) return;
+      const $b = $(node);
+      const run = tidy($b.text());
+      if (!run || run.length > 70) return;
+      if (tidy($b.find("em, i").text()) === run || $b.closest("em, i").length > 0) boldItalic = run;
+    });
+    if (boldItalic && text.length > boldItalic.length + 60) {
+      film(bare(boldItalic));
+      current!.paragraphs.push(text);
+      return;
+    }
+    // 3. A numbered paragraph whose first italic is the film.
+    const numberedProse = /^(\d{1,2})\s*\.\s+/.exec(text);
+    if (numberedProse && italic && text.length > 150) {
+      film(bare(italic));
+      current!.paragraphs.push(text.slice(numberedProse[0].length));
       return;
     }
     if (current) current.paragraphs.push(text);
+    else if (unclaimed) unclaimed.push(text);
   });
 
   const written = entries.filter((e) => e.paragraphs.length > 0);
   if (written.length < MIN_ENTRIES) return null;
-  return { headline, year: yearIn(headline), ranked: written.every((e) => e.rank !== null), entries: written };
+  return { headline, year: listYear, ranked: false, entries: written };
 }
 
 /** A Reverse Shot feature whose address says it is a best-of list, and not the year's worst. */
 export function isReverseShotListSlug(slug: string): boolean {
-  return /best_of|best_films|ten_best|top_ten/i.test(slug) && !/offens|worst/i.test(slug);
+  // The address has had four shapes: the_best_of_2006, best_2007,
+  // reverse_shots_best_2013, best_of_2025. What they share is "best" and a
+  // year. The same site's "11 offenses of …" is the year's worst.
+  return /best/i.test(slug) && /(19|20)\d{2}/.test(slug) && !/offens|worst/i.test(slug);
 }
 
 /** One of the yearly ten-best posts, by its address. */

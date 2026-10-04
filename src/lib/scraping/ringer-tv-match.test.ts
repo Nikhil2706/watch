@@ -42,8 +42,14 @@ test("the address's own guess at the show", () => {
   assert.equal(guessShowTitle("ranking-the-most-insufferable-yuppies-on-tv"), null);
 });
 
-test("a name of several words is found anywhere in the address", () => {
-  assert.equal(matchShow("why-friday-night-lights-still-matters", "Clear Eyes", SHOWS)?.id, "fnl");
+test("a name of several words counts at the front of the address or the end", () => {
+  assert.equal(matchShow("friday-night-lights-tv-show-anniversary-20-years", "The Gospel of Buddy Garrity", SHOWS)?.id, "fnl");
+  assert.equal(matchShow("how-old-is-tim-riggins-friday-night-lights", "A Question of Age", SHOWS)?.id, "fnl");
+  // In the middle it is one name among several.
+  assert.equal(matchShow("writers-strike-2007-friday-night-lights-gossip-girl-heroes", "What TV Loses", SHOWS), null);
+  assert.equal(matchShow("why-friday-night-lights-still-matters", "Clear Eyes", SHOWS), null);
+  // Unless the headline says it is the subject.
+  assert.equal(matchShow("why-friday-night-lights-still-matters", "Why ‘Friday Night Lights’ Still Matters", SHOWS)?.id, "fnl");
   assert.equal(matchShow("the-west-wing-reunion-hbo-max", "A Reunion", SHOWS)?.id, "ww");
   assert.equal(matchShow("the-curse-finale-explained-meaning-theories", "What Happened?", SHOWS)?.id, "curse");
 });
@@ -58,7 +64,7 @@ test("a library show named after another show's name is a comparison, not the su
   );
   // The show's own name opening the address is still the subject.
   assert.equal(matchShow("nathan-for-you-season-4-finale-finding-frances", "Finding Frances", SHOWS)?.id, "nathan");
-  assert.equal(matchShow("tim-riggins-friday-night-lights-best-moment", "Texas Forever", SHOWS)?.id, "fnl");
+  assert.equal(matchShow("friday-night-lights-tim-riggins-best-moment", "Texas Forever", SHOWS)?.id, "fnl");
 });
 
 test("a one-word name needs the front of the address and a television word after it", () => {
@@ -76,6 +82,19 @@ test("a title in the headline's quotation marks counts, whatever the address say
   assert.equal(matchShow("the-island-is-still-calling", "Ten Years On, ‘Lost’ Still Has Us", SHOWS)?.id, "lost");
   assert.equal(matchShow("county-general-forever", "‘ER’ Was the Last Great Hospital Show", SHOWS)?.id, "er");
   assert.equal(matchShow("something-else", "‘Lost in Space’ Finds Itself", SHOWS), null);
+});
+
+test("a show quoted second is a comparison unless the address names it too", () => {
+  assert.equal(
+    matchShow(
+      "winning-time-hbo-lakers-review",
+      "‘Winning Time’ Looks Like ‘Friday Night Lights’ and Acts Like ‘The Crown’",
+      SHOWS,
+    ),
+    null,
+  );
+  assert.equal(matchShow("lost-at-twenty", "‘We Have to Go Back’: ‘Lost’ at Twenty", SHOWS)?.id, "lost");
+  assert.equal(matchShow("the-island-at-twenty", "‘We Have to Go Back’: ‘Lost’ at Twenty", SHOWS), null);
 });
 
 test("the longer name wins", () => {

@@ -31,7 +31,7 @@ import { bestMatches, matchScore, type MatchScore } from "./admin-search-match";
  * its raw title into a Builder slot, which resolves later the normal way.
  */
 export interface AdminSearchHit {
-  /** An IMDb id, or an episode key (episode-key.ts) for a title that is found by its file. */
+  /** An IMDb id, or an episode key (episode-key.ts) for a title that is found by its file. Empty for a show with no linked series, which goes by its href. */
   imdbId: string;
   name: string;
   year: number | null;
@@ -138,8 +138,11 @@ export async function searchLibraryForAdmin(
       seenGroups.add(g.groupId);
       const score = matchScore(normaliseTitle(g.groupName), key);
       if (!score) continue;
-      const imdbId = getGroupSeriesId(g.groupId);
-      if (!imdbId) continue;
+      // A show not yet linked to a series has no IMDb id. A pick takes a show
+      // by its group (the href below), so it is offered there with an empty
+      // id; the Films tab and anything else keyed on an IMDb id still skip it.
+      const imdbId = getGroupSeriesId(g.groupId) ?? (opts.episodes ? "" : null);
+      if (imdbId === null) continue;
       // Best-effort only: this checks just the group's first-iterated member,
       // not every member the way browse-data.ts's full members-scan fallback
       // does (getGroupedPathMap doesn't expose a cheap members list here) —

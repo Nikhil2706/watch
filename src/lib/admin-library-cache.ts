@@ -40,8 +40,44 @@ interface Entry {
   items: AdminMovieListItem[];
 }
 
-const cache = new Map<string, Entry>();
-const inFlight = new Map<string, Promise<AdminMovieListItem[]>>();
+/*
+ * Everything this module remembers lives on globalThis, one copy for the
+ * process.
+ *
+ * Next loads a module once for the route handlers and again for
+ * instrumentation.ts, and module-level variables are per copy. That is why
+ * warming this cache at boot did nothing the first time it was tried: the
+ * boot code filled its own copy, and the console's first request read an
+ * empty one and waited the full twelve seconds anyway. Held here, a warm-up
+ * at boot is the same cache the routes read.
+ */
+interface State {
+  cache: Map<string, Entry>;
+  inFlight: Map<string, Promise<AdminMovieListItem[]>>;
+  generation: number;
+  held: Map<string, { etag: string | undefined; item: AdminMovieListItem }>;
+  heldWholeAt: number;
+  wholeInBackground: boolean;
+  unsettledUntil: number;
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __jellyfinGateAdminLibrary: State | undefined;
+}
+
+const S: State = (globalThis.__jellyfinGateAdminLibrary ??= {
+  cache: new Map(),
+  inFlight: new Map(),
+  generation: 0,
+  held: new Map(),
+  heldWholeAt: 0,
+  wholeInBackground: false,
+  unsettledUntil: 0,
+});
+
+const cache = S.cache;
+const inFlight = S.inFlight;
 
 /**
  * Bumped whenever something invalidates the listing.
@@ -52,7 +88,7 @@ const inFlight = new Map<string, Promise<AdminMovieListItem[]>>();
  * the next minute. Dropping the cache is not enough on its own; the answer
  * already on the wire has to be refused too.
  */
-let generation = 0;
+// (the counter itself is S.generation, above)
 
 function keyFor(withMediaSources: boolean): string {
   return withMediaSources ? "heavy" : "light";
@@ -78,9 +114,7 @@ function keyFor(withMediaSources: boolean): string {
  * nobody waits for it, and a title that has just been re-identified is
  * dropped from here outright (forgetAdminMovie) rather than trusted.
  */
-const held = new Map<string, { etag: string | undefined; item: AdminMovieListItem }>();
-let heldWholeAt = 0;
-let wholeInBackground = false;
+const held = S.held;
 const FULL_EVERY_MS = 30 * 60 * 1000;
 /** Past this many changed titles, one whole fetch is quicker than the pieces. */
 const MAX_PIECEMEAL = 300;
@@ -90,7 +124,7 @@ async function fetchWholeHeavy(): Promise<AdminMovieListItem[]> {
   const items = await listAllMoviesAdmin({ withMediaSources: true });
   held.clear();
   for (const item of items) held.set(item.Id, { etag: item.Etag, item });
-  heldWholeAt = Date.now();
+  S.heldWholeAt = Date.now();
   return items;
 }
 
@@ -107,15 +141,15 @@ async function fetchHeavy(): Promise<AdminMovieListItem[]> {
   const present = new Set(listing.map((row) => row.Id));
   for (const id of [...held.keys()]) if (!present.has(id)) held.delete(id);
 
-  if (Date.now() - heldWholeAt > FULL_EVERY_MS && !wholeInBackground) {
-    wholeInBackground = true;
+  if (Date.now() - S.heldWholeAt > FULL_EVERY_MS && !S.wholeInBackground) {
+    S.wholeInBackground = true;
     void fetchWholeHeavy()
       .catch(() => {
         // The pieces already answered this reader; the next refresh tries the
         // whole fetch again.
       })
       .finally(() => {
-        wholeInBackground = false;
+        S.wholeInBackground = false;
       });
   }
 
@@ -133,7 +167,7 @@ async function fetchHeavy(): Promise<AdminMovieListItem[]> {
  * this long nothing is cached at all.
  */
 const SETTLE_MS = 90_000;
-let unsettledUntil = 0;
+// (S.unsettledUntil, above)
 
 export async function getAdminMovies(
   options: { withMediaSources?: boolean } = {},
@@ -144,7 +178,7 @@ export async function getAdminMovies(
   const cached = cache.get(key);
   const existing = inFlight.get(key);
 
-  if (cached && Date.now() >= unsettledUntil) {
+  if (cached && Date.now() >= S.unsettledUntil) {
     // Stale-while-revalidate: hand back what we have either way, and only
     // kick off a refresh if one isn't already running.
     if (Date.now() - cached.fetchedAt >= FRESH_MS && !existing) {
@@ -162,14 +196,14 @@ export async function getAdminMovies(
 }
 
 function refresh(key: string, withMediaSources: boolean): Promise<AdminMovieListItem[]> {
-  const startedAt = generation;
+  const startedAt = S.generation;
   const request = (withMediaSources ? fetchHeavy() : listAllMoviesAdmin({ withMediaSources: false }))
     .then((items) => {
       // Something was invalidated while this was in flight, so these items
       // predate that change. Hand them to the caller that is already waiting —
       // they are no worse than what it would have got — but do not store them,
       // or the next minute of readers gets pre-write data presented as fresh.
-      if (generation === startedAt) cache.set(key, { fetchedAt: Date.now(), items });
+      if (S.generation === startedAt) cache.set(key, { fetchedAt: Date.now(), items });
       return items;
     })
     .finally(() => {
@@ -192,7 +226,7 @@ function refresh(key: string, withMediaSources: boolean): Promise<AdminMovieList
  */
 export function invalidateAdminMovies(): void {
   cache.clear();
-  generation += 1;
+  S.generation += 1;
 }
 
 /**
@@ -245,10 +279,10 @@ export function forgetAdminMovie(itemId: string): void {
   }
   // Its heavy row is read again whatever its stamp says.
   held.delete(itemId);
-  unsettledUntil = Date.now() + SETTLE_MS;
+  S.unsettledUntil = Date.now() + SETTLE_MS;
   // Unconditional, even when nothing was cached: a fetch may be in flight that
   // started before the write, and it must not be allowed to cache its answer.
-  generation += 1;
+  S.generation += 1;
 }
 
 export async function refreshAdminMovie(itemId: string): Promise<void> {
@@ -271,4 +305,12 @@ export async function refreshAdminMovie(itemId: string): Promise<void> {
       console.warn(`[admin-library-cache] could not refresh ${itemId}:`, error);
     }
   }
+}
+
+/**
+ * Fills the heavy listing ahead of the console's first request. Called once
+ * at boot (instrumentation.ts); harmless to call again.
+ */
+export async function warmAdminMovies(): Promise<number> {
+  return (await getAdminMovies()).length;
 }

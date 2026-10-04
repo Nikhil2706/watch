@@ -39,7 +39,9 @@ export async function POST(
     const year = optionalInt(body, "year") ?? null;
     // Read whole: an episode key carries a file path, and optionalString
     // cuts at 200 characters.
-    const explicitImdbId = typeof body.imdb_id === "string" && body.imdb_id.length <= 2000 ? body.imdb_id : null;
+    // Empty is "none": the search hands a show with no linked series an empty id.
+    const explicitImdbId =
+      typeof body.imdb_id === "string" && body.imdb_id.length > 0 && body.imdb_id.length <= 2000 ? body.imdb_id : null;
     const groupId = optionalString(body, "href")?.match(/^\/collection\/([^/?#]+)/)?.[1] ?? null;
 
     const existing = listPickItems(id);
