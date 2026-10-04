@@ -75,11 +75,58 @@ interface ScanMarker {
   detail: string;
 }
 
+/**
+ * Windows PowerShell 5.1 writes "utf8" with a byte-order mark in front, and
+ * JSON.parse refuses the mark. Every marker the scanner wrote that way read
+ * as "not scanned yet" for good, so nothing uploaded could ever be approved.
+ * The script no longer writes one; this is for any file that still has it.
+ */
+function stripBom(text: string): string {
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
+/**
+ * The scanner's sign of life: it writes this file into the quarantine folder
+ * on every run, found something or not. Without it there is no telling a
+ * scanner that has nothing to do from one that was never set up on this
+ * machine — which is how the task came to be missing after the move to this
+ * PC with nobody the wiser.
+ */
+const HEARTBEAT_FILE = ".scanner-heartbeat.json";
+
+export interface UploadScannerStatus {
+  /** When the scanner last ran; null when it has left no sign that it ever did. */
+  lastRunAt: number | null;
+  /** Uploads still waiting for a verdict. */
+  waiting: number;
+  /** When the longest-waiting of those arrived. */
+  oldestWaitingAt: number | null;
+}
+
+export function getUploadScannerStatus(): UploadScannerStatus {
+  let lastRunAt: number | null = null;
+  try {
+    const raw = JSON.parse(stripBom(readFileSync(join(env.mediaQuarantinePath, HEARTBEAT_FILE), "utf8"))) as {
+      ranAt?: unknown;
+    };
+    const at = typeof raw.ranAt === "string" ? Date.parse(raw.ranAt) : NaN;
+    lastRunAt = Number.isFinite(at) ? at : null;
+  } catch {
+    // No file, or not readable: the scanner has not run here.
+  }
+  const waiting = asRow<{ n: number; oldest: number | null }>(
+    getDb()
+      .prepare("SELECT COUNT(*) AS n, MIN(created_at) AS oldest FROM uploads WHERE status IN ('uploaded', 'scanning')")
+      .get(),
+  );
+  return { lastRunAt, waiting: waiting?.n ?? 0, oldestWaitingAt: waiting?.oldest ?? null };
+}
+
 function readScanMarker(quarantinePath: string): ScanMarker | null {
   const markerPath = `${quarantinePath}.scan-result.json`;
   if (!existsSync(markerPath)) return null;
   try {
-    const parsed = JSON.parse(readFileSync(markerPath, "utf8")) as Partial<ScanMarker>;
+    const parsed = JSON.parse(stripBom(readFileSync(markerPath, "utf8"))) as Partial<ScanMarker>;
     if (parsed.status !== "clean" && parsed.status !== "infected") return null;
     return { status: parsed.status, detail: typeof parsed.detail === "string" ? parsed.detail : "" };
   } catch {

@@ -2433,6 +2433,21 @@
       "",
       ""
     ));
+    // The antivirus scan of uploads runs on Windows, outside the site; this
+    // is the only place that says whether it is running at all.
+    var us = h.uploadScanner;
+    if (us) {
+      cards.push(healthCard(
+        "Upload scanner",
+        us.lastRunAt ? fmtAgo(us.lastRunAt) : "Not set up",
+        us.stalled
+          ? us.waiting + " upload" + (us.waiting === 1 ? "" : "s") + " waiting and nothing is scanning them"
+          : us.lastRunAt
+            ? (us.waiting ? us.waiting + " waiting for a scan" : "nothing waiting")
+            : "no sign it has ever run on this PC — uploads cannot be approved until it does",
+        us.stalled ? "warning" : ""
+      ));
+    }
     $("healthGrid").innerHTML = cards.join("");
 
     var sb = h.storageBreakdown;

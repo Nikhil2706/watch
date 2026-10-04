@@ -12,9 +12,10 @@ import { fetchWikipediaForFilm } from "./scraping/wikipedia";
  * this is purely about pacing/politeness, not quota management.
  *
  * "Already tried" is tracked via scrape_jobs.film_imdb_id (see that
- * column's own comment in schema.ts): any wikipedia job — done OR failed —
- * recorded against a film counts as tried, so a film with no Wikipedia
- * page doesn't get re-attempted every single tick forever. The per-film
+ * column's own comment in schema.ts): a completed wikipedia job recorded
+ * against a film counts as tried, so a film with no Wikipedia page doesn't
+ * get re-attempted every single tick forever; a failed one is retried a
+ * couple of times first (see MAX_ATTEMPTS). The per-film
  * dashboard "Fetch Wikipedia data" button and this backfill both write
  * through the same createScrapeJob() call, so they share one history.
  */
@@ -23,6 +24,8 @@ const BATCH_SIZE = 5;
 export const TICK_INTERVAL_MS = 10 * 60 * 1000;
 /** Politeness pause between calls — each one is a search + a page fetch, more work per call than OMDb's single request. */
 const BETWEEN_CALL_DELAY_MS = 800;
+/** A film whose fetch keeps throwing is left alone after this many tries, so one broken page cannot be retried every tick for good. */
+const MAX_ATTEMPTS = 3;
 
 export interface WikipediaBackfillStatus {
   totalKnown: number;
@@ -48,12 +51,30 @@ export async function runWikipediaBackfillTick(): Promise<{ processed: number }>
     return [];
   });
 
+  /*
+   * A film is finished with once a job for it has completed — found or not,
+   * "no Wikipedia page" is an answer — or once it has been tried
+   * MAX_ATTEMPTS times without one completing.
+   *
+   * It used to be finished with after any job at all, failed ones included.
+   * On 2026-09-30 twenty films in a row failed on one error inside half an
+   * hour (a bad stretch, not twenty bad films), and that was their only
+   * attempt for good: they showed as "20 failed" on the Health tab for a
+   * week and then as nothing, still without their Wikipedia data.
+   */
   const attemptedIds = new Set(
-    asRows<{ film_imdb_id: string }>(
+    asRows<{ film_imdb_id: string; completed: number; attempts: number }>(
       getDb()
-        .prepare("SELECT DISTINCT film_imdb_id FROM scrape_jobs WHERE source_id = 'wikipedia' AND film_imdb_id IS NOT NULL")
+        .prepare(
+          `SELECT film_imdb_id, SUM(status = 'done') AS completed, COUNT(*) AS attempts
+             FROM scrape_jobs
+            WHERE source_id = 'wikipedia' AND film_imdb_id IS NOT NULL
+            GROUP BY film_imdb_id`,
+        )
         .all(),
-    ).map((r) => r.film_imdb_id),
+    )
+      .filter((r) => r.completed > 0 || r.attempts >= MAX_ATTEMPTS)
+      .map((r) => r.film_imdb_id),
   );
 
   const targets = knownFilms.filter((f) => !attemptedIds.has(f.imdbId)).slice(0, BATCH_SIZE);

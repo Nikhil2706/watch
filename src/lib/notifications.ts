@@ -124,6 +124,18 @@ export function notifyAllUsers(input: SystemNotificationInput): number {
   }
 }
 
+/**
+ * A watch party's notification is an invitation to a room, and stops being
+ * true when the room closes: "Watch party live now — join in" used to sit in
+ * the bell for good, leading to an ended party. Left out when read rather
+ * than deleted when a party ends, because a party ends in two places (the
+ * host's End button, and the sweep of rooms left empty) and this also covers
+ * every stale one already stored.
+ */
+const NOT_AN_ENDED_PARTY = `NOT (n.kind IN ('watch_party_live', 'watch_party_scheduled')
+            AND EXISTS (SELECT 1 FROM party_rooms p
+                         WHERE p.ended_at IS NOT NULL AND n.film_href = '/party/' || p.id))`;
+
 /** Most recent first, plus the unread count the bell badge needs — one query round trip for both. */
 export function listNotifications(userId: string, limit = 20): NotificationList {
   const db = getDb();
@@ -143,7 +155,7 @@ export function listNotifications(userId: string, limit = 20): NotificationList 
         `SELECT n.id, n.kind, n.comment_id, n.film_title, n.film_href, n.episode_count, n.created_at, n.read_at, u.username AS actor_username
            FROM notifications n
            LEFT JOIN users u ON u.id = n.actor_user_id
-          WHERE n.user_id = ?
+          WHERE n.user_id = ? AND ${NOT_AN_ENDED_PARTY}
           ORDER BY n.created_at DESC
           LIMIT ?`,
       )
@@ -151,7 +163,9 @@ export function listNotifications(userId: string, limit = 20): NotificationList 
   );
   const unreadCount =
     asRow<{ n: number }>(
-      db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL").get(userId),
+      db
+        .prepare(`SELECT COUNT(*) AS n FROM notifications n WHERE n.user_id = ? AND n.read_at IS NULL AND ${NOT_AN_ENDED_PARTY}`)
+        .get(userId),
     )?.n ?? 0;
 
   return {

@@ -1,25 +1,46 @@
-# Upload scanner — setup (registered, not yet tested)
+# Upload scanner — setup (NOT set up on the current PC; never tested)
 
 `upload-scanner.ps1` runs the Windows Defender side of the Langlois-mode
-upload pipeline: quarantine → **this script** → curator approval. The
-`JellyfinGateUploadScanner` Scheduled Task was registered 2026-08-20 (every
-5 minutes, `-RunLevel Highest`) — it is running now. What's still
-outstanding is step 3 below: a real EICAR-file test to confirm the
-`Get-MpThreatDetection` matching logic actually catches a detection on this
-machine's Defender version, not just by inspection. Steps:
+upload pipeline: quarantine → **this script** → curator approval.
 
-1. **Confirm the quarantine path matches reality.** The script reads
-   `$env:JELLYFIN_GATE_QUARANTINE_PATH`, falling back to
-   `C:\Users\Dell\Downloads\jellyfin-gate\media-quarantine` if that's unset.
-   That fallback matches `docker-compose.yml`'s own default
-   (`${MEDIA_QUARANTINE_PATH:-./media-quarantine}`) — if `.env` overrides
-   `MEDIA_QUARANTINE_PATH` to somewhere else, either set the same env var
-   for the scheduled task's context or edit the script's fallback to match.
+**State, 2026-10-04.** The `JellyfinGateUploadScanner` Scheduled Task was
+registered on the previous machine (the Dell) on 2026-08-20. It was not
+carried over when the site moved to the HP: that PC has only
+`JellyfinGateTunnel` and `JellyfinGateWslBoot`. Nothing has been uploaded
+since, so nothing is stuck, but an upload made today would wait for a scan
+for good. The console's Health tab now has an "Upload scanner" card that
+says so. Two bugs that would have stopped it working even where it was
+registered are fixed in the script (see its header): scan results were
+written with a byte-order mark the site could not parse, and a scan that
+failed to run was reported as clean.
 
-2. **Register the Scheduled Task**, same shape as `JellyfinGateWatchdog`:
+Steps:
+
+1. **Point it at the quarantine folder.** The script reads
+   `$env:JELLYFIN_GATE_QUARANTINE_PATH` and refuses to run without it. It
+   must be the Windows path behind the gate container's `/quarantine` mount
+   (`MEDIA_QUARANTINE_PATH` in `.env`, default `./media-quarantine`).
+
+   On the HP the stack runs inside WSL, so that default is
+   `/home/jellyfin/watch/media-quarantine`, which Windows sees as
+   `\\wsl.localhost\Ubuntu\home\jellyfin\watch\media-quarantine`. Whether
+   Defender will scan a file at a `\\wsl.localhost` path is **untested**. The
+   safer arrangement is the one `MEDIA_INCOMING` already uses there: put the
+   folder on a Windows drive (for example `MEDIA_QUARANTINE_PATH=/mnt/c/Media/quarantine`
+   in the WSL-paths env file, then recreate the gate and worker containers)
+   and give the script `C:\Media\quarantine`. Defender's real-time protection
+   then sees each upload as it is written, as well as this scan.
+
+   Set it for the account the task runs as:
+   ```powershell
+   [Environment]::SetEnvironmentVariable("JELLYFIN_GATE_QUARANTINE_PATH", "C:\Media\quarantine", "User")
+   ```
+
+2. **Register the Scheduled Task.** Copy `upload-scanner.ps1` to a folder
+   on the Windows side first (its log is written beside it), then:
    ```powershell
    $action = New-ScheduledTaskAction -Execute "powershell.exe" `
-     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"C:\Users\Dell\Downloads\jellyfin-gate\scripts\windows\upload-scanner.ps1`""
+     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"C:\Users\HP\jellyfin-gate\upload-scanner.ps1`""
    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
    Register-ScheduledTask -TaskName "JellyfinGateUploadScanner" -Action $action -Trigger $trigger -RunLevel Highest
    ```
