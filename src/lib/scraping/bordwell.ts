@@ -37,10 +37,16 @@ const BASE_URL = "https://www.davidbordwell.net";
 const USER_AGENT = "jellyfin-gate-curation/1.0 (self-hosted personal media library; single-user, non-commercial)";
 /** Matches the site's own declared Crawl-delay: 10 in robots.txt — deliberately not reused from the other adapters' 1200ms. */
 const REQUEST_DELAY_MS = 10_000;
+export const BORDWELL_REQUEST_DELAY_MS = REQUEST_DELAY_MS;
 const MAX_PAGES = 300;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** One page of the site, by path. Exported for critic-lists.ts. */
+export async function fetchBordwellHtml(path: string): Promise<string | null> {
+  return fetchHtml(path);
 }
 
 async function fetchHtml(path: string): Promise<string | null> {
