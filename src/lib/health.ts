@@ -9,6 +9,7 @@ import { countEventsSince, getExternalApiUsageToday, type ExternalApiUsage } fro
 import { checkJellyfinHealth, getActiveSessions, type JellyfinHealth, type JellyfinSessionSummary } from "./jellyfin";
 import { getLibraryNotifyStatus, getTvNotifyStatus, type LibraryNotifyStatus, type TvNotifyStatus } from "./library-notify";
 import { getOmdbBackfillStatus, type OmdbBackfillStatus } from "./omdb-backfill";
+import { getUploadScannerStatus, type UploadScannerStatus } from "./uploads";
 import { getWikipediaBackfillStatus, type WikipediaBackfillStatus } from "./wikipedia-backfill";
 
 /**
@@ -70,6 +71,23 @@ export interface HealthSnapshot {
   wikipediaBackfill: WikipediaBackfillStatus | null;
   libraryNotify: LibraryNotifyStatus | null;
   tvNotify: TvNotifyStatus | null;
+  /**
+   * The Windows-side antivirus scan of uploads. `stalled` is the one state
+   * that needs a person: something is waiting and the scanner has not run
+   * lately (or ever), so it will wait for good.
+   */
+  uploadScanner: UploadScannerStatus & { stalled: boolean };
+}
+
+/** The scanner's task runs every five minutes; three missed runs with something waiting is a stall. */
+const SCANNER_STALL_MS = 15 * 60 * 1000;
+
+function checkUploadScanner(): HealthSnapshot["uploadScanner"] {
+  const status = getUploadScannerStatus();
+  const now = Date.now();
+  const scannerQuiet = status.lastRunAt === null || now - status.lastRunAt > SCANNER_STALL_MS;
+  const waitedLong = status.oldestWaitingAt !== null && now - status.oldestWaitingAt > SCANNER_STALL_MS;
+  return { ...status, stalled: status.waiting > 0 && scannerQuiet && waitedLong };
 }
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -303,6 +321,7 @@ function computeOverall(snapshot: Omit<HealthSnapshot, "overall" | "checkedAt">)
     snapshot.scraping.recentFailures.length > 0 ||
     (snapshot.storage.freeFraction !== null && snapshot.storage.freeFraction < LOW_STORAGE_FRACTION) ||
     snapshot.lastLibraryScan.hoursAgo === null ||
+    snapshot.uploadScanner.stalled ||
     snapshot.externalApis.some((a) => a.failureCount > 0) ||
     snapshot.recentIssueCount > 0;
   if (warning) return "warning";
@@ -329,6 +348,7 @@ export async function getHealthSnapshot(): Promise<HealthSnapshot> {
   const wikipediaBackfill = getWikipediaBackfillStatus();
   const libraryNotify = getLibraryNotifyStatus();
   const tvNotify = getTvNotifyStatus();
+  const uploadScanner = checkUploadScanner();
 
   const { scrapedDataBytes, cachedApiDataBytes } = checkStorageBreakdown();
   const otherDataBytes = Math.max(0, (database.sizeBytes ?? 0) - scrapedDataBytes - cachedApiDataBytes);
@@ -350,6 +370,7 @@ export async function getHealthSnapshot(): Promise<HealthSnapshot> {
     wikipediaBackfill,
     libraryNotify,
     tvNotify,
+    uploadScanner,
   };
 
   return {

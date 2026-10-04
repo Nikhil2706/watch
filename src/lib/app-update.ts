@@ -4,6 +4,8 @@
  * still get the launch prompt; they read as "in the app, can't ask it".
  */
 
+import { isTvUserAgent } from "./tv/constants";
+
 export type AppUpdateStatus = {
   current: { code: number; name: string };
   /** null when the update server couldn't be reached. */
@@ -38,7 +40,27 @@ export function getAppUpdater(): UpdatePlugin | null {
 /** An Android phone in a browser: someone the app could be offered to. */
 export function androidBrowser(): boolean {
   if (typeof navigator === "undefined" || inApp()) return false;
-  return /Android/i.test(navigator.userAgent) && !/AndroidTV|\bTV\b/i.test(navigator.userAgent);
+  return /Android/i.test(navigator.userAgent) && !/AndroidTV|\bTV\b/i.test(navigator.userAgent) && !tvBrowser();
+}
+
+/**
+ * A TV in its own browser rather than in the app.
+ *
+ * The site looks the same there — big, laid out for a TV — but it is not the
+ * same thing: a TV browser draws its own pointer and keeps the remote's arrow
+ * keys to move it, so the page never sees them and none of the remote
+ * handling can work. Nothing on the page can turn that pointer off. The app
+ * is the fix, and androidBrowser() above leaves TVs out, so a TV was the one
+ * place the app was never offered.
+ *
+ * Only an Android TV can install it. A browser that asks for the desktop site
+ * hides "Android" from its user agent and is not recognised here; the /app
+ * page says how to install on a TV for whoever lands on it another way.
+ */
+export function tvBrowser(): boolean {
+  if (typeof navigator === "undefined" || typeof document === "undefined" || inApp()) return false;
+  if (!/Android/i.test(navigator.userAgent)) return false;
+  return document.documentElement.dataset.tv === "true" || isTvUserAgent(navigator.userAgent);
 }
 
 const CACHE_KEY = "watch.appUpdateStatus";

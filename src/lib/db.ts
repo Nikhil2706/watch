@@ -399,6 +399,15 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "pick_items") && !columnExists(db, "pick_items", "item_path")) {
     db.exec("ALTER TABLE pick_items ADD COLUMN item_path TEXT");
   }
+
+  // v51: a pick can show a typed word under each poster instead of a number.
+  // Existing picks stay as they are: not labelled, no words.
+  if (tableExists(db, "picks") && !columnExists(db, "picks", "labelled")) {
+    db.exec("ALTER TABLE picks ADD COLUMN labelled INTEGER NOT NULL DEFAULT 0");
+  }
+  if (tableExists(db, "pick_items") && !columnExists(db, "pick_items", "label")) {
+    db.exec("ALTER TABLE pick_items ADD COLUMN label TEXT");
+  }
 }
 
 /**

@@ -3,7 +3,7 @@ import "server-only";
 import { episodeCode } from "./episode-key";
 import { getGroup, getGroupedPathMap, getGroupSeriesPoster } from "./library-curation";
 import { getItemsByImdbIds, getItemsByPaths, posterUrl, stillUrl } from "./media";
-import { displayRank, orderForDisplay, showsOnHome, writeupPlainText } from "./pick-rank";
+import { displayRank, orderForDisplay, showsOnHome, writeupPlainText, labelFitLength } from "./pick-rank";
 import { listPickItems, listPicksForViewer, pickHref, type PickItem, type ViewerPick } from "./picks";
 import type { ResolvedSession } from "./session";
 import { itemHref } from "./slugs";
@@ -32,6 +32,8 @@ export interface PickTile {
   shape: "poster" | "still";
   /** The number under the poster; null in an unranked pick. */
   rank: number | null;
+  /** The word under the poster in a labelled pick; null otherwise, or where none was typed. */
+  label: string | null;
   /** The writeup as plain text, for the clamped lines under the poster. */
   excerpt: string;
   /** The writeup as stored, for the pick's own page and the title's page. */
@@ -46,6 +48,10 @@ export interface PickView {
   title: string;
   subtitle: string | null;
   ranked: boolean;
+  /** Words under the posters instead of numbers. */
+  labelled: boolean;
+  /** The character count the words are sized for: the longest one shown. */
+  labelFit: number;
   personal: boolean;
   /** Where a converted pick came from, e.g. "Best Films of 2025 — Year End Lists". */
   sourceLabel: string | null;
@@ -88,6 +94,7 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
 
   return picks.map((pick) => {
     const ranked = pick.ranked === 1;
+    const labelled = !ranked && pick.labelled === 1;
     const items = itemsByPick.get(pick.id) ?? [];
     // Numbered before anything is dropped, so a hidden title leaves a gap
     // rather than renumbering the ones around it.
@@ -100,6 +107,7 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
       const base = {
         key: item.id,
         rank: ranked ? numbered.get(item.id)! : null,
+        label: labelled ? item.label : null,
         excerpt: writeupPlainText(item.writeup),
         writeup: item.writeup,
         writeupSourceLabel: item.writeup_source_label,
@@ -172,6 +180,8 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
       title: pick.title,
       subtitle: pick.subtitle,
       ranked,
+      labelled,
+      labelFit: labelFitLength(tiles.map((t) => t.label)),
       personal: pick.personal,
       sourceLabel: pick.source_kind === "article" ? pick.source_label : null,
       sourceUrl: pick.source_kind === "article" ? pick.source_url : null,

@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
+import { cleanLabel, LABEL_MAX } from "@/lib/pick-rank";
 import { deletePickItem, updatePickItem, WRITEUP_MAX } from "@/lib/picks";
 import { optionalInt, optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
@@ -9,7 +10,7 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
 
 /**
  * PATCH /api/admin/picks/{id}/items/{itemId}
- *   { writeup?, writeup_source_label?, writeup_source_url?, rank? }
+ *   { writeup?, writeup_source_label?, writeup_source_url?, rank?, label? }
  *
  * The writeup is the curator's own text or a scraped passage they chose; a
  * passage carries its source's name and link so the page can credit it.
@@ -38,7 +39,16 @@ export async function PATCH(
       throw new ValidationError("The source link must start with http:// or https://");
     }
 
+    const label = body.label;
+    if (label !== undefined && label !== null && typeof label !== "string") {
+      throw new ValidationError("label must be text.");
+    }
+    if (typeof label === "string" && (cleanLabel(label)?.length ?? 0) > LABEL_MAX) {
+      throw new ValidationError(`The word under a poster can be at most ${LABEL_MAX} characters.`);
+    }
+
     const item = updatePickItem(id, itemId, {
+      label: label as string | null | undefined,
       writeup: writeup as string | null | undefined,
       writeupSourceLabel:
         body.writeup_source_label === null ? null : optionalString(body, "writeup_source_label"),

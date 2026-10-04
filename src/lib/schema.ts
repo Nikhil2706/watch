@@ -30,7 +30,12 @@
  * runVersionedMigrations() will not replay the set at all. The live database
  * is already at 40, so the other branch's v38 work would never have run here.
  */
-export const SCHEMA_VERSION = 50;
+/*
+ * 52: 'the-ringer-tv' joins scrape_sources. No table changes; the bump is
+ * what makes an existing database replay the seed block below and gain the
+ * row (see the v24/v27 notes in db.ts for what happens without one).
+ */
+export const SCHEMA_VERSION = 52;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -792,6 +797,7 @@ INSERT OR IGNORE INTO scrape_sources (id, name, base_url, source_type, kind, ena
   ('yearendlists', 'Year End Lists', 'https://www.yearendlists.com', 'web', 'accolade', 1, CAST(strftime('%s','now') AS INTEGER) * 1000),
   ('wikipedia', 'Wikipedia', 'https://en.wikipedia.org', 'web', 'accolade', 1, CAST(strftime('%s','now') AS INTEGER) * 1000),
   ('the-ringer', 'The Ringer', 'https://www.theringer.com', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000),
+  ('the-ringer-tv', 'The Ringer (TV)', 'https://www.theringer.com', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000),
   ('brightwalldarkroom', 'Bright Wall/Dark Room', 'https://www.brightwalldarkroom.com', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000),
   ('reverseshot', 'Reverse Shot', 'https://reverseshot.org', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000),
   ('davidbordwell', 'David Bordwell''s Website on Cinema', 'https://www.davidbordwell.net', 'web', 'review', 0, CAST(strftime('%s','now') AS INTEGER) * 1000),
@@ -1237,6 +1243,9 @@ CREATE TABLE IF NOT EXISTS picks (
   title        TEXT NOT NULL,
   subtitle     TEXT,
   ranked       INTEGER NOT NULL DEFAULT 0,
+  -- A word under each poster instead of a number (v51): pick_items.label.
+  -- Never set together with ranked.
+  labelled     INTEGER NOT NULL DEFAULT 0,
   audience     TEXT NOT NULL DEFAULT 'everyone', -- 'everyone' | 'people'
   status       TEXT NOT NULL DEFAULT 'draft',    -- 'draft' | 'live'
   -- Home shows a pick for a week after it is first published; pinned keeps it
@@ -1269,6 +1278,8 @@ CREATE TABLE IF NOT EXISTS pick_items (
   -- source, which keeps the source's own ranks (so they skip the films not
   -- in the library); NULL means "number by position".
   rank                 INTEGER,
+  -- The word shown in a labelled pick; NULL shows nothing under that poster.
+  label                TEXT,
   kind                 TEXT NOT NULL DEFAULT 'film', -- 'film' | 'show' | 'episode'
   imdb_id              TEXT,
   group_id             TEXT,                         -- shows, and an episode's show: library_groups.group_id

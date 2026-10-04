@@ -34,7 +34,18 @@ export async function GET(
     return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
   }
 
-  const query = new URLSearchParams({ fillWidth: "160", fillHeight: "240", quality: "90", tag });
+  /*
+   * The same size the site's own posters ask for (posterUrl in media.ts:
+   * 320x480 at quality 90), not a smaller one of its own.
+   *
+   * Jellyfin resizes a poster the first time a given size is asked for and
+   * keeps the result. At 160x240 nothing but the console ever asked, so
+   * opening a grid of a few hundred films meant a few hundred fresh resizes
+   * on a two-core machine — the "slow the first time". At the site's size
+   * the copy is already there for every poster anyone has browsed past, and
+   * the browser scales it down.
+   */
+  const query = new URLSearchParams({ fillWidth: "320", fillHeight: "480", quality: "90", tag });
   let upstream: Response;
   try {
     upstream = await fetch(
@@ -54,7 +65,9 @@ export async function GET(
       "Content-Type": upstream.headers.get("Content-Type") ?? "image/jpeg",
       // The tag changes whenever the poster does, so a signed URL is safe to
       // cache hard — that is the point of signing rather than inlining bytes.
-      "Cache-Control": "private, max-age=86400",
+      // A year and immutable: at a day, the console re-fetched every poster
+      // each morning for nothing.
+      "Cache-Control": "private, max-age=31536000, immutable",
     },
   });
 }

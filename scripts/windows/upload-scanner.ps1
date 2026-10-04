@@ -9,45 +9,72 @@
 # directly. Keep it ASCII-only.
 #
 # Windows Defender scan pass for Langlois-mode uploads.
-# Meant to run every few minutes via a Windows Scheduled Task, same pattern
-# as docker-watchdog.ps1 (C:\Users\Dell\docker-watchdog\) - deliberately
-# lives outside the jellyfin-gate repo checkout for the same reason that
-# script does: connected to a public GitHub PR, no business being committed
-# there. This one has to live OUTSIDE Docker entirely for a different
-# reason: Windows Defender cannot be invoked from inside a Linux container,
-# so the scan has to happen from the host side, against the real host path
-# behind the gate's MEDIA_QUARANTINE mount.
+# Meant to run every few minutes via a Windows Scheduled Task. It has to
+# live OUTSIDE Docker entirely: Windows Defender cannot be invoked from
+# inside a Linux container, so the scan has to happen from the host side,
+# against the real host path behind the gate's MEDIA_QUARANTINE mount.
 #
 # What it does, once per run:
-#   1. List every file directly inside the quarantine folder that doesn't
+#   1. Write a heartbeat file into the quarantine folder, so the site's
+#      Health tab can tell "nothing to scan" from "never set up here".
+#   2. List every file directly inside the quarantine folder that doesn't
 #      already have a "<file>.scan-result.json" marker next to it.
-#   2. Run MpCmdRun.exe -Scan -ScanType 3 -File <path> against it.
-#   3. Check Get-MpThreatDetection for anything matching that path, rather
-#      than trusting MpCmdRun's own exit code/text output - that command's
-#      exit code means "the scan ran," not "nothing was found," and its
-#      console output is locale-dependent. The detection log is the
-#      authoritative, English-cmdlet-stable source for "was this file
-#      actually flagged."
-#   4. Write the marker file the gate app's reconcileScanResults()
+#   3. Run MpCmdRun.exe -Scan -ScanType 3 -File <path> against it.
+#   4. Check Get-MpThreatDetection for anything matching that path. The
+#      detection log is the authoritative, English-cmdlet-stable source
+#      for "was this file actually flagged"; MpCmdRun's console output is
+#      locale-dependent.
+#   5. Write the marker file the gate app's reconcileScanResults()
 #      (src/lib/uploads.ts) reads back: {"status": "clean"|"infected",
-#      "detail": "..."}.
+#      "detail": "..."} - but "clean" only when MpCmdRun itself exited 0.
 #
-# NOT YET DONE, and worth doing together before relying on this in
-# production: a real test with an EICAR test file (the standard, harmless
-# antivirus-test string every AV vendor recognises) to confirm the
-# Get-MpThreatDetection matching logic below actually catches a real
-# detection on this specific Windows/Defender version, rather than trusting
-# it by inspection alone.
+# Three things changed on 2026-10-04, when this was found never to have been
+# set up on the PC the site moved to:
+#   - Nothing is hard-coded to one machine any more. The log sits beside
+#     this script, and the quarantine folder comes from
+#     JELLYFIN_GATE_QUARANTINE_PATH (see README.md for this PC's value).
+#     With no folder to scan it says so and exits 1, instead of quietly
+#     reporting that there was nothing to do.
+#   - A scan that did not run is no longer "clean". MpCmdRun exits 2 both
+#     for "threat found" and for "could not scan" (file locked, path it
+#     cannot reach), and a native command's exit code never throws. With
+#     no detection on record that was written up as clean. Now a non-zero
+#     exit with no detection leaves the file unmarked, to be tried again.
+#   - Markers are written without a byte-order mark. Set-Content -Encoding
+#     utf8 puts one in front in Windows PowerShell 5.1, the site's
+#     JSON.parse rejected it, and every verdict read as "not scanned yet".
+#
+# NOT YET DONE, and worth doing before relying on this: a real test with an
+# EICAR test file (the standard, harmless antivirus-test string every AV
+# vendor recognises) to confirm the Get-MpThreatDetection matching below
+# catches a real detection on this Windows/Defender version.
 
 $ErrorActionPreference = "Stop"
-$logPath = "C:\Users\Dell\docker-watchdog\upload-scanner.log"
+$logPath = Join-Path $PSScriptRoot "upload-scanner.log"
 
-# Must match docker-compose.yml's MEDIA_QUARANTINE_PATH default (or
-# whatever it's actually set to in .env) - this is the real Windows path
-# behind the gate/worker containers' /quarantine mount.
+function Write-Log($msg) {
+    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $msg"
+    Add-Content -Path $logPath -Value $line
+}
+
+# UTF-8 with no byte-order mark, via a temp file and a rename so the site
+# never reads a half-written file.
+function Write-JsonFile($path, $value) {
+    $temp = "$path.tmp"
+    $json = $value | ConvertTo-Json -Compress
+    [System.IO.File]::WriteAllText($temp, $json, (New-Object System.Text.UTF8Encoding($false)))
+    Move-Item -Path $temp -Destination $path -Force
+}
+
+# The real Windows path behind the gate container's /quarantine mount.
 $quarantinePath = $env:JELLYFIN_GATE_QUARANTINE_PATH
 if (-not $quarantinePath) {
-    $quarantinePath = "C:\Users\Dell\Downloads\jellyfin-gate\media-quarantine"
+    Write-Log "JELLYFIN_GATE_QUARANTINE_PATH is not set - see scripts\windows\README.md"
+    exit 1
+}
+if (-not (Test-Path $quarantinePath)) {
+    Write-Log "quarantine folder not found: $quarantinePath"
+    exit 1
 }
 
 $mpCmdRun = "${env:ProgramFiles}\Windows Defender\MpCmdRun.exe"
@@ -59,38 +86,35 @@ if (-not (Test-Path $mpCmdRun)) {
         Sort-Object FullName -Descending | Select-Object -First 1
     if ($found) { $mpCmdRun = $found.FullName }
 }
-
-function Write-Log($msg) {
-    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $msg"
-    Add-Content -Path $logPath -Value $line
-}
-
-Write-Log "check starting"
-
 if (-not (Test-Path $mpCmdRun)) {
     Write-Log "MpCmdRun.exe not found - is Windows Defender installed/enabled? Checked: $mpCmdRun"
     exit 1
 }
 
-if (-not (Test-Path $quarantinePath)) {
-    Write-Log "quarantine path does not exist yet, nothing to do: $quarantinePath"
+# Only once everything a scan needs is in place: a heartbeat from a scanner
+# that cannot scan would be the same false comfort the old "clean" was.
+Write-JsonFile (Join-Path $quarantinePath ".scanner-heartbeat.json") @{ ranAt = (Get-Date).ToUniversalTime().ToString("o") }
+
+$candidates = @(Get-ChildItem -Path $quarantinePath -File -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.Extension -ne ".json" -and $_.Extension -ne ".tmp" -and
+        -not $_.Name.StartsWith(".") -and
+        -not (Test-Path "$($_.FullName).scan-result.json")
+    })
+
+if ($candidates.Count -eq 0) {
     exit 0
 }
 
-$candidates = Get-ChildItem -Path $quarantinePath -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Extension -ne ".json" -and -not (Test-Path "$($_.FullName).scan-result.json") }
-
-if (-not $candidates -or $candidates.Count -eq 0) {
-    Write-Log "nothing new to scan"
-    exit 0
-}
-
+$scanned = 0
 foreach ($file in $candidates) {
     Write-Log "scanning: $($file.Name)"
     $scanStarted = Get-Date
 
+    $exitCode = $null
     try {
         & $mpCmdRun -Scan -ScanType 3 -File $file.FullName | Out-Null
+        $exitCode = $LASTEXITCODE
     } catch {
         Write-Log "MpCmdRun invocation failed for $($file.Name): $_"
         continue
@@ -113,20 +137,23 @@ foreach ($file in $candidates) {
     }
 
     $markerPath = "$($file.FullName).scan-result.json"
-    # Written to a temp file then renamed - an atomic rename means the gate
-    # app's reader (readScanMarker in src/lib/uploads.ts) never sees a
-    # half-written marker, no matter when it happens to poll.
-    $tempMarker = "$markerPath.tmp"
 
     if ($threat) {
-        $detail = $threat.ThreatName
+        $detail = "$($threat.ThreatName)"
+        if (-not $detail) { $detail = "Threat id $($threat.ThreatID)" }
         Write-Log "INFECTED: $($file.Name) - $detail"
-        @{ status = "infected"; detail = $detail } | ConvertTo-Json -Compress | Set-Content -Path $tempMarker -Encoding utf8
-    } else {
+        Write-JsonFile $markerPath @{ status = "infected"; detail = $detail }
+        $scanned += 1
+    } elseif ($exitCode -eq 0) {
         Write-Log "clean: $($file.Name)"
-        @{ status = "clean"; detail = "No threats detected." } | ConvertTo-Json -Compress | Set-Content -Path $tempMarker -Encoding utf8
+        Write-JsonFile $markerPath @{ status = "clean"; detail = "No threats detected." }
+        $scanned += 1
+    } else {
+        # Not a verdict. Left unmarked so the next run tries again, and so
+        # the upload cannot be approved on the strength of a scan that
+        # never happened.
+        Write-Log "NOT SCANNED: $($file.Name) - MpCmdRun exited $exitCode with no detection on record"
     }
-    Move-Item -Path $tempMarker -Destination $markerPath -Force
 }
 
-Write-Log "check complete - $($candidates.Count) file(s) scanned"
+Write-Log "check complete - $scanned of $($candidates.Count) file(s) given a verdict"

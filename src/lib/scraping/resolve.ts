@@ -93,6 +93,9 @@ export interface ResolvedAccolade {
  * written by wikipedia.ts and wikipedia-lists.ts. Kept in one place so the
  * badge and the ranking below can't drift apart on what counts as a win.
  */
+/** How an unranked list's entries are labelled; see critic-lists.ts. */
+export const LISTED_PREFIX = "Listed: ";
+
 function isWinLabel(label: string): boolean {
   return label.startsWith("Won");
 }
@@ -100,6 +103,11 @@ function isWinLabel(label: string): boolean {
 function fromMention(m: AccoladeMention, locked: boolean): ResolvedAccolade {
   const sourceUrl = m.article_url.startsWith("http") ? m.article_url : null;
   if (m.accolade_label) {
+    // A place on a list its writer did not rank ("Listed: The ten best films
+    // of … 1933", from critic-lists.ts) is neither a win nor a nomination.
+    if (m.accolade_label.startsWith(LISTED_PREFIX)) {
+      return { badge: "Listed", detail: `${m.accolade_label.slice(LISTED_PREFIX.length)} — ${m.source_name}`, locked, sourceUrl };
+    }
     const badge = isWinLabel(m.accolade_label) ? "Won" : "Nom.";
     return { badge, detail: `${m.accolade_label} — ${m.source_name}`, locked, sourceUrl };
   }

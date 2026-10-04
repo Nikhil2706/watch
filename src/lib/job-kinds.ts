@@ -44,6 +44,11 @@ const REVIEW_SOURCES = [
   { value: "reverseshot", label: "Reverse Shot" },
 ];
 
+const CRITIC_LIST_SOURCES = [
+  { value: "reverseshot", label: "Reverse Shot" },
+  { value: "bordwell", label: "David Bordwell" },
+];
+
 /** Enough to mean "everything there is": the scrapers stop at what the site has. */
 const NO_LIMIT = 100_000;
 
@@ -90,6 +95,33 @@ const KINDS: JobKind[] = [
       const { runRingerListScrape } = await import("./scraping/ringer-lists");
       const r = await runRingerListScrape(NO_LIMIT);
       return `${r.checked} articles read, ${r.listsFound} new lists, ${r.matchedCount} films matched`;
+    },
+  },
+  {
+    kind: "ringer_tv",
+    label: "Scrape The Ringer's TV writing",
+    description: "Reads the TV articles not yet stored: reviews, recaps and rankings, linked to the shows and episodes in the library.",
+    runner: "gate",
+    politeByDefault: false,
+    run: async () => {
+      const { runRingerTvScrape } = await import("./scraping/ringer-tv");
+      const r = await runRingerTvScrape(NO_LIMIT);
+      return `${r.read} articles read, ${r.lists} lists, ${r.matchedArticles} about a show in the library, ${r.matchedEpisodes} about one episode`;
+    },
+  },
+  {
+    kind: "critic_lists",
+    label: "Scrape a critics' site's lists",
+    description: "Reverse Shot's yearly best-of features, or the yearly ten-best posts on David Bordwell's site, with each film's text. Lists already stored are skipped.",
+    runner: "gate",
+    politeByDefault: false,
+    params: [{ name: "source", label: "Site", options: CRITIC_LIST_SOURCES }],
+    title: (p) => `Scrape lists: ${CRITIC_LIST_SOURCES.find((s) => s.value === p.source)?.label ?? p.source}`,
+    run: async (p) => {
+      if (p.source !== "reverseshot" && p.source !== "bordwell") throw new Error(`Unknown site: ${p.source}`);
+      const { runCriticListScrape } = await import("./scraping/critic-lists");
+      const r = await runCriticListScrape(p.source);
+      return `${r.listsFound} new lists, ${r.entriesFound} films named, ${r.matchedCount} matched to the library`;
     },
   },
   {

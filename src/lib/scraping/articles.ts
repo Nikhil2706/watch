@@ -53,6 +53,14 @@ export interface FilmMentionInput {
    * film page shows trivia as fact.
    */
   skipTrivia?: boolean;
+  /**
+   * The scraper's own answer to "which title is this", in place of
+   * matchTitle(). Set (to an id, or to null for "none in the library") by a
+   * source whose subjects are not films: The Ringer's TV writing is about
+   * shows and episodes, which matchTitle does not know and would mistake for
+   * films of the same name. Left undefined by everything else.
+   */
+  resolvedImdbId?: string | null;
 }
 
 export interface ScrapedArticle {
@@ -155,7 +163,10 @@ export async function upsertScrapedArticle(
     mentions.map(async (m) => ({
       ...m,
       linkId: generateId(),
-      match: await matchTitle(m.rawTitle, m.rawYear ?? null),
+      match:
+        m.resolvedImdbId !== undefined
+          ? { imdbId: m.resolvedImdbId, confidence: m.resolvedImdbId ? ("exact" as const) : ("unmatched" as const) }
+          : await matchTitle(m.rawTitle, m.rawYear ?? null),
       window: m.windowText ?? windowTextAroundMention(article.fullText, m.rawTitle),
     })),
   );
@@ -341,10 +352,26 @@ const BLURB_CANDIDATE_SELECT = `
     JOIN scrape_sources src ON src.id = a.source_id`;
 
 /** A film's candidates come only from ITS OWN mentions (link rows), never every candidate in a multi-film source. */
+/**
+ * Sources that are collected but not yet shown on any page.
+ *
+ * The Ringer's TV writing is stored against a show's series IMDb id, and an
+ * episode's page looks passages up by exactly that id (every episode carries
+ * its show's). Without this, scraping it would put a critic's paragraph about
+ * the series, or its place in a ranking, on each of a show's 154 episode
+ * pages — before anyone has decided where a show's text belongs. The two
+ * functions below are what the public page draws from, so this is the whole
+ * of the exclusion; a passage chosen by hand (a lock, a pick's writeup) is
+ * looked up by its own id and is not affected.
+ */
+const HIDDEN_FROM_PAGES = "a.source_id <> 'the-ringer-tv'";
+
 export function blurbCandidatesForFilm(imdbId: string): BlurbCandidate[] {
   return asRows<BlurbCandidate>(
     getDb()
-      .prepare(`${BLURB_CANDIDATE_SELECT} WHERE l.imdb_id = ? ORDER BY a.fetched_at DESC, bc.position ASC`)
+      .prepare(
+        `${BLURB_CANDIDATE_SELECT} WHERE l.imdb_id = ? AND ${HIDDEN_FROM_PAGES} ORDER BY a.fetched_at DESC, bc.position ASC`,
+      )
       .all(imdbId),
   );
 }
@@ -397,6 +424,7 @@ export function accoladeMentionsForFilm(imdbId: string): AccoladeMention[] {
            JOIN scraped_articles a ON a.id = l.article_id
            JOIN scrape_sources src ON src.id = a.source_id
           WHERE l.imdb_id = ? AND (l.accolade_rank IS NOT NULL OR l.accolade_label IS NOT NULL)
+            AND ${HIDDEN_FROM_PAGES}
           ORDER BY (l.accolade_label IS NOT NULL) DESC, l.accolade_rank ASC`,
       )
       .all(imdbId),
@@ -444,7 +472,13 @@ export async function relinkUnmatchedArticleLinks(): Promise<number> {
   const candidates = asRows<UnmatchedRow & { imdb_id: string | null; confidence: string }>(
     getDb()
       .prepare(
-        "SELECT id, raw_title, raw_year, imdb_id, confidence FROM article_film_links WHERE imdb_id IS NULL OR confidence = 'exact'",
+        // Not the TV writing: its mentions are shows and episodes, matched by
+        // ringer-tv.ts. Run through matchTitle here, a list's "Fargo" would be
+        // handed to the film, and a matched show would be unmatched again.
+        `SELECT l.id, l.raw_title, l.raw_year, l.imdb_id, l.confidence
+           FROM article_film_links l
+           JOIN scraped_articles a ON a.id = l.article_id
+          WHERE (l.imdb_id IS NULL OR l.confidence = 'exact') AND a.source_id <> 'the-ringer-tv'`,
       )
       .all(),
   );

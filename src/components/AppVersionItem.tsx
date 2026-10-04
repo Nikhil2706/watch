@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { androidBrowser, appUpdateStatus, getAppUpdater, inApp, type AppUpdateStatus } from "@/lib/app-update";
+import { androidBrowser, appUpdateStatus, getAppUpdater, inApp, tvBrowser, type AppUpdateStatus } from "@/lib/app-update";
 
 /**
  * The ⋯ menu's app line, which differs by where the page is open:
@@ -18,7 +18,7 @@ import { androidBrowser, appUpdateStatus, getAppUpdater, inApp, type AppUpdateSt
  * would disagree with the server-rendered HTML.
  */
 export function AppVersionItem() {
-  const [where, setWhere] = useState<"app" | "old-app" | "android" | "none">("none");
+  const [where, setWhere] = useState<"app" | "old-app" | "android" | "tv" | "none">("none");
   const [status, setStatus] = useState<AppUpdateStatus | null>(null);
   const [state, setState] = useState<"idle" | "checking" | "starting" | "started" | "failed">("idle");
   const [note, setNote] = useState<string | null>(null);
@@ -31,6 +31,8 @@ export function AppVersionItem() {
         .catch(() => setStatus(null));
     } else if (inApp()) {
       setWhere("old-app");
+    } else if (tvBrowser()) {
+      setWhere("tv");
     } else if (androidBrowser()) {
       setWhere("android");
     }
@@ -45,6 +47,7 @@ export function AppVersionItem() {
 
   if (where === "none") return null;
   if (where === "android") return <Link href="/app">Get the Android app</Link>;
+  if (where === "tv") return <Link href="/app">Get the TV app</Link>;
   if (where === "old-app") return <Link href="/app">App updates</Link>;
 
   async function check() {

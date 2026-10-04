@@ -26,9 +26,15 @@ const BASE_URL = "https://reverseshot.org";
 const USER_AGENT = "jellyfin-gate-curation/1.0 (self-hosted personal media library; single-user, non-commercial)";
 /** The site's robots.txt asks for this: "Crawl-delay: 10". */
 const REQUEST_DELAY_MS = 10_000;
+export const REVERSE_SHOT_REQUEST_DELAY_MS = REQUEST_DELAY_MS;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** One page of the site, by path. Exported for critic-lists.ts, which reads the features the same polite way. */
+export async function fetchReverseShotHtml(path: string): Promise<string | null> {
+  return fetchHtml(path);
 }
 
 async function fetchHtml(path: string): Promise<string | null> {
@@ -56,20 +62,38 @@ async function fetchHtml(path: string): Promise<string | null> {
   }
 }
 
-/** URLs from the main /reviews listing page — one page's worth, no pagination crawl (kept deliberately small for now). */
+/** A review's own address: /reviews/entry/{id}/{slug}. Not /reviews/entry/2 (the next page) or /reviews/entry/list. */
+const REVIEW_LINK = /\/reviews\/entry\/(\d+)\/([A-Za-z0-9_-]+)/g;
+/** The site's index of every review by title: /reviews/entry/list/A … Z, and 0-9. */
+const INDEX_PAGES = ["0-9", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+
+/**
+ * Review URLs, newest first.
+ *
+ * A small run reads the front page of /reviews, which is the latest
+ * twenty-odd. That was all this ever read, however large a limit it was
+ * given: a "new only" refresh asked for everything and still saw one page,
+ * so after two months the site's two decades of reviews came to 23 stored.
+ * A run that wants more than the front page holds now walks the site's own
+ * A–Z index of reviews, 27 pages at the ten seconds robots.txt asks for.
+ */
 export async function discoverReverseShotReviewUrls(limit = 10): Promise<string[]> {
-  const html = await fetchHtml("/reviews");
-  if (!html) return [];
-  const $ = cheerio.load(html);
+  const ids = new Map<string, number>();
+  const collect = (html: string) => {
+    for (const m of html.matchAll(REVIEW_LINK)) ids.set(`${BASE_URL}/reviews/entry/${m[1]}/${m[2]}`, Number(m[1]));
+  };
+  const newestFirst = () => [...ids.entries()].sort((a, b) => b[1] - a[1]).map(([url]) => url);
 
-  const urls = new Set<string>();
-  $("a[href*='/reviews/entry/']").each((_, el) => {
-    const href = $(el).attr("href");
-    if (!href) return;
-    urls.add(href.startsWith("http") ? href : `${BASE_URL}${href}`);
-  });
+  const front = await fetchHtml("/reviews");
+  if (front) collect(front);
+  if (limit <= ids.size) return newestFirst().slice(0, limit);
 
-  return [...urls].slice(0, limit);
+  for (const page of INDEX_PAGES) {
+    await sleep(REQUEST_DELAY_MS);
+    const html = await fetchHtml(`/reviews/entry/list/${page}`);
+    if (html) collect(html);
+  }
+  return newestFirst().slice(0, limit);
 }
 
 export interface ParsedReview {
@@ -122,7 +146,7 @@ export interface ReverseShotRunResult {
   matchedCount: number;
 }
 
-/** Fetches and stores a small batch of reviews from the listing page — see discoverReverseShotReviewUrls's own comment on why this doesn't paginate yet. */
+/** Fetches and stores reviews, newest first — see discoverReverseShotReviewUrls for how far back a run reaches. At ten seconds a review, the whole archive is a job of hours; run it from the scheduler, not a held-open request. */
 export async function runReverseShotScrape(limit = 10, onlyNew = false): Promise<ReverseShotRunResult> {
   // A refresh walks the whole listing and keeps only what is not stored yet;
   // see withoutStoredUrls() for why stored articles are left alone.

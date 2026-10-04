@@ -14,7 +14,12 @@ import { PickRail } from "./PickRail";
  */
 export function PickRow({ pick }: { pick: PickView }) {
   return (
-    <section className={pick.ranked ? "pk-row is-ranked" : "pk-row"} aria-label={pick.title}>
+    <section
+      className={pick.ranked ? "pk-row is-ranked" : pick.labelled ? "pk-row is-labelled" : "pk-row"}
+      aria-label={pick.title}
+      // The words are all one size: the size at which the longest fits a tile.
+      style={pick.labelled ? ({ "--pk-fit": pick.labelFit } as React.CSSProperties) : undefined}
+    >
       <div className="pk-head">
         {pick.personal ? <span className="pk-for-you">Picked for you by {CURATOR_NAME}</span> : null}
         <h2>

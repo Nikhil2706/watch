@@ -53,6 +53,28 @@ export default async function AppPage() {
           <br />
           On an iPhone there is no app yet — in Safari, tap Share, then <b>Add to Home Screen</b>.
         </p>
+
+        <h2 className="app-tv-title">On a TV</h2>
+        <p className="app-note">
+          The same file installs on an Android TV or Google TV — Sony, Hisense, TCL, Xiaomi, a Chromecast
+          with Google TV — and there it is built for the remote. In a TV&apos;s own browser Watch only works
+          with the browser&apos;s pointer.
+        </p>
+        <ol className="app-steps">
+          <li>
+            Open this page in the TV&apos;s browser and choose <b>Download for Android</b>. If the TV has no
+            browser, install <b>Downloader</b> from its Play Store and type this page&apos;s address into it.
+          </li>
+          <li>
+            Open the downloaded file. The TV asks whether that app may install others: allow it, then
+            choose <b>Install</b>.
+          </li>
+          <li>
+            <b>Watch</b> appears with the TV&apos;s other apps. Sign in with your account, or with the code
+            it shows and your phone.
+          </li>
+        </ol>
+        <p className="app-note">Samsung and LG TVs run their own systems and cannot install it.</p>
       </div>
     </main>
   );

@@ -161,6 +161,33 @@ export function CommunityClient({
     }
   }
 
+  /**
+   * Takes the caller's rating back off. The API could always do this
+   * (DELETE /api/ratings); nothing on the page ever asked it to, so a star
+   * tapped by mistake was there for good.
+   */
+  async function removeRating() {
+    const previousScore = yourRating;
+    if (previousScore === null) return;
+    const previousAverage = average;
+    const previousCount = count;
+
+    const nextCount = Math.max(0, previousCount - 1);
+    const totalBefore = (previousAverage ?? 0) * previousCount;
+    setYourRating(null);
+    setCount(nextCount);
+    setAverage(nextCount > 0 ? (totalBefore - previousScore) / nextCount : null);
+    setError(null);
+
+    const { ok } = await postJson(`/api/ratings?imdbId=${encodeURIComponent(imdbId)}`, "DELETE");
+    if (!ok) {
+      setYourRating(previousScore);
+      setAverage(previousAverage);
+      setCount(previousCount);
+      setError("Couldn't remove your rating — try again.");
+    }
+  }
+
   async function submitComment(parentId: string | null, text: string, clear: () => void) {
     const body = text.trim();
     if (!body || posting) return;
@@ -347,6 +374,11 @@ export function CommunityClient({
       <div className="rate-row">
         <span className="rate-label">Your rating</span>
         <StarPicker value={yourRating !== null ? scoreToStars(yourRating) : null} onRate={rate} />
+        {yourRating !== null ? (
+          <button type="button" className="rate-remove" onClick={() => void removeRating()}>
+            Remove
+          </button>
+        ) : null}
         {count > 0 ? (
           <span className="rate-average">
             <Stars value={scoreToStars(average!)} size={14} />
