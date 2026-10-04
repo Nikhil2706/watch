@@ -593,6 +593,11 @@ export async function applyRemoteSearchMatch(
     body: candidate,
     token: env.jellyfinApiKey,
     expectJson: false,
+    // Jellyfin does not answer until it has fetched the film's metadata and
+    // artwork from the providers. With TheMovieDb dropping connections that
+    // overran the default 15 seconds, and the console reported "Could not
+    // apply that match" for a match Jellyfin then went on to apply.
+    timeoutMs: 60_000,
   });
 
   const dto = await getFullItem(itemId);
@@ -786,6 +791,12 @@ export interface AdminMovieListItem {
   // lightweight Person sub-objects (see AdminPersonCredit below) — these
   // are two different DTO shapes, not a Fields= gate.
   ImageTags?: { Primary?: string };
+  /**
+   * A stamp Jellyfin changes whenever it saves the item. Asked for on every
+   * listing: it is what lets admin-library-cache.ts tell which titles changed
+   * without pulling every title's streams again.
+   */
+  Etag?: string;
   /** Only present when getAdminMovie is asked for it — see withPeople. */
   People?: AdminPersonCredit[];
   MediaSources?: Array<{
@@ -856,8 +867,8 @@ export async function listAllMoviesAdmin(
    * was paying the full 13 seconds per keystroke to return a handful of names.
    */
   const fields = withMediaSources
-    ? "Overview,ProviderIds,Path,ProductionYear,MediaSources"
-    : "Overview,ProviderIds,Path,ProductionYear";
+    ? "Overview,ProviderIds,Path,ProductionYear,Etag,MediaSources"
+    : "Overview,ProviderIds,Path,ProductionYear,Etag";
 
   const data = await jellyfinFetch<{ Items: AdminMovieListItem[] }>(
     // ImageTags.Primary arrives on every item by default — confirmed
@@ -867,6 +878,22 @@ export async function listAllMoviesAdmin(
     { token: env.jellyfinApiKey, timeoutMs: withMediaSources ? 90_000 : 30_000 },
   );
   return data.Items;
+}
+
+/**
+ * The heavy shape (with MediaSources) for a handful of titles by id — what
+ * the cached listing asks for the titles that changed, in place of the whole
+ * library again. Fifty titles took under a second against the real library;
+ * all 1,628 took ten.
+ */
+export async function getAdminMoviesByIds(itemIds: string[]): Promise<AdminMovieListItem[]> {
+  if (itemIds.length === 0) return [];
+  const data = await jellyfinFetch<{ Items: AdminMovieListItem[] }>(
+    `/Items?Ids=${itemIds.map(encodeURIComponent).join(",")}&IncludeItemTypes=Movie&Recursive=true` +
+      "&Fields=Overview,ProviderIds,Path,ProductionYear,Etag,MediaSources",
+    { token: env.jellyfinApiKey, timeoutMs: 30_000 },
+  );
+  return data.Items ?? [];
 }
 
 /**
