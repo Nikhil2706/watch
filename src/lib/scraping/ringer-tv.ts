@@ -100,27 +100,40 @@ function subjectOf(slug: string, headline: string, shows: LibraryShow[], episode
 }
 
 /**
- * Looks again at every stored article that is linked to nothing, against the
- * shows the library has now. Cheap — no fetching, the address and headline
- * are already here — and it is what makes "store everything" worth doing.
+ * Works out again what every stored article and list entry is about, against
+ * the shows the library has now and the matching rule as it stands now.
+ * Cheap — no fetching, the address and headline are already here — and it is
+ * what makes "store everything" worth doing.
+ *
+ * Every mention, not only the unlinked ones: a show removed from the library
+ * should let go of its articles, and when the rule is tightened (the first
+ * version took any show quoted in a headline, and linked a Winning Time
+ * review to Friday Night Lights) the links it made wrongly have to go too.
+ * Returns how many mentions changed.
  */
 export function relinkRingerTv(): number {
   const shows = libraryShows();
-  if (shows.length === 0) return 0;
   const episodes = episodePaths();
-  const unlinked = asRows<{ link_id: string; url: string; title: string; raw_title: string; article_type: string }>(
+  const mentions = asRows<{
+    link_id: string;
+    url: string;
+    title: string;
+    raw_title: string;
+    article_type: string;
+    imdb_id: string | null;
+  }>(
     getDb()
       .prepare(
-        `SELECT l.id AS link_id, a.url, a.title, l.raw_title, a.article_type
+        `SELECT l.id AS link_id, a.url, a.title, l.raw_title, a.article_type, l.imdb_id
            FROM article_film_links l
            JOIN scraped_articles a ON a.id = l.article_id
-          WHERE a.source_id = ? AND l.imdb_id IS NULL`,
+          WHERE a.source_id = ?`,
       )
       .all(SOURCE_ID),
   );
-  const update = getDb().prepare("UPDATE article_film_links SET imdb_id = ?, confidence = 'exact' WHERE id = ?");
-  let relinked = 0;
-  for (const row of unlinked) {
+  const update = getDb().prepare("UPDATE article_film_links SET imdb_id = ?, confidence = ? WHERE id = ?");
+  let changed = 0;
+  for (const row of mentions) {
     const slug = tvSlug(row.url);
     if (!slug) continue;
     // An article's one mention is the article's subject; a list's entry is a
@@ -129,11 +142,11 @@ export function relinkRingerTv(): number {
       row.article_type === "review"
         ? subjectOf(slug, row.title, shows, episodes).id
         : (matchListEntry(row.raw_title, shows)?.imdbId ?? null);
-    if (!id) continue;
-    update.run(id, row.link_id);
-    relinked++;
+    if (id === row.imdb_id) continue;
+    update.run(id, id ? "exact" : "unmatched", row.link_id);
+    changed++;
   }
-  return relinked;
+  return changed;
 }
 
 export interface RingerTvRunResult {

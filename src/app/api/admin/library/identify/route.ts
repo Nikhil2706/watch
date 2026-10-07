@@ -1,11 +1,17 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { remoteSearchMovie } from "@/lib/jellyfin";
+import { remoteSearchMovie, type RemoteSearchResult } from "@/lib/jellyfin";
 import { optionalInt, optionalString, parseProviderLink, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const NO_STORE = { "Cache-Control": "no-store" } as const;
+
+const IDENTIFY_ATTEMPTS = 3;
+
+function hasTmdb(candidates: RemoteSearchResult[]): boolean {
+  return candidates.some((c) => c.SearchProviderName === "TheMovieDb" || !!c.ProviderIds?.Tmdb);
+}
 
 /**
  * POST /api/admin/library/identify
@@ -40,7 +46,20 @@ export async function POST(request: Request): Promise<Response> {
       throw new ValidationError("Couldn't find an IMDb or TMDB id in that link.");
     }
 
-    const candidates = await remoteSearchMovie(itemId, name, year, providerIds);
+    /*
+     * Jellyfin asks every provider once and returns whatever came back. From
+     * this network the connection to TheMovieDb is cut more often than not
+     * (measured at two failures in three), and a search that lost it returns
+     * OMDb's candidates alone — no poster, no TMDB id — which looks like a
+     * film TheMovieDb does not have. A failed attempt comes back in well
+     * under a second, so it is asked again, up to three times, until
+     * TheMovieDb is among the answers.
+     */
+    let candidates = await remoteSearchMovie(itemId, name, year, providerIds);
+    for (let attempt = 1; attempt < IDENTIFY_ATTEMPTS && !hasTmdb(candidates); attempt++) {
+      const again = await remoteSearchMovie(itemId, name, year, providerIds).catch(() => null);
+      if (again && (hasTmdb(again) || again.length > candidates.length)) candidates = again;
+    }
     return Response.json({ candidates }, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof ValidationError) {

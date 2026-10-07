@@ -2,6 +2,7 @@ import "server-only";
 
 import { upsertScrapedArticle, type FilmMentionInput } from "./articles";
 import { fetchWikipediaPageByTitle, stripWikitext } from "./wikipedia";
+import { parseRankedTable, parseWinnersTables, redirectTarget } from "./wikipedia-list-parse";
 
 /**
  * Ingests a Wikipedia LIST page (a ranked "100 best" list, or a festival's
@@ -187,14 +188,27 @@ export async function runWikipediaListIngest(opts: {
   winnersOnly?: boolean;
   awardLabel?: string;
 }): Promise<WikipediaListIngestResult | null> {
-  const page = await fetchWikipediaPageByTitle(opts.pageTitle);
+  let page = await fetchWikipediaPageByTitle(opts.pageTitle);
+  // A page that has been renamed answers with a pointer to its new name.
+  const movedTo = page ? redirectTarget(page.source) : null;
+  if (movedTo) page = await fetchWikipediaPageByTitle(movedTo);
   if (!page) return null;
 
   let mentions: FilmMentionInput[];
   let entriesFound: number;
 
+  /*
+   * Two parsers each. The ones in this file were written against four
+   * particular pages and are right for those; the general ones in
+   * wikipedia-list-parse.ts read the layouts those cannot. Where the two
+   * agree on how many films the page holds, the older, checked answer is
+   * kept. Where they do not, the older one has met a page it was not written
+   * for (it read nine "winners" out of the BAFTA page's eighty), and the
+   * general one is used.
+   */
   if (opts.kind === "ranked") {
-    const parsed = parseAfiRankedList(page.source, opts.rankColumnHint);
+    const first = parseAfiRankedList(page.source, opts.rankColumnHint);
+    const parsed = first.length >= 5 ? first : parseRankedTable(page.source, opts.rankColumnHint);
     entriesFound = parsed.length;
     mentions = parsed.map((e) => ({
       rawTitle: e.title,
@@ -203,7 +217,10 @@ export async function runWikipediaListIngest(opts: {
       skipCandidateExtraction: true,
     }));
   } else {
-    const parsed = parseYearWinnersTable(page.source, { winnersOnly: opts.winnersOnly ?? true });
+    const first = parseYearWinnersTable(page.source, { winnersOnly: opts.winnersOnly ?? true });
+    const general = parseWinnersTables(page.source, { winnersOnly: opts.winnersOnly });
+    const agree = first.length >= 5 && Math.abs(first.length - general.length) <= 0.15 * Math.max(first.length, general.length);
+    const parsed = agree || general.length < 5 ? first : general;
     entriesFound = parsed.length;
     mentions = parsed.map((e) => ({
       rawTitle: e.title,
@@ -212,6 +229,9 @@ export async function runWikipediaListIngest(opts: {
       skipCandidateExtraction: true,
     }));
   }
+
+  // A page neither parser can read is reported, not stored as an empty list.
+  if (mentions.length === 0) return { pageTitle: page.title, entriesFound: 0, matchedCount: 0 };
 
   const result = await upsertScrapedArticle(
     {

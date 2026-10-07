@@ -8,8 +8,9 @@
  * as a title — in the headline's quotation marks, which is how the site sets
  * every show's name, or at the front of the address with a word after it
  * that only television uses ("lost-season-6-…", "heroes-nbc-finale-…"). A
- * name of two words or more is distinctive enough to be taken anywhere in
- * the address, unless the address opens with some other show's name.
+ * name of two words or more needs no such word, but has to open the address
+ * or close it. Anything looser linked articles to shows they only mention;
+ * an article this misses is stored unlinked, which is the cheaper mistake.
  */
 
 export interface TvShow {
@@ -95,7 +96,8 @@ function quotedTitles(headline: string): string[] {
 export function matchShow<T extends TvShow>(slug: string, headline: string, shows: readonly T[]): T | null {
   const slugWords = slug.split("-").filter(Boolean);
   const slugText = ` ${slugWords.join(" ")} `;
-  const quoted = new Set(quotedTitles(headline).map(compact));
+  const quotedInOrder = quotedTitles(headline).map(compact);
+  const quoted = new Set(quotedInOrder);
   // When the address opens with a show of its own ("the-rehearsal-…-review-
   // hbo-nathan-for-you"), a library show named later in it is a comparison,
   // not the subject.
@@ -108,10 +110,20 @@ export function matchShow<T extends TvShow>(slug: string, headline: string, show
     if (!name) continue;
     const nameWords = name.split(" ");
 
-    const inQuotes = quoted.has(compact(show.name));
+    // In the headline's quotation marks, and the headline's own subject: the
+    // first title it quotes, or one the address names as well. "‘Winning
+    // Time’ Looks Like ‘Friday Night Lights’ and Acts Like ‘The Crown’" is a
+    // review of Winning Time; its address says so and says nothing of the
+    // other two.
+    const slugNamesIt = nameWords.length >= 2 ? slugText.includes(` ${name} `) : slugWords.includes(name);
+    const inQuotes = quoted.has(compact(show.name)) && (quotedInOrder[0] === compact(show.name) || slugNamesIt);
     const inAddress =
       nameWords.length >= 2
-        ? slugText.includes(` ${name} `) && (opening === null || opening.includes(` ${name} `))
+        ? // Several words: where an address puts its subject, the front or the
+          // very end. In the middle it is one name among others
+          // ("writers-strike-2007-friday-night-lights-gossip-girl-heroes").
+          (slugText.startsWith(` ${name} `) || slugText.startsWith(` the ${name} `) || slugText.endsWith(` ${name} `)) &&
+          (opening === null || opening.includes(` ${name} `))
         : // One word: only at the front, and only with a television word after it.
           (slugWords[0] === name && TV_WORDS.has(slugWords[1] ?? "")) ||
           (slugWords[0] === "the" && slugWords[1] === name && TV_WORDS.has(slugWords[2] ?? ""));

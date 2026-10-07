@@ -199,6 +199,11 @@ const BUILTINS: Array<JobInput & { id: string }> = [
   { id: "builtin-catchup", kind: "catchup", schedule: { cadence: "weekly", weekday: 3, hour: 5, minute: 30 } },
   { id: "builtin-tmdb", kind: "tmdb_refresh", schedule: { cadence: "weekly", weekday: 1, hour: 1, minute: 30 } },
   { id: "builtin-backup", kind: "backup", schedule: { cadence: "daily", hour: 0, minute: 0 } },
+  // Rotation shipped with the scheduler but with no job to run it, so film
+  // pages went on drawing a blurb afresh on every visit. Blurbs change daily;
+  // accolades weekly, since most films have one or two to move between.
+  { id: "builtin-rotate-blurbs", kind: "rotate_blurbs", schedule: { cadence: "daily", hour: 4, minute: 0 } },
+  { id: "builtin-rotate-accolades", kind: "rotate_accolades", schedule: { cadence: "weekly", weekday: 1, hour: 4, minute: 10 } },
 ];
 
 export function ensureBuiltinJobs(): void {

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { DownloadsScreen } from "@/components/offline/DownloadsScreen";
+import { TvWayHome } from "@/components/tv/TvWayHome";
 
 export const metadata: Metadata = { title: "Downloads · Watch" };
 
@@ -22,6 +23,7 @@ export default function DownloadsPage() {
   return (
     <>
       <main className="wrap dl-page">
+        <TvWayHome />
         <h1 className="dl-heading">Downloads</h1>
         <p className="note">
           Films kept on this device. They play with no connection, subtitles and all.

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { RemoteClient } from "@/components/remote/RemoteClient";
+import { TvWayHome } from "@/components/tv/TvWayHome";
 import { currentSession } from "@/lib/current-user";
 
 export const dynamic = "force-dynamic";
@@ -22,5 +23,10 @@ export default async function RemotePage() {
   const session = await currentSession();
   if (!session) redirect("/login?next=/remote");
 
-  return <RemoteClient />;
+  return (
+    <>
+      <TvWayHome />
+      <RemoteClient />
+    </>
+  );
 }

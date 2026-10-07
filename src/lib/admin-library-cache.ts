@@ -1,6 +1,7 @@
 import "server-only";
 
-import { getAdminMovie, listAllMoviesAdmin, type AdminMovieListItem } from "./jellyfin";
+import { getAdminMovie, getAdminMoviesByIds, listAllMoviesAdmin, type AdminMovieListItem } from "./jellyfin";
+import { inBatches, staleIds } from "./library-listing-diff";
 
 /**
  * A short-lived cache of the whole-library admin listing.
@@ -39,8 +40,44 @@ interface Entry {
   items: AdminMovieListItem[];
 }
 
-const cache = new Map<string, Entry>();
-const inFlight = new Map<string, Promise<AdminMovieListItem[]>>();
+/*
+ * Everything this module remembers lives on globalThis, one copy for the
+ * process.
+ *
+ * Next loads a module once for the route handlers and again for
+ * instrumentation.ts, and module-level variables are per copy. That is why
+ * warming this cache at boot did nothing the first time it was tried: the
+ * boot code filled its own copy, and the console's first request read an
+ * empty one and waited the full twelve seconds anyway. Held here, a warm-up
+ * at boot is the same cache the routes read.
+ */
+interface State {
+  cache: Map<string, Entry>;
+  inFlight: Map<string, Promise<AdminMovieListItem[]>>;
+  generation: number;
+  held: Map<string, { etag: string | undefined; item: AdminMovieListItem }>;
+  heldWholeAt: number;
+  wholeInBackground: boolean;
+  unsettledUntil: number;
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __jellyfinGateAdminLibrary: State | undefined;
+}
+
+const S: State = (globalThis.__jellyfinGateAdminLibrary ??= {
+  cache: new Map(),
+  inFlight: new Map(),
+  generation: 0,
+  held: new Map(),
+  heldWholeAt: 0,
+  wholeInBackground: false,
+  unsettledUntil: 0,
+});
+
+const cache = S.cache;
+const inFlight = S.inFlight;
 
 /**
  * Bumped whenever something invalidates the listing.
@@ -51,11 +88,86 @@ const inFlight = new Map<string, Promise<AdminMovieListItem[]>>();
  * the next minute. Dropping the cache is not enough on its own; the answer
  * already on the wire has to be refused too.
  */
-let generation = 0;
+// (the counter itself is S.generation, above)
 
 function keyFor(withMediaSources: boolean): string {
   return withMediaSources ? "heavy" : "light";
 }
+
+/*
+ * The heavy shape, title by title, kept across invalidations.
+ *
+ * Dropping the listing used to mean the next reader waited for all of it
+ * again: ten to sixteen seconds, after every re-identification, every version
+ * merge, every special-feature change and every scan — which is what made the
+ * console's Library tab feel slow to work in, one edit at a time. Almost none
+ * of what came back had changed.
+ *
+ * So each title's heavy row is held here with the Etag it was read at. A
+ * refresh reads the cheap listing (a fifth of a second, Etags included),
+ * fetches in full only the titles whose stamp moved or that are new, and
+ * reuses the rest. Invalidating the listing no longer empties this; it only
+ * means "check the stamps again".
+ *
+ * Two safety nets, because an Etag is Jellyfin's word that nothing changed:
+ * everything is fetched whole again every FULL_EVERY_MS, behind the scenes so
+ * nobody waits for it, and a title that has just been re-identified is
+ * dropped from here outright (forgetAdminMovie) rather than trusted.
+ */
+const held = S.held;
+const FULL_EVERY_MS = 30 * 60 * 1000;
+/** Past this many changed titles, one whole fetch is quicker than the pieces. */
+const MAX_PIECEMEAL = 300;
+const BATCH_SIZE = 50;
+
+async function fetchWholeHeavy(): Promise<AdminMovieListItem[]> {
+  const items = await listAllMoviesAdmin({ withMediaSources: true });
+  held.clear();
+  for (const item of items) held.set(item.Id, { etag: item.Etag, item });
+  S.heldWholeAt = Date.now();
+  return items;
+}
+
+async function fetchHeavy(): Promise<AdminMovieListItem[]> {
+  if (held.size === 0) return fetchWholeHeavy();
+
+  const listing = await listAllMoviesAdmin({ withMediaSources: false });
+  const stale = staleIds(listing, held);
+  if (stale.length > MAX_PIECEMEAL) return fetchWholeHeavy();
+
+  for (const batch of inBatches(stale, BATCH_SIZE)) {
+    for (const item of await getAdminMoviesByIds(batch)) held.set(item.Id, { etag: item.Etag, item });
+  }
+  const present = new Set(listing.map((row) => row.Id));
+  for (const id of [...held.keys()]) if (!present.has(id)) held.delete(id);
+
+  if (Date.now() - S.heldWholeAt > FULL_EVERY_MS && !S.wholeInBackground) {
+    S.wholeInBackground = true;
+    void fetchWholeHeavy()
+      .catch(() => {
+        // The pieces already answered this reader; the next refresh tries the
+        // whole fetch again.
+      })
+      .finally(() => {
+        S.wholeInBackground = false;
+      });
+  }
+
+  // In the listing's order. A title Jellyfin listed but did not return in
+  // full keeps its cheap row rather than going missing.
+  return listing.map((row) => held.get(row.Id)?.item ?? row);
+}
+
+/**
+ * After a re-identification, how long every read checks Jellyfin again
+ * instead of trusting the cache. Jellyfin applies a match in its own time;
+ * a listing read in that gap holds the old row, and caching it for the usual
+ * minute is what once re-linked three films to the ones they had just been
+ * corrected from (see forgetAdminMovie). Checking again is cheap now, so for
+ * this long nothing is cached at all.
+ */
+const SETTLE_MS = 90_000;
+// (S.unsettledUntil, above)
 
 export async function getAdminMovies(
   options: { withMediaSources?: boolean } = {},
@@ -66,7 +178,7 @@ export async function getAdminMovies(
   const cached = cache.get(key);
   const existing = inFlight.get(key);
 
-  if (cached) {
+  if (cached && Date.now() >= S.unsettledUntil) {
     // Stale-while-revalidate: hand back what we have either way, and only
     // kick off a refresh if one isn't already running.
     if (Date.now() - cached.fetchedAt >= FRESH_MS && !existing) {
@@ -84,14 +196,14 @@ export async function getAdminMovies(
 }
 
 function refresh(key: string, withMediaSources: boolean): Promise<AdminMovieListItem[]> {
-  const startedAt = generation;
-  const request = listAllMoviesAdmin({ withMediaSources })
+  const startedAt = S.generation;
+  const request = (withMediaSources ? fetchHeavy() : listAllMoviesAdmin({ withMediaSources: false }))
     .then((items) => {
       // Something was invalidated while this was in flight, so these items
       // predate that change. Hand them to the caller that is already waiting —
       // they are no worse than what it would have got — but do not store them,
       // or the next minute of readers gets pre-write data presented as fresh.
-      if (generation === startedAt) cache.set(key, { fetchedAt: Date.now(), items });
+      if (S.generation === startedAt) cache.set(key, { fetchedAt: Date.now(), items });
       return items;
     })
     .finally(() => {
@@ -108,13 +220,13 @@ function refresh(key: string, withMediaSources: boolean): Promise<AdminMovieList
  * Drops both shapes. For changes that alter WHICH films exist — a library
  * scan, a version merge — where there is no single row to patch.
  *
- * Prefer refreshAdminMovie() when one known item changed: this makes the next
- * reader pay for a full re-fetch of the library, which is 16 seconds in the
- * heavy shape.
+ * The next reader waits for the cheap listing and for whichever titles
+ * changed (see `held` above) — well under a second in the ordinary case, where
+ * it used to be the whole heavy listing again.
  */
 export function invalidateAdminMovies(): void {
   cache.clear();
-  generation += 1;
+  S.generation += 1;
 }
 
 /**
@@ -154,17 +266,23 @@ export function invalidateAdminMovies(): void {
  * the match had settled and cached the OLD provider ids as current, so the next
  * pass re-linked all three to the films they had just been corrected from.
  * Only restarting the process cleared it.
+ *
+ * "By which point Jellyfin has settled" leaned on the re-fetch itself taking
+ * ten seconds and more. It no longer does, so the settling is made explicit:
+ * for SETTLE_MS after this, every read goes to Jellyfin and nothing it reads
+ * is trusted for longer than that one read.
  */
 export function forgetAdminMovie(itemId: string): void {
   for (const [key, entry] of cache) {
-    // Only the shapes that actually hold a copy: dropping a listing that never
-    // contained this item buys nothing and costs the next reader a full
-    // re-fetch, 16 seconds of it in the heavy shape.
+    // Only the shapes that actually hold a copy.
     if (entry.items.some((item) => item.Id === itemId)) cache.delete(key);
   }
+  // Its heavy row is read again whatever its stamp says.
+  held.delete(itemId);
+  S.unsettledUntil = Date.now() + SETTLE_MS;
   // Unconditional, even when nothing was cached: a fetch may be in flight that
   // started before the write, and it must not be allowed to cache its answer.
-  generation += 1;
+  S.generation += 1;
 }
 
 export async function refreshAdminMovie(itemId: string): Promise<void> {
@@ -176,11 +294,23 @@ export async function refreshAdminMovie(itemId: string): Promise<void> {
       if (!fresh) {
         // Gone from Jellyfin entirely — drop it rather than keep a ghost.
         entry.items.splice(index, 1);
+        if (key === "heavy") held.delete(itemId);
         continue;
       }
       entry.items[index] = fresh;
+      // Held without a stamp, so the next refresh reads it once more: this
+      // copy is from the moment of the edit, and Jellyfin may save again.
+      if (key === "heavy") held.set(itemId, { etag: undefined, item: fresh });
     } catch (error) {
       console.warn(`[admin-library-cache] could not refresh ${itemId}:`, error);
     }
   }
+}
+
+/**
+ * Fills the heavy listing ahead of the console's first request. Called once
+ * at boot (instrumentation.ts); harmless to call again.
+ */
+export async function warmAdminMovies(): Promise<number> {
+  return (await getAdminMovies()).length;
 }
