@@ -1,5 +1,6 @@
 import "server-only";
 
+import { publishComments } from "./comment-bus";
 import { generateId } from "./crypto";
 import { asRow, asRows, getDb } from "./db";
 import { createNotification } from "./notifications";
@@ -150,7 +151,15 @@ export interface AddCommentInput {
  * Posts a top-level comment or a reply. Replies are exactly one level deep
  * — replying to a comment that itself has a parent is rejected, and
  * replying to a deleted comment is rejected (nothing to actually reply
- * to). A reply notifies the parent comment's author, never the replier.
+ * to). The page answers a reply by posting into the same thread.
+ *
+ * A reply notifies everyone in the conversation: the author of the comment
+ * it sits under, and everyone who has replied there before — never the
+ * replier. Before this only the first of those heard, so two people talking
+ * under a third person's comment never knew the other had answered.
+ *
+ * Every open page on the film is told to read the thread again
+ * (comment-bus.ts), which is what makes it a conversation and not a wall.
  */
 export function addComment(input: AddCommentInput): { id: string } {
   const body = input.body.trim().slice(0, MAX_COMMENT_CHARS);
@@ -177,17 +186,32 @@ export function addComment(input: AddCommentInput): { id: string } {
     .run(id, input.imdbId, input.userId, parent?.id ?? null, body, Date.now());
 
   if (parent) {
-    createNotification({
-      userId: parent.userId,
-      actorUserId: input.userId,
-      commentId: id,
-      imdbId: input.imdbId,
-      filmTitle: input.filmTitle,
-      filmHref: input.filmHref,
-    });
+    const others = asRows<{ user_id: string }>(
+      getDb()
+        .prepare("SELECT DISTINCT user_id FROM film_comments WHERE parent_id = ? AND deleted_at IS NULL")
+        .all(parent.id),
+    ).map((r) => r.user_id);
+    for (const userId of new Set([parent.userId, ...others])) {
+      createNotification({
+        userId,
+        actorUserId: input.userId,
+        commentId: id,
+        imdbId: input.imdbId,
+        filmTitle: input.filmTitle,
+        filmHref: input.filmHref,
+        kind: userId === parent.userId ? "reply" : "thread_reply",
+      });
+    }
   }
 
+  publishComments(input.imdbId);
   return { id };
+}
+
+/** Tells the film's open pages that one of its comments changed. */
+function publishFor(commentId: string): void {
+  const row = asRow<{ imdb_id: string }>(getDb().prepare("SELECT imdb_id FROM film_comments WHERE id = ?").get(commentId));
+  if (row) publishComments(row.imdb_id);
 }
 
 /** True only if this comment exists, isn't deleted, and belongs to userId. */
@@ -197,6 +221,7 @@ export function editComment(id: string, userId: string, body: string): boolean {
   const result = getDb()
     .prepare("UPDATE film_comments SET body = ?, edited_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL")
     .run(clean, Date.now(), id, userId);
+  if (Number(result.changes) > 0) publishFor(id);
   return Number(result.changes) > 0;
 }
 
@@ -205,6 +230,7 @@ export function softDeleteComment(id: string, userId: string): boolean {
   const result = getDb()
     .prepare("UPDATE film_comments SET deleted_at = ?, body = '' WHERE id = ? AND user_id = ? AND deleted_at IS NULL")
     .run(Date.now(), id, userId);
+  if (Number(result.changes) > 0) publishFor(id);
   return Number(result.changes) > 0;
 }
 
@@ -213,5 +239,6 @@ export function adminDeleteComment(id: string): boolean {
   const result = getDb()
     .prepare("UPDATE film_comments SET deleted_at = ?, body = '' WHERE id = ? AND deleted_at IS NULL")
     .run(Date.now(), id);
+  if (Number(result.changes) > 0) publishFor(id);
   return Number(result.changes) > 0;
 }

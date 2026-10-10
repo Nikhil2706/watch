@@ -6162,3 +6162,26 @@ html[data-in-app] .app-get {
   align-items: center;
   gap: 10px;
 }
+
+/* Beside Post: the thread is connected and updates by itself. */
+.comments-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 12px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.comments-live::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3ecf8e;
+}
+
+.composer-actions {
+  align-items: center;
+}
