@@ -118,6 +118,18 @@ function mergeLive(mine: CommentNode[], fresh: CommentNode[]): CommentNode[] {
   ];
 }
 
+/**
+ * Enter sends, as in any chat; Shift+Enter makes a new line. Only where there
+ * is a real keyboard: on a phone the on-screen Enter key is how a new line is
+ * typed, and the Post button is right there. Ctrl/Cmd+Enter sends everywhere.
+ */
+function sendsOnEnter(e: React.KeyboardEvent<HTMLTextAreaElement>): boolean {
+  if (e.key !== "Enter" || e.nativeEvent.isComposing) return false;
+  if (e.metaKey || e.ctrlKey) return true;
+  if (e.shiftKey || e.altKey) return false;
+  return typeof window !== "undefined" && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+}
+
 function Avatar({ name }: { name: string }) {
   return (
     <div className="avatar" aria-hidden="true">
@@ -157,6 +169,11 @@ export function CommunityClient({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [live, setLive] = useState(false);
+  /** How many people have this film's page open, us included. */
+  const [here, setHere] = useState(0);
+  // Decided after mount: the server cannot know what keyboard this is.
+  const [enterSends, setEnterSends] = useState(false);
+  useEffect(() => setEnterSends(window.matchMedia("(hover: hover) and (pointer: fine)").matches), []);
 
   const refresh = useCallback(async () => {
     try {
@@ -180,7 +197,18 @@ export function CommunityClient({
       connectedBefore = true;
     });
     source.addEventListener("changed", () => void refresh());
-    source.onerror = () => setLive(false);
+    source.addEventListener("presence", (event) => {
+      try {
+        const n = (JSON.parse((event as MessageEvent<string>).data) as { here?: number }).here;
+        if (typeof n === "number") setHere(n);
+      } catch {
+        // A frame we cannot read says nothing about who is here.
+      }
+    });
+    source.onerror = () => {
+      setLive(false);
+      setHere(0);
+    };
 
     // A phone that was in a pocket: the stream may have been cut while the
     // page was hidden, so read the thread again on the way back.
@@ -420,7 +448,8 @@ export function CommunityClient({
                   autoFocus
                   onChange={(e) => setReplyText(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    if (sendsOnEnter(e)) {
+                      e.preventDefault();
                       void submitComment(comment.id, replyText, () => {
                         setReplyText("");
                         setReplyOpenFor(null);
@@ -481,15 +510,17 @@ export function CommunityClient({
             maxLength={MAX_COMMENT_CHARS}
             onChange={(e) => setComposerText(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              if (sendsOnEnter(e)) {
+                e.preventDefault();
                 void submitComment(null, composerText, () => setComposerText(""));
               }
             }}
           />
           <div className="composer-actions">
+            {enterSends ? <span className="composer-hint">Enter to send · Shift+Enter for a new line</span> : null}
             {live ? (
               <span className="comments-live" title="New comments appear here as they are written">
-                Live
+                {here > 1 ? `${here} here now` : "Live"}
               </span>
             ) : null}
             <button

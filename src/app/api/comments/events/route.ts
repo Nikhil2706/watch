@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
  *
  * Sends `changed` whenever anyone posts, edits or deletes a comment on that
  * film; the page answers by reading the thread again from /api/comments.
+ * Sends `presence` with how many people have the page open, on arrival and
+ * whenever that number changes.
  * Server-Sent Events for the same reason the phone remote uses them: plain
  * chunked HTTP, which the tunnel in front of the site already carries. See
  * the remote's events route for the two headers and the heartbeat.
@@ -45,10 +47,15 @@ export async function GET(request: Request): Promise<Response> {
           // Controller already closed (client vanished mid-write).
         }
       };
-      unsubscribe = subscribeComments(imdbId, () => send(`event: changed\ndata: {}\n\n`));
       // Something at once: some proxies only commit to streaming once the
       // first bytes arrive, and it is what tells the page it is connected.
       send(`event: ready\ndata: {}\n\n`);
+      // Subscribing announces the new count to everyone, this page included.
+      unsubscribe = subscribeComments(imdbId, {
+        userId: session.userId,
+        onChanged: () => send(`event: changed\ndata: {}\n\n`),
+        onPresence: (here) => send(`event: presence\ndata: ${JSON.stringify({ here })}\n\n`),
+      });
       heartbeatTimer = setInterval(() => send(`: keep-alive\n\n`), HEARTBEAT_MS);
     },
     cancel: stop,

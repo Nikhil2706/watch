@@ -6185,3 +6185,9 @@ html[data-in-app] .app-get {
 .composer-actions {
   align-items: center;
 }
+
+.composer-hint {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
