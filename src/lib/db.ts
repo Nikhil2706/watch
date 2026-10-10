@@ -408,6 +408,12 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "pick_items") && !columnExists(db, "pick_items", "label")) {
     db.exec("ALTER TABLE pick_items ADD COLUMN label TEXT");
   }
+
+  // v53: a viewer can hide what they have already watched. Off for everyone
+  // until they turn it on themselves.
+  if (tableExists(db, "users") && !columnExists(db, "users", "hide_watched")) {
+    db.exec("ALTER TABLE users ADD COLUMN hide_watched INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 /**

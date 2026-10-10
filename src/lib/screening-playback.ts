@@ -57,5 +57,6 @@ export async function screeningSession(deviceId: string): Promise<ResolvedSessio
     // film for this exact person — so the viewer-level content filter does not
     // apply. Same precedent as getItem() not applying filterVisible().
     parentalControl: false,
+    hideWatched: false,
   };
 }

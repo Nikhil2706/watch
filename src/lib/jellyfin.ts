@@ -272,6 +272,23 @@ export async function userPost<T>(
   });
 }
 
+/**
+ * Marks an item watched or not watched for one user. Marking it watched also
+ * clears the position they stopped at, so it leaves their Continue Watching.
+ */
+export async function setPlayed(
+  token: string,
+  deviceId: string,
+  userId: string,
+  itemId: string,
+  played: boolean,
+): Promise<void> {
+  await jellyfinFetch<void>(
+    `/UserPlayedItems/${encodeURIComponent(itemId)}?userId=${encodeURIComponent(userId)}`,
+    { method: played ? "POST" : "DELETE", token, deviceId, expectJson: false },
+  );
+}
+
 /** Invalidates the supplied access token on the Jellyfin side. */
 export async function logout(token: string, deviceId: string): Promise<void> {
   await jellyfinFetch<void>("/Sessions/Logout", {

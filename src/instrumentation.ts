@@ -269,6 +269,17 @@ async function runStartupScan(): Promise<void> {
       console.log(`[boot] promoted ${subtitles.promoted.length} subtitle file(s)`);
     }
 
+    // A full scan keeps Jellyfin busy for about eight minutes, during which
+    // listings time out and playback can stall — measured on the deploy of
+    // 2026-10-07, where a dev copy's start alone did it to the live site.
+    // STARTUP_LIBRARY_SCAN=false starts without one: for a dev copy always,
+    // and for a deploy made while people are watching. New files are then
+    // picked up by the console's folder scan or the scheduled one.
+    if (process.env.STARTUP_LIBRARY_SCAN === "false") {
+      console.log("[boot] startup library scan skipped (STARTUP_LIBRARY_SCAN=false)");
+      return;
+    }
+
     const { refreshLibrary } = await import("./lib/jellyfin");
     await refreshLibrary();
     console.log("[boot] startup library scan triggered");

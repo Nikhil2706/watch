@@ -421,7 +421,14 @@ export async function buildBrowseData(session: ResolvedSession): Promise<BrowseD
     item.People = peopleIndex.get(item.Id) ?? [];
   }
 
-  const catalogue = await buildBrowseCatalogue(allItems);
+  const everything = await buildBrowseCatalogue(allItems);
+  // "Hide what I've seen" (the viewer's own switch). Applied here, after
+  // episodes are folded into their shows, so a show goes only once every
+  // episode of it has been watched; and before the facets, so a genre's
+  // count is of what is left to see.
+  const catalogue = session.hideWatched
+    ? { ...everything, movies: everything.movies.filter((m) => !m.seen) }
+    : everything;
   const facets = buildBrowseFacets(allItems, catalogue);
   return { catalogue, facets };
 }

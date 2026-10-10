@@ -20,6 +20,7 @@ export function Row({
   itemPartsUnits,
   itemBadges,
   shape,
+  markWatched,
 }: {
   title: string;
   items: MediaItem[];
@@ -44,6 +45,8 @@ export function Row({
    * carry a series poster rather than each item's own art.
    */
   shape?: "poster" | "still";
+  /** Puts "mark as watched" on each poster. For Continue watching, where it is how a card is cleared. */
+  markWatched?: boolean;
 }) {
   if (items.length === 0) return null;
 
@@ -65,6 +68,7 @@ export function Row({
             partsUnit={itemPartsUnits?.get(item.Id)}
             badge={itemBadges?.get(item.Id)}
             shape={rowShape}
+            markWatched={markWatched}
           />
         ))}
       </div>

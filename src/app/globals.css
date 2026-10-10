@@ -6108,3 +6108,57 @@ html[data-in-app] .app-get {
     transition: none;
   }
 }
+
+/* ---------------------------------------------------------------- *
+ * Mark as watched, and "hide what I've seen"
+ * ---------------------------------------------------------------- */
+
+/* On a poster the heart and rewatch sit top left; this takes the other
+   corner, where the watched tick shows once it is on. */
+.watched-toggle.list-overlay {
+  left: auto;
+  right: 6px;
+}
+
+.hide-seen {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 7px 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.hide-seen:hover {
+  color: var(--text);
+}
+
+.hide-seen.on {
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.hide-seen-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+}
+
+.hide-seen.on .hide-seen-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.pick-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}

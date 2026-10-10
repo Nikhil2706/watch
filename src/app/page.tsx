@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { AppBar } from "@/components/AppBar";
+import { HideSeenToggle } from "@/components/HideSeenToggle";
 import { GetAppPrompt } from "@/components/GetAppPrompt";
 import { Hero } from "@/components/media/Hero";
 import { PickButton } from "@/components/media/PickButton";
@@ -80,6 +81,15 @@ export default async function HomePage() {
   );
   const collapsedLatest = collapseEpisodeGroups(latest);
 
+  // "Hide what I've seen", the viewer's own switch. After collapsing, where a
+  // show's tile counts as watched only when every episode is. Continue
+  // watching is left alone: nothing in it is finished.
+  if (session.hideWatched) {
+    const unseen = (item: MediaItem) => item.UserData?.Played !== true;
+    collapsedLatest.items = collapsedLatest.items.filter(unseen);
+    for (const row of genreRows) row.collapsed.items = row.collapsed.items.filter(unseen);
+  }
+
   // Today's franchise, crew and subject shelves. One cached listing resolves
   // every path on all three, and parental control applies on the way through —
   // so each shelf is measured again afterwards, since a franchise that loses a
@@ -95,7 +105,8 @@ export default async function HomePage() {
       title: s.title,
       items: s.paths
         .map((p) => shelfItems.get(p))
-        .filter((i): i is MediaItem => i !== undefined),
+        .filter((i): i is MediaItem => i !== undefined)
+        .filter((i) => !session.hideWatched || i.UserData?.Played !== true),
       min: MIN_SHELF_SIZE[s.kind],
     }))
     .filter((row) => row.items.length >= row.min);
@@ -164,8 +175,9 @@ export default async function HomePage() {
       />
       <div className="pick-entry">
         <PickButton />
+        <HideSeenToggle initialOn={session.hideWatched} />
       </div>
-      <Row title="Continue watching" items={resume} lists={lists} />
+      <Row title="Continue watching" items={resume} lists={lists} markWatched />
       {picks.map((pick) => (
         <PickRow key={pick.id} pick={pick} />
       ))}

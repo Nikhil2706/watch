@@ -11,6 +11,7 @@ import {
 import { itemHref } from "@/lib/slugs";
 
 import { ListButtons } from "./ListButtons";
+import { WatchedButton } from "./WatchedButton";
 
 /**
  * One poster. Server component — the artwork URL points at /jf/*, so the
@@ -31,6 +32,7 @@ export function PosterCard({
   partsUnit = "parts",
   title,
   shape = "poster",
+  markWatched = false,
 }: {
   item: MediaItem;
   /** Which lists this item is already on, for the toggle initial state. */
@@ -53,6 +55,8 @@ export function PosterCard({
    * by prefersStillLayout(), not per card — see Row.
    */
   shape?: "poster" | "still";
+  /** Offers "mark as watched" on the poster itself. */
+  markWatched?: boolean;
 }) {
   const still = shape === "still";
   const src =
@@ -89,6 +93,10 @@ export function PosterCard({
               initialFavourite={lists?.has("favourite") ?? false}
               initialRewatch={lists?.has("rewatch") ?? false}
             />
+          ) : null}
+
+          {markWatched && partsCount === undefined ? (
+            <WatchedButton itemId={item.Id} initialWatched={watched} variant="overlay" />
           ) : null}
 
           {progress > 0 && !watched ? (

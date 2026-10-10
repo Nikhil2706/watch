@@ -17,6 +17,7 @@ import {
 } from "@/lib/browse-data";
 import { currentSession } from "@/lib/current-user";
 import { getMemberships } from "@/lib/lists";
+import { HideSeenToggle } from "@/components/HideSeenToggle";
 import { getPerson, personPhotoUrl } from "@/lib/media";
 
 export const dynamic = "force-dynamic";
@@ -231,6 +232,7 @@ export default async function BrowsePage({
               {sorted.length} title{sorted.length === 1 ? "" : "s"}
             </span>
             <div className="spacer" />
+            <HideSeenToggle initialOn={session.hideWatched} />
             <div className="sort-group">
               {SORTS.map((s) => (
                 <Link
