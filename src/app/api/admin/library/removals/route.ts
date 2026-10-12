@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { env } from "@/lib/env";
-import { listFolderRemovals, markFolderForRemoval, unmarkFolderForRemoval } from "@/lib/folder-removals";
+import { listFolderRemovals, markFolderForRemoval, syncLeavingPick, unmarkFolderForRemoval } from "@/lib/folder-removals";
 import { toLibraryPath } from "@/lib/library-folders";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
@@ -44,13 +44,19 @@ export async function POST(request: Request): Promise<Response> {
 
     if (action === "mark") {
       try {
-        return Response.json({ marked: true, ...markFolderForRemoval(path) }, { headers: NO_STORE });
+        const marked = markFolderForRemoval(path);
+        // Not awaited: marking has to stay as fast as pressing, and the pick
+        // catching up a moment later is soon enough.
+        void syncLeavingPick().catch((error) => console.error("[removals] leaving pick not updated:", error));
+        return Response.json({ marked: true, ...marked }, { headers: NO_STORE });
       } catch {
         throw new ValidationError("The library itself cannot be marked, only a folder inside it.");
       }
     }
     if (action === "unmark") {
-      return Response.json({ unmarked: unmarkFolderForRemoval(path) }, { headers: NO_STORE });
+      const unmarked = unmarkFolderForRemoval(path);
+      void syncLeavingPick().catch((error) => console.error("[removals] leaving pick not updated:", error));
+      return Response.json({ unmarked }, { headers: NO_STORE });
     }
     throw new ValidationError("action must be mark or unmark.");
   } catch (error) {

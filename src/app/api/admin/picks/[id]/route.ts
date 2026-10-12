@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { describePickItems } from "@/lib/pick-admin";
 import {
   deletePick,
+  LEAVING_PICK_ID,
   getPick,
   listPickItems,
   listPickRecipients,
@@ -134,5 +135,11 @@ export async function DELETE(
   const denied = requireAdmin(request);
   if (denied) return denied;
   const { id } = await params;
+  if (id === LEAVING_PICK_ID) {
+    return Response.json(
+      { error: "invalid_request", message: "Leaving soon is kept by the site and cannot be deleted. Unpublish it to hide it." },
+      { status: 400, headers: NO_STORE },
+    );
+  }
   return deletePick(id) ? Response.json({ ok: true }, { headers: NO_STORE }) : notFound();
 }

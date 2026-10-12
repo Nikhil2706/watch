@@ -1,6 +1,7 @@
 import "server-only";
 
 import { invalidateAdminMovies } from "./admin-library-cache";
+import { syncLeavingPick } from "./folder-removals";
 import { getDb } from "./db";
 import { refreshLibrary, refreshLibraryFolders } from "./jellyfin";
 import { relinkUnmatchedPickItems } from "./picks";
@@ -61,6 +62,8 @@ export async function scanLibraryNow(
   void relinkUnmatchedAccoladeEntries().catch((error) => console.error("[library-scan] accolade relink failed:", error));
   void relinkUnmatchedFilmSeriesEntries().catch((error) => console.error("[library-scan] film-series relink failed:", error));
   void relinkUnmatchedPickItems().catch((error) => console.error("[library-scan] pick relink failed:", error));
+  // A file added to a folder that is already marked is leaving too.
+  void syncLeavingPick().catch((error) => console.error("[library-scan] leaving pick not updated:", error));
 
   return { subtitlesPromoted: subtitles.promoted.length, scanned };
 }

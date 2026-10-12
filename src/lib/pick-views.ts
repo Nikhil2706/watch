@@ -1,10 +1,12 @@
 import "server-only";
 
 import { episodeCode } from "./episode-key";
+import { leavingDaysForItem } from "./folder-removals";
+import { leavingLabel } from "./leaving-soon";
 import { getGroup, getGroupedPathMap, getGroupSeriesPoster } from "./library-curation";
 import { getItemsByImdbIds, getItemsByPaths, posterUrl, stillUrl } from "./media";
 import { displayRank, orderForDisplay, showsOnHome, writeupPlainText, labelFitLength } from "./pick-rank";
-import { listPickItems, listPicksForViewer, pickHref, type PickItem, type ViewerPick } from "./picks";
+import { LEAVING_PICK_ID, listPickItems, listPicksForViewer, pickHref, type PickItem, type ViewerPick } from "./picks";
 import type { ResolvedSession } from "./session";
 import { itemHref } from "./slugs";
 import { episodeTilesForPaths } from "./tmdb-view";
@@ -40,6 +42,8 @@ export interface PickTile {
   writeup: string | null;
   writeupSourceLabel: string | null;
   writeupSourceUrl: string | null;
+  /** Days until its folder is deleted, in any pick; null when it is staying. */
+  leavingDays: number | null;
 }
 
 export interface PickView {
@@ -53,6 +57,8 @@ export interface PickView {
   /** The character count the words are sized for: the longest one shown. */
   labelFit: number;
   personal: boolean;
+  /** The pick the site keeps of what is leaving: its tiles say how long each has. */
+  leaving: boolean;
   /** Where a converted pick came from, e.g. "Best Films of 2025 — Year End Lists". */
   sourceLabel: string | null;
   sourceUrl: string | null;
@@ -102,6 +108,11 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
       orderForDisplay(items, false).map((item, index) => [item.id, displayRank(item.rank, index)]),
     );
 
+    const isLeaving = pick.id === LEAVING_PICK_ID;
+    // In Leaving soon the days go beside the title, where a year would be.
+    const subWith = (sub: string | null, days: number | null) =>
+      isLeaving && days !== null ? [sub, leavingLabel(days)].filter(Boolean).join(" \u00b7 ") : sub;
+
     const tiles: PickTile[] = [];
     for (const item of orderForDisplay(items, ranked)) {
       const base = {
@@ -118,11 +129,13 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
         const group = item.group_id ? groups.get(item.group_id) : null;
         const file = group?.paths[0] ? showFiles.get(group.paths[0]) : undefined;
         if (!group || !file) continue;
+        const days = leavingDaysForItem({ Id: group.groupId, Type: "Group" });
         tiles.push({
           ...base,
+          leavingDays: days,
           href: `/collection/${group.groupId}`,
           title: group.groupName,
-          sub: null,
+          sub: subWith(null, days),
           posterSrc: getGroupSeriesPoster(group.groupId) ?? posterUrl(file),
           shape: "poster",
         });
@@ -135,12 +148,14 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
         const show = showOfPath.get(item.item_path);
         // A film with no IMDb id is kept by its file, as an episode is
         // (episode-key.ts). It belongs to no show, and is a film on the page.
+        const days = leavingDaysForItem(file);
         if (!show) {
           tiles.push({
             ...base,
+            leavingDays: days,
             href: itemHref(file.Id, file.Name, file.ProductionYear),
             title: file.Name,
-            sub: file.ProductionYear ? String(file.ProductionYear) : null,
+            sub: subWith(file.ProductionYear ? String(file.ProductionYear) : null, days),
             posterSrc: posterUrl(file),
             shape: "poster",
           });
@@ -149,6 +164,7 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
         const named = episodeNames.get(item.item_path);
         tiles.push({
           ...base,
+          leavingDays: days,
           href: itemHref(file.Id, file.Name, file.ProductionYear),
           // "The West Wing: Two Cathedrals"; the filename's own name when
           // TMDB has not been matched for this show.
@@ -164,11 +180,13 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
 
       const film = item.imdb_id ? films.get(item.imdb_id) : undefined;
       if (!film) continue;
+      const filmDays = leavingDaysForItem(film);
       tiles.push({
         ...base,
+        leavingDays: filmDays,
         href: itemHref(film.Id, film.Name, film.ProductionYear),
         title: film.Name,
-        sub: film.ProductionYear ? String(film.ProductionYear) : null,
+        sub: subWith(film.ProductionYear ? String(film.ProductionYear) : null, filmDays),
         posterSrc: posterUrl(film),
         shape: "poster",
       });
@@ -183,6 +201,7 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
       labelled,
       labelFit: labelFitLength(tiles.map((t) => t.label)),
       personal: pick.personal,
+      leaving: isLeaving,
       sourceLabel: pick.source_kind === "article" ? pick.source_label : null,
       sourceUrl: pick.source_kind === "article" ? pick.source_url : null,
       publishedAt: pick.published_at,
