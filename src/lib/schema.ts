@@ -35,7 +35,7 @@
  * what makes an existing database replay the seed block below and gain the
  * row (see the v24/v27 notes in db.ts for what happens without one).
  */
-export const SCHEMA_VERSION = 53;
+export const SCHEMA_VERSION = 54;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1405,5 +1405,26 @@ CREATE TABLE IF NOT EXISTS folder_removals (
   due_seen_at   INTEGER,
   deleted_at    INTEGER,
   files_deleted INTEGER
+) STRICT;
+
+-- What the curator wrote about a title in the Leaving soon pick, kept after
+-- the title has left it (v54) — unmarked, or deleted from the drive with its
+-- folder. A pick item's row goes when the title does; this is where its
+-- words go, so that if the film ever comes back and is leaving again, what
+-- was written about it is put back. Keyed the way the pick keys its titles:
+-- 'film:tt0082933', 'show:{group id}', 'path:/media/...'. One row per title,
+-- overwritten each time it leaves. Never deleted by the site.
+CREATE TABLE IF NOT EXISTS leaving_writeups (
+  key                  TEXT PRIMARY KEY,
+  raw_title            TEXT NOT NULL,
+  raw_year             INTEGER,
+  rank                 INTEGER,
+  label                TEXT,
+  writeup              TEXT,
+  writeup_source_label TEXT,
+  writeup_source_url   TEXT,
+  -- Why it left the pick: 'deleted' with its folder, or 'kept' (unmarked).
+  left_because         TEXT NOT NULL,
+  left_at              INTEGER NOT NULL
 ) STRICT;
 `;

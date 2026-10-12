@@ -128,10 +128,18 @@ export function unmarkFolderForRemoval(path: string): boolean {
  * that no longer are; whatever was written about a title, and where it was
  * put, stays for as long as the title does.
  *
+ * And after: when a title leaves the pick, what was written about it is
+ * kept in leaving_writeups, and put back if the title is ever leaving again
+ * — a film deleted with its folder, added to the library again later and
+ * marked again, comes back with its words.
+ *
  * Created the first time anything is marked, live and kept on Home. With
  * nothing leaving it is simply empty, and an empty pick is not shown.
  */
-export async function syncLeavingPick(): Promise<{ added: number; removed: number }> {
+export async function syncLeavingPick(
+  /** Why titles are leaving the pick on this call, for the record kept of what was written. */
+  because: "deleted" | "kept" = "kept",
+): Promise<{ added: number; removed: number }> {
   const marks = activeRows().map((r) => ({ path: r.path, deleteAt: r.delete_at }));
   const all = marks.length ? await getAdminMovies({ withMediaSources: false }) : [];
   const inAShow = getGroupedPathMap();
@@ -183,13 +191,52 @@ export async function syncLeavingPick(): Promise<{ added: number; removed: numbe
       have.add(key);
       continue;
     }
+    // Its words outlive it. Only when there are any: a title nobody wrote
+    // about must not wipe what was kept from the last time it was here.
+    if (item.writeup || item.label || item.rank !== null) {
+      db.prepare(
+        `INSERT INTO leaving_writeups
+           (key, raw_title, raw_year, rank, label, writeup, writeup_source_label, writeup_source_url, left_because, left_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET
+           raw_title = excluded.raw_title, raw_year = excluded.raw_year, rank = excluded.rank, label = excluded.label,
+           writeup = excluded.writeup, writeup_source_label = excluded.writeup_source_label,
+           writeup_source_url = excluded.writeup_source_url, left_because = excluded.left_because, left_at = excluded.left_at`,
+      ).run(
+        key,
+        item.raw_title,
+        item.raw_year,
+        item.rank,
+        item.label,
+        item.writeup,
+        item.writeup_source_label,
+        item.writeup_source_url,
+        because,
+        Date.now(),
+      );
+    }
     deletePickItem(LEAVING_PICK_ID, item.id);
     removed += 1;
   }
   let added = 0;
   for (const [key, w] of [...wanted].sort((a, b) => a[1].at - b[1].at || a[1].input.rawTitle.localeCompare(b[1].input.rawTitle))) {
     if (have.has(key)) continue;
-    addPickItem(LEAVING_PICK_ID, w.input);
+    // Back again: with what was written about it the last time.
+    const kept = asRow<{
+      rank: number | null;
+      label: string | null;
+      writeup: string | null;
+      writeup_source_label: string | null;
+      writeup_source_url: string | null;
+    }>(db.prepare("SELECT rank, label, writeup, writeup_source_label, writeup_source_url FROM leaving_writeups WHERE key = ?").get(key));
+    const item = addPickItem(LEAVING_PICK_ID, {
+      ...w.input,
+      rank: kept?.rank ?? null,
+      writeup: kept?.writeup ?? null,
+      writeupSourceLabel: kept?.writeup_source_label ?? null,
+      writeupSourceUrl: kept?.writeup_source_url ?? null,
+    });
+    if (kept?.label) db.prepare("UPDATE pick_items SET label = ? WHERE id = ?").run(kept.label, item.id);
     added += 1;
   }
   return { added, removed };
@@ -284,7 +331,7 @@ export async function runFolderRemovals(): Promise<RemovalRun> {
     if (refreshed.refreshed.length < parents.length) await refreshLibrary().catch(() => undefined);
     invalidateAdminMovies();
     invalidate("all-movies");
-    await syncLeavingPick().catch((error) => console.error("[folder-removals] leaving pick not updated:", error));
+    await syncLeavingPick("deleted").catch((error) => console.error("[folder-removals] leaving pick not updated:", error));
   }
   return run;
 }
