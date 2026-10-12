@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { leavingDaysForItem } from "@/lib/folder-removals";
+import { leavingLabel } from "@/lib/leaving-soon";
 import type { ListKind } from "@/lib/lists";
 import {
   formatRuntime,
@@ -64,6 +66,8 @@ export function PosterCard({
   const progress = progressPercent(item);
   const watched = item.UserData?.Played === true;
   const runtime = formatRuntime(item.RunTimeTicks);
+  // Its folder has been marked to be deleted: say so wherever the poster is.
+  const leaving = leavingDaysForItem(item);
 
   return (
     <div className={still ? "poster poster--still" : "poster"}>
@@ -84,6 +88,12 @@ export function PosterCard({
           ) : null}
 
           {runtime ? <span className="runtime-badge">{runtime}</span> : null}
+
+          {leaving !== null ? (
+            <span className="leaving-badge" title={`Leaving the library: ${leavingLabel(leaving).toLowerCase()}`}>
+              Leaving soon
+            </span>
+          ) : null}
 
           {/* A Collection tile isn't a playable item — favouriting/rewatch-marking
               it wouldn't mean anything Jellyfin can act on. */}

@@ -2,6 +2,8 @@ import { readdir } from "node:fs/promises";
 
 import { requireAdmin } from "@/lib/admin-auth";
 import { env } from "@/lib/env";
+import { leavingMarks } from "@/lib/folder-removals";
+import { leavingAt } from "@/lib/leaving-soon";
 import { toLibraryPath } from "@/lib/library-folders";
 
 export const runtime = "nodejs";
@@ -19,6 +21,9 @@ const VIDEO = /\.(mkv|mp4|avi|m4v|mov|wmv|mpg|mpeg|ts|webm|flv)$/i;
  * would not have until the scan this is for. `path` is the part under the
  * library ("American/Steven Spielberg"); empty is the top. One level per
  * call: the console opens folders as they are clicked.
+ *
+ * Each folder also says whether it is marked to be deleted (`marked`), and
+ * when it goes if it or a folder above it is (`leavesAt`).
  */
 export async function GET(request: Request): Promise<Response> {
   const denied = requireAdmin(request);
@@ -36,6 +41,7 @@ export async function GET(request: Request): Promise<Response> {
 
   try {
     const entries = await readdir(dir, { withFileTypes: true });
+    const marks = leavingMarks();
     const folders = await Promise.all(
       entries
         .filter((e) => e.isDirectory() && !e.name.startsWith(".") && !e.name.startsWith("$"))
@@ -47,6 +53,8 @@ export async function GET(request: Request): Promise<Response> {
             path: `${dir}/${e.name}`.slice(root.length + 1),
             folders: inside.filter((x) => x.isDirectory()).length,
             files: inside.filter((x) => x.isFile() && VIDEO.test(x.name)).length,
+            marked: marks.some((m) => m.path === `${dir}/${e.name}`),
+            leavesAt: leavingAt(`${dir}/${e.name}`, marks),
           };
         }),
     );

@@ -67,6 +67,12 @@
   .fp-twist:disabled { visibility: hidden; }
   .fp-name { cursor: pointer; overflow-wrap: anywhere; }
   .fp-row .muted { margin-left: auto; white-space: nowrap; }
+  .fp-row.leaving { background: rgba(200, 55, 45, 0.12); }
+  .fp-row.leaving .fp-name { color: #ffb3bc; }
+  .fp-del { flex: 0 0 auto; padding: 3px 10px; font-size: 12px; }
+  .fp-row.leaving .fp-del { border-color: #c8372d; color: #ffb3bc; }
+  .fp-leaving { margin: 0 0 10px; font-size: 13px; }
+  .fp-leaving b { color: #ffb3bc; }
   .fm-row { display: flex; gap: 12px; align-items: center; padding: 9px 0; border-top: 1px solid var(--border); }
   .fm-row img, .fm-row .fm-noimg { width: 40px; height: 60px; object-fit: cover; border-radius: 4px; background: var(--surface-2); flex: 0 0 auto; }
   .fm-what { flex: 1 1 auto; min-width: 0; font-size: 13px; }
@@ -959,7 +965,7 @@
             <option value="res">Lowest resolution first</option>
           </select>
           <button class="ghost" id="lwSelectAll">Select all shown</button>
-          <button class="ghost" id="lwScan" title="Pick the folders the new files are in">Scan…</button>
+          <button class="ghost" id="lwScan" title="The library's folders: scan the ones with new files, or mark folders to be deleted">Folders…</button>
           <button class="ghost" id="lwFolderMatch" title="Identify files nothing has matched, from the folders they are filed in">Match from folders</button>
           <button class="ghost" id="lwSuggestFeatures">Suggest special features</button>
           <span class="muted" id="lwScanAge"></span>
@@ -4733,7 +4739,53 @@
    * it. Tick where the new files are and only those are re-read, which takes
    * seconds where the whole library takes minutes.
    */
-  var fp = { open: false, kids: {}, expanded: {}, checked: {}, busy: false };
+  var fp = { open: false, kids: {}, expanded: {}, checked: {}, busy: false, removals: [] };
+
+  /*
+   * Marking folders to be deleted.
+   *
+   * One press on a folder's "Delete in 30 days" and it is marked; press
+   * again and it is not. No question is asked, so a run of folders can be
+   * marked as fast as they can be pressed, because nothing happens to the
+   * files for thirty days: until then the films inside only say "Leaving
+   * soon" on the site. On the date, the folder and everything in it is
+   * deleted from the library and from the drive.
+   */
+  function fpDays(at) { return Math.max(0, Math.ceil((at - Date.now()) / 86400000)); }
+
+  function fpLoadRemovals() {
+    return api("/api/admin/library/removals").then(function (data) { fp.removals = data.removals || []; }).catch(function () {});
+  }
+
+  /** Every listed folder at or under `path`, to repaint after a mark without asking the server again. */
+  function fpEachFolder(fn) {
+    Object.keys(fp.kids).forEach(function (k) { (fp.kids[k] || []).forEach(fn); });
+  }
+
+  function fpToggleRemoval(path) {
+    var folder = null;
+    fpEachFolder(function (f) { if (f.path === path) folder = f; });
+    if (!folder) return;
+    var marking = !folder.marked;
+    api("/api/admin/library/removals", { method: "POST", body: { action: marking ? "mark" : "unmark", folder: path } })
+      .then(function (data) {
+        // The server's listing is the truth about dates that come from a
+        // folder further up; read the open levels again, quietly.
+        var open = Object.keys(fp.kids);
+        fp.kids = {};
+        return Promise.all(open.map(fpLoad).concat([fpLoadRemovals()])).then(function () {
+          show("ok", marking
+            ? "“" + folder.name + "” will be deleted in 30 days. Press it again to keep it."
+            : "“" + folder.name + "” is staying.");
+        });
+      })
+      .catch(function (e) { show("err", e.message); })
+      .then(fpRender);
+    // At once, before the answer: the next folder can be pressed straight away.
+    folder.marked = marking;
+    folder.leavesAt = marking ? Date.now() + 30 * 86400000 : null;
+    fpRender();
+  }
 
   function fpLoad(path) {
     if (fp.kids[path]) return Promise.resolve();
@@ -4749,11 +4801,18 @@
       var bits = [];
       if (f.files) bits.push(f.files + " file" + (f.files === 1 ? "" : "s"));
       if (f.folders) bits.push(f.folders + " folder" + (f.folders === 1 ? "" : "s"));
-      out += '<div class="fp-row" style="padding-left:' + (8 + depth * 20) + 'px">' +
+      var leaving = f.leavesAt ? fpDays(f.leavesAt) : null;
+      out += '<div class="fp-row' + (leaving !== null ? " leaving" : "") + '" style="padding-left:' + (8 + depth * 20) + 'px">' +
         '<button class="fp-twist" data-fp-toggle="' + esc(f.path) + '"' + (f.folders ? "" : " disabled") + '>' + (open ? "▾" : "▸") + '</button>' +
         '<input type="checkbox" data-fp-check="' + esc(f.path) + '"' + (fp.checked[f.path] ? " checked" : "") + '>' +
         '<span class="fp-name" data-fp-toggle="' + esc(f.path) + '">' + esc(f.name) + '</span>' +
-        '<span class="muted">' + esc(bits.join(" · ") || "empty") + '</span></div>';
+        '<span class="muted">' + esc(bits.join(" · ") || "empty") + '</span>' +
+        (f.marked
+          ? '<button class="ghost fp-del" data-fp-remove="' + esc(f.path) + '" title="Press to keep this folder">Deleted in ' + leaving + ' day' + (leaving === 1 ? "" : "s") + ' · Keep</button>'
+          : leaving !== null
+            ? '<span class="muted" style="margin-left:8px">goes with the folder above, in ' + leaving + ' day' + (leaving === 1 ? "" : "s") + '</span>'
+            : '<button class="ghost fp-del" data-fp-remove="' + esc(f.path) + '" title="Mark this folder and everything in it to be deleted in 30 days">Delete in 30 days</button>') +
+        '</div>';
       if (open) out += fp.kids[f.path] ? fpRows(f.path, depth + 1) : '<div class="fp-row muted" style="padding-left:' + (34 + (depth + 1) * 20) + 'px">Loading…</div>';
     });
     return out;
@@ -4767,14 +4826,20 @@
     var scroll = el.querySelector(".fp-tree") ? el.querySelector(".fp-tree").scrollTop : 0;
     el.innerHTML =
       '<div class="fp-head">' +
-        '<div class="card-title">Where are the new files?</div>' +
+        '<div class="card-title">Folders</div>' +
         '<button data-fp-act="scan"' + (chosen.length && !fp.busy ? "" : " disabled") + '>' +
           (fp.busy ? "Scanning…" : chosen.length ? "Scan " + chosen.length + " folder" + (chosen.length === 1 ? "" : "s") : "Scan the ticked folders") + '</button>' +
         '<button class="ghost" data-fp-act="all"' + (fp.busy ? " disabled" : "") + '>Scan the whole library</button>' +
         '<button class="ghost" data-fp-act="close">Close</button>' +
       '</div>' +
+      (fp.removals.length
+        ? '<div class="fp-leaving"><b>' + fp.removals.length + ' folder' + (fp.removals.length === 1 ? "" : "s") + ' marked to be deleted</b> (' +
+            fp.removals.reduce(function (n, r) { return n + r.titles; }, 0) + ' titles): ' +
+            fp.removals.map(function (r) { return esc(r.folder) + ' in ' + fpDays(r.deleteAt) + 'd'; }).join(", ") + '</div>'
+        : "") +
       '<div class="fp-tree">' + (fp.kids[""] ? (fpRows("", 0) || '<div class="fp-row muted">No folders.</div>') : '<div class="fp-row muted">Loading…</div>') + '</div>' +
-      '<div class="note">Ticking a folder covers everything inside it. A file sitting loose at the top of the library can only be picked up by scanning the whole library.</div>';
+      '<div class="note">Tick folders to scan them for new files; ticking a folder covers everything inside it. ' +
+      '“Delete in 30 days” marks a folder at one press: the films in it show as leaving soon on the site, and on the date the folder and everything in it is deleted from the library and the drive. Press it again any time before then to keep the folder.</div>';
     el.querySelector(".fp-tree").scrollTop = scroll;
   }
 
@@ -4812,7 +4877,7 @@
   $("lwScan").addEventListener("click", function () {
     fp.open = !fp.open;
     fpRender();
-    if (fp.open) fpLoad("").then(fpRender).catch(function (e) { show("err", e.message); });
+    if (fp.open) Promise.all([fpLoad(""), fpLoadRemovals()]).then(fpRender).catch(function (e) { show("err", e.message); });
   });
 
   $("lwFolders").addEventListener("click", function (ev) {
@@ -4827,6 +4892,8 @@
       if (confirm("Scan the whole library?\n\nThis takes several minutes and keeps the media server busy, so anyone watching may see playback stall. Ticking the folders the new files are in takes seconds.")) lwRunScan([]);
       return;
     }
+    var remove = t.getAttribute("data-fp-remove");
+    if (remove !== null) { fpToggleRemoval(remove); return; }
     var check = t.getAttribute("data-fp-check");
     if (check !== null) { fp.checked[check] = t.checked; fpRender(); return; }
     var toggle = t.getAttribute("data-fp-toggle");

@@ -6191,3 +6191,43 @@ html[data-in-app] .app-get {
   color: var(--muted);
   font-size: 0.72rem;
 }
+
+/* ---------------------------------------------------------------- *
+ * Leaving soon: the title's folder is marked to be deleted
+ * ---------------------------------------------------------------- */
+
+.leaving-badge {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  z-index: 1;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #c8372d;
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* The running time has that corner on every other poster; here it moves over. */
+.poster-art:has(.leaving-badge) .runtime-badge {
+  right: auto;
+  left: 6px;
+}
+
+/* On the film's own page, beside the words that say when. */
+.leaving-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.leaving-note .leaving-badge {
+  position: static;
+}

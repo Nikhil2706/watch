@@ -206,6 +206,8 @@ const BUILTINS: Array<JobInput & { id: string }> = [
   { id: "builtin-rotate-accolades", kind: "rotate_accolades", schedule: { cadence: "weekly", weekday: 1, hour: 4, minute: 10 } },
   // The console runs this itself after a scan; nightly is for files that
   // arrived by a scheduled scan or an upload, with nobody at the console.
+  // The only thing that removes films from the drive. See folder-removals.ts.
+  { id: "builtin-folder-removals", kind: "folder_removals", schedule: { cadence: "daily", hour: 3, minute: 30 }, skipIfPlaying: true },
   { id: "builtin-folder-match", kind: "folder_match", schedule: { cadence: "daily", hour: 4, minute: 20 }, skipIfPlaying: true },
 ];
 

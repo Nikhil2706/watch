@@ -10,6 +10,8 @@ import { Row } from "@/components/media/Row";
 import { PickRow } from "@/components/picks/PickRow";
 import { PartyBanner } from "@/components/party/PartyBanner";
 import { currentSession } from "@/lib/current-user";
+import { leavingDaysForItem, leavingMarks } from "@/lib/folder-removals";
+import { leavingAt, leavingLabel } from "@/lib/leaving-soon";
 import { getActiveJobs } from "@/lib/jobs";
 import { getMemberships } from "@/lib/lists";
 import { homePicksForViewer } from "@/lib/pick-views";
@@ -81,6 +83,22 @@ export default async function HomePage() {
   );
   const collapsedLatest = collapseEpisodeGroups(latest);
 
+  // Films whose folder has been marked to be deleted, soonest first. Shown
+  // whatever "hide what I've seen" says: this row is a last call, and a film
+  // someone has seen is one they may want to see again before it goes.
+  const marks = leavingMarks();
+  const leavingItems = marks.length
+    ? (await getAllMovies(session).catch(() => []))
+        .filter((i) => i.Path && leavingAt(i.Path, marks) !== null)
+        .sort((a, b) => leavingAt(a.Path!, marks)! - leavingAt(b.Path!, marks)! || a.Name.localeCompare(b.Name))
+    : [];
+  const collapsedLeaving = collapseEpisodeGroups(leavingItems);
+  const leavingBadges = new Map<string, string>();
+  for (const item of collapsedLeaving.items) {
+    const days = leavingDaysForItem(item);
+    if (days !== null) leavingBadges.set(item.Id, leavingLabel(days));
+  }
+
   // "Hide what I've seen", the viewer's own switch. After collapsing, where a
   // show's tile counts as watched only when every episode is. Continue
   // watching is left alone: nothing in it is finished.
@@ -118,6 +136,7 @@ export default async function HomePage() {
     ...new Set([
       ...resume.map((i) => i.Id),
       ...collapsedLatest.items.map((i) => i.Id),
+      ...collapsedLeaving.items.map((i) => i.Id),
       ...genreRows.flatMap((row) => row.collapsed.items.map((i) => i.Id)),
       ...shelfRows.flatMap((row) => row.items.map((i) => i.Id)),
     ]),
@@ -178,6 +197,15 @@ export default async function HomePage() {
         <HideSeenToggle initialOn={session.hideWatched} />
       </div>
       <Row title="Continue watching" items={resume} lists={lists} markWatched />
+      <Row
+        title="Leaving soon"
+        items={collapsedLeaving.items}
+        lists={lists}
+        itemHrefs={collapsedLeaving.hrefs}
+        itemPosters={collapsedLeaving.posters}
+        itemBadges={leavingBadges}
+        shape="poster"
+      />
       {picks.map((pick) => (
         <PickRow key={pick.id} pick={pick} />
       ))}

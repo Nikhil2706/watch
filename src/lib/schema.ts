@@ -1390,4 +1390,20 @@ CREATE TABLE IF NOT EXISTS folder_match_suggestions (
   created_at  INTEGER NOT NULL,
   decided_at  INTEGER
 ) STRICT;
+
+-- Folders marked in the console to be deleted from the library and the drive
+-- (v53). delete_at is thirty days after marked_at; until then the films
+-- inside only say "Leaving soon". due_seen_at is the first scheduled run that
+-- found the folder due: it is deleted on a later run, never on that one, so
+-- a single wrong clock reading cannot delete anything. A deleted folder's row
+-- is kept, with deleted_at and how many video files went. See
+-- folder-removals.ts.
+CREATE TABLE IF NOT EXISTS folder_removals (
+  path          TEXT PRIMARY KEY,   -- as Jellyfin sees it: /media/Horror/Wolf Creek
+  marked_at     INTEGER NOT NULL,
+  delete_at     INTEGER NOT NULL,
+  due_seen_at   INTEGER,
+  deleted_at    INTEGER,
+  files_deleted INTEGER
+) STRICT;
 `;
