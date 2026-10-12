@@ -44,6 +44,8 @@ export interface ResolvedSession {
   expiresAt: number;
   langloisMode: boolean;
   parentalControl: boolean;
+  /** Their own switch: leave what they have watched out of Home's rows and Browse. */
+  hideWatched: boolean;
 }
 
 interface JoinedRow extends SessionRow {
@@ -51,6 +53,7 @@ interface JoinedRow extends SessionRow {
   jellyfin_user_id: string;
   langlois_mode: number;
   parental_control: number;
+  hide_watched: number;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -210,7 +213,7 @@ export function getSession(sessionId: string | null): ResolvedSession | null {
   const row = asRow<JoinedRow>(
     getDb()
       .prepare(
-        `SELECT s.*, u.username, u.jellyfin_user_id, u.langlois_mode, u.parental_control
+        `SELECT s.*, u.username, u.jellyfin_user_id, u.langlois_mode, u.parental_control, u.hide_watched
            FROM sessions s
            JOIN users u ON u.id = s.user_id
           WHERE s.id = ?`,
@@ -235,6 +238,7 @@ export function getSession(sessionId: string | null): ResolvedSession | null {
     expiresAt: row.expires_at,
     langloisMode: row.langlois_mode === 1,
     parentalControl: row.parental_control === 1,
+    hideWatched: row.hide_watched === 1,
   };
 }
 

@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { leavingDaysForItem } from "@/lib/folder-removals";
+import { leavingLabel } from "@/lib/leaving-soon";
 import type { ListKind } from "@/lib/lists";
 import {
   formatRuntime,
@@ -11,6 +13,7 @@ import {
 import { itemHref } from "@/lib/slugs";
 
 import { ListButtons } from "./ListButtons";
+import { WatchedButton } from "./WatchedButton";
 
 /**
  * One poster. Server component — the artwork URL points at /jf/*, so the
@@ -31,6 +34,7 @@ export function PosterCard({
   partsUnit = "parts",
   title,
   shape = "poster",
+  markWatched = false,
 }: {
   item: MediaItem;
   /** Which lists this item is already on, for the toggle initial state. */
@@ -53,6 +57,8 @@ export function PosterCard({
    * by prefersStillLayout(), not per card — see Row.
    */
   shape?: "poster" | "still";
+  /** Offers "mark as watched" on the poster itself. */
+  markWatched?: boolean;
 }) {
   const still = shape === "still";
   const src =
@@ -60,6 +66,8 @@ export function PosterCard({
   const progress = progressPercent(item);
   const watched = item.UserData?.Played === true;
   const runtime = formatRuntime(item.RunTimeTicks);
+  // Its folder has been marked to be deleted: say so wherever the poster is.
+  const leaving = leavingDaysForItem(item);
 
   return (
     <div className={still ? "poster poster--still" : "poster"}>
@@ -81,6 +89,12 @@ export function PosterCard({
 
           {runtime ? <span className="runtime-badge">{runtime}</span> : null}
 
+          {leaving !== null ? (
+            <span className="leaving-badge" title={`Leaving the library: ${leavingLabel(leaving).toLowerCase()}`}>
+              Leaving soon
+            </span>
+          ) : null}
+
           {/* A Collection tile isn't a playable item — favouriting/rewatch-marking
               it wouldn't mean anything Jellyfin can act on. */}
           {partsCount === undefined ? (
@@ -89,6 +103,10 @@ export function PosterCard({
               initialFavourite={lists?.has("favourite") ?? false}
               initialRewatch={lists?.has("rewatch") ?? false}
             />
+          ) : null}
+
+          {markWatched && partsCount === undefined ? (
+            <WatchedButton itemId={item.Id} initialWatched={watched} variant="overlay" />
           ) : null}
 
           {progress > 0 && !watched ? (

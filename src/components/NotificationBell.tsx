@@ -7,6 +7,7 @@ import { useCloseOnBack } from "@/lib/overlay-back";
 
 type NotificationKind =
   | "reply"
+  | "thread_reply"
   | "new_item"
   | "curators_pick"
   | "new_show"
@@ -65,6 +66,12 @@ function notificationText(n: NotificationItem): ReactNode {
           Watch party scheduled: <b>{n.filmTitle}</b>
         </>
       );
+    case "thread_reply":
+      return (
+        <>
+          <b>{n.actorUsername}</b> replied in a conversation you are in on <b>{n.filmTitle}</b>
+        </>
+      );
     case "reply":
     default:
       return (
@@ -76,7 +83,7 @@ function notificationText(n: NotificationItem): ReactNode {
 }
 
 function notificationHref(n: NotificationItem): string {
-  return n.kind === "reply" && n.commentId ? `${n.filmHref}#comment-${n.commentId}` : n.filmHref;
+  return (n.kind === "reply" || n.kind === "thread_reply") && n.commentId ? `${n.filmHref}#comment-${n.commentId}` : n.filmHref;
 }
 
 /** Long enough to be a non-issue as background traffic, short enough that a reply feels "found," not lost. */

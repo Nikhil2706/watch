@@ -57,6 +57,27 @@
   .lw-tools input[type="text"] { flex: 1 1 240px; min-width: 0; }
   .lw-tools select { flex: 0 0 auto; width: auto; }
   .lw-tools button { flex: 0 0 auto; }
+  .fp-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .fp-head .card-title { flex: 1 1 200px; }
+  .fp-tree { max-height: 46vh; overflow: auto; border: 1px solid var(--border); border-radius: 10px; padding: 6px 4px; }
+  .fp-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 7px; font-size: 13px; }
+  .fp-row:hover { background: rgba(255, 255, 255, 0.05); }
+  .fp-row input { flex: 0 0 auto; width: auto; margin: 0; }
+  .fp-twist { flex: 0 0 18px; width: 18px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; }
+  .fp-twist:disabled { visibility: hidden; }
+  .fp-name { cursor: pointer; overflow-wrap: anywhere; }
+  .fp-row .muted { margin-left: auto; white-space: nowrap; }
+  .fp-row.leaving { background: rgba(200, 55, 45, 0.12); }
+  .fp-row.leaving .fp-name { color: #ffb3bc; }
+  .fp-del { flex: 0 0 auto; padding: 3px 10px; font-size: 12px; }
+  .fp-row.leaving .fp-del { border-color: #c8372d; color: #ffb3bc; }
+  .fp-leaving { margin: 0 0 10px; font-size: 13px; }
+  .fp-leaving b { color: #ffb3bc; }
+  .fm-row { display: flex; gap: 12px; align-items: center; padding: 9px 0; border-top: 1px solid var(--border); }
+  .fm-row img, .fm-row .fm-noimg { width: 40px; height: 60px; object-fit: cover; border-radius: 4px; background: var(--surface-2); flex: 0 0 auto; }
+  .fm-what { flex: 1 1 auto; min-width: 0; font-size: 13px; }
+  .fm-what .fm-file { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  .fm-acts { display: flex; gap: 6px; flex: 0 0 auto; }
 
   .lw-bulk { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px;
     padding: 8px 12px; border: 1px solid var(--warm-line); border-radius: 8px;
@@ -944,13 +965,20 @@
             <option value="res">Lowest resolution first</option>
           </select>
           <button class="ghost" id="lwSelectAll">Select all shown</button>
-          <button class="ghost" id="lwScan">Scan folder</button>
-          <input type="text" id="lwScanPath" placeholder="Only this folder — Horror/New Film (optional)" title="Where the new files are: the part under the library, or the full path. Empty scans the whole library." style="min-width:260px">
+          <button class="ghost" id="lwScan" title="The library's folders: scan the ones with new files, or mark folders to be deleted">Folders…</button>
+          <button class="ghost" id="lwFolderMatch" title="Identify files nothing has matched, from the folders they are filed in">Match from folders</button>
           <button class="ghost" id="lwSuggestFeatures">Suggest special features</button>
           <span class="muted" id="lwScanAge"></span>
         </div>
 
         <div id="lwBulk" class="lw-bulk" style="display:none"></div>
+
+        <!-- Opened by Scan…: the library's own folders, to tick, instead of
+             a box to type a path into. -->
+        <div id="lwFolders" class="card" style="display:none"></div>
+        <!-- What the folders say unidentified files are, waiting for a yes
+             or a no. Shown only when there is something to answer. -->
+        <div id="lwMatches" class="card" style="display:none"></div>
 
         <div class="lw-split">
           <div class="lw-rail" id="lwRail"></div>
@@ -4550,6 +4578,7 @@
       // Merged onto the rows below, so nothing else in the workspace has to
       // know this feature exists.
       void sfLoad();
+      void fmLoad();
       lw.lastScanAt = data.lastScanAt || null;
       lw.loaded = true;
       lwBuildRows();
@@ -4701,20 +4730,130 @@
 
   $("lwSuggestFeatures").addEventListener("click", function () { sfRunGuess(this); });
 
-  $("lwScan").addEventListener("click", function () {
-    var btn = $("lwScan");
-    btn.disabled = true;
-    var before = lw.items.length;
-    btn.textContent = "Scanning…";
-    // One folder is re-read in seconds; the whole library takes minutes.
-    var only = $("lwScanPath").value.trim();
-    var wholeLibrary = false;
-    api("/api/admin/library/scan", { method: "POST", body: only ? { folders: [only] } : null })
+  /*
+   * Scanning part of the library.
+   *
+   * This was a box to type a folder's path into. The library is right there
+   * on the disk, so now it is shown: its folders as a list that opens as you
+   * click into it, read from the disk so a folder made a minute ago is in
+   * it. Tick where the new files are and only those are re-read, which takes
+   * seconds where the whole library takes minutes.
+   */
+  var fp = { open: false, kids: {}, expanded: {}, checked: {}, busy: false, removals: [] };
+
+  /*
+   * Marking folders to be deleted.
+   *
+   * One press on a folder's "Delete in 30 days" and it is marked; press
+   * again and it is not. No question is asked, so a run of folders can be
+   * marked as fast as they can be pressed, because nothing happens to the
+   * files for thirty days: until then the films inside only say "Leaving
+   * soon" on the site. On the date, the folder and everything in it is
+   * deleted from the library and from the drive.
+   */
+  function fpDays(at) { return Math.max(0, Math.ceil((at - Date.now()) / 86400000)); }
+
+  function fpLoadRemovals() {
+    return api("/api/admin/library/removals").then(function (data) { fp.removals = data.removals || []; }).catch(function () {});
+  }
+
+  /** Every listed folder at or under `path`, to repaint after a mark without asking the server again. */
+  function fpEachFolder(fn) {
+    Object.keys(fp.kids).forEach(function (k) { (fp.kids[k] || []).forEach(fn); });
+  }
+
+  function fpToggleRemoval(path) {
+    var folder = null;
+    fpEachFolder(function (f) { if (f.path === path) folder = f; });
+    if (!folder) return;
+    var marking = !folder.marked;
+    api("/api/admin/library/removals", { method: "POST", body: { action: marking ? "mark" : "unmark", folder: path } })
       .then(function (data) {
-        wholeLibrary = !!only && !!data && data.scope === "library";
+        // The server's listing is the truth about dates that come from a
+        // folder further up; read the open levels again, quietly.
+        var open = Object.keys(fp.kids);
+        fp.kids = {};
+        return Promise.all(open.map(fpLoad).concat([fpLoadRemovals()])).then(function () {
+          show("ok", marking
+            ? "“" + folder.name + "” will be deleted in 30 days. Press it again to keep it."
+            : "“" + folder.name + "” is staying.");
+        });
+      })
+      .catch(function (e) { show("err", e.message); })
+      .then(fpRender);
+    // At once, before the answer: the next folder can be pressed straight away.
+    folder.marked = marking;
+    folder.leavesAt = marking ? Date.now() + 30 * 86400000 : null;
+    fpRender();
+  }
+
+  function fpLoad(path) {
+    if (fp.kids[path]) return Promise.resolve();
+    return api("/api/admin/library/folders?path=" + encodeURIComponent(path)).then(function (data) {
+      fp.kids[path] = data.folders || [];
+    });
+  }
+
+  function fpRows(path, depth) {
+    var out = "";
+    (fp.kids[path] || []).forEach(function (f) {
+      var open = !!fp.expanded[f.path];
+      var bits = [];
+      if (f.files) bits.push(f.files + " file" + (f.files === 1 ? "" : "s"));
+      if (f.folders) bits.push(f.folders + " folder" + (f.folders === 1 ? "" : "s"));
+      var leaving = f.leavesAt ? fpDays(f.leavesAt) : null;
+      out += '<div class="fp-row' + (leaving !== null ? " leaving" : "") + '" style="padding-left:' + (8 + depth * 20) + 'px">' +
+        '<button class="fp-twist" data-fp-toggle="' + esc(f.path) + '"' + (f.folders ? "" : " disabled") + '>' + (open ? "▾" : "▸") + '</button>' +
+        '<input type="checkbox" data-fp-check="' + esc(f.path) + '"' + (fp.checked[f.path] ? " checked" : "") + '>' +
+        '<span class="fp-name" data-fp-toggle="' + esc(f.path) + '">' + esc(f.name) + '</span>' +
+        '<span class="muted">' + esc(bits.join(" · ") || "empty") + '</span>' +
+        (f.marked
+          ? '<button class="ghost fp-del" data-fp-remove="' + esc(f.path) + '" title="Press to keep this folder">Deleted in ' + leaving + ' day' + (leaving === 1 ? "" : "s") + ' · Keep</button>'
+          : leaving !== null
+            ? '<span class="muted" style="margin-left:8px">goes with the folder above, in ' + leaving + ' day' + (leaving === 1 ? "" : "s") + '</span>'
+            : '<button class="ghost fp-del" data-fp-remove="' + esc(f.path) + '" title="Mark this folder and everything in it to be deleted in 30 days">Delete in 30 days</button>') +
+        '</div>';
+      if (open) out += fp.kids[f.path] ? fpRows(f.path, depth + 1) : '<div class="fp-row muted" style="padding-left:' + (34 + (depth + 1) * 20) + 'px">Loading…</div>';
+    });
+    return out;
+  }
+
+  function fpRender() {
+    var el = $("lwFolders");
+    el.style.display = fp.open ? "" : "none";
+    if (!fp.open) return;
+    var chosen = Object.keys(fp.checked).filter(function (k) { return fp.checked[k]; });
+    var scroll = el.querySelector(".fp-tree") ? el.querySelector(".fp-tree").scrollTop : 0;
+    el.innerHTML =
+      '<div class="fp-head">' +
+        '<div class="card-title">Folders</div>' +
+        '<button data-fp-act="scan"' + (chosen.length && !fp.busy ? "" : " disabled") + '>' +
+          (fp.busy ? "Scanning…" : chosen.length ? "Scan " + chosen.length + " folder" + (chosen.length === 1 ? "" : "s") : "Scan the ticked folders") + '</button>' +
+        '<button class="ghost" data-fp-act="all"' + (fp.busy ? " disabled" : "") + '>Scan the whole library</button>' +
+        '<button class="ghost" data-fp-act="close">Close</button>' +
+      '</div>' +
+      (fp.removals.length
+        ? '<div class="fp-leaving"><b>' + fp.removals.length + ' folder' + (fp.removals.length === 1 ? "" : "s") + ' marked to be deleted</b> (' +
+            fp.removals.reduce(function (n, r) { return n + r.titles; }, 0) + ' titles): ' +
+            fp.removals.map(function (r) { return esc(r.folder) + ' in ' + fpDays(r.deleteAt) + 'd'; }).join(", ") + '</div>'
+        : "") +
+      '<div class="fp-tree">' + (fp.kids[""] ? (fpRows("", 0) || '<div class="fp-row muted">No folders.</div>') : '<div class="fp-row muted">Loading…</div>') + '</div>' +
+      '<div class="note">Tick folders to scan them for new files; ticking a folder covers everything inside it. ' +
+      '“Delete in 30 days” marks a folder at one press: the films in it show as leaving soon on the site, and on the date the folder and everything in it is deleted from the library and the drive. Press it again any time before then to keep the folder.</div>';
+    el.querySelector(".fp-tree").scrollTop = scroll;
+  }
+
+  function lwRunScan(folders) {
+    var before = lw.items.length;
+    var wholeLibrary = false;
+    fp.busy = true;
+    fpRender();
+    api("/api/admin/library/scan", { method: "POST", body: folders.length ? { folders: folders } : null })
+      .then(function (data) {
+        wholeLibrary = !!folders.length && !!data && data.scope === "library";
         // Jellyfin's scan is fire-and-forget, so wait a beat before asking
         // what changed rather than reporting on the library as it was.
-        return new Promise(function (resolve) { setTimeout(resolve, 4000); });
+        return new Promise(function (resolve) { setTimeout(resolve, folders.length ? 6000 : 4000); });
       })
       .then(function () { return lwLoad(true); })
       .then(function () {
@@ -4724,10 +4863,139 @@
           ? added + " new file" + (added === 1 ? "" : "s") + " picked up. " + needing + " need a decision."
           : wholeLibrary
             ? "Jellyfin has no folder above that one yet, so the whole library is being scanned — new files show up in a few minutes."
-            : "Scan finished — nothing new. " + needing + " still need a decision.");
+            : !folders.length
+              ? "The whole library is being scanned — new files show up over the next few minutes."
+              : "Scan finished — nothing new. " + needing + " still need a decision.");
+        if (folders.length && !wholeLibrary) { fp.open = false; fp.checked = {}; }
+        // New files with no match: see what their folders say before asking.
+        if (added > 0 && folders.length && !wholeLibrary) fmRun(true);
       })
       .catch(function (e) { show("err", e.message); })
-      .then(function () { btn.disabled = false; btn.textContent = "Scan folder"; });
+      .then(function () { fp.busy = false; fpRender(); });
+  }
+
+  $("lwScan").addEventListener("click", function () {
+    fp.open = !fp.open;
+    fpRender();
+    if (fp.open) Promise.all([fpLoad(""), fpLoadRemovals()]).then(fpRender).catch(function (e) { show("err", e.message); });
+  });
+
+  $("lwFolders").addEventListener("click", function (ev) {
+    var t = ev.target;
+    var act = t.getAttribute("data-fp-act");
+    if (act === "close") { fp.open = false; fpRender(); return; }
+    if (act === "scan") {
+      lwRunScan(Object.keys(fp.checked).filter(function (k) { return fp.checked[k]; }));
+      return;
+    }
+    if (act === "all") {
+      if (confirm("Scan the whole library?\n\nThis takes several minutes and keeps the media server busy, so anyone watching may see playback stall. Ticking the folders the new files are in takes seconds.")) lwRunScan([]);
+      return;
+    }
+    var remove = t.getAttribute("data-fp-remove");
+    if (remove !== null) { fpToggleRemoval(remove); return; }
+    var check = t.getAttribute("data-fp-check");
+    if (check !== null) { fp.checked[check] = t.checked; fpRender(); return; }
+    var toggle = t.getAttribute("data-fp-toggle");
+    if (toggle !== null && !t.disabled) {
+      fp.expanded[toggle] = !fp.expanded[toggle];
+      fpRender();
+      if (fp.expanded[toggle]) fpLoad(toggle).then(fpRender).catch(function (e) { show("err", e.message); });
+    }
+  });
+
+  /*
+   * What a file's folders say it is.
+   *
+   * A file called Amblin in the Steven Spielberg folder is his short film,
+   * whatever a title search makes of the bare word. The site reads the
+   * folders (folder-match.ts): a match it is certain of is applied, and the
+   * rest are listed here with the reason, for a yes or a no. A no is
+   * remembered.
+   */
+  var fm = { open: [], applied: [], busy: false, showApplied: false };
+
+  function fmFile(path) { return String(path || "").replace(/^\/media\//, ""); }
+
+  function fmRender() {
+    var el = $("lwMatches");
+    if (!fm.open.length && !(fm.showApplied && fm.applied.length)) { el.style.display = "none"; el.innerHTML = ""; return; }
+    el.style.display = "";
+    var html = '<div class="fp-head"><div class="card-title">' +
+      (fm.open.length ? fm.open.length + " file" + (fm.open.length === 1 ? "" : "s") + " the folders suggest a match for" : "Matched from their folders") + '</div>' +
+      (fm.applied.length ? '<button class="ghost" data-fm-act="applied">' + (fm.showApplied ? "Hide" : "Show") + " the " + fm.applied.length + " matched without asking</button>" : "") +
+      '</div>';
+    fm.open.forEach(function (m) {
+      html += '<div class="fm-row">' +
+        (m.posterPath ? '<img src="https://image.tmdb.org/t/p/w92' + esc(m.posterPath) + '" alt="">' : '<div class="fm-noimg"></div>') +
+        '<div class="fm-what"><div><b>' + esc(m.title) + '</b>' + (m.year ? " (" + m.year + ")" : "") +
+          (m.status === "failed" ? ' <span class="pill s-revoked">could not apply</span>' : m.certainty === "certain" ? ' <span class="pill s-active">certain</span>' : "") + '</div>' +
+          '<div class="fm-file">' + esc(fmFile(m.path)) + '</div>' +
+          '<div class="muted">' + esc(m.why) + '</div></div>' +
+        '<div class="fm-acts"><button data-fm-act="accept" data-fm-path="' + esc(m.path) + '">Yes, that’s it</button>' +
+          '<button class="ghost" data-fm-act="dismiss" data-fm-path="' + esc(m.path) + '">No</button></div>' +
+        '</div>';
+    });
+    if (fm.showApplied) {
+      fm.applied.forEach(function (m) {
+        html += '<div class="fm-row"><div class="fm-what"><div><b>' + esc(m.title) + '</b>' + (m.year ? " (" + m.year + ")" : "") + '</div>' +
+          '<div class="fm-file">' + esc(fmFile(m.path)) + '</div><div class="muted">' + esc(m.why) + '</div></div></div>';
+      });
+      html += '<div class="note">Any of these that is wrong can be put right with Identify on the film.</div>';
+    }
+    el.innerHTML = html;
+  }
+
+  function fmTake(data) {
+    fm.open = (data && data.open) || [];
+    fm.applied = (data && data.applied) || [];
+    fmRender();
+  }
+
+  function fmLoad() {
+    return api("/api/admin/library/folder-match").then(fmTake).catch(function () { /* the panel just stays shut */ });
+  }
+
+  function fmRun(quiet) {
+    if (fm.busy) return;
+    fm.busy = true;
+    var btn = $("lwFolderMatch");
+    btn.disabled = true;
+    btn.textContent = "Reading folders…";
+    api("/api/admin/library/folder-match", { method: "POST", body: { action: "run" } })
+      .then(function (data) {
+        fmTake(data);
+        var r = data.run || {};
+        if (r.applied || r.suggested || !quiet) {
+          show("ok", r.looked + " unidentified file" + (r.looked === 1 ? "" : "s") + ": " + (r.applied || 0) + " matched from their folders, " +
+            (r.suggested || 0) + " to confirm" + (r.failed ? ", " + r.failed + " could not be applied" : "") + ".");
+        }
+        if (r.applied) { fm.showApplied = true; fmRender(); return lwLoad(true); }
+      })
+      .catch(function (e) { show("err", e.message); })
+      .then(function () { fm.busy = false; btn.disabled = false; btn.textContent = "Match from folders"; });
+  }
+
+  $("lwFolderMatch").addEventListener("click", function () { fmRun(false); });
+
+  $("lwMatches").addEventListener("click", function (ev) {
+    var act = ev.target.getAttribute("data-fm-act");
+    if (!act) return;
+    if (act === "applied") { fm.showApplied = !fm.showApplied; fmRender(); return; }
+    var path = ev.target.getAttribute("data-fm-path");
+    var acts = ev.target.parentNode;
+    acts.innerHTML = '<span class="muted">' + (act === "accept" ? "Applying…" : "…") + '</span>';
+    api("/api/admin/library/folder-match", { method: "POST", body: { action: act, path: path } })
+      .then(function () {
+        var hit = fm.open.filter(function (m) { return m.path === path; })[0];
+        fm.open = fm.open.filter(function (m) { return m.path !== path; });
+        if (act === "accept" && hit) {
+          show("ok", "Matched “" + hit.title + "”.");
+          markRowDone(hit.itemId, "Matched: " + hit.title);
+        }
+        fmRender();
+      })
+      .catch(function (e) { show("err", e.message); fmRender(); });
   });
 
   /*

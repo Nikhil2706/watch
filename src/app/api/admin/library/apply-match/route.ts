@@ -1,14 +1,6 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { forgetAdminMovie } from "@/lib/admin-library-cache";
-import {
-  applyRemoteSearchMatch,
-  clearItemBackdrop,
-  getAdminMovie,
-  type RemoteSearchResult,
-} from "@/lib/jellyfin";
-import { markMetadataConfirmed } from "@/lib/library-curation";
-import { forgetTmdbForPath } from "@/lib/tmdb-people";
-import { putLink } from "@/lib/tmdb-store";
+import { type RemoteSearchResult } from "@/lib/jellyfin";
+import { applyLibraryMatch } from "@/lib/library-match";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -26,6 +18,9 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
  *
  * `path`, when the caller already has it, marks the file as admin-confirmed
  * — see library_confirmed_metadata in schema.ts for why.
+ *
+ * The work is applyLibraryMatch() (library-match.ts), shared with matches
+ * made from a file's folders.
  */
 export async function POST(request: Request): Promise<Response> {
   const denied = requireAdmin(request);
@@ -40,77 +35,7 @@ export async function POST(request: Request): Promise<Response> {
       throw new ValidationError("itemId and candidate are required.");
     }
 
-    // The stale TMDB link can only be found by file path, and a caller that
-    // posts a bare { itemId, candidate } does not send one — which used to mean
-    // the title was corrected while the previous film's crew stayed attached.
-    // Look it up rather than depend on the caller. A path does not change when
-    // a film is re-identified, so reading it first is safe.
-    const filePath =
-      path ?? (await getAdminMovie(itemId, { withMediaSources: false }).catch(() => null))?.Path ?? null;
-
-    await applyRemoteSearchMatch(itemId, candidate as RemoteSearchResult);
-    // Forget it rather than re-read it. Jellyfin applies a remote match
-    // asynchronously, so re-reading now returns the OLD row and caches it as
-    // the new truth — which is how a corrected film kept getting re-linked to
-    // the previous film's TMDB id until the process was restarted.
-    forgetAdminMovie(itemId);
-
-    /*
-     * Drop any backdrop the previous (wrong) match left behind.
-     *
-     * media.ts's backdropUrl() reads BackdropImageTags before it ever looks at
-     * the Primary poster, so a stale backdrop keeps the wrong film's still on
-     * the detail page even after everything else is corrected — the exact
-     * problem episode-fetch already clears backdrops for. Whether Jellyfin's
-     * own re-match also replaces images here is untested (see the note about
-     * replaceAllImages); this makes the answer not matter. Best-effort:
-     * clearItemBackdrop() treats a 404 as "nothing to delete", and a
-     * corrected title is worth keeping even if the artwork call fails.
-     */
-    try {
-      await clearItemBackdrop(itemId);
-    } catch (error) {
-      console.warn(`[admin/library/apply-match] backdrop clear failed for ${itemId}:`, error);
-    }
-
-    // Confirming stays tied to a caller that named the file, as before; this
-    // change is only about never leaving a stale TMDB link behind.
-    if (path) markMetadataConfirmed(path);
-    if (filePath) {
-      // The TMDB link still points at the film this one was mistaken for, and
-      // so does every credit built from it. Drop both.
-      forgetTmdbForPath(filePath);
-
-      /*
-       * Then write the new link straight from the candidate, when it carries a
-       * TMDB id of its own.
-       *
-       * Leaving the backfill to re-resolve it is what made this fragile: the
-       * backfill reads provider ids for the whole library at once, and the
-       * seconds just after an apply are exactly when Jellyfin has not finished
-       * writing the new ones. The admin, meanwhile, picked this candidate by
-       * id — there is a correct answer in hand right here, and no reason to
-       * throw it away and go back for a racier copy of it.
-       *
-       * Candidates from providers with no stable id of their own (OMDb) carry
-       * only an IMDb id; those still fall through to the backfill, which
-       * resolves them from a per-item read.
-       */
-      const candidateTmdbId = Number(
-        (candidate as RemoteSearchResult).ProviderIds?.Tmdb ?? NaN,
-      );
-      if (Number.isFinite(candidateTmdbId) && candidateTmdbId > 0) {
-        putLink({
-          subjectType: "path",
-          subjectId: filePath,
-          tmdbKind: "movie",
-          tmdbId: candidateTmdbId,
-          season: null,
-          episode: null,
-          resolvedBy: "apply-match",
-        });
-      }
-    }
+    await applyLibraryMatch(itemId, candidate as RemoteSearchResult, { confirmPath: path ?? null });
     return Response.json({ applied: true }, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof ValidationError) {

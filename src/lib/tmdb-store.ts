@@ -263,6 +263,56 @@ export async function searchShows(
   }));
 }
 
+/**
+ * People by name, as TMDB ranks them. Used to find who a library folder is
+ * named after when nothing in it has been identified yet (folder-match.ts).
+ */
+export async function searchPeople(
+  name: string,
+): Promise<Array<{ id: number; name: string; department: string | null }>> {
+  const data = await fetchJson<{
+    results?: Array<{ id: number; name: string; known_for_department?: string }>;
+  }>(`/search/person?query=${encodeURIComponent(name)}`);
+  return (data.results ?? []).map((r) => ({ id: r.id, name: r.name, department: r.known_for_department ?? null }));
+}
+
+/** Films by title, plural and unranked like searchShows: the caller judges them. */
+export async function searchMovies(
+  title: string,
+  year: number | null,
+): Promise<
+  Array<{
+    tmdbId: number;
+    title: string;
+    originalTitle: string | null;
+    year: number | null;
+    genreIds: number[];
+    language: string | null;
+    posterPath: string | null;
+  }>
+> {
+  const data = await fetchJson<{
+    results?: Array<{
+      id: number;
+      title: string;
+      original_title?: string;
+      release_date?: string;
+      genre_ids?: number[];
+      original_language?: string;
+      poster_path?: string | null;
+    }>;
+  }>(`/search/movie?query=${encodeURIComponent(title)}${year ? `&year=${year}` : ""}`);
+  return (data.results ?? []).map((r) => ({
+    tmdbId: r.id,
+    title: r.title,
+    originalTitle: r.original_title ?? null,
+    year: r.release_date ? Number(r.release_date.slice(0, 4)) || null : null,
+    genreIds: r.genre_ids ?? [],
+    language: r.original_language ?? null,
+    posterPath: r.poster_path ?? null,
+  }));
+}
+
 export async function findByImdbId(imdbId: string): Promise<{ kind: "movie" | "tv"; id: number } | null> {
   const data = await fetchJson<{
     movie_results?: Array<{ id: number }>;

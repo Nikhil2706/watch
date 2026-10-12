@@ -35,7 +35,7 @@
  * what makes an existing database replay the seed block below and gain the
  * row (see the v24/v27 notes in db.ts for what happens without one).
  */
-export const SCHEMA_VERSION = 52;
+export const SCHEMA_VERSION = 53;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -89,7 +89,10 @@ CREATE TABLE IF NOT EXISTS users (
   -- re-enable a suspended account by omission. Read this column to answer it.
   -- Suspending also deletes every session; this flag is what stops a new
   -- login from simply replacing them.
-  suspended            INTEGER NOT NULL DEFAULT 0
+  suspended            INTEGER NOT NULL DEFAULT 0,
+  -- The viewer's own switch (v53): leave what they have watched out of Home's
+  -- rows and Browse, so what is left is new to them. See /api/prefs.
+  hide_watched         INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -1366,5 +1369,41 @@ CREATE TABLE IF NOT EXISTS film_rotation (
   accolade_ref       TEXT,   -- 'link:{id}' | 'entry:{id}'
   blurb_at           INTEGER,
   accolade_at        INTEGER
+) STRICT;
+
+-- What a file's folders say it is (v53): one row per unidentified file that
+-- a match was found for. 'open' waits for the curator's yes or no; 'applied'
+-- was certain enough to apply unasked, or was accepted; 'dismissed' is a no,
+-- kept so the same film is not offered for that file again; 'failed' could
+-- not be applied and is tried again on the next pass. See folder-match.ts.
+CREATE TABLE IF NOT EXISTS folder_match_suggestions (
+  path        TEXT PRIMARY KEY,
+  item_id     TEXT NOT NULL,
+  name        TEXT NOT NULL,       -- what the library called the file
+  tmdb_id     INTEGER NOT NULL,
+  title       TEXT NOT NULL,
+  year        INTEGER,
+  poster_path TEXT,
+  certainty   TEXT NOT NULL,       -- certain | likely
+  why         TEXT NOT NULL,
+  status      TEXT NOT NULL,       -- open | applied | dismissed | failed
+  created_at  INTEGER NOT NULL,
+  decided_at  INTEGER
+) STRICT;
+
+-- Folders marked in the console to be deleted from the library and the drive
+-- (v53). delete_at is thirty days after marked_at; until then the films
+-- inside only say "Leaving soon". due_seen_at is the first scheduled run that
+-- found the folder due: it is deleted on a later run, never on that one, so
+-- a single wrong clock reading cannot delete anything. A deleted folder's row
+-- is kept, with deleted_at and how many video files went. See
+-- folder-removals.ts.
+CREATE TABLE IF NOT EXISTS folder_removals (
+  path          TEXT PRIMARY KEY,   -- as Jellyfin sees it: /media/Horror/Wolf Creek
+  marked_at     INTEGER NOT NULL,
+  delete_at     INTEGER NOT NULL,
+  due_seen_at   INTEGER,
+  deleted_at    INTEGER,
+  files_deleted INTEGER
 ) STRICT;
 `;

@@ -197,6 +197,37 @@ const KINDS: JobKind[] = [
     },
   },
   {
+    kind: "folder_match",
+    label: "Match files from their folders",
+    description:
+      "Looks at files nothing has identified and reads the folders they are in: a file in a director's folder is matched against that director's films. Certain matches are applied; the rest wait in the console for a yes or no.",
+    runner: "gate",
+    politeByDefault: true,
+    run: async () => {
+      const { runFolderMatch } = await import("./folder-match");
+      const r = await runFolderMatch({ apply: true });
+      return `${r.looked} unidentified files: ${r.applied} matched, ${r.suggested} to confirm${r.failed ? `, ${r.failed} could not be applied` : ""}`;
+    },
+  },
+  {
+    kind: "folder_removals",
+    label: "Delete folders whose time is up",
+    description:
+      "Deletes, from the library and the drive, folders marked in the console thirty days ago or more. A folder goes on the run after the one that first finds it due. Taking the mark off in the console before then stops it.",
+    runner: "gate",
+    politeByDefault: true,
+    run: async () => {
+      const { runFolderRemovals } = await import("./folder-removals");
+      const r = await runFolderRemovals();
+      const parts = [
+        r.deleted.length ? `deleted ${r.deleted.map((d) => `${d.folder} (${d.files} files)`).join(", ")}` : "nothing deleted",
+        r.confirmed.length ? `due, and deleted on the next run: ${r.confirmed.join(", ")}` : "",
+        r.refused.length ? `NOT deleted: ${r.refused.map((d) => `${d.folder} (${d.why})`).join(", ")}` : "",
+      ];
+      return parts.filter(Boolean).join("; ");
+    },
+  },
+  {
     kind: "rotate_blurbs",
     label: "Rotate blurbs",
     description: "Gives each film a different blurb from its scraped passages. Films you have chosen a blurb for are not touched.",

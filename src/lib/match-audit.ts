@@ -104,7 +104,7 @@ function hasNumbering(words: readonly string[]): boolean {
 }
 
 /** Levenshtein distance. Titles are short, so the plain version is plenty. */
-function editDistance(a: string, b: string): number {
+export function editDistance(a: string, b: string): number {
   const row = Array.from({ length: b.length + 1 }, (_, j) => j);
   for (let i = 1; i <= a.length; i += 1) {
     let diagonal = row[0]!;

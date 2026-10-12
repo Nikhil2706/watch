@@ -6,6 +6,8 @@ import { asRow, asRows, getDb } from "./db";
 /**
  * In-app notifications — no push, no email. Seven kinds:
  *  - "reply": someone replied to your comment (has actorUsername + commentId).
+ *  - "thread_reply": someone replied in a thread you had replied in — the
+ *    same shape as "reply", worded for a comment that was not yours.
  *  - "new_item": a movie was just added to the library (system-generated).
  *  - "curators_pick": the curator made a pick for you (picks.ts). filmTitle is
  *    the pick's title and filmHref its page, "/picks/{id}" — not a film. No
@@ -23,6 +25,7 @@ import { asRow, asRows, getDb } from "./db";
  */
 export type NotificationKind =
   | "reply"
+  | "thread_reply"
   | "new_item"
   | "curators_pick"
   | "new_show"
@@ -55,6 +58,8 @@ export interface CreateReplyNotificationInput {
   imdbId: string;
   filmTitle: string;
   filmHref: string;
+  /** "reply" to the comment's author (the default), "thread_reply" to the others in the thread. */
+  kind?: "reply" | "thread_reply";
 }
 
 /** Never throws, never notifies someone about their own reply to themselves. */
@@ -64,9 +69,9 @@ export function createNotification(input: CreateReplyNotificationInput): void {
     getDb()
       .prepare(
         `INSERT INTO notifications (id, user_id, kind, actor_user_id, comment_id, imdb_id, film_title, film_href, created_at)
-         VALUES (?, ?, 'reply', ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(generateId(), input.userId, input.actorUserId, input.commentId, input.imdbId, input.filmTitle, input.filmHref, Date.now());
+      .run(generateId(), input.userId, input.kind ?? "reply", input.actorUserId, input.commentId, input.imdbId, input.filmTitle, input.filmHref, Date.now());
   } catch (error) {
     console.error("[notifications] createNotification failed:", error);
   }

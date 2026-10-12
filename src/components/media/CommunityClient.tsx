@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type { CommentNode } from "@/lib/community";
 import { STAR_PATH, scoreToStars, starStates, starsToScore } from "@/lib/stars";
@@ -16,7 +16,12 @@ import { Stars } from "./Stars";
  *
  * Replies are exactly one level deep (enforced server-side in
  * addComment()) — a top-level comment's replies render indented beneath
- * it; a reply has no "Reply" button of its own.
+ * it. Replying to a reply posts into the same thread, addressed to the
+ * person by name, so a thread reads as a conversation.
+ *
+ * Live: the page holds a stream open (/api/comments/events) and reads the
+ * thread again whenever anyone posts, edits or deletes, so what somebody
+ * else writes appears without a reload.
  */
 
 const MAX_COMMENT_CHARS = 2000;
@@ -96,6 +101,35 @@ async function postJson(url: string, method: string, body?: unknown): Promise<{ 
   }
 }
 
+/**
+ * The server's thread, with anything of ours still on its way kept in place.
+ * A comment being posted has a "pending-" id and is not in what the server
+ * sent yet; dropping it would make it blink out and back.
+ */
+function mergeLive(mine: CommentNode[], fresh: CommentNode[]): CommentNode[] {
+  const pending = (nodes: CommentNode[]) => nodes.filter((c) => c.id.startsWith("pending-"));
+  const repliesInFlight = new Map(mine.map((c) => [c.id, pending(c.replies)] as const));
+  return [
+    ...fresh.map((c) => {
+      const waiting = repliesInFlight.get(c.id) ?? [];
+      return waiting.length > 0 ? { ...c, replies: [...c.replies, ...waiting] } : c;
+    }),
+    ...pending(mine),
+  ];
+}
+
+/**
+ * Enter sends, as in any chat; Shift+Enter makes a new line. Only where there
+ * is a real keyboard: on a phone the on-screen Enter key is how a new line is
+ * typed, and the Post button is right there. Ctrl/Cmd+Enter sends everywhere.
+ */
+function sendsOnEnter(e: React.KeyboardEvent<HTMLTextAreaElement>): boolean {
+  if (e.key !== "Enter" || e.nativeEvent.isComposing) return false;
+  if (e.metaKey || e.ctrlKey) return true;
+  if (e.shiftKey || e.altKey) return false;
+  return typeof window !== "undefined" && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+}
+
 function Avatar({ name }: { name: string }) {
   return (
     <div className="avatar" aria-hidden="true">
@@ -134,6 +168,65 @@ export function CommunityClient({
   const [replyText, setReplyText] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [live, setLive] = useState(false);
+  /** How many people have this film's page open, us included. */
+  const [here, setHere] = useState(0);
+  // Decided after mount: the server cannot know what keyboard this is.
+  const [enterSends, setEnterSends] = useState(false);
+  useEffect(() => setEnterSends(window.matchMedia("(hover: hover) and (pointer: fine)").matches), []);
+
+  const refresh = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/comments?imdbId=${encodeURIComponent(imdbId)}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const data = (await response.json()) as { comments?: CommentNode[] };
+      if (Array.isArray(data.comments)) setComments((prev) => mergeLive(prev, data.comments!));
+    } catch {
+      // Offline for a moment; the stream reconnecting brings it up to date.
+    }
+  }, [imdbId]);
+
+  useEffect(() => {
+    if (typeof EventSource === "undefined") return;
+    const source = new EventSource(`/api/comments/events?imdbId=${encodeURIComponent(imdbId)}`);
+    let connectedBefore = false;
+    source.addEventListener("ready", () => {
+      setLive(true);
+      // A reconnect means there was a gap, and anything said in it was missed.
+      if (connectedBefore) void refresh();
+      connectedBefore = true;
+    });
+    source.addEventListener("changed", () => void refresh());
+    source.addEventListener("presence", (event) => {
+      try {
+        const n = (JSON.parse((event as MessageEvent<string>).data) as { here?: number }).here;
+        if (typeof n === "number") setHere(n);
+      } catch {
+        // A frame we cannot read says nothing about who is here.
+      }
+    });
+    source.onerror = () => {
+      setLive(false);
+      setHere(0);
+    };
+
+    // A phone that was in a pocket: the stream may have been cut while the
+    // page was hidden, so read the thread again on the way back.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    // And if the stream cannot be held at all, fall back to asking.
+    const poll = setInterval(() => {
+      if (source.readyState !== EventSource.OPEN && document.visibilityState === "visible") void refresh();
+    }, 30_000);
+
+    return () => {
+      source.close();
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(poll);
+    };
+  }, [imdbId, refresh]);
 
   /** stars: 0.5-5.0. Converted to the DB's 1-10 scale right here, at the input boundary — see src/lib/stars.ts. */
   async function rate(stars: number) {
@@ -220,9 +313,15 @@ export function CommunityClient({
     const realId = ok && data && typeof data.id === "string" ? data.id : null;
 
     setComments((prev) => {
+      // The live stream can deliver our own comment before this answer does,
+      // in which case it is already here under its real id and the stand-in
+      // only has to go.
+      const arrived = (nodes: CommentNode[]): boolean =>
+        nodes.some((c) => c.id === realId || arrived(c.replies));
+      const drop = !ok || (realId !== null && arrived(prev));
       function replaceId(nodes: CommentNode[]): CommentNode[] {
         return nodes
-          .filter((c) => ok || c.id !== tempId)
+          .filter((c) => !drop || c.id !== tempId)
           .map((c) =>
             c.id === tempId && realId
               ? { ...c, id: realId }
@@ -258,7 +357,7 @@ export function CommunityClient({
     }
   }
 
-  function renderComment(comment: CommentNode, isReply: boolean) {
+  function renderComment(comment: CommentNode, isReply: boolean, threadId: string = comment.id) {
     const isMine = comment.username === currentUsername && !comment.id.startsWith("pending-");
     const isEditing = editingId === comment.id;
 
@@ -299,8 +398,19 @@ export function CommunityClient({
                 </>
               ) : (
                 <>
-                  {!isReply ? (
-                    <button onClick={() => setReplyOpenFor(replyOpenFor === comment.id ? null : comment.id)}>
+                  {!comment.id.startsWith("pending-") ? (
+                    <button
+                      onClick={() => {
+                        if (isReply) {
+                          // Into the same thread, addressed to them.
+                          setReplyOpenFor(threadId);
+                          setReplyText(comment.username === currentUsername ? "" : `@${comment.username} `);
+                        } else {
+                          setReplyOpenFor(replyOpenFor === comment.id ? null : comment.id);
+                          setReplyText("");
+                        }
+                      }}
+                    >
                       Reply
                     </button>
                   ) : null}
@@ -323,7 +433,7 @@ export function CommunityClient({
           ) : null}
 
           {!isReply && comment.replies.length > 0 ? (
-            <div className="reply-list">{comment.replies.map((r) => renderComment(r, true))}</div>
+            <div className="reply-list">{comment.replies.map((r) => renderComment(r, true, comment.id))}</div>
           ) : null}
 
           {!isReply && replyOpenFor === comment.id ? (
@@ -332,13 +442,14 @@ export function CommunityClient({
               <div style={{ flex: 1 }}>
                 <textarea
                   className="composer-input"
-                  placeholder={`Reply to ${comment.username}…`}
+                  placeholder={comment.replies.length > 0 ? "Reply to this conversation…" : `Reply to ${comment.username}…`}
                   value={replyText}
                   maxLength={MAX_COMMENT_CHARS}
                   autoFocus
                   onChange={(e) => setReplyText(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    if (sendsOnEnter(e)) {
+                      e.preventDefault();
                       void submitComment(comment.id, replyText, () => {
                         setReplyText("");
                         setReplyOpenFor(null);
@@ -399,12 +510,19 @@ export function CommunityClient({
             maxLength={MAX_COMMENT_CHARS}
             onChange={(e) => setComposerText(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              if (sendsOnEnter(e)) {
+                e.preventDefault();
                 void submitComment(null, composerText, () => setComposerText(""));
               }
             }}
           />
           <div className="composer-actions">
+            {enterSends ? <span className="composer-hint">Enter to send · Shift+Enter for a new line</span> : null}
+            {live ? (
+              <span className="comments-live" title="New comments appear here as they are written">
+                {here > 1 ? `${here} here now` : "Live"}
+              </span>
+            ) : null}
             <button
               type="button"
               className="btn-post"

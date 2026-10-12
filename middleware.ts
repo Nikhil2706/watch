@@ -133,6 +133,6 @@ export const config = {
      * that device. Offline there is no way to check a session anyway, and the
      * films were put there by whoever was logged in at the time.
      */
-    "/((?!api/|jf/|invite/|party/|screening/|s/|downloads|app$|\\.well-known/|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|icon-maskable-512.png|apple-touch-icon.png|favicon-32.png).*)",
+    "/((?!api/|jf/|invite/|party/|screening/|s/|downloads|app$|apk$|\\.well-known/|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|icon-maskable-512.png|apple-touch-icon.png|favicon-32.png).*)",
   ],
 };

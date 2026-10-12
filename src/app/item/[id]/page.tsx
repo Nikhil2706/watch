@@ -9,6 +9,7 @@ import { DownloadIcon } from "@/components/DownloadIcon";
 import { CommunitySection } from "@/components/media/CommunitySection";
 import { PickPanels } from "@/components/picks/PickPanels";
 import { ListButtons } from "@/components/media/ListButtons";
+import { WatchedButton } from "@/components/media/WatchedButton";
 import { RatingsRow } from "@/components/media/RatingsRow";
 import { SpecialFeaturesRow } from "@/components/media/SpecialFeaturesRow";
 import { OfflineButton } from "@/components/offline/OfflineButton";
@@ -18,6 +19,8 @@ import { episodeKey } from "@/lib/episode-key";
 import { pickMentionsForTitle } from "@/lib/picks";
 import { getRatingSummary } from "@/lib/community";
 import { getCachedContentWarning, toDisplaySignals } from "@/lib/content-warnings";
+import { leavingDaysForItem } from "@/lib/folder-removals";
+import { leavingLabel } from "@/lib/leaving-soon";
 import { getMemberships } from "@/lib/lists";
 import { getRatings } from "@/lib/ratings";
 import { mergeCredits } from "@/lib/credit-cards";
@@ -151,6 +154,7 @@ export default async function ItemPage({
   const runtime = formatRuntime(item.RunTimeTicks);
   const quality = qualityLabel(item);
   const resume = resumeSeconds(item);
+  const leaving = leavingDaysForItem(item);
 
   const source = item.MediaSources?.[0];
   const audio = source?.MediaStreams?.filter((s) => s.Type === "Audio") ?? [];
@@ -319,6 +323,12 @@ export default async function ItemPage({
               )}
             </nav>
           ) : null}
+          {leaving !== null ? (
+            <p className="leaving-note">
+              <span className="leaving-badge">Leaving soon</span>
+              {leaving === 0 ? "Leaves the library today" : `Leaves the library in ${leavingLabel(leaving).replace(" left", "")}`}
+            </p>
+          ) : null}
           {/* Two tiers. Play (with Start over beside it at the same width when
               there is a resume point), then every other action as an equal
               tile, icon over label. On a phone the old single wrapping row
@@ -345,6 +355,13 @@ export default async function ItemPage({
                 initialFavourite={lists?.has("favourite") ?? false}
                 initialRewatch={lists?.has("rewatch") ?? false}
                 variant="inline"
+              />
+              {/* Keyed on the answer, so finishing the film and coming back
+                  shows the tick without a reload of the button's own state. */}
+              <WatchedButton
+                key={String(item.UserData?.Played === true)}
+                itemId={item.Id}
+                initialWatched={item.UserData?.Played === true}
               />
               {session.langloisMode ? (
                 // "Langlois mode" — a per-user grant (see the langlois_mode
