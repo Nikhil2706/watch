@@ -387,6 +387,13 @@ async function pass(options: { apply: boolean }): Promise<FolderMatchRun> {
       console.error(`[folder-match] ${path}:`, error);
     }
     if (!found) continue;
+    // Two files that are the same film ("Ein Bild" and "An Image", one film
+    // under its two names): the first is matched, the second is a second
+    // copy, which is for a person to decide.
+    if (memo.owned.has(found.tmdbId) && found.certainty === "certain") {
+      found = { ...found, certainty: "likely", why: `${found.why}. Another file here is already matched to that film` };
+    }
+    memo.owned.add(found.tmdbId);
     // Turned down once: not offered again, and never applied over the "No".
     if (before?.status === "dismissed" && before.tmdb_id === found.tmdbId) continue;
 
