@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { env } from "@/lib/env";
-import { JellyfinError } from "@/lib/jellyfin";
+import { getLibraryScanStatus, JellyfinError } from "@/lib/jellyfin";
 import { toLibraryPath } from "@/lib/library-folders";
 import { scanLibraryNow } from "@/lib/library-scan";
 import { readJsonBody, ValidationError } from "@/lib/validation";
@@ -9,6 +9,27 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const NO_STORE = { "Cache-Control": "no-store" } as const;
+
+/**
+ * GET /api/admin/library/scan
+ *
+ * Whether a whole-library scan is running in Jellyfin, how far through it
+ * is, and when and how the last one ended. The console asks every few
+ * seconds while one is running, so it can say so and show the progress.
+ */
+export async function GET(request: Request): Promise<Response> {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+  try {
+    return Response.json(await getLibraryScanStatus(), { headers: NO_STORE });
+  } catch (error) {
+    console.error("[admin/library/scan] status failed:", error);
+    return Response.json(
+      { error: "upstream_unavailable", message: "The media server is not answering." },
+      { status: 502, headers: NO_STORE },
+    );
+  }
+}
 
 /**
  * POST /api/admin/library/scan
