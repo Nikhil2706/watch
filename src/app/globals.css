@@ -6247,3 +6247,8 @@ html[data-in-app] .app-get {
   font-size: 0.74rem;
   font-weight: 600;
 }
+
+/* The badge and the words beside it on a film's page; the TV sheet has no gap of its own here. */
+.leaving-note .leaving-badge {
+  margin-right: 10px;
+}

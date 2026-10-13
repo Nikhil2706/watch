@@ -1,6 +1,12 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { env } from "@/lib/env";
-import { listFolderRemovals, markFolderForRemoval, syncLeavingPick, unmarkFolderForRemoval } from "@/lib/folder-removals";
+import {
+  listFolderRemovals,
+  listKeptWriteups,
+  markFolderForRemoval,
+  syncLeavingPick,
+  unmarkFolderForRemoval,
+} from "@/lib/folder-removals";
 import { toLibraryPath } from "@/lib/library-folders";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
@@ -13,12 +19,13 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
  * GET /api/admin/library/removals
  *
  * The folders marked to be deleted, soonest first, with how many titles
- * each holds.
+ * each holds; and `kept`, what was written in the Leaving soon pick about
+ * titles that have since left it.
  */
 export async function GET(request: Request): Promise<Response> {
   const denied = requireAdmin(request);
   if (denied) return denied;
-  return Response.json({ removals: await listFolderRemovals() }, { headers: NO_STORE });
+  return Response.json({ removals: await listFolderRemovals(), kept: listKeptWriteups() }, { headers: NO_STORE });
 }
 
 /**
