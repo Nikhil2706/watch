@@ -258,14 +258,19 @@ await waitForSchema();
  * queues are empty, a few minutes at a time, at low priority, and it stops
  * between files the moment anyone starts a film.
  *
- * Newest files first, so something added today is checked today while the
- * rest of the library is worked through over the following nights. A file is
- * checked once; it is checked again only if its size or date changes (it was
- * replaced) or the curator asks.
+ * Newest files first, so something added today is checked today. The rest of
+ * the library is worked through at a set pace, 100 files a day by default
+ * (FILE_CHECK_PER_DAY): reading 1,800 films end to end is hours of disk and
+ * processor, and there is no hurry that is worth the machine being busy all
+ * day for. A file added or changed in the last two days does not wait for
+ * the day's allowance. A file is checked once; it is checked again only if
+ * its size or date changes (it was replaced) or the curator asks.
  */
 const FILE_CHECK = !/^(0|false|no|off)$/i.test(process.env.FILE_CHECK ?? "true");
 const FILE_CHECK_BUDGET_MS = Number(process.env.FILE_CHECK_BUDGET_MINUTES ?? 4) * 60 * 1000;
 const FILE_CHECK_TIMEOUT_MS = 15 * 60 * 1000;
+const FILE_CHECK_PER_DAY = Number(process.env.FILE_CHECK_PER_DAY ?? 100);
+const FILE_CHECK_NEW_MS = 2 * 24 * 60 * 60 * 1000;
 // With nothing left to check, the library is only walked again this often.
 const FILE_CHECK_IDLE_MS = 20 * 60 * 1000;
 const WALK_MARK = "::last-walk";
@@ -324,9 +329,11 @@ async function checkFile(file, size, mtimeMs) {
 /** Checks files for up to the time budget. Returns how many it got through. */
 async function checkFilesForAWhile() {
   if (!FILE_CHECK || !fileChecksReady()) return 0;
-  const mark = db.prepare("SELECT checked_at, size FROM file_checks WHERE path = ?").get(WALK_MARK);
-  // size on the marker row is how many were left unchecked at the last walk.
-  if (mark && Number(mark.size) === 0 && Date.now() - Number(mark.checked_at) < FILE_CHECK_IDLE_MS) return 0;
+  const mark = db.prepare("SELECT mtime_ms FROM file_checks WHERE path = ?").get(WALK_MARK);
+  // mtime_ms on the marker row is when the library is next worth walking:
+  // set ahead when there was nothing left to do, or the day's allowance was
+  // used, so an idle worker is not listing 1,800 files every half minute.
+  if (mark && Date.now() < Number(mark.mtime_ms)) return 0;
 
   const known = new Map(db.prepare("SELECT path, size, mtime_ms FROM file_checks").all().map((r) => [r.path, r]));
   const todo = [];
@@ -347,12 +354,26 @@ async function checkFilesForAWhile() {
   }
   todo.sort((a, b) => b.mtimeMs - a.mtimeMs);
 
+  // How much of today's allowance is left, counted over the last 24 hours.
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  let allowance =
+    FILE_CHECK_PER_DAY -
+    Number(db.prepare("SELECT COUNT(*) AS n FROM file_checks WHERE checked_at > ? AND path <> ?").get(dayAgo, WALK_MARK)?.n ?? 0);
+
   const started = Date.now();
   let done = 0;
   let damaged = 0;
+  let waiting = 0;
   for (const next of todo) {
     if (stopping || Date.now() - started > FILE_CHECK_BUDGET_MS) break;
+    // A new file is checked whatever the day's count; the backlog waits.
+    const isNew = Date.now() - next.mtimeMs < FILE_CHECK_NEW_MS;
+    if (allowance <= 0 && !isNew) {
+      waiting += 1;
+      continue;
+    }
     if (await someoneIsWatching()) break;
+    allowance -= 1;
     const verdict = await checkFile(next.file, next.size, next.mtimeMs);
     if (verdict === null) continue;
     done += 1;
@@ -361,11 +382,17 @@ async function checkFilesForAWhile() {
       log(`file check: DAMAGED ${next.file}`);
     }
   }
+  const left = Math.max(0, todo.length - done);
+  // Nothing left, or only files waiting for tomorrow's allowance: look again
+  // in a while (which is also how soon a newly added file is noticed).
+  const rest = left === 0 || waiting >= left ? Date.now() + FILE_CHECK_IDLE_MS : 0;
   db.prepare(
-    `INSERT INTO file_checks (path, size, mtime_ms, checked_at, verdict) VALUES (?, ?, 0, ?, 'ok')
-     ON CONFLICT(path) DO UPDATE SET size = excluded.size, checked_at = excluded.checked_at`,
-  ).run(WALK_MARK, Math.max(0, todo.length - done), Date.now());
-  if (done > 0) log(`file check: ${done} read through, ${damaged} damaged, ${Math.max(0, todo.length - done)} still to do`);
+    `INSERT INTO file_checks (path, size, mtime_ms, checked_at, verdict) VALUES (?, ?, ?, ?, 'ok')
+     ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime_ms = excluded.mtime_ms, checked_at = excluded.checked_at`,
+  ).run(WALK_MARK, left, rest, Date.now());
+  if (done > 0) {
+    log(`file check: ${done} read through, ${damaged} damaged, ${left} still to do` + (allowance <= 0 ? ` (today's ${FILE_CHECK_PER_DAY} done)` : ""));
+  }
   return done;
 }
 
