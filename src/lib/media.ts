@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getDamagedPathSet } from "./file-checks";
 import { hasNoMetadata } from "./has-metadata";
 import { cache } from "react";
 
@@ -142,6 +143,7 @@ const rolloutHiddenPathsMemo = cache(getHiddenRolloutPathSet);
 const rolloutHiddenImdbMemo = cache(getHiddenRolloutImdbSet);
 const specialFeatureIdsMemo = cache(getSpecialFeatureIdSet);
 const alternateVersionPathsMemo = cache(getAlternateVersionPathSet);
+const damagedPathsMemo = cache(getDamagedPathSet);
 
 function creds(session: ResolvedSession) {
   return [session.jellyfinToken, session.jellyfinDeviceId] as const;
@@ -175,6 +177,7 @@ function filterVisible(
   // parental control still apply; this is not a way to see hidden titles.
   const requireMetadata = options.requireMetadata ?? true;
   const excluded = excludedPaths();
+  const damaged = damagedPathsMemo();
   const whitelisted = whitelistedPaths();
   const rolloutHiddenPaths = rolloutHiddenPathsMemo();
   const rolloutHiddenImdb = rolloutHiddenImdbMemo();
@@ -192,6 +195,9 @@ function filterVisible(
     if (specialFeatures?.has(item.Id)) return false;
     if (item.Path && alternateVersions?.has(item.Path)) return false;
     if (item.Path && excluded.has(item.Path)) return false;
+    // The file itself is broken and would stall the player part-way through
+    // (file-checks.ts). Off the listings until replaced or allowed.
+    if (item.Path && damaged.has(item.Path)) return false;
     if (requireMetadata && hasNoMetadata(item) && !(item.Path && whitelisted.has(item.Path))) return false;
     if (item.Path && rolloutHiddenPaths.has(item.Path)) return false;
     if (item.ProviderIds?.Imdb && rolloutHiddenImdb.has(item.ProviderIds.Imdb)) return false;

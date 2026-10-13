@@ -1,5 +1,6 @@
 import "server-only";
 
+import { fileProblems } from "./file-checks";
 import { hasNoMetadata } from "./has-metadata";
 import { dirname } from "node:path";
 
@@ -184,6 +185,13 @@ export interface BrowseItem extends ReviewItem {
   isDuplicate: boolean;
   isThinMetadata: boolean;
   isMissingSubtitles: boolean;
+  /**
+   * The file itself is broken (file-checks.ts): "damaged" keeps it off the
+   * site unless `damageAllowed`, "minor" is a small fault that still plays.
+   * Null for a healthy file and for one not checked yet.
+   */
+  damage: { verdict: "minor" | "damaged"; detail: string; checkedAt: number } | null;
+  damageAllowed: boolean;
   isWhitelisted: boolean;
   isExcluded: boolean;
   isGrouped: boolean;
@@ -235,9 +243,13 @@ export async function buildLibraryBrowse(): Promise<BrowseItem[]> {
       .map((m) => ({ id: m.Id, titleKey: normaliseTitle(m.Name), imdbId: m.ProviderIds?.Imdb ?? null })),
   );
 
+  const problems = fileProblems();
+
   return all.map((m) => {
     const path = m.Path;
     const review = toReviewItem(m);
+    const problem = path ? problems.get(path) : undefined;
+    const damagedAndHidden = problem?.verdict === "damaged" && !problem.allowed;
     const isExcluded = !!path && excluded.has(path);
     const groupInfo = path ? grouped.get(path) : undefined;
     const isWhitelisted = !!path && whitelisted.has(path);
@@ -270,12 +282,20 @@ export async function buildLibraryBrowse(): Promise<BrowseItem[]> {
       isDuplicate,
       isThinMetadata,
       isMissingSubtitles,
+      damage:
+        problem && problem.verdict !== "ok"
+          ? { verdict: problem.verdict, detail: problem.detail, checkedAt: problem.checkedAt }
+          : null,
+      damageAllowed: problem?.allowed ?? false,
       isWhitelisted,
       isExcluded,
       isGrouped: !!groupInfo,
       groupName: groupInfo?.groupName ?? null,
       version: (path && versioned.get(path)) || null,
-      needsDecision: !isExcluded && !groupInfo && ((isThinMetadata && !isWhitelisted) || isDuplicate),
+      // A damaged file wants a decision wherever it is, an episode of a show
+      // included: replace it, or say it is good enough to show.
+      needsDecision:
+        !isExcluded && ((!groupInfo && ((isThinMetadata && !isWhitelisted) || isDuplicate)) || damagedAndHidden),
     };
   });
 }

@@ -46,6 +46,8 @@ import {
 } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 
+import { countErrors, isStale, judge } from "./file-check.mjs";
+
 /* ------------------------------------------------------------------ *
  * Config
  * ------------------------------------------------------------------ */
@@ -242,6 +244,130 @@ async function waitForSchema() {
 }
 
 await waitForSchema();
+
+/* ------------------------------------------------------------------ *
+ * Reading files through for damage
+ * ------------------------------------------------------------------ */
+
+/**
+ * The file check (see file-check.mjs for what it looks for, and why).
+ *
+ * Done here because this is the container with ffmpeg and the library, and
+ * because the worker already knows to stand aside while someone is watching.
+ * It is the lowest thing on the list: only once the conversion and download
+ * queues are empty, a few minutes at a time, at low priority, and it stops
+ * between files the moment anyone starts a film.
+ *
+ * Newest files first, so something added today is checked today while the
+ * rest of the library is worked through over the following nights. A file is
+ * checked once; it is checked again only if its size or date changes (it was
+ * replaced) or the curator asks.
+ */
+const FILE_CHECK = !/^(0|false|no|off)$/i.test(process.env.FILE_CHECK ?? "true");
+const FILE_CHECK_BUDGET_MS = Number(process.env.FILE_CHECK_BUDGET_MINUTES ?? 4) * 60 * 1000;
+const FILE_CHECK_TIMEOUT_MS = 15 * 60 * 1000;
+// With nothing left to check, the library is only walked again this often.
+const FILE_CHECK_IDLE_MS = 20 * 60 * 1000;
+const WALK_MARK = "::last-walk";
+
+function fileChecksReady() {
+  return Boolean(db.prepare("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='file_checks'").get());
+}
+
+function runQuietly(command, args, timeoutMs) {
+  return new Promise((resolveRun) => {
+    const child = spawn("nice", ["-n", "15", command, ...args], { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
+    // A badly broken file can say the same thing a hundred thousand times.
+    child.stderr.on("data", (d) => {
+      if (stderr.length < 8_000_000) stderr += d;
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolveRun({ code: -1, stderr: String(err), timedOut });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolveRun({ code, stderr, timedOut });
+    });
+  });
+}
+
+async function checkFile(file, size, mtimeMs) {
+  // Sound: decoded in full. Picture: every packet read, none decoded.
+  const audio = await runQuietly(FFMPEG, ["-v", "error", "-i", file, "-map", "0:a:0?", "-f", "null", "-"], FILE_CHECK_TIMEOUT_MS);
+  const video = await runQuietly(FFMPEG, ["-v", "error", "-i", file, "-map", "0:v:0", "-c", "copy", "-f", "null", "-"], FILE_CHECK_TIMEOUT_MS);
+  // Too slow to finish is not the same as broken: leave it for another round.
+  if (audio.timedOut || video.timedOut) return null;
+  const audioErrors = countErrors(audio.stderr);
+  const videoErrors = countErrors(video.stderr);
+  // ffmpeg could not open it at all (and said so, which is what tells this
+  // from a file with no picture track).
+  const unreadable = video.code !== 0 && audio.code !== 0 && audioErrors + videoErrors > 0 && /Invalid data found when processing input|moov atom not found|No such file/i.test(video.stderr.slice(0, 2000));
+  const { verdict, detail } = judge({ audioErrors, videoErrors, unreadable });
+  db.prepare(
+    `INSERT INTO file_checks (path, size, mtime_ms, checked_at, audio_errors, video_errors, verdict, detail, allowed)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+     ON CONFLICT(path) DO UPDATE SET
+       size = excluded.size, mtime_ms = excluded.mtime_ms, checked_at = excluded.checked_at,
+       audio_errors = excluded.audio_errors, video_errors = excluded.video_errors,
+       verdict = excluded.verdict, detail = excluded.detail, allowed = 0`,
+  ).run(file, size, Math.round(mtimeMs), Date.now(), audioErrors, videoErrors, verdict, detail);
+  return verdict;
+}
+
+/** Checks files for up to the time budget. Returns how many it got through. */
+async function checkFilesForAWhile() {
+  if (!FILE_CHECK || !fileChecksReady()) return 0;
+  const mark = db.prepare("SELECT checked_at, size FROM file_checks WHERE path = ?").get(WALK_MARK);
+  // size on the marker row is how many were left unchecked at the last walk.
+  if (mark && Number(mark.size) === 0 && Date.now() - Number(mark.checked_at) < FILE_CHECK_IDLE_MS) return 0;
+
+  const known = new Map(db.prepare("SELECT path, size, mtime_ms FROM file_checks").all().map((r) => [r.path, r]));
+  const todo = [];
+  const present = new Set();
+  for (const file of walkVideos(LIBRARY)) {
+    let stat;
+    try {
+      stat = statSync(file);
+    } catch {
+      continue;
+    }
+    present.add(file);
+    if (isStale(known.get(file), stat.size, stat.mtimeMs)) todo.push({ file, size: stat.size, mtimeMs: stat.mtimeMs });
+  }
+  // A file that is gone needs no verdict kept.
+  for (const path of known.keys()) {
+    if (path !== WALK_MARK && !present.has(path)) db.prepare("DELETE FROM file_checks WHERE path = ?").run(path);
+  }
+  todo.sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  const started = Date.now();
+  let done = 0;
+  let damaged = 0;
+  for (const next of todo) {
+    if (stopping || Date.now() - started > FILE_CHECK_BUDGET_MS) break;
+    if (await someoneIsWatching()) break;
+    const verdict = await checkFile(next.file, next.size, next.mtimeMs);
+    if (verdict === null) continue;
+    done += 1;
+    if (verdict === "damaged") {
+      damaged += 1;
+      log(`file check: DAMAGED ${next.file}`);
+    }
+  }
+  db.prepare(
+    `INSERT INTO file_checks (path, size, mtime_ms, checked_at, verdict) VALUES (?, ?, 0, ?, 'ok')
+     ON CONFLICT(path) DO UPDATE SET size = excluded.size, checked_at = excluded.checked_at`,
+  ).run(WALK_MARK, Math.max(0, todo.length - done), Date.now());
+  if (done > 0) log(`file check: ${done} read through, ${damaged} damaged, ${Math.max(0, todo.length - done)} still to do`);
+  return done;
+}
 
 /* ------------------------------------------------------------------ *
  * Probing
@@ -1290,6 +1416,8 @@ if (WORKER_MODE === "watch") {
     while (workedDownload && !stopping) {
       workedDownload = await processDownloadJob();
     }
+    // Last, and only with nothing else to do.
+    if (!stopping) await checkFilesForAWhile();
 
     if (stopping) break;
     await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
@@ -1329,6 +1457,11 @@ if (WORKER_MODE === "watch") {
     }
     workedDownload = await processDownloadJob();
   }
+
+  // Last, and only with nothing else to do: read a few library files through
+  // for damage. This process then exits and is started again shortly, so the
+  // library is worked through a few minutes at a time.
+  if (!stopping && !queued && !(await someoneIsWatching())) await checkFilesForAWhile();
 
   db.close();
   log(stopping ? "stopped" : "queue drained — exiting");

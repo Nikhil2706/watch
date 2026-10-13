@@ -4018,6 +4018,7 @@
    */
   var LW_REASONS = [
     { key: "meta", label: "No metadata", test: function (r) { return r.isThinMetadata && !r.isWhitelisted; } },
+    { key: "damaged", label: "Damaged file", test: function (r) { return r.isDamaged; } },
     { key: "dup", label: "Duplicate", test: function (r) { return r.isDuplicate; } },
     { key: "guess", label: "Might be a special feature", test: function (r) { return Boolean(r.featureGuess); } },
     { key: "unmapped", label: "Feature, not shown anywhere", test: function (r) {
@@ -4064,6 +4065,9 @@
     { key: "needs", label: "Needs you", alert: true, test: function (r) { return r.needsDecision; } },
     { key: "dup", label: "Duplicates", alert: true, test: function (r) { return r.isDuplicate; } },
     { key: "nometa", label: "No metadata", alert: true, test: function (r) { return r.isThinMetadata && !r.isWhitelisted; } },
+    // A file the worker read through and found broken: off the site until it
+    // is replaced, or you say to show it anyway.
+    { key: "damaged", label: "Damaged", alert: true, test: function (r) { return r.isDamaged; } },
     { key: "nosubs", label: "No subtitles", alert: false, test: function (r) { return r.isMissingSubtitles; } },
     { key: "shows", label: "Shows", alert: false, test: function (r) { return r.kind === "show"; } },
     { key: "hidden", label: "Hidden", alert: false, test: function (r) { return r.isExcluded; } },
@@ -4143,6 +4147,7 @@
             isDuplicate: false,
             isThinMetadata: false,
             isMissingSubtitles: false,
+            isDamaged: false,
             isWhitelisted: false,
             isExcluded: false
           };
@@ -4152,6 +4157,8 @@
         if (!g.poster && it.posterUrl) g.poster = it.posterUrl;
         if (it.isThinMetadata && !it.isWhitelisted) g.isThinMetadata = true;
         if (it.isMissingSubtitles) g.isMissingSubtitles = true;
+        // One broken episode is the show's problem to surface.
+        if (it.damage && it.damage.verdict === "damaged" && !it.damageAllowed) { g.isDamaged = true; g.needsDecision = true; }
         return;
       }
 
@@ -4166,6 +4173,7 @@
         isDuplicate: it.isDuplicate,
         isThinMetadata: it.isThinMetadata,
         isMissingSubtitles: it.isMissingSubtitles,
+        isDamaged: Boolean(it.damage && it.damage.verdict === "damaged" && !it.damageAllowed),
         isWhitelisted: it.isWhitelisted,
         isExcluded: it.isExcluded,
         // Filled in by sfApplyToRows once the marks and any suggestions are
@@ -4393,6 +4401,11 @@
     if (it.isExcluded) bits.push("Hidden from the site");
     if (it.isThinMetadata && !it.isWhitelisted) bits.push("No metadata fetched — hidden until fixed");
     if (it.isThinMetadata && it.isWhitelisted) bits.push("No metadata, shown anyway");
+    if (it.damage) {
+      bits.push(it.damage.verdict === "damaged"
+        ? (it.damageAllowed ? "Damaged file, shown anyway: " : "Damaged file \u2014 off the site until replaced: ") + it.damage.detail
+        : "Small fault in the file, still shown: " + it.damage.detail);
+    }
     if (it.isDuplicate) bits.push("Duplicate title");
     if (it.version) bits.push(it.version.isPrimary ? "Main of " + it.version.setSize + " cuts" : "Cut: " + it.version.label);
     if (it.isMissingSubtitles) bits.push("No subtitles");
@@ -4408,6 +4421,13 @@
     out += '<button class="ghost" data-action="fetch-subtitles" data-item-id="' + esc(it.id) + '">Subtitles</button>';
     if (it.isThinMetadata && !it.isWhitelisted) {
       out += '<button class="ghost" data-action="whitelist" data-item-id="' + esc(it.id) + '">Show anyway</button>';
+    }
+    if (it.damage) {
+      if (it.damage.verdict === "damaged") {
+        out += '<button class="ghost" data-lw-action="' + (it.damageAllowed ? "damage-disallow" : "damage-allow") + '" data-lw-target="' + esc(it.id) + '">' +
+          (it.damageAllowed ? "Take the damaged file off the site" : "Show the damaged file anyway") + '</button>';
+      }
+      out += '<button class="ghost" data-lw-action="damage-recheck" data-lw-target="' + esc(it.id) + '" title="After replacing the file this happens by itself">Check the file again</button>';
     }
     /*
      * Marking something a special feature is a standing action on EVERY film,
@@ -5289,6 +5309,22 @@
           r.set.map(function (v) { return v.label; }).join(", ") + ". Rename any of them from its page here.");
         return lwLoad(true);
       }).catch(function (err) { show("err", err.message); btn.disabled = false; });
+      return;
+    }
+
+    if (action === "damage-allow" || action === "damage-disallow" || action === "damage-recheck") {
+      // By file, so it works for an episode inside a show as well as a film.
+      var dmg = lw.items.filter(function (i) { return i.id === target; })[0];
+      if (!dmg || !dmg.path) return;
+      btn.disabled = true;
+      api("/api/admin/library/file-check", { method: "POST", body: { action: action.slice(7), path: dmg.path } })
+        .then(function () {
+          show("ok", action === "damage-allow" ? "Shown on the site, damage and all."
+            : action === "damage-disallow" ? "Off the site again until the file is replaced."
+            : "It will be read through again within a few minutes, when nobody is watching.");
+          return lwLoad(true);
+        })
+        .catch(function (err) { show("err", err.message); btn.disabled = false; });
       return;
     }
 

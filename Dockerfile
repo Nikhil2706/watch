@@ -102,6 +102,7 @@ RUN apk add --no-cache ffmpeg
 
 # The worker is a single dependency-free script; it needs no node_modules.
 COPY --chown=node:node scripts/media-worker.mjs ./scripts/media-worker.mjs
+COPY --chown=node:node scripts/file-check.mjs ./scripts/file-check.mjs
 
 RUN mkdir -p /app/data && chown -R node:node /app
 USER node

@@ -35,7 +35,7 @@
  * what makes an existing database replay the seed block below and gain the
  * row (see the v24/v27 notes in db.ts for what happens without one).
  */
-export const SCHEMA_VERSION = 54;
+export const SCHEMA_VERSION = 55;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1427,4 +1427,24 @@ CREATE TABLE IF NOT EXISTS leaving_writeups (
   left_because         TEXT NOT NULL,
   left_at              INTEGER NOT NULL
 ) STRICT;
+
+-- What the worker found when it read a file through for damage (v55). One
+-- row per file, written by scripts/media-worker.mjs; size and mtime_ms are
+-- the file as it was when checked, so a replaced file is checked again.
+-- verdict 'damaged' keeps the file off the site's listings unless allowed is
+-- set by the curator ("show anyway"). See scripts/file-check.mjs for what is
+-- counted and file-checks.ts for the reading side.
+CREATE TABLE IF NOT EXISTS file_checks (
+  path         TEXT PRIMARY KEY,   -- as Jellyfin sees it: /media/...
+  size         INTEGER NOT NULL,
+  mtime_ms     INTEGER NOT NULL,
+  checked_at   INTEGER NOT NULL,
+  audio_errors INTEGER NOT NULL DEFAULT 0,
+  video_errors INTEGER NOT NULL DEFAULT 0,
+  verdict      TEXT NOT NULL,      -- ok | minor | damaged
+  detail       TEXT,
+  allowed      INTEGER NOT NULL DEFAULT 0
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_file_checks_verdict ON file_checks(verdict);
 `;
