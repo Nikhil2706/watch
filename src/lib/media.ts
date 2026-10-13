@@ -705,7 +705,11 @@ export async function getItemsByImdbIds(
       // what lets filterVisible() enforce parental-control filtering on this
       // path too (the film-series "In this series" row, notably), not just
       // on the main listing calls below.
-      fields: "ProviderIds,ProductionYear,ImageTags,OfficialRating",
+      // Path, so a pick's tile can say when its title's folder is marked to
+      // be deleted (folder-removals.ts) — and so the path-keyed rules in
+      // filterVisible() (hidden titles, scheduled rollout) apply here as they
+      // do on every other listing.
+      fields: "ProviderIds,ProductionYear,ImageTags,OfficialRating,Path",
     });
     const visible = filterVisible(result.Items, session);
     const map = new Map<string, MediaItem>();

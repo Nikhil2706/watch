@@ -1,7 +1,10 @@
 import "server-only";
 
 import { getAdminMovies } from "../admin-library-cache";
+import { getGroupedPathMap } from "../library-curation";
 import { normaliseTitle } from "../library-review";
+
+import { looseKey, nearTitle } from "./title-match-rules";
 
 /**
  * Resolves a raw scraped/uploaded title against the current library. Shared
@@ -52,10 +55,17 @@ async function getLibraryIndex(): Promise<Map<string, LibraryEntry[]>> {
   if (cachedIndex && Date.now() - cachedAt < INDEX_TTL_MS) return cachedIndex;
 
   const movies = await getAdminMovies({ withMediaSources: false });
+  // Episodes of a show are files like any other to Jellyfin, each with a
+  // title and an IMDb id of its own — and an episode called "Out of Africa"
+  // or "Missing" was being handed the film's Best Picture and Palme d'Or.
+  // 406 list entries were attached to episodes of E.R., Buffy and Lost that
+  // way. These lists are of films; a file that is part of a show is not one.
+  const inAShow = getGroupedPathMap();
   const index = new Map<string, LibraryEntry[]>();
   for (const movie of movies) {
     const imdbId = movie.ProviderIds?.Imdb;
     if (!imdbId) continue;
+    if (movie.Path && inAShow.has(movie.Path)) continue;
     const key = normaliseTitle(movie.Name);
     if (!key) continue;
     if (!index.has(key)) index.set(key, []);
@@ -74,9 +84,11 @@ function withinYearTolerance(entryYear: number | null, rawYear: number | null): 
 /**
  * "exact" — the normalised title matches a library title exactly (and the
  * year, if either side has one, is within a year).
- * "fuzzy" — enough word overlap to catch punctuation drift ("Ford vs.
- * Ferrari" vs "Ford v Ferrari") or a missing plural ("The Nice Guy" vs "The
- * Nice Guys"), still within year tolerance.
+ * "fuzzy" — the same words but for a plural or a letter in a short one
+ * ("Ford vs. Ferrari" vs "Ford v Ferrari", "The Nice Guy" vs "The Nice
+ * Guys"), and only when both sides give a year and the years agree. It used
+ * to be word overlap, which is how "Dancer in the Dark" became "In the
+ * Dark"; see title-match-rules.ts.
  * "unmatched" — nothing close enough to guess automatically; the caller
  * stores raw_title/raw_year and leaves it for the curator or a future scan.
  */
@@ -85,7 +97,8 @@ export async function matchTitle(rawTitle: string, rawYear: number | null): Prom
   const key = normaliseTitle(rawTitle);
   if (!key) return { imdbId: null, confidence: "unmatched" };
 
-  const exact = index.get(key);
+  // "Ready Player One Film", as some lists write it, is that film.
+  const exact = index.get(key) ?? index.get(looseKey(key));
   if (exact) {
     // Only accept a same-title candidate whose year actually checks out — a
     // title match alone isn't enough when a same-titled remake/reboot exists
@@ -95,24 +108,14 @@ export async function matchTitle(rawTitle: string, rawYear: number | null): Prom
     if (hit) return { imdbId: hit.imdbId, confidence: "exact" };
   }
 
-  const keyTokens = new Set(key.split(" ").filter(Boolean));
-  if (keyTokens.size === 0) return { imdbId: null, confidence: "unmatched" };
-
-  let best: { entry: LibraryEntry; score: number } | null = null;
+  // A near title is a guess, and a guess needs the year to stand on: both
+  // sides must give one. A list entry with no year is matched exactly or
+  // left for the curator.
+  if (rawYear == null) return { imdbId: null, confidence: "unmatched" };
   for (const [candidateKey, entries] of index) {
-    const candidateTokens = candidateKey.split(" ").filter(Boolean);
-    if (candidateTokens.length === 0) continue;
-    const overlap = candidateTokens.filter((t) => keyTokens.has(t)).length;
-    const score = overlap / Math.max(candidateTokens.length, keyTokens.size);
-    // 0.7 tolerates one dropped/changed token in a multi-word title (a
-    // punctuation split, a missing plural) without matching on title alone.
-    if (score < 0.7) continue;
-    for (const entry of entries) {
-      if (!withinYearTolerance(entry.year, rawYear)) continue;
-      if (!best || score > best.score) best = { entry, score };
-    }
+    if (!nearTitle(key, candidateKey)) continue;
+    const hit = entries.find((e) => e.year != null && Math.abs(e.year - rawYear) <= 1);
+    if (hit) return { imdbId: hit.imdbId, confidence: "fuzzy" };
   }
-
-  if (best) return { imdbId: best.entry.imdbId, confidence: "fuzzy" };
   return { imdbId: null, confidence: "unmatched" };
 }

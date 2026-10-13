@@ -6231,3 +6231,19 @@ html[data-in-app] .app-get {
 .leaving-note .leaving-badge {
   position: static;
 }
+
+/* Leaving soon on a pick's own page: beside the title, not over the art. */
+.pk-list-leaving {
+  position: static;
+  display: inline-block;
+  margin-bottom: 6px;
+}
+
+/* How long a title in Leaving soon has, under its name. */
+.pk-leaving-days {
+  display: block;
+  margin-top: 2px;
+  color: #ff8a80;
+  font-size: 0.74rem;
+  font-weight: 600;
+}

@@ -64,6 +64,15 @@ export interface PickItem {
 /** Longer than any list entry scraped so far, short enough to stop a pasted article. */
 export const WRITEUP_MAX = 12_000;
 
+/**
+ * The one pick the site keeps itself: the titles in folders marked to be
+ * deleted (folder-removals.ts fills it). In every other way it is a pick —
+ * the curator writes about its titles, orders them, ranks them — but it
+ * cannot be deleted, because the next marked folder would only bring it back
+ * empty of everything written in it.
+ */
+export const LEAVING_PICK_ID = "leaving-soon";
+
 export function pickHref(id: string): string {
   return `/picks/${id}`;
 }
@@ -204,6 +213,7 @@ function deletePickNotifications(pickId: string): void {
 }
 
 export function deletePick(id: string): boolean {
+  if (id === LEAVING_PICK_ID) return false;
   const result = getDb().prepare("DELETE FROM picks WHERE id = ?").run(id);
   if (Number(result.changes) === 0) return false;
   deletePickNotifications(id);
@@ -572,15 +582,24 @@ export function createPickFromAccolade(accoladeId: string): Pick | null {
  * mentions, so a converted list gains a film the moment it is scanned in.
  */
 export async function relinkUnmatchedPickItems(): Promise<number> {
-  const unmatched = asRows<{ id: string; raw_title: string; raw_year: number | null }>(
+  // Unmatched titles anywhere, and every film title of a pick converted from
+  // a list: those were matched by title in the first place, so when the
+  // matching rules are corrected they are corrected with them. A title the
+  // curator added by hand was chosen from the library and is left alone.
+  const rows = asRows<{ id: string; raw_title: string; raw_year: number | null; imdb_id: string | null; converted: number }>(
     getDb()
-      .prepare("SELECT id, raw_title, raw_year FROM pick_items WHERE kind = 'film' AND imdb_id IS NULL")
+      .prepare(
+        `SELECT i.id, i.raw_title, i.raw_year, i.imdb_id, (p.source_kind IS NOT NULL) AS converted
+           FROM pick_items i JOIN picks p ON p.id = i.pick_id
+          WHERE i.kind = 'film' AND (i.imdb_id IS NULL OR p.source_kind IS NOT NULL)`,
+      )
       .all(),
   );
   let relinked = 0;
-  for (const row of unmatched) {
+  for (const row of rows) {
     const match = await matchTitle(row.raw_title, row.raw_year);
-    if (match.confidence === "unmatched") continue;
+    if (match.imdbId === row.imdb_id) continue;
+    if (match.confidence === "unmatched" && !row.converted) continue;
     getDb().prepare("UPDATE pick_items SET imdb_id = ? WHERE id = ?").run(match.imdbId, row.id);
     relinked++;
   }

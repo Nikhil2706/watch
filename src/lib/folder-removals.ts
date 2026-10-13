@@ -9,7 +9,8 @@ import { asRow, asRows, getDb } from "./db";
 import { env } from "./env";
 import { refreshLibrary, refreshLibraryFolders } from "./jellyfin";
 import { daysLeft, isRemovableFolder, leavingAt, LEAVING_DAYS, type RemovalMark } from "./leaving-soon";
-import { getGroup } from "./library-curation";
+import { getGroup, getGroupedPathMap } from "./library-curation";
+import { addPickItem, deletePickItem, getPick, LEAVING_PICK_ID, listPickItems } from "./picks";
 
 /**
  * Folders marked to be deleted from the library and from the drive.
@@ -114,6 +115,134 @@ export function unmarkFolderForRemoval(path: string): boolean {
 }
 
 /* ------------------------------------------------------------------ *
+ * "Leaving soon", the pick
+ * ------------------------------------------------------------------ */
+
+/**
+ * Keeps the Leaving soon pick holding exactly the titles that are leaving.
+ *
+ * It is an ordinary pick with a fixed id (LEAVING_PICK_ID in picks.ts), so
+ * everything a pick can do, this can: a line under its title, something
+ * written about each film, an order, numbers. This only adds the titles that
+ * have started leaving (at the end, soonest first) and takes out the ones
+ * that no longer are; whatever was written about a title, and where it was
+ * put, stays for as long as the title does.
+ *
+ * And after: when a title leaves the pick, what was written about it is
+ * kept in leaving_writeups, and put back if the title is ever leaving again
+ * — a film deleted with its folder, added to the library again later and
+ * marked again, comes back with its words.
+ *
+ * Created the first time anything is marked, live and kept on Home. With
+ * nothing leaving it is simply empty, and an empty pick is not shown.
+ */
+export async function syncLeavingPick(
+  /** Why titles are leaving the pick on this call, for the record kept of what was written. */
+  because: "deleted" | "kept" = "kept",
+): Promise<{ added: number; removed: number }> {
+  const marks = activeRows().map((r) => ({ path: r.path, deleteAt: r.delete_at }));
+  const all = marks.length ? await getAdminMovies({ withMediaSources: false }) : [];
+  const inAShow = getGroupedPathMap();
+
+  // What should be in it, keyed the way a pick item is: a film by its IMDb
+  // id, a show once however many of its episodes are going, and a film with
+  // no IMDb id by its file.
+  const wanted = new Map<string, { at: number; input: Parameters<typeof addPickItem>[1] }>();
+  for (const m of all) {
+    if (!m.Path) continue;
+    const at = leavingAt(m.Path, marks);
+    if (at === null) continue;
+    const show = inAShow.get(m.Path);
+    const imdbId = m.ProviderIds?.Imdb ?? null;
+    const key = show ? `show:${show.groupId}` : imdbId ? `film:${imdbId}` : `path:${m.Path}`;
+    const known = wanted.get(key);
+    if (known) {
+      known.at = Math.min(known.at, at);
+      continue;
+    }
+    wanted.set(key, {
+      at,
+      input: show
+        ? { kind: "show", groupId: show.groupId, rawTitle: show.groupName }
+        : imdbId
+          ? { kind: "film", imdbId, rawTitle: m.Name, rawYear: m.ProductionYear ?? null }
+          : { kind: "episode", itemPath: m.Path, rawTitle: m.Name, rawYear: m.ProductionYear ?? null },
+    });
+  }
+
+  const db = getDb();
+  if (!getPick(LEAVING_PICK_ID)) {
+    if (wanted.size === 0) return { added: 0, removed: 0 };
+    const now = Date.now();
+    const top = asRow<{ n: number | null }>(db.prepare("SELECT MAX(position) AS n FROM picks").get())?.n ?? 0;
+    db.prepare(
+      `INSERT INTO picks (id, title, subtitle, ranked, labelled, audience, status, pinned, position, published_at, created_at, updated_at)
+       VALUES (?, 'Leaving soon', NULL, 0, 0, 'everyone', 'live', 1, ?, ?, ?, ?)`,
+    ).run(LEAVING_PICK_ID, top + 1, now, now, now);
+  }
+
+  const keyOf = (i: { kind: string; imdb_id: string | null; group_id: string | null; item_path: string | null }) =>
+    i.kind === "show" ? `show:${i.group_id}` : i.kind === "film" ? `film:${i.imdb_id}` : `path:${i.item_path}`;
+  const have = new Set<string>();
+  let removed = 0;
+  for (const item of listPickItems(LEAVING_PICK_ID)) {
+    const key = keyOf(item);
+    if (wanted.has(key) && !have.has(key)) {
+      have.add(key);
+      continue;
+    }
+    // Its words outlive it. Only when there are any: a title nobody wrote
+    // about must not wipe what was kept from the last time it was here.
+    if (item.writeup || item.label || item.rank !== null) {
+      db.prepare(
+        `INSERT INTO leaving_writeups
+           (key, raw_title, raw_year, rank, label, writeup, writeup_source_label, writeup_source_url, left_because, left_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET
+           raw_title = excluded.raw_title, raw_year = excluded.raw_year, rank = excluded.rank, label = excluded.label,
+           writeup = excluded.writeup, writeup_source_label = excluded.writeup_source_label,
+           writeup_source_url = excluded.writeup_source_url, left_because = excluded.left_because, left_at = excluded.left_at`,
+      ).run(
+        key,
+        item.raw_title,
+        item.raw_year,
+        item.rank,
+        item.label,
+        item.writeup,
+        item.writeup_source_label,
+        item.writeup_source_url,
+        because,
+        Date.now(),
+      );
+    }
+    deletePickItem(LEAVING_PICK_ID, item.id);
+    removed += 1;
+  }
+  let added = 0;
+  for (const [key, w] of [...wanted].sort((a, b) => a[1].at - b[1].at || a[1].input.rawTitle.localeCompare(b[1].input.rawTitle))) {
+    if (have.has(key)) continue;
+    // Back again: with what was written about it the last time.
+    const kept = asRow<{
+      rank: number | null;
+      label: string | null;
+      writeup: string | null;
+      writeup_source_label: string | null;
+      writeup_source_url: string | null;
+    }>(db.prepare("SELECT rank, label, writeup, writeup_source_label, writeup_source_url FROM leaving_writeups WHERE key = ?").get(key));
+    const item = addPickItem(LEAVING_PICK_ID, {
+      ...w.input,
+      rank: kept?.rank ?? null,
+      writeup: kept?.writeup ?? null,
+      writeupSourceLabel: kept?.writeup_source_label ?? null,
+      writeupSourceUrl: kept?.writeup_source_url ?? null,
+    });
+    if (kept?.label) db.prepare("UPDATE pick_items SET label = ? WHERE id = ?").run(kept.label, item.id);
+    added += 1;
+  }
+  return { added, removed };
+}
+
+/* ------------------------------------------------------------------ *
  * The deleting
  * ------------------------------------------------------------------ */
 
@@ -202,6 +331,7 @@ export async function runFolderRemovals(): Promise<RemovalRun> {
     if (refreshed.refreshed.length < parents.length) await refreshLibrary().catch(() => undefined);
     invalidateAdminMovies();
     invalidate("all-movies");
+    await syncLeavingPick("deleted").catch((error) => console.error("[folder-removals] leaving pick not updated:", error));
   }
   return run;
 }

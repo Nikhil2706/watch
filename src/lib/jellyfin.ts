@@ -501,6 +501,47 @@ export async function refreshLibraryFolders(
   return { refreshed: folders.map((f) => f.Path!), unresolved: [] };
 }
 
+export interface LibraryScanStatus {
+  /** A whole-library scan is under way in Jellyfin right now. */
+  running: boolean;
+  /** How far through it is, 0-100. Null when idle, or just started. */
+  percent: number | null;
+  /** When the last one ended, and how: "Completed", "Failed", "Cancelled", "Aborted". */
+  lastEndedAt: number | null;
+  lastResult: string | null;
+}
+
+/**
+ * Where Jellyfin's own "Scan Media Library" task has got to.
+ *
+ * /Library/Refresh returns the moment the scan is queued and says nothing
+ * afterwards, so the console had no way to tell a scan that was running from
+ * one that never started. The task list does know: its state, how far along
+ * it is, and how the last one ended. This covers a whole-library scan
+ * however it was started (the console, a scheduled job, Jellyfin itself). A
+ * single folder being re-read is not a task and does not appear here; that
+ * takes seconds.
+ */
+export async function getLibraryScanStatus(): Promise<LibraryScanStatus> {
+  const tasks = await jellyfinFetch<
+    Array<{
+      Key?: string;
+      State?: string;
+      CurrentProgressPercentage?: number | null;
+      LastExecutionResult?: { EndTimeUtc?: string; Status?: string } | null;
+    }>
+  >("/ScheduledTasks", { token: env.jellyfinApiKey, timeoutMs: 10_000 });
+  const scan = tasks.find((t) => t.Key === "RefreshLibrary");
+  const ended = scan?.LastExecutionResult?.EndTimeUtc ? Date.parse(scan.LastExecutionResult.EndTimeUtc) : NaN;
+  const running = !!scan && scan.State !== undefined && scan.State !== "Idle";
+  return {
+    running,
+    percent: running && typeof scan?.CurrentProgressPercentage === "number" ? Math.round(scan.CurrentProgressPercentage) : null,
+    lastEndedAt: Number.isFinite(ended) ? ended : null,
+    lastResult: scan?.LastExecutionResult?.Status ?? null,
+  };
+}
+
 /**
  * Refreshes one item rather than the whole library — used after writing a
  * new external subtitle file next to a video, so it shows up in the player

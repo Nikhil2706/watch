@@ -467,6 +467,10 @@ interface UnmatchedRow {
  * re-validation as a brand-new title would get, not just future scrapes.
  * Rows that come back unchanged (same imdb_id and confidence) are skipped —
  * only real corrections get written.
+ *
+ * "fuzzy" rows are re-checked too, since 2026-10-12: nearly all of them were
+ * wrong (see title-match-rules.ts), and a row the rules no longer support
+ * goes back to unmatched.
  */
 export async function relinkUnmatchedArticleLinks(): Promise<number> {
   const candidates = asRows<UnmatchedRow & { imdb_id: string | null; confidence: string }>(
@@ -478,7 +482,7 @@ export async function relinkUnmatchedArticleLinks(): Promise<number> {
         `SELECT l.id, l.raw_title, l.raw_year, l.imdb_id, l.confidence
            FROM article_film_links l
            JOIN scraped_articles a ON a.id = l.article_id
-          WHERE (l.imdb_id IS NULL OR l.confidence = 'exact') AND a.source_id <> 'the-ringer-tv'`,
+          WHERE a.source_id <> 'the-ringer-tv'`,
       )
       .all(),
   );

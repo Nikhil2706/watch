@@ -57,6 +57,11 @@
   .lw-tools input[type="text"] { flex: 1 1 240px; min-width: 0; }
   .lw-tools select { flex: 0 0 auto; width: auto; }
   .lw-tools button { flex: 0 0 auto; }
+  .lw-scanning { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); flex: 1 1 220px; min-width: 0; }
+  .lw-scanbar { flex: 0 0 120px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+  .lw-scanbar > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.6s ease; }
+  .lw-scanbar.unknown > span { width: 35%; animation: lw-scan-slide 1.4s ease-in-out infinite alternate; }
+  @keyframes lw-scan-slide { from { margin-left: 0; } to { margin-left: 65%; } }
   .fp-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
   .fp-head .card-title { flex: 1 1 200px; }
   .fp-tree { max-height: 46vh; overflow: auto; border: 1px solid var(--border); border-radius: 10px; padding: 6px 4px; }
@@ -969,6 +974,8 @@
           <button class="ghost" id="lwFolderMatch" title="Identify files nothing has matched, from the folders they are filed in">Match from folders</button>
           <button class="ghost" id="lwSuggestFeatures">Suggest special features</button>
           <span class="muted" id="lwScanAge"></span>
+          <!-- Shown only while Jellyfin is scanning the whole library. -->
+          <span class="lw-scanning" id="lwScanning" style="display:none"><span class="lw-scanbar"><span id="lwScanFill"></span></span><span id="lwScanText"></span></span>
         </div>
 
         <div id="lwBulk" class="lw-bulk" style="display:none"></div>
@@ -4579,6 +4586,8 @@
       // know this feature exists.
       void sfLoad();
       void fmLoad();
+      // A scan may be running already, started here earlier or by a job.
+      if (!scanWatch.running && !scanWatch.timer) void lwScanCheck();
       lw.lastScanAt = data.lastScanAt || null;
       lw.loaded = true;
       lwBuildRows();
@@ -4742,6 +4751,66 @@
   var fp = { open: false, kids: {}, expanded: {}, checked: {}, busy: false, removals: [] };
 
   /*
+   * A whole-library scan, while it runs.
+   *
+   * Starting one used to answer "the whole library is being scanned" and
+   * then say nothing more for the eight minutes it takes, which looks the
+   * same as nothing happening. Jellyfin knows where its scan has got to, so
+   * the console asks: on arriving at the Library tab, straight after
+   * starting one, and every four seconds for as long as one is running —
+   * whoever started it. When it ends the list is read again and a line says
+   * how it went.
+   */
+  var scanWatch = { running: false, timer: null, startedHere: false, countBefore: 0 };
+
+  function lwScanPaint(st) {
+    var box = $("lwScanning");
+    if (!st || !st.running) { box.style.display = "none"; return; }
+    box.style.display = "";
+    var known = typeof st.percent === "number";
+    box.querySelector(".lw-scanbar").className = "lw-scanbar" + (known ? "" : " unknown");
+    $("lwScanFill").style.width = known ? st.percent + "%" : "";
+    $("lwScanText").textContent = "Scanning the whole library" + (known ? " \u2014 " + st.percent + "%" : "\u2026");
+  }
+
+  function lwScanCheck() {
+    clearTimeout(scanWatch.timer);
+    scanWatch.timer = null;
+    return api("/api/admin/library/scan").then(function (st) {
+      var was = scanWatch.running;
+      scanWatch.running = !!st.running;
+      lwScanPaint(st);
+      if (st.running) {
+        if (!was) scanWatch.countBefore = lw.items.length;
+        scanWatch.timer = setTimeout(lwScanCheck, 4000);
+        return;
+      }
+      if (was) {
+        // It has just ended: show what it found.
+        var before = scanWatch.countBefore;
+        scanWatch.startedHere = false;
+        lwLoad(true).then(function () {
+          var added = lw.items.length - before;
+          var needing = lw.rows.filter(function (r) { return r.needsDecision; }).length;
+          var how = st.lastResult && st.lastResult !== "Completed" ? "Library scan ended: " + st.lastResult.toLowerCase() + ". " : "Library scan finished. ";
+          show(st.lastResult && st.lastResult !== "Completed" ? "err" : "ok",
+            how + (added > 0 ? added + " new file" + (added === 1 ? "" : "s") + " picked up. " : added < 0 ? (-added) + " file" + (added === -1 ? "" : "s") + " no longer there. " : "Nothing new. ") +
+            needing + " need a decision.");
+          if (added > 0) fmRun(true);
+        });
+      } else if (scanWatch.startedHere) {
+        // Asked for a moment ago and Jellyfin has not begun yet: keep looking.
+        scanWatch.tries = (scanWatch.tries || 0) + 1;
+        if (scanWatch.tries < 8) scanWatch.timer = setTimeout(lwScanCheck, 2500);
+        else { scanWatch.startedHere = false; scanWatch.tries = 0; }
+      }
+    }).catch(function () {
+      // Jellyfin too busy to answer is itself likely during a scan: ask again.
+      if (scanWatch.running || scanWatch.startedHere) scanWatch.timer = setTimeout(lwScanCheck, 6000);
+    });
+  }
+
+  /*
    * Marking folders to be deleted.
    *
    * One press on a folder's "Delete in 30 days" and it is marked; press
@@ -4851,6 +4920,20 @@
     api("/api/admin/library/scan", { method: "POST", body: folders.length ? { folders: folders } : null })
       .then(function (data) {
         wholeLibrary = !!folders.length && !!data && data.scope === "library";
+        if (!folders.length || wholeLibrary) {
+          // Minutes, not seconds: the progress line takes it from here and
+          // reports when it ends.
+          scanWatch.startedHere = true;
+          scanWatch.tries = 0;
+          scanWatch.countBefore = before;
+          lwScanPaint({ running: true, percent: null });
+          show("ok", wholeLibrary
+            ? "Jellyfin has no folder above that one yet, so the whole library is being scanned. Progress is shown beside the buttons."
+            : "Scanning the whole library. Progress is shown beside the buttons.");
+          fp.open = false;
+          setTimeout(lwScanCheck, 1500);
+          return Promise.reject({ handedOver: true });
+        }
         // Jellyfin's scan is fire-and-forget, so wait a beat before asking
         // what changed rather than reporting on the library as it was.
         return new Promise(function (resolve) { setTimeout(resolve, folders.length ? 6000 : 4000); });
@@ -4870,7 +4953,7 @@
         // New files with no match: see what their folders say before asking.
         if (added > 0 && folders.length && !wholeLibrary) fmRun(true);
       })
-      .catch(function (e) { show("err", e.message); })
+      .catch(function (e) { if (!e || !e.handedOver) show("err", e.message); })
       .then(function () { fp.busy = false; fpRender(); });
   }
 

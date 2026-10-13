@@ -33,7 +33,7 @@ export async function relinkUnmatchedFilmSeriesEntries(): Promise<number> {
         // them here is how the Wikipedia data went wrong.
         `SELECT e.id, e.raw_title, e.raw_year, e.imdb_id, e.confidence
            FROM film_series_entries e JOIN film_series s ON s.id = e.series_id
-          WHERE s.wiki_page = ? AND (e.imdb_id IS NULL OR e.confidence = 'exact')`,
+          WHERE s.wiki_page = ?`,
       )
       .all(MANUAL_WIKI_PAGE),
   );
