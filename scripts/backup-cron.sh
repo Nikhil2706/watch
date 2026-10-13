@@ -81,7 +81,24 @@ log "starting backup"
 # Its sibling, wherever this copy lives (scripts/ in the repo, /usr/local/bin
 # once installed).
 if bash "$(dirname "$0")/backup-to-e.sh" >> "$LOG" 2>&1; then
-  say "Backup taken."
+  # --- keep only the newest backup ------------------------------------------
+  # The curator's choice (2026-10-13): each one is about 2 GB and nothing ever
+  # removed them. The older ones go only once the new one has been read back
+  # from the disk, start to finish: a backup that cannot be read is no reason
+  # to delete the one before it. Only folders named as a date are touched.
+  LATEST=$(ls -1d "$DEST_ROOT"/20* 2>/dev/null | sort | tail -1)
+  if [ -n "$LATEST" ] && [ -f "$LATEST/MANIFEST.txt" ]      && gzip -t "$LATEST/gate-data.db.gz" 2>> "$LOG"      && tar -tzf "$LATEST/jellyfin-config.tar.gz" > /dev/null 2>> "$LOG"; then
+    REMOVED=0
+    while IFS= read -r OLD; do
+      case "$(basename "$OLD")" in
+        20[0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+          [ "$OLD" != "$LATEST" ] && rm -rf -- "$OLD" && log "removed older backup $OLD" && REMOVED=$((REMOVED + 1)) ;;
+      esac
+    done < <(ls -1d "$DEST_ROOT"/20* 2>/dev/null | sort | head -n -1)
+    say "Backup taken and read back. $REMOVED older one(s) removed."
+  else
+    say "Backup taken, but it could not be read back, so the older ones are kept. See $LOG."
+  fi
 else
   say "BACKUP FAILED — the boot disk is failing, so this needs a look. See $LOG."
   exit 1
