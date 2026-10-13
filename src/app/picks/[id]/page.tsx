@@ -95,6 +95,7 @@ export default async function PickPage({ params }: { params: Promise<{ id: strin
                 {tile.leavingDays !== null && !pick.leaving ? (
                   <span className="leaving-badge pk-list-leaving">Leaving soon</span>
                 ) : null}
+                {tile.leavingNote ? <span className="pk-leaving-days">{tile.leavingNote}</span> : null}
                 {tile.label ? <span className="pk-list-word">{tile.label}</span> : null}
                 <h2>
                   <Link href={tile.href}>{tile.title}</Link>

@@ -180,6 +180,7 @@ function TileFace({ tile, ranked }: { tile: PickTile; ranked: boolean }) {
         {tile.title}
         {tile.sub ? <span className="pk-year"> {tile.sub}</span> : null}
       </span>
+      {tile.leavingNote ? <span className="pk-leaving-days">{tile.leavingNote}</span> : null}
       {tile.excerpt ? (
         <span className="pk-text">
           {tile.excerpt}

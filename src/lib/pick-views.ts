@@ -44,6 +44,8 @@ export interface PickTile {
   writeupSourceUrl: string | null;
   /** Days until its folder is deleted, in any pick; null when it is staying. */
   leavingDays: number | null;
+  /** "12 days left", on its own line under the title. Only in the Leaving soon pick. */
+  leavingNote: string | null;
 }
 
 export interface PickView {
@@ -109,9 +111,9 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
     );
 
     const isLeaving = pick.id === LEAVING_PICK_ID;
-    // In Leaving soon the days go beside the title, where a year would be.
-    const subWith = (sub: string | null, days: number | null) =>
-      isLeaving && days !== null ? [sub, leavingLabel(days)].filter(Boolean).join(" \u00b7 ") : sub;
+    // In Leaving soon each title says how long it has, on a line of its own:
+    // beside the title it was the first thing cut off on a narrow tile.
+    const noteFor = (days: number | null) => (isLeaving && days !== null ? leavingLabel(days) : null);
 
     const tiles: PickTile[] = [];
     for (const item of orderForDisplay(items, ranked)) {
@@ -133,9 +135,10 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
         tiles.push({
           ...base,
           leavingDays: days,
+          leavingNote: noteFor(days),
           href: `/collection/${group.groupId}`,
           title: group.groupName,
-          sub: subWith(null, days),
+          sub: null,
           posterSrc: getGroupSeriesPoster(group.groupId) ?? posterUrl(file),
           shape: "poster",
         });
@@ -153,9 +156,10 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
           tiles.push({
             ...base,
             leavingDays: days,
+            leavingNote: noteFor(days),
             href: itemHref(file.Id, file.Name, file.ProductionYear),
             title: file.Name,
-            sub: subWith(file.ProductionYear ? String(file.ProductionYear) : null, days),
+            sub: file.ProductionYear ? String(file.ProductionYear) : null,
             posterSrc: posterUrl(file),
             shape: "poster",
           });
@@ -165,6 +169,7 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
         tiles.push({
           ...base,
           leavingDays: days,
+          leavingNote: noteFor(days),
           href: itemHref(file.Id, file.Name, file.ProductionYear),
           // "The West Wing: Two Cathedrals"; the filename's own name when
           // TMDB has not been matched for this show.
@@ -184,9 +189,10 @@ async function resolve(session: ResolvedSession, picks: ViewerPick[]): Promise<P
       tiles.push({
         ...base,
         leavingDays: filmDays,
+        leavingNote: noteFor(filmDays),
         href: itemHref(film.Id, film.Name, film.ProductionYear),
         title: film.Name,
-        sub: subWith(film.ProductionYear ? String(film.ProductionYear) : null, filmDays),
+        sub: film.ProductionYear ? String(film.ProductionYear) : null,
         posterSrc: posterUrl(film),
         shape: "poster",
       });
