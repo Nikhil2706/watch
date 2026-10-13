@@ -403,6 +403,9 @@
   }
   .pk-missing { margin-top: 16px; font-size: 13px; }
   .pk-missing summary { cursor: pointer; color: var(--muted); }
+  .pk-kept-row { padding: 8px 0; border-top: 1px solid var(--border); }
+  .pk-kept-row .muted { margin-left: 6px; }
+  .pk-kept-text { margin-top: 3px; color: var(--text); white-space: pre-wrap; }
   .pk-missing-row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-top: 1px solid var(--border); color: var(--muted); }
   @media (max-width: 860px) {
     .pk-layout { grid-template-columns: minmax(0, 1fr); }
@@ -1620,6 +1623,13 @@
             <summary id="pkMissingSummary"></summary>
             <div class="note" style="margin:0 0 8px">Kept in the pick and hidden from the site. Each one joins the row when it arrives in the library.</div>
             <div id="pkMissing"></div>
+          </details>
+
+          <!-- Leaving soon only: what was written about titles that have left it. -->
+          <details id="pkKeptWrap" class="pk-missing" hidden>
+            <summary id="pkKeptSummary"></summary>
+            <div class="note" style="margin:0 0 8px">Kept from titles that are no longer in this pick. If one is ever leaving again, what you wrote is put back on it.</div>
+            <div id="pkKept"></div>
           </details>
         </div>
 
@@ -3632,7 +3642,29 @@
     }).join("") : '<div class="muted">No users yet.</div>';
 
     $("pkSourceLine").textContent = p.source_label ? "Copied from: " + p.source_label : "";
+    // Leaving soon is kept by the site: it cannot be deleted, and it has a
+    // record of what was written about titles that have gone.
+    var leavingPick = p.id === "leaving-soon";
+    $("pkDelete").hidden = leavingPick;
+    $("pkKeptWrap").hidden = true;
+    if (leavingPick) pkLoadKept();
     pkRenderItems();
+  }
+
+  function pkLoadKept() {
+    api("/api/admin/library/removals").then(function (data) {
+      var kept = data.kept || [];
+      if (!pk.current || pk.current.id !== "leaving-soon") return;
+      $("pkKeptWrap").hidden = !kept.length;
+      $("pkKeptSummary").textContent = kept.length + " writeup" + (kept.length === 1 ? "" : "s") + " kept from titles that have left";
+      $("pkKept").innerHTML = kept.map(function (k) {
+        var text = (k.writeup || "").replace(/<[^>]+>/g, "").trim();
+        var how = k.restored ? "back in the pick" : k.leftBecause === "deleted" ? "deleted " + pkShortDate(k.leftAt) : "kept in the library, " + pkShortDate(k.leftAt);
+        return '<div class="pk-kept-row"><b>' + esc(k.title) + '</b>' + (k.year ? " " + k.year : "") +
+          '<span class="muted">' + esc(how) + (k.rank ? " \u00b7 was number " + k.rank : "") + (k.label ? " \u00b7 \u201c" + esc(k.label) + "\u201d" : "") + '</span>' +
+          (text ? '<div class="pk-kept-text">' + esc(text) + '</div>' : "") + '</div>';
+      }).join("");
+    }).catch(function () { /* the section just stays shut */ });
   }
 
   /* A writeup box as tall as its text, up to about twenty lines: a three-line
@@ -3986,6 +4018,7 @@
    */
   var LW_REASONS = [
     { key: "meta", label: "No metadata", test: function (r) { return r.isThinMetadata && !r.isWhitelisted; } },
+    { key: "damaged", label: "Damaged file", test: function (r) { return r.isDamaged; } },
     { key: "dup", label: "Duplicate", test: function (r) { return r.isDuplicate; } },
     { key: "guess", label: "Might be a special feature", test: function (r) { return Boolean(r.featureGuess); } },
     { key: "unmapped", label: "Feature, not shown anywhere", test: function (r) {
@@ -4032,6 +4065,9 @@
     { key: "needs", label: "Needs you", alert: true, test: function (r) { return r.needsDecision; } },
     { key: "dup", label: "Duplicates", alert: true, test: function (r) { return r.isDuplicate; } },
     { key: "nometa", label: "No metadata", alert: true, test: function (r) { return r.isThinMetadata && !r.isWhitelisted; } },
+    // A file the worker read through and found broken: off the site until it
+    // is replaced, or you say to show it anyway.
+    { key: "damaged", label: "Damaged", alert: true, test: function (r) { return r.isDamaged; } },
     { key: "nosubs", label: "No subtitles", alert: false, test: function (r) { return r.isMissingSubtitles; } },
     { key: "shows", label: "Shows", alert: false, test: function (r) { return r.kind === "show"; } },
     { key: "hidden", label: "Hidden", alert: false, test: function (r) { return r.isExcluded; } },
@@ -4111,6 +4147,7 @@
             isDuplicate: false,
             isThinMetadata: false,
             isMissingSubtitles: false,
+            isDamaged: false,
             isWhitelisted: false,
             isExcluded: false
           };
@@ -4120,6 +4157,8 @@
         if (!g.poster && it.posterUrl) g.poster = it.posterUrl;
         if (it.isThinMetadata && !it.isWhitelisted) g.isThinMetadata = true;
         if (it.isMissingSubtitles) g.isMissingSubtitles = true;
+        // One broken episode is the show's problem to surface.
+        if (it.damage && it.damage.verdict === "damaged" && !it.damageAllowed) { g.isDamaged = true; g.needsDecision = true; }
         return;
       }
 
@@ -4134,6 +4173,7 @@
         isDuplicate: it.isDuplicate,
         isThinMetadata: it.isThinMetadata,
         isMissingSubtitles: it.isMissingSubtitles,
+        isDamaged: Boolean(it.damage && it.damage.verdict === "damaged" && !it.damageAllowed),
         isWhitelisted: it.isWhitelisted,
         isExcluded: it.isExcluded,
         // Filled in by sfApplyToRows once the marks and any suggestions are
@@ -4361,6 +4401,11 @@
     if (it.isExcluded) bits.push("Hidden from the site");
     if (it.isThinMetadata && !it.isWhitelisted) bits.push("No metadata fetched — hidden until fixed");
     if (it.isThinMetadata && it.isWhitelisted) bits.push("No metadata, shown anyway");
+    if (it.damage) {
+      bits.push(it.damage.verdict === "damaged"
+        ? (it.damageAllowed ? "Damaged file, shown anyway: " : "Damaged file \u2014 off the site until replaced: ") + it.damage.detail
+        : "Small fault in the file, still shown: " + it.damage.detail);
+    }
     if (it.isDuplicate) bits.push("Duplicate title");
     if (it.version) bits.push(it.version.isPrimary ? "Main of " + it.version.setSize + " cuts" : "Cut: " + it.version.label);
     if (it.isMissingSubtitles) bits.push("No subtitles");
@@ -4376,6 +4421,13 @@
     out += '<button class="ghost" data-action="fetch-subtitles" data-item-id="' + esc(it.id) + '">Subtitles</button>';
     if (it.isThinMetadata && !it.isWhitelisted) {
       out += '<button class="ghost" data-action="whitelist" data-item-id="' + esc(it.id) + '">Show anyway</button>';
+    }
+    if (it.damage) {
+      if (it.damage.verdict === "damaged") {
+        out += '<button class="ghost" data-lw-action="' + (it.damageAllowed ? "damage-disallow" : "damage-allow") + '" data-lw-target="' + esc(it.id) + '">' +
+          (it.damageAllowed ? "Take the damaged file off the site" : "Show the damaged file anyway") + '</button>';
+      }
+      out += '<button class="ghost" data-lw-action="damage-recheck" data-lw-target="' + esc(it.id) + '" title="After replacing the file this happens by itself">Check the file again</button>';
     }
     /*
      * Marking something a special feature is a standing action on EVERY film,
@@ -4770,7 +4822,38 @@
     var known = typeof st.percent === "number";
     box.querySelector(".lw-scanbar").className = "lw-scanbar" + (known ? "" : " unknown");
     $("lwScanFill").style.width = known ? st.percent + "%" : "";
-    $("lwScanText").textContent = "Scanning the whole library" + (known ? " \u2014 " + st.percent + "%" : "\u2026");
+    $("lwScanText").textContent = (st.text || "Scanning the whole library") + (known ? " \u2014 " + st.percent + "%" : "\u2026");
+  }
+
+  /*
+   * A folder scan, while it runs. Jellyfin gives a re-read of one folder no
+   * progress to report, only the result, so the bar here moves without a
+   * number: it says the scan is under way, and stops when the library has
+   * stopped changing — the listing read the same twice running, a few seconds
+   * apart, after at least six seconds. A folder of two films is done in the
+   * first check; a season of a show keeps it going until the last episode is
+   * in. Gives up waiting after two minutes and reports what it has.
+   */
+  function lwWatchFolderScan(names, before) {
+    var started = Date.now();
+    var last = -1;
+    var label = "Scanning " + (names.length === 1 ? "\u201c" + names[0].split("/").pop() + "\u201d" : names.length + " folders");
+    lwScanPaint({ running: true, percent: null, text: label });
+    return new Promise(function (resolve) {
+      (function look() {
+        setTimeout(function () {
+          lw.loading = false;
+          api("/api/admin/library/browse").then(function (data) {
+            var count = (data.items || []).length;
+            var waited = Date.now() - started;
+            lwScanPaint({ running: true, percent: null, text: label + (count !== before ? " \u2014 " + Math.abs(count - before) + (count > before ? " new so far" : " gone so far") : "") });
+            if ((count === last && waited >= 6000) || waited > 120000) return resolve();
+            last = count;
+            look();
+          }).catch(function () { resolve(); });
+        }, 3000);
+      })();
+    }).then(function () { lwScanPaint(null); });
   }
 
   function lwScanCheck() {
@@ -4934,9 +5017,9 @@
           setTimeout(lwScanCheck, 1500);
           return Promise.reject({ handedOver: true });
         }
-        // Jellyfin's scan is fire-and-forget, so wait a beat before asking
-        // what changed rather than reporting on the library as it was.
-        return new Promise(function (resolve) { setTimeout(resolve, folders.length ? 6000 : 4000); });
+        // Jellyfin's scan is fire-and-forget: watch the library until it has
+        // stopped changing, with the bar showing that it is under way.
+        return lwWatchFolderScan(folders, before);
       })
       .then(function () { return lwLoad(true); })
       .then(function () {
@@ -5226,6 +5309,22 @@
           r.set.map(function (v) { return v.label; }).join(", ") + ". Rename any of them from its page here.");
         return lwLoad(true);
       }).catch(function (err) { show("err", err.message); btn.disabled = false; });
+      return;
+    }
+
+    if (action === "damage-allow" || action === "damage-disallow" || action === "damage-recheck") {
+      // By file, so it works for an episode inside a show as well as a film.
+      var dmg = lw.items.filter(function (i) { return i.id === target; })[0];
+      if (!dmg || !dmg.path) return;
+      btn.disabled = true;
+      api("/api/admin/library/file-check", { method: "POST", body: { action: action.slice(7), path: dmg.path } })
+        .then(function () {
+          show("ok", action === "damage-allow" ? "Shown on the site, damage and all."
+            : action === "damage-disallow" ? "Off the site again until the file is replaced."
+            : "It will be read through again within a few minutes, when nobody is watching.");
+          return lwLoad(true);
+        })
+        .catch(function (err) { show("err", err.message); btn.disabled = false; });
       return;
     }
 

@@ -242,6 +242,47 @@ export async function syncLeavingPick(
   return { added, removed };
 }
 
+export interface KeptWriteup {
+  title: string;
+  year: number | null;
+  rank: number | null;
+  label: string | null;
+  writeup: string | null;
+  /** "deleted" with its folder, or "kept" (the folder was unmarked). */
+  leftBecause: string;
+  leftAt: number;
+  /** Back in the pick now, with these words on it again. */
+  restored: boolean;
+}
+
+/** What was written about titles that have left the Leaving soon pick, newest first. */
+export function listKeptWriteups(): KeptWriteup[] {
+  const now = new Set(
+    listPickItems(LEAVING_PICK_ID).map((i) =>
+      i.kind === "show" ? `show:${i.group_id}` : i.kind === "film" ? `film:${i.imdb_id}` : `path:${i.item_path}`,
+    ),
+  );
+  return asRows<{
+    key: string;
+    raw_title: string;
+    raw_year: number | null;
+    rank: number | null;
+    label: string | null;
+    writeup: string | null;
+    left_because: string;
+    left_at: number;
+  }>(getDb().prepare("SELECT * FROM leaving_writeups ORDER BY left_at DESC").all()).map((r) => ({
+    title: r.raw_title,
+    year: r.raw_year,
+    rank: r.rank,
+    label: r.label,
+    writeup: r.writeup,
+    leftBecause: r.left_because,
+    leftAt: r.left_at,
+    restored: now.has(r.key),
+  }));
+}
+
 /* ------------------------------------------------------------------ *
  * The deleting
  * ------------------------------------------------------------------ */

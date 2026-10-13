@@ -6247,3 +6247,20 @@ html[data-in-app] .app-get {
   font-size: 0.74rem;
   font-weight: 600;
 }
+
+/* The badge and the words beside it on a film's page; the TV sheet has no gap of its own here. */
+.leaving-note .leaving-badge {
+  margin-right: 10px;
+}
+
+/* On a phone the poster's heart and rewatch are hidden (there is no hover to
+   reveal them and they crowd a small poster), which took the mark-as-watched
+   tick in Continue watching with them — the one place it is the quick way to
+   clear a card. Shown there on touch screens. Not on a TV: a remote would
+   have to step through it on every card. */
+@media (hover: none) and (pointer: coarse) {
+  .watched-toggle.list-overlay {
+    opacity: 0.9;
+    pointer-events: auto;
+  }
+}
