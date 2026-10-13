@@ -46,7 +46,7 @@ import {
 } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 
-import { countErrors, isStale, judge } from "./file-check.mjs";
+import { countErrors, isStale, isStillArriving, judge } from "./file-check.mjs";
 
 /* ------------------------------------------------------------------ *
  * Config
@@ -313,7 +313,10 @@ async function checkFile(file, size, mtimeMs) {
   const videoErrors = countErrors(video.stderr);
   // ffmpeg could not open it at all (and said so, which is what tells this
   // from a file with no picture track).
-  const unreadable = video.code !== 0 && audio.code !== 0 && audioErrors + videoErrors > 0 && /Invalid data found when processing input|moov atom not found|No such file/i.test(video.stderr.slice(0, 2000));
+  const unreadable =
+    video.code !== 0 &&
+    audio.code !== 0 &&
+    /Error opening input|moov atom not found/i.test(video.stderr.slice(0, 2000));
   const { verdict, detail } = judge({ audioErrors, videoErrors, unreadable });
   db.prepare(
     `INSERT INTO file_checks (path, size, mtime_ms, checked_at, audio_errors, video_errors, verdict, detail, allowed)
@@ -346,6 +349,7 @@ async function checkFilesForAWhile() {
       continue;
     }
     present.add(file);
+    if (isStillArriving(stat.mtimeMs, Date.now())) continue;
     if (isStale(known.get(file), stat.size, stat.mtimeMs)) todo.push({ file, size: stat.size, mtimeMs: stat.mtimeMs });
   }
   // A file that is gone needs no verdict kept.

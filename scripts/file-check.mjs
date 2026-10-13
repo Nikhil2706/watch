@@ -39,7 +39,9 @@ export const DAMAGED_FROM = 3;
  * @returns {{ verdict: "ok" | "minor" | "damaged", detail: string }}
  */
 export function judge(r) {
-  if (r.unreadable) return { verdict: "damaged", detail: "The file could not be read at all." };
+  // An empty or cut-off file: a download that has not finished, or a copy that
+  // failed. Off the site either way; it is read again when the file changes.
+  if (r.unreadable) return { verdict: "damaged", detail: "The file cannot be opened: it is empty or incomplete (still copying, or a failed copy)." };
   const parts = [];
   const n = (count) => count.toLocaleString("en-GB");
   if (r.audioErrors > 0) parts.push(`${n(r.audioErrors)} unreadable stretch${r.audioErrors === 1 ? "" : "es"} of sound`);
@@ -47,6 +49,14 @@ export function judge(r) {
   if (parts.length === 0) return { verdict: "ok", detail: "" };
   const worst = Math.max(r.audioErrors, r.videoErrors);
   return { verdict: worst >= DAMAGED_FROM ? "damaged" : "minor", detail: parts.join(", ") };
+}
+
+/**
+ * Too fresh to judge: written to in the last ten minutes, so quite possibly
+ * still arriving. It is looked at on a later round.
+ */
+export function isStillArriving(mtimeMs, now) {
+  return now - mtimeMs < 10 * 60 * 1000;
 }
 
 /** Has the file changed since it was checked? A replaced file is checked again. */

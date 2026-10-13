@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { countErrors, isStale, judge } from "./file-check.mjs";
+import { countErrors, isStale, isStillArriving, judge } from "./file-check.mjs";
 
 test("a healthy file says nothing, and is fine", () => {
   assert.equal(countErrors(""), 0);
@@ -35,4 +35,16 @@ test("a replaced file is checked again", () => {
   assert.equal(isStale(row, 1001, 5_000_000), true);
   assert.equal(isStale(row, 1000, 5_010_000), true);
   assert.equal(isStale(undefined, 1000, 5_000_000), true);
+});
+
+test("a file written to a moment ago is left for a later round", () => {
+  const now = 1_000_000_000_000;
+  assert.equal(isStillArriving(now - 60_000, now), true);
+  assert.equal(isStillArriving(now - 11 * 60_000, now), false);
+});
+
+test("a file that cannot be opened is said to be empty or incomplete", () => {
+  const r = judge({ audioErrors: 3, videoErrors: 3, unreadable: true });
+  assert.equal(r.verdict, "damaged");
+  assert.match(r.detail, /empty or incomplete/);
 });
