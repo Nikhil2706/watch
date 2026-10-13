@@ -10,14 +10,17 @@ import { Row } from "@/components/media/Row";
 import { PickRow } from "@/components/picks/PickRow";
 import { PartyBanner } from "@/components/party/PartyBanner";
 import { currentSession } from "@/lib/current-user";
+import { parseEpisodeInfo } from "@/lib/episode-naming";
 import { getActiveJobs } from "@/lib/jobs";
+import { getGroupedPathMap, getGroupSeriesPoster } from "@/lib/library-curation";
+import { episodeLine } from "@/lib/resume-labels";
 import { getMemberships } from "@/lib/lists";
 import { homePicksForViewer } from "@/lib/pick-views";
 import { listLiveParties, listUpcomingParties } from "@/lib/party";
 import { getRatings } from "@/lib/ratings";
 import { MIN_SHELF_SIZE } from "@/lib/home-shelves";
 import { todaysShelves } from "@/lib/tmdb-shelves";
-import { episodeViewByPath, filmViewByPath } from "@/lib/tmdb-view";
+import { episodeTilesForPaths, episodeViewByPath, filmViewByPath } from "@/lib/tmdb-view";
 import {
   collapseEpisodeGroups,
   getAllMovies,
@@ -129,6 +132,31 @@ export default async function HomePage() {
     ]),
   ]);
 
+  // An episode in Continue watching is headed with its show, carries the
+  // show's poster, and says which episode it is on the line beneath:
+  // "Buffy The Vampire Slayer" / "S1 E1 · Welcome to the Hellmouth". Its
+  // own name alone, over a frame from the episode, was not recognisable.
+  const showOfPath = getGroupedPathMap();
+  const resumeEpisodes = resume.filter((i) => i.Path && showOfPath.has(i.Path));
+  const episodeNames = episodeTilesForPaths(resumeEpisodes.map((i) => i.Path!));
+  const resumeTitles = new Map<string, string>();
+  const resumeLines = new Map<string, string>();
+  const resumePosters = new Map<string, string | null>();
+  for (const item of resumeEpisodes) {
+    const show = showOfPath.get(item.Path!)!;
+    const named = episodeNames.get(item.Path!);
+    const parsed = parseEpisodeInfo(item.Path!);
+    resumeTitles.set(item.Id, show.groupName);
+    const line = episodeLine(
+      named?.seasonNumber ?? parsed.season,
+      named?.episodeNumber ?? parsed.episode,
+      named?.name ?? parsed.title ?? item.Name,
+    );
+    if (line) resumeLines.set(item.Id, line);
+    const poster = getGroupSeriesPoster(show.groupId);
+    if (poster) resumePosters.set(item.Id, poster);
+  }
+
   const featured: MediaItem | undefined = resume[0] ?? latest[0];
 
   if (!featured) {
@@ -183,7 +211,19 @@ export default async function HomePage() {
         <PickButton />
         <HideSeenToggle initialOn={session.hideWatched} />
       </div>
-      <Row title="Continue watching" items={resume} lists={lists} markWatched />
+      <Row
+        title="Continue watching"
+        items={resume}
+        lists={lists}
+        itemTitles={resumeTitles}
+        itemBadges={resumeLines}
+        itemPosters={resumePosters}
+        // Every card is a poster now, a show's included, so the row is laid
+        // out for posters; left to measure itself it would go landscape for
+        // the episodes' own frames, which are no longer what it shows.
+        shape={resumePosters.size > 0 ? "poster" : undefined}
+        markWatched
+      />
       {otherPicks.map((pick) => (
         <PickRow key={pick.id} pick={pick} />
       ))}
