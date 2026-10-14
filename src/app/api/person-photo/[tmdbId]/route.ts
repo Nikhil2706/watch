@@ -55,9 +55,11 @@ export async function GET(
       "Content-Type": image.contentType,
       "Content-Length": String(image.bytes.byteLength),
       // A headshot for a fixed TMDB id and rendition never changes, so this is
-      // immutable in the strict sense. Private because the route is behind a
-      // session and the response should not sit in a shared cache.
-      "Cache-Control": "private, max-age=31536000, immutable",
+      // immutable in the strict sense. Public, so Cloudflare can keep
+      // it and remote viewers don't pull every poster over the home upload:
+      // TMDB serves the same picture to anyone, so a shared cache gives nothing
+      // away. Only the bytes; this route never sets a cookie.
+      "Cache-Control": "public, max-age=31536000, immutable",
       // The bytes are an image and nothing else; refuse to let a browser guess
       // otherwise, since they originate upstream rather than from this repo.
       "X-Content-Type-Options": "nosniff",

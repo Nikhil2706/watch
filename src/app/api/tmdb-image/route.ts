@@ -47,8 +47,11 @@ export async function GET(request: Request): Promise<Response> {
       "Content-Type": image.contentType,
       "Content-Length": String(image.bytes.byteLength),
       // A TMDB file path names one immutable rendition, so this can be cached
-      // as hard as the browser allows. Private: the route is behind a session.
-      "Cache-Control": "private, max-age=31536000, immutable",
+      // as hard as the browser allows. Public, so Cloudflare can keep
+      // it and remote viewers don't pull every poster over the home upload:
+      // TMDB serves the same picture to anyone, so a shared cache gives nothing
+      // away. Only the bytes; this route never sets a cookie.
+      "Cache-Control": "public, max-age=31536000, immutable",
       "X-Content-Type-Options": "nosniff",
     },
   });
