@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { focusTvAutofocusTarget } from "@/components/tv/TvProvider";
+import { importOrReload } from "@/lib/chunk-reload";
 
 const POLL_INTERVAL_MS = 2500;
 
@@ -65,7 +66,9 @@ export function TvPairingLogin({
         // A failed chunk load here used to land in the catch below, so the TV
         // said "Could not reach the server" and never started polling.
         try {
-          const QRCode = (await import("qrcode")).default;
+          // Gone after a deploy: the page reloads once for the new build, and
+          // asks for a fresh code (chunk-reload.ts).
+          const QRCode = (await importOrReload(() => import("qrcode"))).default;
           const url = `${window.location.origin}/pair?code=${encodeURIComponent(data.code)}`;
           const dataUrl = await QRCode.toDataURL(url, { margin: 1, width: 220 });
           if (!cancelled) setQrDataUrl(dataUrl);

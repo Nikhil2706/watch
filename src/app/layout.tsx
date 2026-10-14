@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 
+import { ChunkReloadListener } from "@/components/ChunkReloadListener";
 import { NavProgress } from "@/components/NavProgress";
 import { OfflineResume } from "@/components/offline/OfflineResume";
 import { ScreenAgent } from "@/components/remote/ScreenAgent";
@@ -55,6 +56,8 @@ export default async function RootLayout({
         {/* Navigation feedback that does NOT blank the page — see the
             component for why a generic loading.tsx was the wrong shape here. */}
         <NavProgress />
+        {/* A page left open across a deploy reloads once instead of breaking. */}
+        <ChunkReloadListener />
         <TvProvider initialTvMode={tvMode}>{children}</TvProvider>
         {/* Renders nothing. Registers this browser as a remote-controllable
             screen, but only when it plausibly is a television — see the

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+
+import { reloadOnceForChunkErrorInBrowser } from "@/lib/chunk-reload";
 
 /**
  * Root-layout error boundary — only fires when the crash is bad enough to
@@ -8,6 +10,9 @@ import { useEffect } from "react";
  * Same reporting as error.tsx, kept separate because Next requires this file
  * to be fully self-contained (it cannot assume globals.css or the root
  * layout rendered at all).
+ *
+ * A missing code chunk after a deploy reloads the page once instead, as in
+ * error.tsx (chunk-reload.ts).
  */
 export default function GlobalError({
   error,
@@ -16,7 +21,13 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const [reloading, setReloading] = useState(false);
+
   useEffect(() => {
+    if (reloadOnceForChunkErrorInBrowser(error)) {
+      setReloading(true);
+      return;
+    }
     void fetch("/api/client-error", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -44,25 +55,31 @@ export default function GlobalError({
           padding: 20,
         }}
       >
-        <div>
-          <strong style={{ display: "block", marginBottom: 6, fontSize: "1.1rem" }}>Something went wrong</strong>
-          <p style={{ color: "#939cad" }}>The site ran into a problem. It&apos;s been reported.</p>
-          <button
-            onClick={reset}
-            style={{
-              marginTop: 16,
-              padding: "11px 20px",
-              borderRadius: 8,
-              fontWeight: 600,
-              background: "rgba(255,255,255,.14)",
-              color: "#f2f4f8",
-              border: 0,
-              cursor: "pointer",
-            }}
-          >
-            Try again
-          </button>
-        </div>
+        {reloading ? (
+          <p style={{ color: "#939cad" }} role="status">
+            Updating to the latest version…
+          </p>
+        ) : (
+          <div>
+            <strong style={{ display: "block", marginBottom: 6, fontSize: "1.1rem" }}>Something went wrong</strong>
+            <p style={{ color: "#939cad" }}>The site ran into a problem. It&apos;s been reported.</p>
+            <button
+              onClick={reset}
+              style={{
+                marginTop: 16,
+                padding: "11px 20px",
+                borderRadius: 8,
+                fontWeight: 600,
+                background: "rgba(255,255,255,.14)",
+                color: "#f2f4f8",
+                border: 0,
+                cursor: "pointer",
+              }}
+            >
+              Try again
+            </button>
+          </div>
+        )}
       </body>
     </html>
   );
