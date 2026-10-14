@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { bestOffset, clockSample, type ClockSample } from "@/lib/party-sync";
+
 /**
  * Client side of the watch-party realtime protocol.
  *
@@ -37,11 +39,20 @@ export interface PartyParticipant {
   isController: boolean;
 }
 
+/** Positions are stamped with the server time they were true at (`at`); see party-sync.ts. */
 export interface PartySyncEvent {
   action: "play" | "pause" | "seek";
   positionSeconds: number;
+  /** The room's play state after the action (a seek keeps whatever it was). */
+  paused: boolean;
+  at: number;
   by: string;
 }
+
+/** Round trips used for the clock estimate: a few on connecting, then one now and then. */
+const CLOCK_PINGS_ON_CONNECT = 3;
+const CLOCK_PING_INTERVAL_MS = 30_000;
+const CLOCK_SAMPLES_KEPT = 8;
 
 const RECONNECT_DELAY_MS = 2000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
@@ -62,10 +73,19 @@ export function usePartySocket(roomId: string) {
   /** The room's chat history has arrived at least once (so an unread count has a baseline). */
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [participants, setParticipants] = useState<PartyParticipant[]>([]);
-  const [initialState, setInitialState] = useState<{ positionSeconds: number; paused: boolean; receivedAt: number } | null>(null);
+  const [initialState, setInitialState] = useState<{ positionSeconds: number; paused: boolean; at: number } | null>(null);
   const [lastSync, setLastSync] = useState<PartySyncEvent | null>(null);
   /** The lead controller's heartbeat while playing — a fresh object every time, so an effect on it re-runs. */
-  const [lastPosition, setLastPosition] = useState<{ positionSeconds: number } | null>(null);
+  const [lastPosition, setLastPosition] = useState<{ positionSeconds: number; at: number } | null>(null);
+  /** The stream that sends heartbeats, as the server last named it. */
+  const [leaderClientId, setLeaderClientId] = useState<string | null>(null);
+
+  /**
+   * Server time ≈ Date.now() + offset, from the quickest recent round trip.
+   * Every sync, heartbeat and ping reply carries the server's time.
+   */
+  const clockSamples = useRef<ClockSample[]>([]);
+  const serverNow = useCallback(() => Date.now() + bestOffset(clockSamples.current), []);
   const [ended, setEnded] = useState(false);
 
   const sourceRef = useRef<EventSource | null>(null);
@@ -114,18 +134,23 @@ export function usePartySocket(roomId: string) {
             setInitialState({
               positionSeconds: Number(msg.positionSeconds),
               paused: Boolean(msg.paused),
-              receivedAt: Date.now(),
+              at: Number(msg.at),
             });
             break;
           case "sync":
             setLastSync({
               action: msg.action as PartySyncEvent["action"],
               positionSeconds: Number(msg.positionSeconds),
+              paused: Boolean(msg.paused),
+              at: Number(msg.at),
               by: String(msg.by),
             });
             break;
           case "position":
-            setLastPosition({ positionSeconds: Number(msg.positionSeconds) });
+            setLastPosition({ positionSeconds: Number(msg.positionSeconds), at: Number(msg.at) });
+            break;
+          case "leader":
+            setLeaderClientId(typeof msg.clientId === "string" ? msg.clientId : null);
             break;
           case "ended":
             endedRef.current = true;
@@ -186,14 +211,25 @@ export function usePartySocket(roomId: string) {
   const post = useCallback(
     async (payload: Record<string, unknown>) => {
       try {
+        const sentAt = Date.now();
         const response = await fetch(`/api/party/${encodeURIComponent(roomId)}/send`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        const receivedAt = Date.now();
         if (response.status === 410) {
           endedRef.current = true;
           setEnded(true);
+        }
+        if (response.ok) {
+          const data = (await response.json().catch(() => null)) as { serverTime?: unknown } | null;
+          if (typeof data?.serverTime === "number") {
+            clockSamples.current = [
+              ...clockSamples.current,
+              clockSample(sentAt, data.serverTime, receivedAt),
+            ].slice(-CLOCK_SAMPLES_KEPT);
+          }
         }
         return response.ok;
       } catch {
@@ -203,15 +239,34 @@ export function usePartySocket(roomId: string) {
     [roomId],
   );
 
+  // A few round trips as soon as the stream is up, then one every so often:
+  // non-controllers send nothing else, and still need to know the server's time.
+  useEffect(() => {
+    if (!connected) return;
+    let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (let i = 0; i < CLOCK_PINGS_ON_CONNECT; i++) {
+      timers.push(setTimeout(() => !cancelled && void post({ type: "ping" }), i * 400));
+    }
+    const interval = setInterval(() => void post({ type: "ping" }), CLOCK_PING_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+      clearInterval(interval);
+    };
+  }, [connected, post]);
+
   const sendChat = useCallback((body: string) => void post({ type: "chat", body }), [post]);
+  // sentAt: when the position was read, by the server's clock, so the time
+  // the request spends travelling is not counted against it.
   const sendSync = useCallback(
     (action: "play" | "pause" | "seek", positionSeconds: number) =>
-      void post({ type: "sync", action, positionSeconds, clientId }),
-    [post, clientId],
+      void post({ type: "sync", action, positionSeconds, sentAt: serverNow(), clientId }),
+    [post, clientId, serverNow],
   );
   const sendPosition = useCallback(
-    (positionSeconds: number) => void post({ type: "position", positionSeconds, clientId }),
-    [post, clientId],
+    (positionSeconds: number) => void post({ type: "position", positionSeconds, sentAt: serverNow(), clientId }),
+    [post, clientId, serverNow],
   );
   const grant = useCallback((targetId: string) => void post({ type: "grant", targetId }), [post]);
   const revoke = useCallback((targetId: string) => void post({ type: "revoke", targetId }), [post]);
@@ -238,6 +293,9 @@ export function usePartySocket(roomId: string) {
     initialState,
     lastSync,
     lastPosition,
+    leaderClientId,
+    clientId,
+    serverNow,
     ended,
     sendChat,
     sendSync,

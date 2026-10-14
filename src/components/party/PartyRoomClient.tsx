@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PlayerMount, type PlayerMountProps } from "@/components/media/PlayerMount";
 import { useTvBack, useTvMode } from "@/components/tv/TvProvider";
 import { getFocusableElements } from "@/lib/tv/spatial-nav";
-import { viewerIsController } from "@/lib/party-sync";
+import { heartbeatRole, viewerIsController } from "@/lib/party-sync";
 
 import { PartyChatPanel } from "./PartyChatPanel";
 import { PartyGuestLinksPanel, type PartyGuestLinkView } from "./PartyGuestLinksPanel";
@@ -57,6 +57,7 @@ export function PartyRoomClient({
 }) {
   const socket = usePartySocket(roomId);
   const isController = viewerIsController(isCreator, socket.participants, myId);
+  const role = heartbeatRole({ isController, clientId: socket.clientId, leaderClientId: socket.leaderClientId });
 
   const tvMode = useTvMode();
   const narrow = useSyncExternalStore(
@@ -246,6 +247,9 @@ export function PartyRoomClient({
               {...player}
               party={{
                 isController,
+                sendsHeartbeat: role.sends,
+                followsHeartbeat: role.follows,
+                serverNow: socket.serverNow,
                 sendSync: socket.sendSync,
                 sendPosition: socket.sendPosition,
                 lastSync: socket.lastSync,
