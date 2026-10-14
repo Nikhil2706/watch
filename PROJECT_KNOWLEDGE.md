@@ -604,6 +604,26 @@ transcoded for everyone ("VideoLevelNotSupported"). The profile now lives in
 watch, party and screening pages pass the kind of client in; nothing else in
 the profile changed.
 
+### 2026-10-14 — Uploads are virus-scanned inside the stack (ClamAV in the worker)
+Branch off `platform-additions`, not deployed yet. Langlois-mode uploads waited in
+quarantine for a Windows Defender task that was never set up (health:
+`uploadScanner.lastRunAt = null`), so none could ever be approved. On the Mac's
+Docker stack the worker now does it (`scripts/upload-scan.mjs`):
+
+- **ClamAV's clamscan, on demand**, in the worker image (no resident clamd: it
+  would hold 1+ GB of signatures all day for a handful of uploads). freshclam
+  fetches signatures into the `clamav-db` volume just before a scan, at most
+  daily (~300 MB the first time).
+- **Never while someone is watching** (the same PAUSE_WHILE_STREAMING check as
+  conversions), and it stops between files if someone starts.
+- **Verdicts go where the console and health already look:** `clean` (approvable),
+  `infected` with the threat in `scan_result` (never approvable; the file stays in
+  quarantine until the curator rejects it, plus an error in the activity log under
+  "Upload scan" and an amber health card), or a failed attempt ("Scan failed: ...",
+  retried an hour later). The worker never moves or deletes an upload.
+- **Memory:** the worker's limit goes from 1g to 2g; a scan takes ~1.2-1.5 GB while
+  it runs. A scan killed for memory is recorded as failed, never as clean.
+
 ### 2026-10-14 (later still) — Watch party: seven ideas taken from open-source watch parties
 We read the sync and chat code of Jellyfin SyncPlay, SyncTube, CyTube and
 WatchParty, and took the best of each:

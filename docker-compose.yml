@@ -204,8 +204,16 @@ services:
     # on this box, and PAUSE_WHILE_STREAMING already keeps it from running
     # concurrently with active playback by design — this ceiling is a safety
     # net for the cases that doesn't cover (multiple simultaneous conversions).
+    #
+    # 2g, was 1g, for the upload virus scan: clamscan loads ClamAV's whole
+    # signature database (~8 million signatures) into memory for each scan,
+    # about 1.2-1.5 GB, then gives it back. Conversions and scans take turns
+    # in one loop, so they never add up. Under 2g a scan is killed for memory;
+    # it is then logged as a failed scan and retried an hour later, never
+    # passed. Docker Desktop's VM must have room for this plus Jellyfin and
+    # the gate (Settings > Resources > Memory; 6 GB is comfortable).
     cpus: "1.5"
-    mem_limit: 1g
+    mem_limit: 2g
     cpu_shares: 512
     depends_on:
       jellyfin:
@@ -246,10 +254,27 @@ services:
       # this is the process that actually produces them; the gate only reads
       # what lands here (see the gate service's own mount above).
       - MEDIA_DOWNLOADS_CACHE=/downloads-cache
+      # Virus scan of Langlois-mode uploads waiting in quarantine (ClamAV,
+      # scripts/upload-scan.mjs). Never while someone is watching (the same
+      # PAUSE_WHILE_STREAMING check). Signatures are fetched by freshclam just
+      # before a scan when a day old. UPLOAD_SCAN=false turns it off; uploads
+      # then wait and cannot be approved.
+      - UPLOAD_SCAN=${UPLOAD_SCAN:-true}
+      - MEDIA_QUARANTINE=/quarantine
+      - CLAMAV_DB=/var/lib/clamav
+      # Bigger files are scanned up to this much (ClamAV's ceiling is 4 GB);
+      # the verdict then says only part of it was scanned.
+      - UPLOAD_SCAN_MAX_MB=${UPLOAD_SCAN_MAX_MB:-4000}
     volumes:
       # Same database file as the gate. Safe because it is in WAL mode — the
       # worker's progress writes do not block the gateway's page renders.
       - gate-data:/app/data
+      # The uploads waiting for their scan. Read-write only for the scanner's
+      # heartbeat file; the worker never moves or deletes an upload (approve
+      # and reject are the gate's, the curator's decision).
+      - ${MEDIA_QUARANTINE_PATH:-./media-quarantine}:/quarantine
+      # ClamAV's signatures, kept across rebuilds (~300 MB the first time).
+      - clamav-db:/var/lib/clamav
       - ${MEDIA_INCOMING:-./media/incoming}:/incoming
       # Writable here, unlike the read-only mount on the jellyfin service: this
       # is the process that publishes new files into the library.
@@ -468,3 +493,4 @@ volumes:
   jellyfin-cache:
   gate-data:
   dupefinder-data:
+  clamav-db:

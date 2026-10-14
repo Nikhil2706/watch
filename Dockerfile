@@ -100,9 +100,25 @@ ENV NODE_OPTIONS=--disable-warning=ExperimentalWarning
 # the actual GPU generation before reinstalling either package.
 RUN apk add --no-cache ffmpeg
 
+# ClamAV for the virus scan of uploads (scripts/upload-scan.mjs): clamscan,
+# run on demand, and freshclam to fetch signatures into /var/lib/clamav (a
+# volume, so the ~300 MB download survives a rebuild). No clamd: a resident
+# daemon would hold 1+ GB of signatures in memory all day for a handful of
+# uploads. Our own freshclam.conf: the packaged one is a sample, and
+# TestDatabases would load every download a second time just to test it.
+RUN apk add --no-cache clamav-scanner freshclam \
+ && printf '%s\n' \
+      'DatabaseDirectory /var/lib/clamav' \
+      'DatabaseMirror database.clamav.net' \
+      'TestDatabases no' \
+      'Foreground yes' \
+      > /etc/clamav/freshclam.conf \
+ && mkdir -p /var/lib/clamav && chown -R node:node /var/lib/clamav
+
 # The worker is a single dependency-free script; it needs no node_modules.
 COPY --chown=node:node scripts/media-worker.mjs ./scripts/media-worker.mjs
 COPY --chown=node:node scripts/file-check.mjs ./scripts/file-check.mjs
+COPY --chown=node:node scripts/upload-scan.mjs ./scripts/upload-scan.mjs
 
 RUN mkdir -p /app/data && chown -R node:node /app
 USER node

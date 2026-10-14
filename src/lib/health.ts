@@ -72,20 +72,28 @@ export interface HealthSnapshot {
   libraryNotify: LibraryNotifyStatus | null;
   tvNotify: TvNotifyStatus | null;
   /**
-   * The Windows-side antivirus scan of uploads. `stalled` is the one state
-   * that needs a person: something is waiting and the scanner has not run
-   * lately (or ever), so it will wait for good.
+   * The worker's antivirus scan of uploads (scripts/upload-scan.mjs).
+   * `stalled` is the one state that needs a person: something is waiting and
+   * the scanner has not run lately (or ever), so it will wait for good.
+   * `infected` uploads need one too: rejecting.
    */
   uploadScanner: UploadScannerStatus & { stalled: boolean };
 }
 
-/** The scanner's task runs every five minutes; three missed runs with something waiting is a stall. */
+/**
+ * The worker looks at uploads about once a minute (and while scanning a big
+ * file, at its start); fifteen quiet minutes with something waiting is a stall.
+ */
 const SCANNER_STALL_MS = 15 * 60 * 1000;
+const SCAN_ALLOWANCE_MS = 2 * 60 * 60 * 1000 + SCANNER_STALL_MS;
 
 function checkUploadScanner(): HealthSnapshot["uploadScanner"] {
   const status = getUploadScannerStatus();
   const now = Date.now();
-  const scannerQuiet = status.lastRunAt === null || now - status.lastRunAt > SCANNER_STALL_MS;
+  // A big file takes a while, and the heartbeat is written as each scan starts;
+  // the worker gives one scan two hours (upload-scan.mjs) before calling it failed.
+  const allowance = status.scanningSince !== null ? SCAN_ALLOWANCE_MS : SCANNER_STALL_MS;
+  const scannerQuiet = status.lastRunAt === null || now - status.lastRunAt > allowance;
   const waitedLong = status.oldestWaitingAt !== null && now - status.oldestWaitingAt > SCANNER_STALL_MS;
   return { ...status, stalled: status.waiting > 0 && scannerQuiet && waitedLong };
 }
@@ -322,6 +330,7 @@ function computeOverall(snapshot: Omit<HealthSnapshot, "overall" | "checkedAt">)
     (snapshot.storage.freeFraction !== null && snapshot.storage.freeFraction < LOW_STORAGE_FRACTION) ||
     snapshot.lastLibraryScan.hoursAgo === null ||
     snapshot.uploadScanner.stalled ||
+    snapshot.uploadScanner.infected > 0 ||
     snapshot.externalApis.some((a) => a.failureCount > 0) ||
     snapshot.recentIssueCount > 0;
   if (warning) return "warning";

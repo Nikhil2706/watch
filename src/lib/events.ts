@@ -22,7 +22,9 @@ export type EventCategory =
   | "playback"
   | "client"
   | "media_job"
-  | "scrape_job";
+  | "scrape_job"
+  /** The worker's virus scan of uploads (scripts/upload-scan.mjs). */
+  | "upload";
 
 export type EventSeverity = "info" | "warning" | "error" | "critical";
 
