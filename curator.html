@@ -4162,25 +4162,7 @@
         return;
       }
 
-      rows.push({
-        kind: "film",
-        id: it.id,
-        item: it,
-        name: it.name,
-        year: it.year,
-        poster: it.posterUrl,
-        needsDecision: it.needsDecision,
-        isDuplicate: it.isDuplicate,
-        isThinMetadata: it.isThinMetadata,
-        isMissingSubtitles: it.isMissingSubtitles,
-        isDamaged: Boolean(it.damage && it.damage.verdict === "damaged" && !it.damageAllowed),
-        isWhitelisted: it.isWhitelisted,
-        isExcluded: it.isExcluded,
-        // Filled in by sfApplyToRows once the marks and any suggestions are
-        // loaded; rebuilding rows must not drop them.
-        isSpecialFeature: false,
-        featureGuess: null
-      });
+      rows.push(lwFilmRow(it));
     });
 
     lw.rows = rows;
@@ -4208,8 +4190,36 @@
     lwRender();
   }
 
+  function lwFilmRow(it) {
+    return {
+      kind: "film",
+      id: it.id,
+      item: it,
+      name: it.name,
+      year: it.year,
+      poster: it.posterUrl,
+      needsDecision: it.needsDecision,
+      isDuplicate: it.isDuplicate,
+      isThinMetadata: it.isThinMetadata,
+      isMissingSubtitles: it.isMissingSubtitles,
+      isDamaged: Boolean(it.damage && it.damage.verdict === "damaged" && !it.damageAllowed),
+      isWhitelisted: it.isWhitelisted,
+      isExcluded: it.isExcluded,
+      // Filled in by sfApplyToRows once the marks and any suggestions are
+      // loaded; rebuilding rows must not drop them.
+      isSpecialFeature: false,
+      featureGuess: null
+    };
+  }
+
   function lwRowById(id) {
-    return lw.rows.filter(function (r) { return r.id === id; })[0] || null;
+    var row = lw.rows.filter(function (r) { return r.id === id; })[0];
+    if (row) return row;
+    // An episode is not a row of its own: it lives inside its show's row.
+    // "Open" on an episode used to land here and say the item was gone, so
+    // its own buttons (damaged file, subtitles, poster) were out of reach.
+    var it = review.itemsById[id];
+    return it ? lwFilmRow(it) : null;
   }
 
   function lwMatches(row, q) {
@@ -4592,8 +4602,12 @@
       '<div class="subs-plan-slot" data-subs-plan-for="' + esc(row.groupId) + '"></div>' +
       '<div class="lw-section">Files</div>' +
       '<div class="lw-list-box">' + row.members.map(function (m) {
+        // Which episodes made the show "Damaged": only those are off the site.
+        var dmg = m.damage && m.damage.verdict === "damaged"
+          ? '<span style="color:#e5484d;font-weight:600">' + (m.damageAllowed ? "damaged, shown" : "damaged") + '</span> '
+          : "";
         return '<div class="lw-ep">' +
-          '<span class="lw-ep-n">' + (m.isMissingSubtitles ? "no subs" : "") + '</span>' +
+          '<span class="lw-ep-n">' + dmg + (m.isMissingSubtitles ? "no subs" : "") + '</span>' +
           '<span class="lw-ep-t">' + esc(m.name) + '</span>' +
           '<button class="ghost" data-lw-action="select-member" data-lw-target="' + esc(m.id) + '">Open</button>' +
           '</div>';
