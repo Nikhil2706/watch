@@ -1,6 +1,7 @@
 import "server-only";
 
 import { generateId } from "./crypto";
+import { evictIdleOverflow, fanOut, sweepIdle } from "./live-hub";
 
 /**
  * Registry of TV "screens" and the command bus a phone uses to drive them.
@@ -133,13 +134,13 @@ function sweep(now: number): void {
   const state = bus();
   if (now - state.lastSweep < SWEEP_INTERVAL_MS) return;
   state.lastSweep = now;
-  for (const [id, screen] of state.screens) {
-    // A screen with a live SSE subscriber is never swept, even if its
-    // heartbeat is briefly late — the open stream is the better liveness
-    // signal, and dropping it would disconnect a working remote.
-    if (screen.subscribers.size > 0) continue;
-    if (now - screen.lastSeen > SCREEN_TTL_MS) state.screens.delete(id);
-  }
+  // A screen with a live SSE subscriber is never swept, even if its
+  // heartbeat is briefly late (live-hub.ts).
+  sweepIdle(state.screens, liveness, SCREEN_TTL_MS, now);
+}
+
+function liveness(screen: Screen): { streams: number; lastSeen: number } {
+  return { streams: screen.subscribers.size, lastSeen: screen.lastSeen };
 }
 
 /**
@@ -158,15 +159,7 @@ function sweep(now: number): void {
 const MAX_SCREENS_PER_USER = 20;
 
 function evictOverflow(userId: string): void {
-  const state = bus();
-  const owned = [...state.screens.values()].filter((s) => s.userId === userId);
-  if (owned.length < MAX_SCREENS_PER_USER) return;
-
-  const excess = owned.length - MAX_SCREENS_PER_USER + 1;
-  const reclaimable = owned
-    .filter((s) => s.subscribers.size === 0)
-    .sort((a, b) => a.lastSeen - b.lastSeen);
-  for (const screen of reclaimable.slice(0, excess)) state.screens.delete(screen.id);
+  evictIdleOverflow(bus().screens, (s) => s.userId === userId, liveness, MAX_SCREENS_PER_USER);
 }
 
 /**
@@ -328,12 +321,6 @@ export function sendCommand(screenId: string, userId: string, command: RemoteCom
   const screen = bus().screens.get(screenId);
   if (!screen || screen.userId !== userId) return false;
   if (screen.subscribers.size === 0) return false;
-  for (const subscriber of screen.subscribers) {
-    try {
-      subscriber(command);
-    } catch {
-      // A dead stream must not stop the others from getting the command.
-    }
-  }
+  fanOut(screen.subscribers, (subscriber, c: RemoteCommand) => subscriber(c), command);
   return true;
 }

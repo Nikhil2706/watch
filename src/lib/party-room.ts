@@ -5,6 +5,8 @@
  * an argument. No server-only import; nothing here is a secret.
  */
 
+import { fanOut } from "./live-hub.ts";
+
 export interface PartyMemberIdentity {
   kind: "user" | "guest";
   id: string;
@@ -262,14 +264,8 @@ export function findOrigin(room: RoomState, identityId: string, clientId: string
 }
 
 export function broadcast(room: RoomState, event: PartyEvent, except?: Member): void {
-  for (const member of room.members) {
-    if (member === except) continue;
-    try {
-      member.send(event);
-    } catch {
-      // One dead stream must not stop the rest of the room from being told.
-    }
-  }
+  // One dead stream must not stop the rest of the room from being told (live-hub.ts).
+  fanOut(room.members, (member, e: PartyEvent) => member.send(e), event, except);
 }
 
 /** Names the heartbeat source, and tells the room when that changes. */
