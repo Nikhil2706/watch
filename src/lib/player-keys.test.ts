@@ -3,7 +3,9 @@ import { test } from "node:test";
 
 import {
   clampTime,
+  createOkPressGuard,
   nextSpeed,
+  OK_ECHO_MS,
   PLAYER_SHORTCUTS,
   resolveMediaKey,
   resolvePlayerKey,
@@ -120,4 +122,47 @@ test("a remote's media keys mean the film, wherever focus is (the Android TV app
   for (const key of ["Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Escape", " "]) {
     assert.equal(resolveMediaKey(key), null, key);
   }
+});
+
+test("one OK press is one action: a handled OK's release and click are its echo, not a second press", () => {
+  // The TV: OK on the focused Pause button. Vidstack's button acts on the
+  // keydown (and prevents its default); the WebView then "clicks" the button
+  // on release, pointer events included.
+  const guard = createOkPressGuard();
+  guard.noteKeydown("Enter", true, 1000);
+  assert.equal(guard.shouldSwallow("keyup", "Enter", 1080), true, "the release");
+  for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup", "click"]) {
+    assert.equal(guard.shouldSwallow(type, undefined, 1100), true, type);
+  }
+  // Long enough after, a press is a press again.
+  assert.equal(guard.shouldSwallow("pointerup", undefined, 1000 + OK_ECHO_MS + 1), false);
+});
+
+test("an OK nothing acted on keeps its click: that click is the press (a plain button)", () => {
+  const guard = createOkPressGuard();
+  guard.noteKeydown("Enter", false, 1000);
+  assert.equal(guard.shouldSwallow("keyup", "Enter", 1050), false);
+  assert.equal(guard.shouldSwallow("click", undefined, 1060), false);
+});
+
+test("only OK arms it: arrows, and other keys' releases, pass", () => {
+  const guard = createOkPressGuard();
+  guard.noteKeydown("ArrowRight", true, 1000);
+  assert.equal(guard.shouldSwallow("click", undefined, 1050), false, "an arrow was not a press");
+  guard.noteKeydown(" ", true, 2000);
+  assert.equal(guard.shouldSwallow("keyup", " ", 2050), true, "Space is a press too");
+  assert.equal(guard.shouldSwallow("keyup", "ArrowDown", 2050), false);
+  assert.equal(guard.shouldSwallow("keydown", "Enter", 2060), false, "a new keydown is never swallowed");
+});
+
+test("the next real press, after the echo window, acts again (pause, then play, then pause)", () => {
+  const guard = createOkPressGuard();
+  let actions = 0;
+  // Each OK: keydown acts; the WebView's release click follows 80 ms later.
+  for (const at of [0, 2000, 4000]) {
+    actions += 1;
+    guard.noteKeydown("Enter", true, at);
+    if (!guard.shouldSwallow("pointerup", undefined, at + 80)) actions += 1;
+  }
+  assert.equal(actions, 3);
 });
