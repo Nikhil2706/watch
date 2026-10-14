@@ -61,6 +61,7 @@ export function PartyRoomClient({
 }) {
   const socket = usePartySocket(roomId, { watching: player !== null });
   const isController = viewerIsController(isCreator, socket.participants, myId);
+  const myName = socket.participants.find((p) => p.id === myId)?.displayName;
   const role = heartbeatRole({ isController, clientId: socket.clientId, leaderClientId: socket.leaderClientId });
 
   const tvMode = useTvMode();
@@ -341,6 +342,7 @@ export function PartyRoomClient({
                 socket={socket}
                 onMoveOut={closeChat}
                 onClose={closeChat}
+                myName={myName}
               />
               {creatorExtras}
             </div>
@@ -363,6 +365,7 @@ export function PartyRoomClient({
                 isCreator={isCreator}
                 socket={socket}
                 onMoveOut={() => setChatDetached(true)}
+                myName={myName}
               />
               {isCreator ? <PartyGuestLinksPanel roomId={roomId} initialLinks={guestLinks} /> : null}
               {chatDetached ? null : endControls}

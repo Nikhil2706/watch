@@ -13,6 +13,9 @@ import {
   createRoom,
   currentPosition,
   dropLeaderIf,
+  excerpt,
+  groupReactions,
+  REACTION_EMOJI,
   controllerWatching,
   findOrigin,
   GROUP_START_TIMEOUT_MS,
@@ -142,13 +145,23 @@ export function isRoomLive(roomId: string): boolean {
  * Chat persistence — ported unchanged.
  * ------------------------------------------------------------------ */
 
-function saveMessage(roomId: string, identity: PartyIdentity, body: string): PartyChatMessage {
+/** The message a reply answers, if it is a message in this room. */
+function replyTarget(roomId: string, messageId: string | null): PartyChatMessage["replyTo"] {
+  if (!messageId) return null;
+  const row = asRow<{ id: string; display_name: string; body: string }>(
+    getDb().prepare("SELECT id, display_name, body FROM party_messages WHERE id = ? AND room_id = ?").get(messageId, roomId),
+  );
+  return row ? { id: row.id, displayName: row.display_name, excerpt: excerpt(row.body) } : null;
+}
+
+function saveMessage(roomId: string, identity: PartyIdentity, body: string, replyToId: string | null): PartyChatMessage {
   const id = randomUUID();
   const now = Date.now();
+  const replyTo = replyTarget(roomId, replyToId);
   getDb()
     .prepare(
-      `INSERT INTO party_messages (id, room_id, user_id, guest_token, display_name, body, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO party_messages (id, room_id, user_id, guest_token, display_name, body, created_at, reply_to_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -158,27 +171,87 @@ function saveMessage(roomId: string, identity: PartyIdentity, body: string): Par
       identity.displayName,
       body,
       now,
+      replyTo?.id ?? null,
     );
-  return { id, kind: identity.kind, displayName: identity.displayName, body, createdAt: now };
+  return { id, kind: identity.kind, displayName: identity.displayName, body, createdAt: now, replyTo, reactions: [] };
 }
 
 export function loadHistory(roomId: string): PartyChatMessage[] {
-  return asRows<{ id: string; user_id: string | null; display_name: string; body: string; created_at: number }>(
-    getDb()
+  const db = getDb();
+  const rows = asRows<{
+    id: string;
+    user_id: string | null;
+    display_name: string;
+    body: string;
+    created_at: number;
+    reply_id: string | null;
+    reply_name: string | null;
+    reply_body: string | null;
+  }>(
+    db
       .prepare(
-        `SELECT id, user_id, display_name, body, created_at FROM party_messages
-          WHERE room_id = ? ORDER BY created_at DESC LIMIT ?`,
+        `SELECT m.id, m.user_id, m.display_name, m.body, m.created_at,
+                r.id AS reply_id, r.display_name AS reply_name, r.body AS reply_body
+           FROM party_messages m
+           LEFT JOIN party_messages r ON r.id = m.reply_to_id AND r.room_id = m.room_id
+          WHERE m.room_id = ? ORDER BY m.created_at DESC LIMIT ?`,
       )
       .all(roomId, HISTORY_LIMIT),
-  )
-    .reverse()
-    .map((r) => ({
-      id: r.id,
-      kind: r.user_id ? ("user" as const) : ("guest" as const),
-      displayName: r.display_name,
-      body: r.body,
-      createdAt: r.created_at,
-    }));
+  ).reverse();
+  const reactionRows = asRows<{ message_id: string; emoji: string; display_name: string }>(
+    db
+      .prepare(
+        `SELECT x.message_id, x.emoji, x.display_name FROM party_message_reactions x
+           JOIN party_messages m ON m.id = x.message_id
+          WHERE m.room_id = ? ORDER BY x.created_at`,
+      )
+      .all(roomId),
+  );
+  const reactionsFor = new Map<string, { emoji: string; displayName: string }[]>();
+  for (const r of reactionRows) {
+    const list = reactionsFor.get(r.message_id) ?? [];
+    list.push({ emoji: r.emoji, displayName: r.display_name });
+    reactionsFor.set(r.message_id, list);
+  }
+  return rows.map((r) => ({
+    id: r.id,
+    kind: r.user_id ? ("user" as const) : ("guest" as const),
+    displayName: r.display_name,
+    body: r.body,
+    createdAt: r.created_at,
+    replyTo: r.reply_id ? { id: r.reply_id, displayName: r.reply_name ?? "", excerpt: excerpt(r.reply_body ?? "") } : null,
+    reactions: groupReactions(reactionsFor.get(r.id) ?? []),
+  }));
+}
+
+/**
+ * Adds this person's reaction to a message, or takes it back if they had
+ * already reacted with that emoji. Everyone gets the message's new set.
+ */
+export function toggleReaction(roomId: string, identity: PartyIdentity, messageId: string, emoji: string): boolean {
+  if (!(REACTION_EMOJI as readonly string[]).includes(emoji)) return false;
+  const db = getDb();
+  const inRoom = asRow<{ n: number }>(
+    db.prepare("SELECT COUNT(*) AS n FROM party_messages WHERE id = ? AND room_id = ?").get(messageId, roomId),
+  );
+  if (!inRoom?.n) return false;
+  const reactor = `${identity.kind === "user" ? "u" : "g"}:${identity.id}`;
+  const removed = db
+    .prepare("DELETE FROM party_message_reactions WHERE message_id = ? AND reactor = ? AND emoji = ?")
+    .run(messageId, reactor, emoji);
+  if (Number(removed.changes) === 0) {
+    db.prepare(
+      "INSERT INTO party_message_reactions (message_id, reactor, display_name, emoji, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).run(messageId, reactor, identity.displayName, emoji, Date.now());
+  }
+  const reactions = groupReactions(
+    asRows<{ emoji: string; display_name: string }>(
+      db.prepare("SELECT emoji, display_name FROM party_message_reactions WHERE message_id = ? ORDER BY created_at").all(messageId),
+    ).map((r) => ({ emoji: r.emoji, displayName: r.display_name })),
+  );
+  const room = bus().rooms.get(roomId);
+  if (room) broadcast(room, { type: "reactions", messageId, reactions });
+  return true;
 }
 
 /* ------------------------------------------------------------------ *
@@ -251,10 +324,15 @@ export function joinRoom(
 
 export const MAX_MESSAGE_CHARS = 1000;
 
-export function postChat(roomId: string, identity: PartyIdentity, rawBody: string): PartyChatMessage | null {
+export function postChat(
+  roomId: string,
+  identity: PartyIdentity,
+  rawBody: string,
+  replyToId: string | null = null,
+): PartyChatMessage | null {
   const body = rawBody.trim().slice(0, MAX_MESSAGE_CHARS);
   if (!body) return null;
-  const message = saveMessage(roomId, identity, body);
+  const message = saveMessage(roomId, identity, body, replyToId);
   const room = bus().rooms.get(roomId);
   if (room) broadcast(room, { type: "chat", message });
   return message;

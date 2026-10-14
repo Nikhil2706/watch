@@ -27,7 +27,7 @@ export default async function PartyChatPage({ params }: { params: Promise<{ room
       <div className="player-bar">
         <span className="title">{room.filmTitle}</span>
       </div>
-      <PartyChatOnly roomId={roomId} isCreator={room.creatorUserId === identity.id} />
+      <PartyChatOnly roomId={roomId} isCreator={room.creatorUserId === identity.id} myName={identity.displayName} />
     </div>
   );
 }

@@ -3898,6 +3898,101 @@ html[data-tv="true"] .appbar-more {
   gap: 8px;
 }
 
+/* Reactions and replies (from WatchParty's chat). */
+.party-message {
+  position: relative;
+}
+
+.party-message-quote {
+  display: block;
+  margin-bottom: 2px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+  font-size: 0.74rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.party-message-actions-btn {
+  width: auto;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  cursor: pointer;
+  opacity: 0.55;
+}
+
+.party-message:hover .party-message-actions-btn,
+.party-message-actions-btn:focus-visible,
+.party-message-actions-btn[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.party-message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.party-message-actions button,
+.party-reaction {
+  width: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.party-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.party-reaction-mine {
+  border-color: var(--accent);
+  background: rgba(91, 141, 239, 0.16);
+}
+
+.party-replying {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.party-replying span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.party-replying button {
+  width: auto;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
 /* The room's own lines: who paused, who jumped. Quieter than what people say. */
 .party-message-system {
   color: var(--muted);
@@ -4133,6 +4228,7 @@ html[data-tv="true"] .appbar-more {
   color: #fff;
   font-size: 1rem;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 

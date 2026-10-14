@@ -31,6 +31,10 @@ export interface PartyChatMessage {
   displayName: string;
   body: string;
   createdAt: number;
+  /** The message this one answers, quoted above it. */
+  replyTo?: { id: string; displayName: string; excerpt: string } | null;
+  /** Emoji reactions and who gave them (by name). */
+  reactions?: { emoji: string; by: string[] }[];
 }
 
 export interface PartyParticipant {
@@ -137,6 +141,12 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
           case "chat":
             setMessages((prev) => [...prev, msg.message as PartyChatMessage]);
             break;
+          case "reactions": {
+            const id = String(msg.messageId);
+            const reactions = (msg.reactions as PartyChatMessage["reactions"]) ?? [];
+            setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, reactions } : m)));
+            break;
+          }
           case "participants":
             setParticipants((msg.list as PartyParticipant[]) ?? []);
             break;
@@ -275,7 +285,12 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
     };
   }, [connected, post]);
 
-  const sendChat = useCallback((body: string) => void post({ type: "chat", body }), [post]);
+  const sendChat = useCallback(
+    (body: string, replyToId: string | null = null) => void post({ type: "chat", body, replyToId }),
+    [post],
+  );
+  /** Adds this person's reaction, or takes it back if already given. */
+  const react = useCallback((messageId: string, emoji: string) => void post({ type: "react", messageId, emoji }), [post]);
   // sentAt: when the position was read, by the server's clock, so the time
   // the request spends travelling is not counted against it.
   const sendSync = useCallback(
@@ -332,6 +347,7 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
     serverNow,
     ended,
     sendChat,
+    react,
     sendSync,
     sendPosition,
     sendReport,

@@ -18,6 +18,35 @@ export interface PartyChatMessage {
   displayName: string;
   body: string;
   createdAt: number;
+  /** The message this one answers, shown above it as a short quote. */
+  replyTo?: { id: string; displayName: string; excerpt: string } | null;
+  /** Emoji reactions, with who reacted (names only: a guest's id is their way in). */
+  reactions?: PartyReaction[];
+}
+
+export interface PartyReaction {
+  emoji: string;
+  by: string[];
+}
+
+/** The reactions on offer, taken from WatchParty's chat. A fixed set: free text here would be a second chat. */
+export const REACTION_EMOJI = ["👍", "❤️", "😂", "😮", "😢", "🔥"] as const;
+
+/** A reply's quote of the message it answers. */
+export function excerpt(body: string, max = 80): string {
+  const flat = body.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
+/** Reaction rows (oldest first) as one entry per emoji, in the order each was first used. */
+export function groupReactions(rows: ReadonlyArray<{ emoji: string; displayName: string }>): PartyReaction[] {
+  const byEmoji = new Map<string, string[]>();
+  for (const r of rows) {
+    const names = byEmoji.get(r.emoji) ?? [];
+    if (!names.includes(r.displayName)) names.push(r.displayName);
+    byEmoji.set(r.emoji, names);
+  }
+  return [...byEmoji].map(([emoji, by]) => ({ emoji, by }));
 }
 
 export interface PartyParticipant {
@@ -45,6 +74,8 @@ export type PartyEvent =
   | { type: "state"; positionSeconds: number; paused: boolean; at: number }
   | { type: "participants"; list: PartyParticipant[] }
   | { type: "chat"; message: PartyChatMessage }
+  /** A message's reactions changed: the whole new set for it. */
+  | { type: "reactions"; messageId: string; reactions: PartyReaction[] }
   | { type: "sync"; action: PartySyncAction; positionSeconds: number; paused: boolean; at: number; by: string }
   /** The leader's position while playing, every few seconds, so followers can correct drift. */
   | { type: "position"; positionSeconds: number; at: number }

@@ -35,7 +35,7 @@
  * what makes an existing database replay the seed block below and gain the
  * row (see the v24/v27 notes in db.ts for what happens without one).
  */
-export const SCHEMA_VERSION = 55;
+export const SCHEMA_VERSION = 56;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -991,10 +991,27 @@ CREATE TABLE IF NOT EXISTS party_messages (
   display_name TEXT NOT NULL,
   body         TEXT NOT NULL,
   created_at   INTEGER NOT NULL,
+  -- The message this one answers (v56). Added by ALTER in db.ts for
+  -- databases from before it; here for fresh ones.
+  reply_to_id  TEXT,
   CHECK ((user_id IS NULL) != (guest_token IS NULL))
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_party_messages_room ON party_messages(room_id, created_at);
+
+-- Emoji reactions on a party chat message (v56). One row per person per
+-- emoji per message; reacting again takes it back. reactor is "u:<userId>"
+-- or "g:<guest token>" so one key covers both kinds of participant, and is
+-- never sent to clients (a guest token is that guest's way in); only
+-- display_name is.
+CREATE TABLE IF NOT EXISTS party_message_reactions (
+  message_id   TEXT NOT NULL REFERENCES party_messages(id) ON DELETE CASCADE,
+  reactor      TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  emoji        TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY (message_id, reactor, emoji)
+) STRICT;
 
 -- Who besides the room's creator currently has playback control (pause,
 -- seek) — granted via the participant list's three-dot menu. The creator

@@ -1,4 +1,13 @@
-import { isRoomLive, postChat, postPosition, postReady, postReport, postSync, setController } from "@/lib/party-bus";
+import {
+  isRoomLive,
+  postChat,
+  postPosition,
+  postReady,
+  postReport,
+  postSync,
+  setController,
+  toggleReaction,
+} from "@/lib/party-bus";
 import { resolvePartyIdentity } from "@/lib/party-identity";
 import { cleanClientId } from "@/lib/party-room";
 import { checkRateLimit, PARTY_SEND_LIMIT, rateLimitHeaders } from "@/lib/ratelimit";
@@ -15,7 +24,8 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
  * (see src/lib/party-bus.ts). Mirrors the old socket message types one for one
  * so the protocol did not have to be redesigned along with the transport:
  *
- *   {type:"chat",   body}
+ *   {type:"chat",   body, replyToId?}
+ *   {type:"react",  messageId, emoji}   -- toggles this person's reaction
  *   {type:"sync",   action:"play"|"pause"|"seek", positionSeconds, sentAt?, clientId?}
  *   {type:"position", positionSeconds, sentAt?, clientId?}  -- the leader's heartbeat while playing
  *   {type:"report", positionSeconds, paused, sentAt?, clientId?}  -- any watching stream, for the drift beside names
@@ -68,7 +78,8 @@ export async function POST(
   switch (body.type) {
     case "chat": {
       const text = typeof body.body === "string" ? body.body : "";
-      const message = postChat(roomId, identity, text);
+      const replyToId = typeof body.replyToId === "string" ? body.replyToId.slice(0, 64) : null;
+      const message = postChat(roomId, identity, text, replyToId);
       if (!message) {
         return Response.json({ error: "invalid_request", message: "Empty message." }, { status: 400, headers: NO_STORE });
       }
@@ -121,6 +132,15 @@ export async function POST(
       if (!startId) return Response.json({ error: "invalid_request" }, { status: 400, headers: NO_STORE });
       const started = postReady(roomId, identity, cleanClientId(body.clientId), startId, rttMs);
       return Response.json({ ok: true, started, serverTime: Date.now() }, { headers: NO_STORE });
+    }
+
+    case "react": {
+      const messageId = typeof body.messageId === "string" ? body.messageId.slice(0, 64) : "";
+      const emoji = typeof body.emoji === "string" ? body.emoji : "";
+      if (!messageId || !toggleReaction(roomId, identity, messageId, emoji)) {
+        return Response.json({ error: "invalid_request" }, { status: 400, headers: NO_STORE });
+      }
+      return Response.json({ ok: true }, { headers: NO_STORE });
     }
 
     case "ping":

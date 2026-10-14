@@ -3,6 +3,8 @@ import { test } from "node:test";
 
 import {
   addMember,
+  excerpt,
+  groupReactions,
   controllerWatching,
   pauseOrphaned,
   applyHeartbeat,
@@ -344,4 +346,22 @@ test("start together: a seek while playing waits too; a seek while paused does n
   assert.equal(applySync(room, laptop.member, tester, "seek", 50, 0), "applied", "paused room: just a seek");
   playNow(room, laptop.member, tester, "play", 50, 1000);
   assert.equal(applySync(room, laptop.member, tester, "seek", 900, 5000), "waiting");
+});
+
+test("reactions are grouped per emoji with who reacted; a reply quotes a short excerpt", () => {
+  assert.deepEqual(
+    groupReactions([
+      { emoji: "😂", displayName: "tester" },
+      { emoji: "👍", displayName: "mammannii" },
+      { emoji: "😂", displayName: "mammannii" },
+      { emoji: "😂", displayName: "mammannii" }, // the same name twice (two people called that) shows once
+    ]),
+    [
+      { emoji: "😂", by: ["tester", "mammannii"] },
+      { emoji: "👍", by: ["mammannii"] },
+    ],
+  );
+  assert.equal(excerpt("  did   you see\nthat  "), "did you see that");
+  assert.equal(excerpt("x".repeat(100)).length, 80);
+  assert.ok(excerpt("x".repeat(100)).endsWith("…"));
 });
