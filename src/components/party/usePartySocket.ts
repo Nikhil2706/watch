@@ -48,13 +48,22 @@ const MAX_RECONNECT_DELAY_MS = 30_000;
 /** Three failures is enough to stop pretending it is a blip and tell the user. */
 const ATTEMPTS_BEFORE_UNREACHABLE = 3;
 
+/** One per open stream, so the room can tell this tab apart from the same account's other screens. */
+function newClientId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+}
+
 export function usePartySocket(roomId: string) {
+  const [clientId] = useState(newClientId);
   const [connected, setConnected] = useState(false);
   const [unreachable, setUnreachable] = useState(false);
   const [messages, setMessages] = useState<PartyChatMessage[]>([]);
   const [participants, setParticipants] = useState<PartyParticipant[]>([]);
-  const [initialState, setInitialState] = useState<{ positionSeconds: number; paused: boolean } | null>(null);
+  const [initialState, setInitialState] = useState<{ positionSeconds: number; paused: boolean; receivedAt: number } | null>(null);
   const [lastSync, setLastSync] = useState<PartySyncEvent | null>(null);
+  /** The lead controller's heartbeat while playing — a fresh object every time, so an effect on it re-runs. */
+  const [lastPosition, setLastPosition] = useState<{ positionSeconds: number } | null>(null);
   const [ended, setEnded] = useState(false);
 
   const sourceRef = useRef<EventSource | null>(null);
@@ -70,7 +79,9 @@ export function usePartySocket(roomId: string) {
     function connect() {
       if (closedByUs.current || endedRef.current) return;
 
-      const source = new EventSource(`/api/party/${encodeURIComponent(roomId)}/events`);
+      const source = new EventSource(
+        `/api/party/${encodeURIComponent(roomId)}/events?cid=${encodeURIComponent(clientId)}`,
+      );
       sourceRef.current = source;
 
       source.addEventListener("ready", () => {
@@ -97,7 +108,11 @@ export function usePartySocket(roomId: string) {
             setParticipants((msg.list as PartyParticipant[]) ?? []);
             break;
           case "state":
-            setInitialState({ positionSeconds: Number(msg.positionSeconds), paused: Boolean(msg.paused) });
+            setInitialState({
+              positionSeconds: Number(msg.positionSeconds),
+              paused: Boolean(msg.paused),
+              receivedAt: Date.now(),
+            });
             break;
           case "sync":
             setLastSync({
@@ -105,6 +120,9 @@ export function usePartySocket(roomId: string) {
               positionSeconds: Number(msg.positionSeconds),
               by: String(msg.by),
             });
+            break;
+          case "position":
+            setLastPosition({ positionSeconds: Number(msg.positionSeconds) });
             break;
           case "ended":
             endedRef.current = true;
@@ -160,7 +178,7 @@ export function usePartySocket(roomId: string) {
       sourceRef.current?.close();
       sourceRef.current = null;
     };
-  }, [roomId]);
+  }, [roomId, clientId]);
 
   const post = useCallback(
     async (payload: Record<string, unknown>) => {
@@ -185,8 +203,12 @@ export function usePartySocket(roomId: string) {
   const sendChat = useCallback((body: string) => void post({ type: "chat", body }), [post]);
   const sendSync = useCallback(
     (action: "play" | "pause" | "seek", positionSeconds: number) =>
-      void post({ type: "sync", action, positionSeconds }),
-    [post],
+      void post({ type: "sync", action, positionSeconds, clientId }),
+    [post, clientId],
+  );
+  const sendPosition = useCallback(
+    (positionSeconds: number) => void post({ type: "position", positionSeconds, clientId }),
+    [post, clientId],
   );
   const grant = useCallback((targetId: string) => void post({ type: "grant", targetId }), [post]);
   const revoke = useCallback((targetId: string) => void post({ type: "revoke", targetId }), [post]);
@@ -211,9 +233,11 @@ export function usePartySocket(roomId: string) {
     participants,
     initialState,
     lastSync,
+    lastPosition,
     ended,
     sendChat,
     sendSync,
+    sendPosition,
     grant,
     revoke,
     end,

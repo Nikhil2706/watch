@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { PlayerMount, type PlayerMountProps } from "@/components/media/PlayerMount";
+import { viewerIsController } from "@/lib/party-sync";
 
 import { PartyChatPanel } from "./PartyChatPanel";
 import { PartyGuestLinksPanel, type PartyGuestLinkView } from "./PartyGuestLinksPanel";
@@ -31,8 +32,7 @@ export function PartyRoomClient({
   guestLinks: PartyGuestLinkView[];
 }) {
   const socket = usePartySocket(roomId);
-  const me = socket.participants.find((p) => p.id === myId);
-  const isController = isCreator || (me?.isController ?? false);
+  const isController = viewerIsController(isCreator, socket.participants, myId);
 
   const [ending, setEnding] = useState(false);
   /* Chat has been sent to a phone or another tab — the film gets the width. */
@@ -101,7 +101,9 @@ export function PartyRoomClient({
             party={{
               isController,
               sendSync: socket.sendSync,
+              sendPosition: socket.sendPosition,
               lastSync: socket.lastSync,
+              lastPosition: socket.lastPosition,
               initialState: socket.initialState,
             }}
           />

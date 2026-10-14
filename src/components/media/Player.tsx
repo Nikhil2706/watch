@@ -16,6 +16,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { useTvBack, useTvMode } from "@/components/tv/TvProvider";
 import { captionFontPx } from "@/lib/caption-size";
+import {
+  consumeEcho,
+  expectFromPlan,
+  HEARTBEAT_INTERVAL_MS,
+  planFollow,
+  type ExpectedRemote,
+} from "@/lib/party-sync";
 import { getFocusableElements } from "@/lib/tv/spatial-nav";
 import {
   clampTime,
@@ -144,8 +151,13 @@ export interface PlayerSubtitle {
 export interface PlayerPartySync {
   isController: boolean;
   sendSync: (action: "play" | "pause" | "seek", positionSeconds: number) => void;
+  /** Heartbeat while playing, from a controller; see HEARTBEAT_INTERVAL_MS. */
+  sendPosition: (positionSeconds: number) => void;
   lastSync: { action: "play" | "pause" | "seek"; positionSeconds: number; by: string } | null;
-  initialState: { positionSeconds: number; paused: boolean } | null;
+  /** The lead controller's heartbeat, which followers correct their drift against. */
+  lastPosition: { positionSeconds: number } | null;
+  /** The room's state on (re)joining; receivedAt lets a playing room's position be carried forward to now. */
+  initialState: { positionSeconds: number; paused: boolean; receivedAt: number } | null;
 }
 
 interface PlayerProps {
@@ -681,44 +693,65 @@ export function Player({
   });
 
   /**
-   * Watch-party sync. applyingRemoteSync suppresses the outbound send that
-   * the play/pause listeners below would otherwise fire in response to a
-   * state change THIS effect itself just caused — without it, applying a
-   * remote "pause" would immediately re-broadcast "pause" right back,
-   * which is harmless in itself but pointless network chatter, and with a
-   * genuine round-trip delay could occasionally reorder into a flicker.
-   * Cleared on a short timer rather than synchronously after the
-   * play()/pause()/currentTime call: Vidstack's own event dispatch isn't
-   * guaranteed same-tick.
+   * Watch-party sync.
+   *
+   * `party` is read through a ref, never from a closure. The listeners below
+   * are bound once per stream, and they used to read `party.isController`
+   * as it was at that moment: for the creator that is true from the first
+   * render, but anyone handed control later (the TV, in the 2026-10-14 test)
+   * stayed `false` in those listeners for good, so their play/pause/seek —
+   * by click or by remote key alike — was never sent.
+   *
+   * `expectedRemote` keeps the changes this player was just told to make, so
+   * the play/pause/seeked events they cause are not sent back as the
+   * viewer's own (party-sync.ts, consumeEcho).
    */
-  const applyingRemoteSync = useRef(false);
+  const partyRef = useRef(party);
+  partyRef.current = party;
+  const expectedRemote = useRef<ExpectedRemote | null>(null);
+  /** Nothing goes out until the room's own state has been applied: autoplay at the resume point would otherwise drag everyone there. */
   const seededPartyState = useRef(false);
 
+  /** Where a playing room is by now, not where it was when its state arrived. */
+  function roomNow(state: NonNullable<PlayerPartySync["initialState"]>) {
+    const elapsed = state.paused ? 0 : (Date.now() - state.receivedAt) / 1000;
+    return { positionSeconds: state.positionSeconds + elapsed, paused: state.paused };
+  }
+
+  function followRemote(remote: { positionSeconds: number; paused: boolean | null }) {
+    const instance = player.current;
+    if (!instance) return;
+    const plan = planFollow({ positionSeconds: instance.currentTime, paused: instance.paused }, remote);
+    if (plan.seekTo === null && plan.setPaused === null) return;
+    expectedRemote.current = expectFromPlan(plan, Date.now());
+    // Pause before seeking, so the seek does not start playing on from the old spot.
+    if (plan.setPaused === true) void instance.pause();
+    if (plan.seekTo !== null) instance.currentTime = plan.seekTo;
+    if (plan.setPaused === false) instance.play().catch(() => {});
+  }
+
   useEffect(() => {
-    if (!party?.initialState || seededPartyState.current || !player.current) return;
+    if (!party?.initialState || !player.current) return;
     seededPartyState.current = true;
-    applyingRemoteSync.current = true;
-    player.current.currentTime = party.initialState.positionSeconds;
-    if (party.initialState.paused) player.current.pause();
-    else player.current.play().catch(() => {});
-    setTimeout(() => {
-      applyingRemoteSync.current = false;
-    }, 300);
+    followRemote(roomNow(party.initialState));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [party?.initialState]);
 
   useEffect(() => {
-    if (!party?.lastSync || !player.current) return;
-    applyingRemoteSync.current = true;
+    if (!party?.lastSync) return;
     const { action, positionSeconds } = party.lastSync;
-    player.current.currentTime = positionSeconds;
-    if (action === "pause") player.current.pause();
-    else if (action === "play") player.current.play().catch(() => {});
-    setTimeout(() => {
-      applyingRemoteSync.current = false;
-    }, 300);
+    // A seek says nothing about play state; play and pause do.
+    followRemote({ positionSeconds, paused: action === "seek" ? null : action === "pause" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [party?.lastSync]);
+
+  useEffect(() => {
+    if (!party?.lastPosition) return;
+    // Heartbeats only come while the room is playing, so a follower that
+    // stalled or missed the play is set going again as well as moved.
+    followRemote({ positionSeconds: party.lastPosition.positionSeconds, paused: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [party?.lastPosition]);
 
   /**
    * Supply our own hls.js.
@@ -743,6 +776,16 @@ export function Player({
 
   /** Resume once, when the media is actually ready to seek. */
   function onCanPlay() {
+    // In a watch party the room says where to be, not this viewer's own
+    // resume point. A seek set before the media could take it may not have
+    // stuck, so the room's state is applied again now that it can.
+    const current = partyRef.current;
+    if (current) {
+      if (seeded.current || !current.initialState) return;
+      seeded.current = true;
+      followRemote(roomNow(current.initialState));
+      return;
+    }
     if (seeded.current || startSeconds <= 0) return;
     seeded.current = true;
     // For HLS the transcode already starts at the requested offset, so seeking
@@ -797,19 +840,27 @@ export function Player({
       }
     }
 
+    /** Sends a viewer's own play/pause/seek to the room, with where they are, if they hold control. */
+    function shareWithParty(action: "play" | "pause" | "seek") {
+      const current = partyRef.current;
+      if (!current?.isController || !seededPartyState.current) return;
+      const event =
+        action === "seek" ? { kind: "seeked" as const, positionSeconds: instance!.currentTime } : { kind: action };
+      if (consumeEcho(expectedRemote.current, event, Date.now())) return;
+      current.sendSync(action, instance!.currentTime);
+    }
+
     const onPlay = () => {
       report("");
       setIsPaused(false);
-      if (party?.isController && !applyingRemoteSync.current) party.sendSync("play", instance.currentTime);
+      shareWithParty("play");
     };
     const onPause = () => {
       report("/Progress", { IsPaused: true });
       setIsPaused(true);
-      if (party?.isController && !applyingRemoteSync.current) party.sendSync("pause", instance.currentTime);
+      shareWithParty("pause");
     };
-    const onSeeked = () => {
-      if (party?.isController && !applyingRemoteSync.current) party.sendSync("seek", instance.currentTime);
-    };
+    const onSeeked = () => shareWithParty("seek");
     const onEnded = () => report("/Stopped");
     const onError = () => {
       const mediaError = instance.state.error;
@@ -825,6 +876,15 @@ export function Player({
       if (!instance.paused) report("/Progress");
     }, PROGRESS_INTERVAL_MS);
 
+    // Watch party: a controller that is playing says where it is every few
+    // seconds, and followers more than DRIFT_THRESHOLD_SECONDS off jump to it.
+    // The room listens to one controller at a time (party-room.ts).
+    const heartbeat = setInterval(() => {
+      const current = partyRef.current;
+      if (!current?.isController || !seededPartyState.current || instance.paused) return;
+      current.sendPosition(instance.currentTime);
+    }, HEARTBEAT_INTERVAL_MS);
+
     instance.addEventListener("play", onPlay);
     instance.addEventListener("pause", onPause);
     instance.addEventListener("seeked", onSeeked);
@@ -833,6 +893,7 @@ export function Player({
 
     return () => {
       clearInterval(timer);
+      clearInterval(heartbeat);
       instance.removeEventListener("play", onPlay);
       instance.removeEventListener("seeked", onSeeked);
       instance.removeEventListener("pause", onPause);

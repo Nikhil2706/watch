@@ -1,5 +1,6 @@
-import { isRoomLive, postChat, postSync, setController } from "@/lib/party-bus";
+import { isRoomLive, postChat, postPosition, postSync, setController } from "@/lib/party-bus";
 import { resolvePartyIdentity } from "@/lib/party-identity";
+import { cleanClientId } from "@/lib/party-room";
 import { checkRateLimit, PARTY_SEND_LIMIT, rateLimitHeaders } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -15,7 +16,8 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
  * so the protocol did not have to be redesigned along with the transport:
  *
  *   {type:"chat",   body}
- *   {type:"sync",   action:"play"|"pause"|"seek", positionSeconds}
+ *   {type:"sync",   action:"play"|"pause"|"seek", positionSeconds, clientId?}
+ *   {type:"position", positionSeconds, clientId?}  -- controller heartbeat while playing
  *   {type:"grant",  targetId}   -- creator only
  *   {type:"revoke", targetId}   -- creator only
  *
@@ -79,7 +81,18 @@ export async function POST(
       // Silently ignored for non-controllers rather than erroring: a viewer's
       // own player emits play/pause locally all the time, and turning each of
       // those into a visible failure would be noise, not information.
-      const applied = postSync(roomId, identity, action, positionSeconds);
+      const applied = postSync(roomId, identity, cleanClientId(body.clientId), action, positionSeconds);
+      return Response.json({ ok: true, applied }, { headers: NO_STORE });
+    }
+
+    case "position": {
+      const positionSeconds = typeof body.positionSeconds === "number" && Number.isFinite(body.positionSeconds)
+        ? Math.max(0, body.positionSeconds)
+        : null;
+      if (positionSeconds === null) {
+        return Response.json({ error: "invalid_request" }, { status: 400, headers: NO_STORE });
+      }
+      const applied = postPosition(roomId, identity, cleanClientId(body.clientId), positionSeconds);
       return Response.json({ ok: true, applied }, { headers: NO_STORE });
     }
 
