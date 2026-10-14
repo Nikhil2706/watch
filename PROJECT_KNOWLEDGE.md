@@ -506,6 +506,32 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
   require giving jellyfin-gate access to the Docker socket, which needs its
   own conversation before it's built, not just a dashboard add-on.
 
+## 8. How a change goes live (the rules)
+
+- **A PR merges into `platform-additions` only when "check" is green.** "check"
+  is the GitHub Actions job in `.github/workflows/check.yml`, run on every PR
+  to `platform-additions` (and on the branch itself): `npm ci`, the typecheck
+  (`npx tsc --noEmit`), every test (`npm test`), and a build of both Docker
+  images the Mac runs (`--target runtime`, the site; `--target worker`, the
+  worker). A red "check" means the change is not safe to put live, whatever
+  else it does. Make it a required status check under GitHub → Settings →
+  Branches → `platform-additions` so the merge button enforces it.
+- **App versions are automatic.** Nobody bumps `versionCode` by hand any more.
+  The APK workflow stamps `versionCode` = 100 + its run number and
+  `versionName` = `build.gradle`'s name + "." + run number (e.g. "1.8.16") into
+  the build, and writes `latest.json` with the same two numbers, so every
+  merged app change is a higher number and every installed app is offered it.
+  `build.gradle`'s `versionName` is still the human part: change "1.8" to "1.9"
+  when a release deserves a new name. (`scripts/app-version.mjs`, tested.)
+- **`scripts/smoke.mjs` is what the deploy button runs on the test copy
+  before going live.** `ADMIN_API_KEY=… node scripts/smoke.mjs
+  http://127.0.0.1:3100` checks, against the Mac's test copy, that `/login`
+  answers 200, its scripts/styles plus `manifest.json` and `sw.js` load,
+  `/api/admin/health` answers with `overall` not "critical", and `docker logs
+  jellyfin-gate-dev` contains "[boot] database ready". It only reads (GETs and
+  `docker logs`), needs no browser, and exits non-zero if anything fails —
+  in which case the build does not go live.
+
 ---
 
 ## Changelog
@@ -667,6 +693,20 @@ Docker stack the worker now does it (`scripts/upload-scan.mjs`):
   retried an hour later). The worker never moves or deletes an upload.
 - **Memory:** the worker's limit goes from 1g to 2g; a scan takes ~1.2-1.5 GB while
   it runs. A scan killed for memory is recorded as failed, never as clean.
+
+### 2026-10-14 — Every change checked before it can go live; app versions automatic
+Branch off `platform-additions`. See §8 for the standing rules.
+
+- **"check" CI** (`.github/workflows/check.yml`): typecheck, all tests and both
+  Docker images on every PR to `platform-additions`, npm and Docker layers cached.
+- **App versions from the build** (`scripts/app-version.mjs`): PR #30 shipped
+  as 1.7 a second time because nobody bumped `versionCode`, so no installed app
+  was offered it until the manual bump in #33. The APK workflow now sets
+  versionCode 100 + run number and versionName "1.8.<run>", checks the APK
+  carries them, and publishes `latest.json` with the same numbers.
+- **`scripts/smoke.mjs`**, the read-only pre-deploy check of the test copy
+  (§8). Run against a production build here: all four checks pass, and a
+  wrong key, a missing container and a server that is down each fail.
 
 ### 2026-10-14 (later still) — Watch party: seven ideas taken from open-source watch parties
 We read the sync and chat code of Jellyfin SyncPlay, SyncTube, CyTube and
