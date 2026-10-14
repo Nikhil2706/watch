@@ -74,6 +74,16 @@ export type TvRemoteAction =
  * OK presses what is focused. Returns null to leave the key alone (OK on a button
  * or link presses it).
  */
+/**
+ * A remote's transport keys (play/pause, play, pause, fast-forward, rewind),
+ * whatever has focus. On the Android TV app these arrive from the native
+ * layer (MainActivity.dispatchKeyEvent), because Android sends media keys to
+ * the media session rather than to the WebView.
+ */
+export function resolveMediaKey(key: string): PlayerAction | null {
+  return MEDIA_KEYS[key] ?? null;
+}
+
 export function resolveTvRemoteKey(key: string, zone: TvFocusZone): TvRemoteAction | null {
   const media = MEDIA_KEYS[key];
   if (media) return media;
