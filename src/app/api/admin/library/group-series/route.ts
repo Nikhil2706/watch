@@ -1,13 +1,6 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import {
-  getGroupOverview,
-  setGroupOverview,
-  setGroupKind,
-  setGroupSeriesId,
-  setGroupSeriesMeta,
-  setGroupSeriesPoster,
-} from "@/lib/library-curation";
 import { fetchOmdbSeries } from "@/lib/omdb-episodes";
+import { applyOmdbSeries } from "@/lib/series-autogroup";
 import { optionalString, parseProviderLink, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -42,25 +35,8 @@ export async function POST(request: Request): Promise<Response> {
       throw new ValidationError("Couldn't find an IMDb id in that link — OMDb needs the series' IMDb page, not TMDB.");
     }
 
-    setGroupSeriesId(groupId, parsed.imdb);
-
     const series = await fetchOmdbSeries(parsed.imdb);
-    /*
-     * Only ever set from OMDb here, never cleared: a curator who has already
-     * corrected this group by hand (a long film OMDb calls a mini-series)
-     * shouldn't have that undone by someone re-linking the same series.
-     */
-    if (series?.kind) setGroupKind(groupId, series.kind);
-    if (series?.posterUrl) setGroupSeriesPoster(groupId, series.posterUrl);
-    if (series?.overview && !getGroupOverview(groupId)) setGroupOverview(groupId, series.overview);
-    if (series) {
-      setGroupSeriesMeta(groupId, {
-        genres: series.genres,
-        actors: series.actors,
-        director: series.director,
-        writer: series.writer,
-      });
-    }
+    applyOmdbSeries(groupId, parsed.imdb, series);
 
     return Response.json(
       {

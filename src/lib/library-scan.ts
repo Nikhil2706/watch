@@ -64,6 +64,11 @@ export async function scanLibraryNow(
   void relinkUnmatchedPickItems().catch((error) => console.error("[library-scan] pick relink failed:", error));
   // A file added to a folder that is already marked is leaving too.
   void syncLeavingPick().catch((error) => console.error("[library-scan] leaving pick not updated:", error));
+  // New episodes of a series join their show once Jellyfin has finished
+  // reading them; until then they are kept off the listings (media.ts).
+  void import("./series-autogroup")
+    .then((m) => m.autoGroupAfterScan())
+    .catch((error) => console.error("[library-scan] episode grouping failed:", error));
 
   return { subtitlesPromoted: subtitles.promoted.length, scanned };
 }

@@ -200,13 +200,20 @@ const KINDS: JobKind[] = [
     kind: "folder_match",
     label: "Match files from their folders",
     description:
-      "Looks at files nothing has identified and reads the folders they are in: a file in a director's folder is matched against that director's films. Certain matches are applied; the rest wait in the console for a yes or no.",
+      "Looks at files nothing has identified and reads the folders they are in: a file in a director's folder is matched against that director's films. Certain matches are applied; the rest wait in the console for a yes or no. Then groups episodes of the same series into their show; groups you made or dissolved are left as they are.",
     runner: "gate",
     politeByDefault: true,
     run: async () => {
       const { runFolderMatch } = await import("./folder-match");
       const r = await runFolderMatch({ apply: true });
-      return `${r.looked} unidentified files: ${r.applied} matched, ${r.suggested} to confirm${r.failed ? `, ${r.failed} could not be applied` : ""}`;
+      const matched = `${r.looked} unidentified files: ${r.applied} matched, ${r.suggested} to confirm${r.failed ? `, ${r.failed} could not be applied` : ""}`;
+      // After the matching, so a file it has just identified as an episode is
+      // grouped on the same night (series-autogroup.ts).
+      const { describeAutoGroupRun, runSeriesAutoGroup } = await import("./series-autogroup");
+      const grouped = await runSeriesAutoGroup()
+        .then(describeAutoGroupRun)
+        .catch((error) => `episode grouping failed: ${error instanceof Error ? error.message : String(error)}`);
+      return `${matched}. Episodes: ${grouped}`;
     },
   },
   {

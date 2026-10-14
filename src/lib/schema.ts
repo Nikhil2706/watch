@@ -35,7 +35,12 @@
  * what makes an existing database replay the seed block below and gain the
  * row (see the v24/v27 notes in db.ts for what happens without one).
  */
-export const SCHEMA_VERSION = 55;
+/*
+ * 56: what OMDb says each IMDb id is (omdb_title_kind), series names, which
+ * groups were made by the auto-grouper, and what the curator has said must
+ * stay ungrouped. New tables only. See series-autogroup.ts.
+ */
+export const SCHEMA_VERSION = 56;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1447,4 +1452,49 @@ CREATE TABLE IF NOT EXISTS file_checks (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_file_checks_verdict ON file_checks(verdict);
+
+-- What OMDb says an IMDb id IS (v56): a movie, a series, or an episode and of
+-- which series. Written from the same response as rating_cache, so it costs
+-- no extra call; Jellyfin matches episode files as films, and this is how an
+-- episode is told apart (series-detect.ts). season/episode are OMDb's own.
+CREATE TABLE IF NOT EXISTS omdb_title_kind (
+  imdb_id        TEXT PRIMARY KEY,
+  type           TEXT NOT NULL,      -- movie | series | episode | game | ...
+  series_imdb_id TEXT,               -- set for an episode
+  season         INTEGER,
+  episode        INTEGER,
+  fetched_at     INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_omdb_title_kind_type ON omdb_title_kind(type);
+
+-- What a series is called, by the key series-detect.ts gives it
+-- ("imdb:tt0123" / "tmdb:456"), once OMDb or TMDB has been asked. Lets the
+-- console say "Group as Nirvanna the Band the Show" without asking again.
+CREATE TABLE IF NOT EXISTS series_names (
+  series_key TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+) STRICT;
+
+-- Groups the auto-grouper made, and for which series. A group with no row
+-- here was made by hand. Either way the auto-grouper only ever adds new
+-- episodes to a group; it never moves, splits or renames one.
+CREATE TABLE IF NOT EXISTS library_group_auto (
+  group_id   TEXT PRIMARY KEY,
+  series_key TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+) STRICT;
+
+-- What the curator has said must stay ungrouped (v56). subject is either a
+-- series key ("imdb:tt0123"), written when its group is dissolved, so the
+-- auto-grouper does not make it again; or "path:" + a file path, written when
+-- a file is taken out of a group or its group is dissolved, so it is not
+-- grouped again and is shown as a film. "Group as ..." in the console clears
+-- the rows it overrides.
+CREATE TABLE IF NOT EXISTS library_group_declined (
+  subject    TEXT PRIMARY KEY,
+  label      TEXT,
+  created_at INTEGER NOT NULL
+) STRICT;
 `;

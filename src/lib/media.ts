@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getDamagedPathSet } from "./file-checks";
+import { getEpisodeVisibilityIndex, isUngroupedEpisode } from "./episode-visibility";
 import { hasNoMetadata } from "./has-metadata";
 import { cache } from "react";
 
@@ -144,6 +145,7 @@ const rolloutHiddenImdbMemo = cache(getHiddenRolloutImdbSet);
 const specialFeatureIdsMemo = cache(getSpecialFeatureIdSet);
 const alternateVersionPathsMemo = cache(getAlternateVersionPathSet);
 const damagedPathsMemo = cache(getDamagedPathSet);
+const episodeIndexMemo = cache(getEpisodeVisibilityIndex);
 
 function creds(session: ResolvedSession) {
   return [session.jellyfinToken, session.jellyfinDeviceId] as const;
@@ -178,6 +180,7 @@ function filterVisible(
   const requireMetadata = options.requireMetadata ?? true;
   const excluded = excludedPaths();
   const damaged = damagedPathsMemo();
+  const episodes = episodeIndexMemo();
   const whitelisted = whitelistedPaths();
   const rolloutHiddenPaths = rolloutHiddenPathsMemo();
   const rolloutHiddenImdb = rolloutHiddenImdbMemo();
@@ -198,6 +201,12 @@ function filterVisible(
     // The file itself is broken and would stall the player part-way through
     // (file-checks.ts). Off the listings until replaced or allowed.
     if (item.Path && damaged.has(item.Path)) return false;
+    // An episode of a series that no group has claimed yet (OMDb or TMDB
+    // says it is one, or its filename does). Shown as a film it is one of a
+    // pile of look-alike "films" with an episode's poster; off the listings
+    // until it is grouped, which the nightly pass mostly does unasked
+    // (series-autogroup.ts), or the curator says to keep it as a film.
+    if (isUngroupedEpisode(item, episodes)) return false;
     if (requireMetadata && hasNoMetadata(item) && !(item.Path && whitelisted.has(item.Path))) return false;
     if (item.Path && rolloutHiddenPaths.has(item.Path)) return false;
     if (item.ProviderIds?.Imdb && rolloutHiddenImdb.has(item.ProviderIds.Imdb)) return false;

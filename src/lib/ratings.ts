@@ -110,6 +110,34 @@ function writeCache(imdbId: string, ratings: Omit<Ratings, "cached">): void {
 }
 
 /**
+ * What this IMDb id is — film, series, or an episode of which series — from
+ * the response the ratings were just read out of. Jellyfin matches episode
+ * files as films, so this is how they are found (series-detect.ts). Free: no
+ * extra OMDb call.
+ */
+function writeTitleKind(
+  imdbId: string,
+  data: { Type?: string; seriesID?: string; Season?: string; Episode?: string },
+): void {
+  const type = data.Type?.trim().toLowerCase();
+  if (!type) return;
+  const num = (v: string | undefined) => {
+    const n = Number.parseInt(v ?? "", 10);
+    return Number.isFinite(n) ? n : null;
+  };
+  const series = data.seriesID && data.seriesID !== "N/A" ? data.seriesID : null;
+  getDb()
+    .prepare(
+      `INSERT INTO omdb_title_kind (imdb_id, type, series_imdb_id, season, episode, fetched_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(imdb_id) DO UPDATE SET
+         type = excluded.type, series_imdb_id = excluded.series_imdb_id,
+         season = excluded.season, episode = excluded.episode, fetched_at = excluded.fetched_at`,
+    )
+    .run(imdbId, type, series, num(data.Season), num(data.Episode), Date.now());
+}
+
+/**
  * Ratings for one IMDb id, cached.
  *
  * Returns null when there is no API key or the lookup fails — the caller shows
@@ -160,6 +188,10 @@ export async function getRatings(imdbId: string | undefined): Promise<Ratings | 
       imdbVotes?: string;
       Metascore?: string;
       Ratings?: Array<{ Source: string; Value: string }>;
+      Type?: string;
+      seriesID?: string;
+      Season?: string;
+      Episode?: string;
     };
 
     if (data.Response === "False") throw new Error(data.Error ?? "OMDb error");
@@ -178,6 +210,7 @@ export async function getRatings(imdbId: string | undefined): Promise<Ratings | 
     };
 
     writeCache(imdbId, ratings);
+    writeTitleKind(imdbId, data);
     recordExternalApiCall("omdb", true);
     return { ...ratings, cached: false };
   } catch (error) {

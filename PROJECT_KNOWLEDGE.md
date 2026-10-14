@@ -513,6 +513,36 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
+### 2026-10-14 (latest) — Episodes group themselves; special features said up top
+Branch off `platform-additions`, not deployed yet.
+
+- **Episodes no longer show as films.** "Nirvanna the Band the Show" (16 files,
+  season two named `NtBtS.S02E01…`) sat on the site as sixteen films until it
+  was grouped by hand. Now a file is recognised as an episode when OMDb says
+  its IMDb id is one (`Type: episode` with a `seriesID`, kept in the new
+  `omdb_title_kind` table from the same response as the ratings, so no extra
+  call), when TMDB has it linked to a show's episode, or when its name has an
+  SxxEyy / 3x07 marker. Episodes of one series are found together
+  (`series-detect.ts`, tested): metadata first, then the show folder (a season
+  folder counts as its show), then the name before the marker.
+- **Grouped unasked**, after the nightly "Match files from their folders" job
+  and after a library scan has finished (`series-autogroup.ts`). The group is
+  named after the series (TMDB or OMDb; else the folder; else the filenames)
+  and linked to it, so the series poster and synopsis come with it. A new
+  episode joins the group its siblings are already in.
+- **What the curator did by hand stands.** A group is only ever added to, never
+  split, moved or renamed. Dissolving a group records its files and its series
+  in `library_group_declined`: the files show as films again and the series is
+  not grouped again unasked. Taking one file out of a group does the same for
+  that file.
+- **Until grouped, an episode is off the site** (`filterVisible`, same as a
+  damaged file) and listed in the console's Needs you under "Episode, not in a
+  show", one row per series with "Group as <series>" (or "Add to <show>") on
+  it, plus "Keep as a film" for a file that is not an episode.
+- **Film pages say "Includes N special features"** in the title/meta row, linking
+  to the section further down: smooth scroll, and on a TV focus moves to the
+  first feature. A D-pad stop like any other link; OK follows it.
+
 ### 2026-10-14 (latest, later) — Watch party: followers play smoothly instead of skipping
 The sync above made the TV and phone jump forward every few seconds (+18 s in
 one 15-second sample). Fixed in `party-sync.ts`, `party-room.ts`, Player.tsx:

@@ -8,6 +8,7 @@ import { env } from "./env";
 import { duplicateIds } from "./duplicate-titles";
 import { versionedPathMap } from "./film-versions";
 import { getSpecialFeatureIdSet } from "./special-features";
+import { listPendingSeries } from "./series-autogroup";
 import { episodeLabel, parseEpisodeInfo } from "./episode-naming";
 import { getAdminMovies } from "./admin-library-cache";
 import { adminThumbUrl } from "./admin-thumb";
@@ -208,6 +209,13 @@ export interface BrowseItem extends ReviewItem {
   subtitleCount: number;
   /** Set when this file is one cut of a film kept as several (film-versions.ts). */
   version: { label: string; isPrimary: boolean; setSize: number } | null;
+  /**
+   * Set for an episode of a series that is in no group yet (series-autogroup.ts):
+   * kept off the site until it is. `name` is what "Group as ..." would call
+   * the show, `joins` says it would join a show that already exists, `files`
+   * is how many loose files of that series one click groups.
+   */
+  pendingEpisode: { key: string; name: string; joins: boolean; files: number } | null;
   /** Pins a row to the top of the redesigned browse UI's default sort — anything the curator hasn't resolved yet. */
   needsDecision: boolean;
 }
@@ -244,6 +252,15 @@ export async function buildLibraryBrowse(): Promise<BrowseItem[]> {
   );
 
   const problems = fileProblems();
+
+  // Recognised episodes in no group, by file. Same rules as the nightly pass
+  // and as the site's own listings, so "Needs you" lists exactly what the
+  // site is keeping back.
+  const pending = new Map<string, BrowseItem["pendingEpisode"]>();
+  for (const series of await listPendingSeries(all)) {
+    const entry = { key: series.key, name: series.name, joins: series.groupId !== null, files: series.paths.length };
+    for (const p of series.paths) pending.set(p, entry);
+  }
 
   return all.map((m) => {
     const path = m.Path;
@@ -292,10 +309,15 @@ export async function buildLibraryBrowse(): Promise<BrowseItem[]> {
       isGrouped: !!groupInfo,
       groupName: groupInfo?.groupName ?? null,
       version: (path && versioned.get(path)) || null,
+      pendingEpisode: (path && pending.get(path)) || null,
       // A damaged file wants a decision wherever it is, an episode of a show
       // included: replace it, or say it is good enough to show.
+      // An episode in no group wants one, or to be kept as a film.
       needsDecision:
-        !isExcluded && ((!groupInfo && ((isThinMetadata && !isWhitelisted) || isDuplicate)) || damagedAndHidden),
+        !isExcluded &&
+        ((!groupInfo && ((isThinMetadata && !isWhitelisted) || isDuplicate)) ||
+          damagedAndHidden ||
+          (!!path && pending.has(path))),
     };
   });
 }
