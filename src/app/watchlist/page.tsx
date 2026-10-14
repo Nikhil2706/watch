@@ -45,7 +45,7 @@ export default async function WatchlistPage() {
 
   return (
     <>
-      <AppBar username={session.username} langloisMode={session.langloisMode} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
 
       <div className="page-head">
         <h1>My list</h1>
