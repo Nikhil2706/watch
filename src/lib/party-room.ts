@@ -50,6 +50,11 @@ export function groupReactions(rows: ReadonlyArray<{ emoji: string; displayName:
 }
 
 export interface PartyParticipant {
+  /**
+   * An opaque id for this person in this room, never their real id: for a
+   * guest the real id is their guest-link token, which is their way in, and
+   * this list goes to everyone in the room.
+   */
   id: string;
   kind: "user" | "guest";
   displayName: string;
@@ -73,6 +78,8 @@ export type PartyEvent =
   | { type: "history"; messages: PartyChatMessage[] }
   | { type: "state"; positionSeconds: number; paused: boolean; at: number }
   | { type: "participants"; list: PartyParticipant[] }
+  /** This stream's own public id, as it appears in the participants list. */
+  | { type: "you"; id: string }
   | { type: "chat"; message: PartyChatMessage }
   /** A message's reactions changed: the whole new set for it. */
   | { type: "reactions"; messageId: string; reactions: PartyReaction[] }
@@ -432,6 +439,7 @@ export function memberDrift(member: Member, room: RoomState, now: number): numbe
 export function participantList(
   room: RoomState,
   isController: (identity: PartyMemberIdentity) => boolean,
+  publicIdOf: (identity: PartyMemberIdentity) => string,
   now = Date.now(),
 ): PartyParticipant[] {
   const byId = new Map<string, PartyParticipant>();
@@ -445,7 +453,7 @@ export function participantList(
       continue;
     }
     byId.set(member.identity.id, {
-      id: member.identity.id,
+      id: publicIdOf(member.identity),
       kind: member.identity.kind,
       displayName: member.identity.displayName,
       isController: isController(member.identity),
