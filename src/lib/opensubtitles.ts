@@ -329,6 +329,9 @@ interface RawEpisodeSearchResponse {
       hearing_impaired: boolean;
       machine_translated: boolean;
       ai_translated: boolean;
+      from_trusted?: boolean;
+      ratings?: number | null;
+      votes?: number | null;
       release: string | null;
       fps: number | null;
       moviehash_match?: boolean;
@@ -339,27 +342,40 @@ interface RawEpisodeSearchResponse {
 }
 
 /**
- * One episode's subtitles, by the SHOW's IMDb id plus season and episode —
- * an episode file here carries no IMDb id of its own worth trusting. With a
- * moviehash, OpenSubtitles also says which were timed against this exact
- * video file. Search costs no download quota.
+ * One episode's subtitles. By the episode's own IMDb/TMDB id when it is known
+ * to be this episode (subtitle-series.ts checks), else by the SHOW's id plus
+ * season and episode — an episode file's id from Jellyfin is often a wrong
+ * film match. With a moviehash, OpenSubtitles also says which were timed
+ * against this exact video file. Search costs no download quota.
  */
 export async function searchEpisodeSubtitles(input: {
-  parentImdbId: string;
+  parentImdbId?: string | null;
+  parentTmdbId?: number | null;
+  episodeImdbId?: string | null;
+  episodeTmdbId?: number | null;
   season: number;
   episode: number;
   languages: string;
   moviehash?: string | null;
 }): Promise<SubtitleCandidate[]> {
   const params = new URLSearchParams({
-    parent_imdb_id: input.parentImdbId.replace(/^tt/, ""),
-    season_number: String(input.season),
-    episode_number: String(input.episode),
     languages: input.languages,
     machine_translated: "exclude",
     order_by: "download_count",
+    type: "episode",
   });
+  if (input.episodeImdbId) params.set("imdb_id", input.episodeImdbId.replace(/^tt0*/, ""));
+  else if (input.episodeTmdbId) params.set("tmdb_id", String(input.episodeTmdbId));
+  else {
+    if (input.parentImdbId) params.set("parent_imdb_id", input.parentImdbId.replace(/^tt0*/, ""));
+    else if (input.parentTmdbId) params.set("parent_tmdb_id", String(input.parentTmdbId));
+    else throw new OpenSubtitlesError("No show or episode id to search by.", 0, "");
+    params.set("season_number", String(input.season));
+    params.set("episode_number", String(input.episode));
+  }
   if (input.moviehash) params.set("moviehash", input.moviehash);
+  // Their docs: parameters sorted and lower-case, or the request is redirected.
+  params.sort();
   const data = await osFetch<RawEpisodeSearchResponse>(`/subtitles?${params.toString()}`);
   return data.data
     .filter((row) => !row.attributes.machine_translated && !row.attributes.ai_translated && row.attributes.files[0])
@@ -372,5 +388,8 @@ export async function searchEpisodeSubtitles(input: {
       fps: row.attributes.fps || null,
       downloadCount: row.attributes.download_count,
       hashMatch: row.attributes.moviehash_match === true,
+      fromTrusted: row.attributes.from_trusted === true,
+      rating: row.attributes.ratings ?? null,
+      votes: row.attributes.votes ?? null,
     }));
 }
