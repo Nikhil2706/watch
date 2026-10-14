@@ -513,7 +513,28 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
-### 2026-10-14 (latest) — Watch party: handed-over control works, streams stay together, chat over the film on TV and phone
+### 2026-10-14 (latest, later) — Watch party: followers play smoothly instead of skipping
+The sync above made the TV and phone jump forward every few seconds (+18 s in
+one 15-second sample). Fixed in `party-sync.ts`, `party-room.ts`, Player.tsx:
+
+- **Messages are stamped with when they were true** (server time), and each
+  device estimates its clock offset from round trips (pings, plus every sync
+  reply). A follower aims at where the leader is now. Comparing against the
+  position as sent, with a 1 s threshold, left it behind by the message's age
+  plus its own seek time after every seek, so it seeked again at every
+  heartbeat.
+- **Small drift is steered out with playbackRate** (0.95–1.05) until within
+  0.3 s. Seeking happens only when more than 3 s off, aimed 0.5 s ahead, after
+  which heartbeats are ignored for 6 s or until "playing".
+- **One heartbeat source**, named by the server: the creator, or the
+  controller that acted last. Controllers never follow heartbeats, only each
+  other's play/pause/seek, so two controllers cannot chase each other.
+- **Play/pause/seek from the room go straight to the `<video>` element.**
+  After a pause followed by a seek, Vidstack's state could still read
+  "playing", so the next play did nothing and that screen stayed paused.
+  A refused play is now retried.
+
+### 2026-10-14 — Watch party: handed-over control works, streams stay together, chat over the film on TV and phone
 From a live test: host on a laptop ("tester"), TV and phone on "mammannii".
 
 - **Control handed to the TV did nothing.** Player.tsx bound its play/pause/seek

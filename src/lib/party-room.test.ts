@@ -2,15 +2,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  addMember,
   applyHeartbeat,
   applySync,
   canControl,
   cleanClientId,
   createRoom,
   currentPosition,
+  dropLeaderIf,
   findOrigin,
   participantList,
   removeMember,
+  stampTime,
   type Member,
   type PartyEvent,
   type RoomState,
@@ -19,11 +22,16 @@ import {
 const tester = { kind: "user" as const, id: "u-tester", displayName: "tester" };
 const mammannii = { kind: "user" as const, id: "u-mam", displayName: "mammannii" };
 
+/** tester created the room in every test here. */
 function join(room: RoomState, identity: Member["identity"], clientId: string) {
   const got: PartyEvent[] = [];
-  const member: Member = { identity, clientId, send: (e) => void got.push(e) };
-  room.members.add(member);
+  const member: Member = { identity, clientId, isCreator: identity.id === tester.id, send: (e) => void got.push(e) };
+  addMember(room, member);
   return { member, got };
+}
+
+function leaders(events: PartyEvent[]) {
+  return events.flatMap((e) => (e.type === "leader" ? [e.clientId] : []));
 }
 
 function syncs(events: PartyEvent[]) {
@@ -47,7 +55,9 @@ test("a granted controller's pause on the TV reaches the host's laptop, with the
 
   applySync(room, findOrigin(room, mammannii.id, "tv-000001"), mammannii, "pause", 1234.5, 1000);
 
-  assert.deepEqual(syncs(laptop.got), [{ type: "sync", action: "pause", positionSeconds: 1234.5, by: "mammannii" }]);
+  assert.deepEqual(syncs(laptop.got), [
+    { type: "sync", action: "pause", positionSeconds: 1234.5, paused: true, at: 1000, by: "mammannii" },
+  ]);
   assert.deepEqual(syncs(tv.got), [], "not echoed back at the TV");
   assert.equal(room.paused, true);
   assert.equal(currentPosition(room, 99_000), 1234.5, "a paused room stays put");
@@ -97,8 +107,8 @@ test("heartbeats come from the leader only, and move everyone else", () => {
   // The TV is also a controller, but it is not the one being followed.
   assert.equal(applyHeartbeat(room, tv.member, 3, 5000), false);
   assert.equal(applyHeartbeat(room, laptop.member, 5.2, 5000), true);
-  assert.deepEqual(syncs(tv.got).at(-1), { type: "position", positionSeconds: 5.2 });
-  assert.deepEqual(syncs(phone.got).at(-1), { type: "position", positionSeconds: 5.2 });
+  assert.deepEqual(syncs(tv.got).at(-1), { type: "position", positionSeconds: 5.2, at: 5000 });
+  assert.deepEqual(syncs(phone.got).at(-1), { type: "position", positionSeconds: 5.2, at: 5000 });
   assert.equal(syncs(laptop.got).length, 0);
   assert.equal(currentPosition(room, 6000), 6.2);
 
@@ -145,4 +155,48 @@ test("client ids are plain tokens or nothing", () => {
   assert.equal(cleanClientId("has spaces in it"), null);
   assert.equal(cleanClientId(42), null);
   assert.equal(cleanClientId("x".repeat(65)), null);
+});
+
+test("the creator's stream leads from the start, and everyone joining is told who leads", () => {
+  const room = createRoom(0);
+  const tv = join(room, mammannii, "tv-000001");
+  assert.deepEqual(leaders(tv.got), [null], "nobody leads before the creator arrives");
+  const laptop = join(room, tester, "laptop-0001");
+  assert.equal(room.leader, laptop.member);
+  assert.deepEqual(leaders(tv.got), [null, "laptop-0001"]);
+  const phone = join(room, mammannii, "phone-00001");
+  assert.deepEqual(leaders(phone.got), ["laptop-0001"]);
+});
+
+test("the controller that acts takes the lead; losing control or leaving hands it back to the creator", () => {
+  const room = createRoom(0);
+  const laptop = join(room, tester, "laptop-0001");
+  const tv = join(room, mammannii, "tv-000001");
+  applySync(room, tv.member, mammannii, "pause", 10, 0);
+  assert.equal(room.leader, tv.member);
+  assert.deepEqual(leaders(laptop.got).at(-1), "tv-000001", "the laptop is told to stop sending heartbeats");
+
+  dropLeaderIf(room, mammannii.id); // control revoked
+  assert.equal(room.leader, laptop.member);
+
+  applySync(room, tv.member, mammannii, "play", 10, 0);
+  removeMember(room, tv.member);
+  assert.equal(room.leader, laptop.member);
+  dropLeaderIf(room, "someone-else");
+  assert.equal(room.leader, laptop.member, "only the leader's own loss of control moves the lead");
+});
+
+test("a position is stamped with when the sender measured it, if that is plausible", () => {
+  assert.equal(stampTime(9_800, 10_000), 9_800);
+  assert.equal(stampTime(10_500, 10_000), 10_000, "a little in the future: now");
+  assert.equal(stampTime(20_000, 10_000), 10_000, "far in the future: a bad clock");
+  assert.equal(stampTime(1_000, 10_000), 10_000, "too old to believe");
+  assert.equal(stampTime("x", 10_000), 10_000);
+});
+
+test("joining a playing room: the state's stamp lets the joiner carry it forward", () => {
+  const room = createRoom(0);
+  const laptop = join(room, tester, "laptop-0001");
+  applySync(room, laptop.member, tester, "play", 100, 1000);
+  assert.equal(currentPosition(room, 4000), 103);
 });

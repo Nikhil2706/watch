@@ -5,15 +5,18 @@ import { randomUUID } from "node:crypto";
 import { asRow, asRows, getDb } from "./db";
 import type { PartyIdentity } from "./party-identity";
 import {
+  addMember,
   applyHeartbeat,
   applySync,
   broadcast,
   canControl,
   createRoom,
   currentPosition,
+  dropLeaderIf,
   findOrigin,
   participantList,
   removeMember,
+  stampTime,
   type Member,
   type PartyChatMessage,
   type PartyEvent,
@@ -184,12 +187,13 @@ export function joinRoom(
 ): () => void {
   ensureSweep();
   const room = roomState(roomId);
-  const member: Member = { identity, clientId, send };
-  room.members.add(member);
+  const member: Member = { identity, clientId, isCreator: isCreator(roomId, identity), send };
   bus().emptySince.delete(roomId);
 
   send({ type: "history", messages: loadHistory(roomId) });
-  send({ type: "state", positionSeconds: currentPosition(room, Date.now()), paused: room.paused });
+  const now = Date.now();
+  send({ type: "state", positionSeconds: currentPosition(room, now), paused: room.paused, at: now });
+  addMember(room, member);
   broadcastParticipants(roomId);
 
   return () => {
@@ -219,10 +223,12 @@ export function postSync(
   clientId: string | null,
   action: "play" | "pause" | "seek",
   positionSeconds: number,
+  sentAt: unknown,
 ): boolean {
   if (!isController(roomId, identity)) return false;
   const room = roomState(roomId);
-  applySync(room, findOrigin(room, identity.id, clientId), identity, action, positionSeconds, Date.now());
+  const at = stampTime(sentAt, Date.now());
+  applySync(room, findOrigin(room, identity.id, clientId), identity, action, positionSeconds, at);
   return true;
 }
 
@@ -232,10 +238,12 @@ export function postPosition(
   identity: PartyIdentity,
   clientId: string | null,
   positionSeconds: number,
+  sentAt: unknown,
 ): boolean {
   if (!isController(roomId, identity)) return false;
   const room = roomState(roomId);
-  return applyHeartbeat(room, findOrigin(room, identity.id, clientId), positionSeconds, Date.now());
+  const at = stampTime(sentAt, Date.now());
+  return applyHeartbeat(room, findOrigin(room, identity.id, clientId), positionSeconds, at);
 }
 
 export function setController(
@@ -256,6 +264,7 @@ export function setController(
       .run(roomId, targetId, Date.now());
   } else {
     getDb().prepare(`DELETE FROM party_controllers WHERE room_id = ? AND ${column} = ?`).run(roomId, targetId);
+    if (room) dropLeaderIf(room, targetId);
   }
   broadcastParticipants(roomId);
   return true;

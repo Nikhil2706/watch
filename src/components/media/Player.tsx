@@ -18,10 +18,17 @@ import { useTvBack, useTvMode } from "@/components/tv/TvProvider";
 import { captionFontPx } from "@/lib/caption-size";
 import {
   consumeEcho,
+  DRIFT_CHECK_INTERVAL_MS,
+  endCooldownOnPlaying,
   expectFromPlan,
   HEARTBEAT_INTERVAL_MS,
-  planFollow,
+  newDriftControl,
+  planDrift,
+  planExplicit,
+  startCooldown,
+  targetPosition,
   type ExpectedRemote,
+  type RoomPosition,
 } from "@/lib/party-sync";
 import { getFocusableElements } from "@/lib/tv/spatial-nav";
 import {
@@ -71,6 +78,9 @@ import "@vidstack/react/player/styles/plyr/theme.css";
 
 const TICKS_PER_SECOND = 10_000_000;
 const PROGRESS_INTERVAL_MS = 10_000;
+/** Watch party: a refused play() is tried again this often, this many times (a slow seek can take seconds). */
+const PLAY_RETRY_MS = 500;
+const PLAY_RETRIES = 20;
 const DOUBLE_TAP_WINDOW_MS = 300;
 const CENTER_BUTTON_AUTOHIDE_MS = 2500;
 const SEEK_FLASH_MS = 600;
@@ -150,14 +160,20 @@ export interface PlayerSubtitle {
  */
 export interface PlayerPartySync {
   isController: boolean;
+  /** This stream is the room's one heartbeat source (party-sync.ts, heartbeatRole). */
+  sendsHeartbeat: boolean;
+  /** This stream steers itself by the heartbeat: a viewer without control. Controllers never do. */
+  followsHeartbeat: boolean;
+  /** The server's clock, as estimated from round trips; every position below is stamped with it. */
+  serverNow: () => number;
   sendSync: (action: "play" | "pause" | "seek", positionSeconds: number) => void;
-  /** Heartbeat while playing, from a controller; see HEARTBEAT_INTERVAL_MS. */
+  /** Heartbeat while playing; see HEARTBEAT_INTERVAL_MS. */
   sendPosition: (positionSeconds: number) => void;
-  lastSync: { action: "play" | "pause" | "seek"; positionSeconds: number; by: string } | null;
-  /** The lead controller's heartbeat, which followers correct their drift against. */
-  lastPosition: { positionSeconds: number } | null;
-  /** The room's state on (re)joining; receivedAt lets a playing room's position be carried forward to now. */
-  initialState: { positionSeconds: number; paused: boolean; receivedAt: number } | null;
+  lastSync: { action: "play" | "pause" | "seek"; positionSeconds: number; paused: boolean; at: number; by: string } | null;
+  /** The leader's heartbeat, which followers steer toward. */
+  lastPosition: { positionSeconds: number; at: number } | null;
+  /** The room's state on (re)joining. */
+  initialState: { positionSeconds: number; paused: boolean; at: number } | null;
 }
 
 interface PlayerProps {
@@ -703,7 +719,7 @@ export function Player({
   });
 
   /**
-   * Watch-party sync.
+   * Watch-party sync (the rules are in party-sync.ts).
    *
    * `party` is read through a ref, never from a closure. The listeners below
    * are bound once per stream, and they used to read `party.isController`
@@ -714,52 +730,171 @@ export function Player({
    *
    * `expectedRemote` keeps the changes this player was just told to make, so
    * the play/pause/seeked events they cause are not sent back as the
-   * viewer's own (party-sync.ts, consumeEcho).
+   * viewer's own (consumeEcho).
+   *
+   * A follower (no control) steers toward the leader: `followTarget` is the
+   * last stamped position heard, carried forward to now once a second, and
+   * small drift is taken out with playbackRate rather than a seek.
    */
   const partyRef = useRef(party);
   partyRef.current = party;
   const expectedRemote = useRef<ExpectedRemote | null>(null);
   /** Nothing goes out until the room's own state has been applied: autoplay at the resume point would otherwise drag everyone there. */
   const seededPartyState = useRef(false);
-
-  /** Where a playing room is by now, not where it was when its state arrived. */
-  function roomNow(state: NonNullable<PlayerPartySync["initialState"]>) {
-    const elapsed = state.paused ? 0 : (Date.now() - state.receivedAt) / 1000;
-    return { positionSeconds: state.positionSeconds + elapsed, paused: state.paused };
+  const driftControl = useRef(newDriftControl());
+  const followTarget = useRef<RoomPosition | null>(null);
+  /** playbackRate is ours (steering), so it goes back to 1 when steering stops. */
+  const rateNudged = useRef(false);
+  /**
+   * What the room tells this player to do goes to the <video> element itself,
+   * not through Vidstack (the same choice ScreenAgent makes for the phone
+   * remote). Vidstack's own state can go stale after a pause() followed at
+   * once by a seek — which a pause sync does — reading "playing" while the
+   * video is paused; its play() then resolved without playing, and that
+   * screen stayed paused while the room played on. Vidstack follows the
+   * element's own events, so its controls stay right either way.
+   */
+  function mediaElement(): HTMLVideoElement | null {
+    return stageRef.current?.querySelector("video") ?? null;
   }
 
-  function followRemote(remote: { positionSeconds: number; paused: boolean | null }) {
+  function mediaPaused(instance: MediaPlayerInstance): boolean {
+    return mediaElement()?.paused ?? instance.paused;
+  }
+
+  function mediaTime(instance: MediaPlayerInstance): number {
+    return mediaElement()?.currentTime ?? instance.currentTime;
+  }
+
+  function mediaPause(instance: MediaPlayerInstance) {
+    const video = mediaElement();
+    if (video) video.pause();
+    else void instance.pause();
+  }
+
+  function mediaSeek(instance: MediaPlayerInstance, seconds: number) {
+    const video = mediaElement();
+    if (video) video.currentTime = seconds;
+    else instance.currentTime = seconds;
+  }
+
+  /** The room last told this player to play (and has not since said pause). */
+  const wantPlaying = useRef(false);
+
+  /**
+   * play() for the room. It can be refused (before the first load, or
+   * interrupted by a seek still fetching), and a refused play used to be
+   * dropped, leaving that screen paused while the room played. Tried again
+   * every half second until it takes or the room says pause.
+   */
+  function playWhenReady(instance: MediaPlayerInstance, attempt = 0) {
+    wantPlaying.current = true;
+    const video = mediaElement();
+    (video ? video.play() : instance.play()).catch(() => {
+      if (attempt >= PLAY_RETRIES) return;
+      setTimeout(() => {
+        if (!wantPlaying.current || !mediaPaused(instance)) return;
+        // The retry's play event is still the room's, not the viewer's.
+        expectedRemote.current = expectFromPlan({ seekTo: null, setPaused: false }, Date.now());
+        playWhenReady(instance, attempt + 1);
+      }, PLAY_RETRY_MS);
+    });
+  }
+
+  function setSteeringRate(instance: MediaPlayerInstance, rate: number) {
+    instance.playbackRate = rate;
+    rateNudged.current = rate !== 1;
+  }
+
+  function stopSteering(instance: MediaPlayerInstance) {
+    if (rateNudged.current) setSteeringRate(instance, 1);
+  }
+
+  /** An explicit play/pause/seek from a controller, or the room's state on joining. */
+  function applyExplicit(remote: RoomPosition) {
     const instance = player.current;
-    if (!instance) return;
-    const plan = planFollow({ positionSeconds: instance.currentTime, paused: instance.paused }, remote);
+    const current = partyRef.current;
+    if (!instance || !current) return;
+    const now = Date.now();
+    followTarget.current = current.followsHeartbeat ? remote : null;
+    stopSteering(instance);
+    const plan = planExplicit(
+      { positionSeconds: mediaTime(instance), paused: mediaPaused(instance) },
+      remote,
+      current.serverNow(),
+      current.followsHeartbeat,
+    );
     if (plan.seekTo === null && plan.setPaused === null) return;
-    expectedRemote.current = expectFromPlan(plan, Date.now());
+    expectedRemote.current = expectFromPlan(plan, now);
     // Pause before seeking, so the seek does not start playing on from the old spot.
-    if (plan.setPaused === true) void instance.pause();
-    if (plan.seekTo !== null) instance.currentTime = plan.seekTo;
-    if (plan.setPaused === false) instance.play().catch(() => {});
+    if (plan.setPaused === true) mediaPause(instance);
+    if (plan.seekTo !== null) {
+      mediaSeek(instance, plan.seekTo);
+      startCooldown(driftControl.current, now);
+    }
+    if (plan.setPaused === true) wantPlaying.current = false;
+    if (plan.setPaused === false) playWhenReady(instance);
   }
+
+  /** A follower's once-a-second correction toward where the leader is now. */
+  function steer() {
+    const instance = player.current;
+    const current = partyRef.current;
+    if (!instance) return;
+    const target = followTarget.current;
+    if (!current?.followsHeartbeat || !target || target.paused || mediaPaused(instance)) {
+      stopSteering(instance);
+      return;
+    }
+    const now = Date.now();
+    const plan = planDrift(
+      { positionSeconds: mediaTime(instance), rate: instance.playbackRate, seeking: mediaElement()?.seeking ?? instance.state.seeking },
+      targetPosition(target, current.serverNow()),
+      driftControl.current,
+      now,
+    );
+    if (plan.kind === "rate") {
+      setSteeringRate(instance, plan.rate);
+    } else if (plan.kind === "seek") {
+      stopSteering(instance);
+      expectedRemote.current = expectFromPlan({ seekTo: plan.to, setPaused: null }, now);
+      mediaSeek(instance, plan.to);
+    }
+  }
+  const steerRef = useRef(steer);
+  steerRef.current = steer;
+
+  useEffect(() => {
+    const timer = setInterval(() => steerRef.current(), DRIFT_CHECK_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!party?.initialState || !player.current) return;
     seededPartyState.current = true;
-    followRemote(roomNow(party.initialState));
+    applyExplicit(party.initialState);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [party?.initialState]);
 
   useEffect(() => {
     if (!party?.lastSync) return;
-    const { action, positionSeconds } = party.lastSync;
-    // A seek says nothing about play state; play and pause do.
-    followRemote({ positionSeconds, paused: action === "seek" ? null : action === "pause" });
+    const { positionSeconds, paused, at } = party.lastSync;
+    applyExplicit({ positionSeconds, paused, at });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [party?.lastSync]);
 
   useEffect(() => {
-    if (!party?.lastPosition) return;
+    const instance = player.current;
+    // Controllers never follow heartbeats: two of them doing so chased each other.
+    if (!party?.lastPosition || !party.followsHeartbeat || !instance) return;
+    followTarget.current = { ...party.lastPosition, paused: false };
     // Heartbeats only come while the room is playing, so a follower that
-    // stalled or missed the play is set going again as well as moved.
-    followRemote({ positionSeconds: party.lastPosition.positionSeconds, paused: false });
+    // stalled or missed the play is set going again.
+    if (mediaPaused(instance)) {
+      expectedRemote.current = expectFromPlan({ seekTo: null, setPaused: false }, Date.now());
+      playWhenReady(instance);
+    }
+    steer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [party?.lastPosition]);
 
@@ -793,7 +928,7 @@ export function Player({
     if (current) {
       if (seeded.current || !current.initialState) return;
       seeded.current = true;
-      followRemote(roomNow(current.initialState));
+      applyExplicit(current.initialState);
       return;
     }
     if (seeded.current || startSeconds <= 0) return;
@@ -871,6 +1006,8 @@ export function Player({
       shareWithParty("pause");
     };
     const onSeeked = () => shareWithParty("seek");
+    // A follower's seek has landed: heartbeats may be listened to again.
+    const onPlaying = () => endCooldownOnPlaying(driftControl.current, Date.now());
     const onEnded = () => report("/Stopped");
     const onError = () => {
       const mediaError = instance.state.error;
@@ -886,18 +1023,19 @@ export function Player({
       if (!instance.paused) report("/Progress");
     }, PROGRESS_INTERVAL_MS);
 
-    // Watch party: a controller that is playing says where it is every few
-    // seconds, and followers more than DRIFT_THRESHOLD_SECONDS off jump to it.
-    // The room listens to one controller at a time (party-room.ts).
+    // Watch party: the room's one heartbeat source says where it is every few
+    // seconds while playing (the creator, or the controller that acted last;
+    // party-room.ts names it). Followers steer toward it.
     const heartbeat = setInterval(() => {
       const current = partyRef.current;
-      if (!current?.isController || !seededPartyState.current || instance.paused) return;
-      current.sendPosition(instance.currentTime);
+      if (!current?.isController || !current.sendsHeartbeat || !seededPartyState.current || mediaPaused(instance)) return;
+      current.sendPosition(mediaTime(instance));
     }, HEARTBEAT_INTERVAL_MS);
 
     instance.addEventListener("play", onPlay);
     instance.addEventListener("pause", onPause);
     instance.addEventListener("seeked", onSeeked);
+    instance.addEventListener("playing", onPlaying);
     instance.addEventListener("ended", onEnded);
     instance.addEventListener("error", onError);
 
@@ -906,6 +1044,7 @@ export function Player({
       clearInterval(heartbeat);
       instance.removeEventListener("play", onPlay);
       instance.removeEventListener("seeked", onSeeked);
+      instance.removeEventListener("playing", onPlaying);
       instance.removeEventListener("pause", onPause);
       instance.removeEventListener("ended", onEnded);
       instance.removeEventListener("error", onError);

@@ -28,14 +28,21 @@ export interface PartyParticipant {
 
 export type PartySyncAction = "play" | "pause" | "seek";
 
+/**
+ * Every position carries `at`: the server time (ms) it was true at. A
+ * position is only right at that moment, so clients carry it forward by its
+ * age (party-sync.ts, targetPosition) rather than using it as sent.
+ */
 export type PartyEvent =
   | { type: "history"; messages: PartyChatMessage[] }
-  | { type: "state"; positionSeconds: number; paused: boolean }
+  | { type: "state"; positionSeconds: number; paused: boolean; at: number }
   | { type: "participants"; list: PartyParticipant[] }
   | { type: "chat"; message: PartyChatMessage }
-  | { type: "sync"; action: PartySyncAction; positionSeconds: number; by: string }
-  /** The lead controller's position while playing, every few seconds, so followers can correct drift. */
-  | { type: "position"; positionSeconds: number }
+  | { type: "sync"; action: PartySyncAction; positionSeconds: number; paused: boolean; at: number; by: string }
+  /** The leader's position while playing, every few seconds, so followers can correct drift. */
+  | { type: "position"; positionSeconds: number; at: number }
+  /** The one stream that sends heartbeats; null when nobody leads yet (any controller may claim it). */
+  | { type: "leader"; clientId: string | null }
   | { type: "ended" };
 
 export interface Member {
@@ -46,6 +53,8 @@ export interface Member {
    * cannot say which stream an action came from.
    */
   clientId: string | null;
+  /** The room's creator: leads the heartbeat when no other controller has acted. */
+  isCreator: boolean;
   send: (event: PartyEvent) => void;
 }
 
@@ -56,10 +65,11 @@ export interface RoomState {
   /** Wall-clock time positionSeconds was last known accurate, for extrapolating "now" between syncs. */
   updatedAt: number;
   /**
-   * The stream whose clock the room follows: whoever last played, paused or
-   * seeked. Only its heartbeats move the room, so two controllers cannot
-   * drag everyone back and forth between their two slightly different
-   * positions.
+   * The one stream that sends heartbeats: the creator's, or whoever last
+   * played, paused or seeked. Only its heartbeats move the room, so two
+   * controllers cannot drag everyone back and forth between their two
+   * slightly different positions. Changes are announced (a "leader" event) so
+   * every other controller knows to stay quiet.
    */
   leader: Member | null;
 }
@@ -71,6 +81,18 @@ export function createRoom(now: number): RoomState {
 export function currentPosition(room: RoomState, now: number): number {
   if (room.paused) return room.positionSeconds;
   return room.positionSeconds + (now - room.updatedAt) / 1000;
+}
+
+/**
+ * When a position was true, by the server's clock. A client says when it
+ * measured (its own estimate of server time, which leaves out the upload
+ * delay); anything implausible — in the future, or older than a few seconds —
+ * falls back to the moment it arrived.
+ */
+export function stampTime(sentAt: unknown, now: number): number {
+  if (typeof sentAt !== "number" || !Number.isFinite(sentAt)) return now;
+  if (sentAt > now + 1000 || sentAt < now - 5000) return now;
+  return Math.min(sentAt, now);
 }
 
 /** Client ids are opaque, but they end up as Map keys and in logs, so only a plain token shape is accepted. */
@@ -98,9 +120,33 @@ export function broadcast(room: RoomState, event: PartyEvent, except?: Member): 
   }
 }
 
+/** Names the heartbeat source, and tells the room when that changes. */
+export function setLeader(room: RoomState, member: Member | null): void {
+  if (room.leader === member) return;
+  room.leader = member;
+  broadcast(room, { type: "leader", clientId: member?.clientId ?? null });
+}
+
+/** The creator's stream if one is here, else nobody: the next controller to send a heartbeat claims it. */
+export function fallbackLeader(room: RoomState, except?: Member): Member | null {
+  return [...room.members].find((m) => m.isCreator && m !== except) ?? null;
+}
+
+/** A new stream: told who leads, and the creator's first stream leads if nobody has acted yet. */
+export function addMember(room: RoomState, member: Member): void {
+  room.members.add(member);
+  if (!room.leader && member.isCreator) setLeader(room, member);
+  else member.send({ type: "leader", clientId: room.leader?.clientId ?? null });
+}
+
 export function removeMember(room: RoomState, member: Member): void {
   room.members.delete(member);
-  if (room.leader === member) room.leader = null;
+  if (room.leader === member) setLeader(room, fallbackLeader(room));
+}
+
+/** Control taken away from someone: if they led, the lead goes back to the creator. */
+export function dropLeaderIf(room: RoomState, identityId: string): void {
+  if (room.leader?.identity.id === identityId) setLeader(room, fallbackLeader(room, room.leader));
 }
 
 /**
@@ -116,34 +162,38 @@ export function applySync(
   by: PartyMemberIdentity,
   action: PartySyncAction,
   positionSeconds: number,
-  now: number,
+  at: number,
 ): void {
   room.positionSeconds = positionSeconds;
   // A seek keeps whatever play state the room had.
   if (action !== "seek") room.paused = action === "pause";
-  room.updatedAt = now;
-  if (origin) room.leader = origin;
-  broadcast(room, { type: "sync", action, positionSeconds, by: by.displayName }, origin);
+  room.updatedAt = at;
+  if (origin) setLeader(room, origin);
+  broadcast(
+    room,
+    { type: "sync", action, positionSeconds, paused: room.paused, at, by: by.displayName },
+    origin,
+  );
 }
 
 /**
- * A controller's periodic "I am here" while playing. Accepted only from the
- * leader, or from any controller's stream when there is none (the leader left,
- * or nobody has acted yet). Ignored while the room is paused: a heartbeat that
+ * The heartbeat: a controller's periodic "I am here" while playing. Accepted
+ * only from the leader, or from any controller's stream when there is none
+ * (the first one heard then leads). Ignored while the room is paused: a heartbeat that
  * arrives just after a pause must not set the room playing again.
  */
 export function applyHeartbeat(
   room: RoomState,
   origin: Member | undefined,
   positionSeconds: number,
-  now: number,
+  at: number,
 ): boolean {
   if (!origin || room.paused) return false;
   if (room.leader && room.leader !== origin && room.members.has(room.leader)) return false;
-  room.leader = origin;
+  setLeader(room, origin);
   room.positionSeconds = positionSeconds;
-  room.updatedAt = now;
-  broadcast(room, { type: "position", positionSeconds }, origin);
+  room.updatedAt = at;
+  broadcast(room, { type: "position", positionSeconds, at }, origin);
   return true;
 }
 
