@@ -4,6 +4,8 @@ import { formatRuntime, posterUrl, type MediaItem } from "@/lib/media";
 import { itemHref } from "@/lib/slugs";
 import type { SpecialFeatureTarget } from "@/lib/special-features";
 
+import { SPECIAL_FEATURES_ANCHOR } from "./special-features-anchor";
+
 /**
  * Special features on a film's page — the making-of, the documentary about
  * its director, the retrospective on one of its leads.
@@ -21,7 +23,9 @@ export function SpecialFeaturesRow({
   if (features.length === 0) return null;
 
   return (
-    <section className="sf-section">
+    // tabIndex -1: SpecialFeaturesJump moves focus here off a TV, so the next
+    // Tab continues from the features rather than from the top of the page.
+    <section className="sf-section" id={SPECIAL_FEATURES_ANCHOR} tabIndex={-1}>
       <h2 className="sf-heading">Special features</h2>
       <ul className="sf-list">
         {features.map(({ item, targets }) => {

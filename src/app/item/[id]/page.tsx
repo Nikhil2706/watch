@@ -11,6 +11,7 @@ import { PickPanels } from "@/components/picks/PickPanels";
 import { ListButtons } from "@/components/media/ListButtons";
 import { WatchedButton } from "@/components/media/WatchedButton";
 import { RatingsRow } from "@/components/media/RatingsRow";
+import { SpecialFeaturesJump } from "@/components/media/SpecialFeaturesJump";
 import { SpecialFeaturesRow } from "@/components/media/SpecialFeaturesRow";
 import { OfflineButton } from "@/components/offline/OfflineButton";
 import { versionLinksForPath } from "@/lib/film-versions";
@@ -295,6 +296,9 @@ export default async function ItemPage({
                 })}
               </span>
             ) : null}
+            {/* The features are listed far down the page; this says they are
+                there, up where people look. Nothing when there are none. */}
+            <SpecialFeaturesJump count={specialFeatures.length} />
           </div>
           {/* Three sources, most specific first. Episodes in a group share the
               show's OMDb blurb, so every hour of a series otherwise says the

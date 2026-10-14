@@ -5096,6 +5096,28 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
   margin: 0 0 30px;
   padding: 0 20px;
   max-width: 900px;
+  /* Clear of the sticky app bar when SpecialFeaturesJump scrolls here. */
+  scroll-margin-top: 90px;
+}
+
+/* Focused by SpecialFeaturesJump so Tab carries on from here; it is not a
+   control, so no ring. */
+.sf-section:focus {
+  outline: none;
+}
+
+/* "Includes 3 special features" in the hero's meta line: amber like the
+   section's own "why is this here" labels, underlined so it reads as a link
+   among the plain facts beside it. */
+.sf-jump {
+  color: var(--warm);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.sf-jump:hover {
+  color: var(--text);
 }
 
 .sf-heading {

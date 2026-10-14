@@ -105,6 +105,8 @@
   .ac-browse-card .lw-rail-name { white-space: normal; }
   .ac-browse-card.sel { background: rgba(91, 141, 239, 0.14); box-shadow: inset 2px 0 0 var(--accent); }
   .lw-rail-sub { display: block; font-size: 10.5px; color: var(--dead); }
+  /* "Group as <series>" right on the rail row: one click, no pane needed. */
+  .lw-rail-act { flex: 0 0 auto; width: auto; font-size: 11px; padding: 3px 8px; }
   .lw-rail-check { width: auto; flex: 0 0 auto; margin: 0; }
   .lw-thumb { width: 26px; height: 39px; flex: 0 0 auto; border-radius: 3px; object-fit: cover;
     background: var(--surface-2); border: 1px solid var(--border); }
@@ -4019,6 +4021,9 @@
   var LW_REASONS = [
     { key: "meta", label: "No metadata", test: function (r) { return r.isThinMetadata && !r.isWhitelisted; } },
     { key: "damaged", label: "Damaged file", test: function (r) { return r.isDamaged; } },
+    // Recognised as an episode (OMDb, TMDB or an SxxEyy name) and in no show:
+    // off the site until it is grouped, or kept as a film.
+    { key: "episode", label: "Episode, not in a show", test: function (r) { return Boolean(r.pendingEpisode); } },
     { key: "dup", label: "Duplicate", test: function (r) { return r.isDuplicate; } },
     { key: "guess", label: "Might be a special feature", test: function (r) { return Boolean(r.featureGuess); } },
     { key: "unmapped", label: "Feature, not shown anywhere", test: function (r) {
@@ -4041,7 +4046,11 @@
    * agree with it. Keyed on the same lowercased title the pane groups by.
    */
   function lwDupKey(r) {
-    return r.kind === "film" && r.isDuplicate ? "dup:" + r.name.toLowerCase() : null;
+    if (r.kind !== "film") return null;
+    // Sixteen loose episodes of one series are one decision too: one row,
+    // with "Group as <series>" on it.
+    if (r.pendingEpisode) return "ep:" + r.pendingEpisode.key;
+    return r.isDuplicate ? "dup:" + r.name.toLowerCase() : null;
   }
 
   function lwCollapseDuplicates(rows) {
@@ -4205,6 +4214,7 @@
       isDamaged: Boolean(it.damage && it.damage.verdict === "damaged" && !it.damageAllowed),
       isWhitelisted: it.isWhitelisted,
       isExcluded: it.isExcluded,
+      pendingEpisode: it.pendingEpisode || null,
       // Filled in by sfApplyToRows once the marks and any suggestions are
       // loaded; rebuilding rows must not drop them.
       isSpecialFeature: false,
@@ -4359,6 +4369,9 @@
       var sub;
       if (r.kind === "show") {
         sub = r.members.length + " files";
+      } else if (r.pendingEpisode) {
+        var pe = r.pendingEpisode;
+        sub = pe.files + " episode" + (pe.files === 1 ? "" : "s") + " of " + pe.name + ", in no show";
       } else if (r.dupCount > 1) {
         // The pair reads as one thing to decide, which is what it is.
         sub = r.dupCount + " copies" + (r.year ? " · " + r.year : "");
@@ -4380,8 +4393,16 @@
         '<span class="lw-rail-name">' + esc(r.name) +
           (sub ? '<span class="lw-rail-sub">' + esc(sub) + '</span>' : "") +
         '</span>' +
+        (r.pendingEpisode ? lwGroupEpisodesButton(r.pendingEpisode, "ghost lw-rail-act") : "") +
         '</div>';
     }).join("");
+  }
+
+  /* "Group as Nirvanna the Band the Show", or "Add to <show>" when a show for
+     that series already exists. Every loose episode of the series, one click. */
+  function lwGroupEpisodesButton(pe, cls) {
+    return '<button class="' + cls + '" data-lw-action="group-episodes" data-lw-target="' + esc(pe.key) + '">' +
+      esc((pe.joins ? "Add to " : "Group as ") + pe.name) + '</button>';
   }
 
   function lwRenderBulk() {
@@ -4417,6 +4438,7 @@
         : "Small fault in the file, still shown: " + it.damage.detail);
     }
     if (it.isDuplicate) bits.push("Duplicate title");
+    if (it.pendingEpisode) bits.push("Episode of " + it.pendingEpisode.name + ", in no show \u2014 off the site until grouped");
     if (it.version) bits.push(it.version.isPrimary ? "Main of " + it.version.setSize + " cuts" : "Cut: " + it.version.label);
     if (it.isMissingSubtitles) bits.push("No subtitles");
     if (!bits.length) bits.push("Nothing needs deciding");
@@ -4425,6 +4447,11 @@
 
   function lwFilmActions(it) {
     var out = "";
+    if (it.pendingEpisode) {
+      out += lwGroupEpisodesButton(it.pendingEpisode, "");
+      out += '<button class="ghost" data-lw-action="keep-film" data-lw-target="' + esc(it.id) + '" ' +
+        'title="Not an episode, or it should stand on its own: shown on the site, never grouped unasked">Keep as a film</button>';
+    }
     out += '<button data-action="search" data-item-id="' + esc(it.id) + '">Identify</button>';
     out += '<button class="ghost" data-action="manual" data-item-id="' + esc(it.id) + '">Type it in</button>';
     out += '<button class="ghost" data-action="poster" data-item-id="' + esc(it.id) + '">Poster</button>';
@@ -4779,6 +4806,9 @@
   });
 
   $("lwRail").addEventListener("click", function (e) {
+    // The rail's own "Group as ..." is handled with the pane's actions below;
+    // it should not also open the row.
+    if (e.target.closest("[data-lw-action]")) return;
     var check = e.target.closest("[data-lw-check]");
     if (check) {
       lw.checked[check.getAttribute("data-lw-check")] = check.checked;
@@ -5357,6 +5387,27 @@
       }
       btn.disabled = true;
       req.then(function () { show("ok", "Saved."); return lwLoad(true); })
+        .catch(function (err) { show("err", err.message); btn.disabled = false; });
+      return;
+    }
+
+    if (action === "group-episodes") {
+      btn.disabled = true;
+      api("/api/admin/library/group-episodes", { method: "POST", body: { key: target } })
+        .then(function (r) {
+          show("ok", (r.files === 1 ? "1 episode" : r.files + " episodes") + " grouped into " + r.name + ".");
+          return lwLoad(true);
+        })
+        .catch(function (err) { show("err", err.message); btn.disabled = false; });
+      return;
+    }
+
+    if (action === "keep-film") {
+      var keep = lwRowById(target);
+      if (!keep || !keep.item || !keep.item.path) return;
+      btn.disabled = true;
+      api("/api/admin/library/keep-as-film", { method: "POST", body: { path: keep.item.path } })
+        .then(function () { show("ok", "Kept as a film. It is back on the site."); return lwLoad(true); })
         .catch(function (err) { show("err", err.message); btn.disabled = false; });
       return;
     }
