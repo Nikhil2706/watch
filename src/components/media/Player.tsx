@@ -174,6 +174,8 @@ export interface PlayerPartySync {
   lastPosition: { positionSeconds: number; at: number } | null;
   /** The room's state on (re)joining. */
   initialState: { positionSeconds: number; paused: boolean; at: number } | null;
+  /** A controller asked this player to seek ("↩ 1:02:13", undoing a jump); a new id each time. Sent to the room like the viewer's own seek. */
+  seekRequest?: { to: number; id: number } | null;
 }
 
 interface PlayerProps {
@@ -875,6 +877,14 @@ export function Player({
     applyExplicit(party.initialState);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [party?.initialState]);
+
+  useEffect(() => {
+    const instance = player.current;
+    if (!party?.seekRequest || !instance) return;
+    // Not an expected echo: the seeked this causes goes out as this viewer's seek.
+    mediaSeek(instance, party.seekRequest.to);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [party?.seekRequest]);
 
   useEffect(() => {
     if (!party?.lastSync) return;

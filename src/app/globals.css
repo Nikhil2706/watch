@@ -4108,6 +4108,13 @@ html[data-tv="true"] .appbar-more {
   width: auto;
 }
 
+/* "↩ 1:02:13": back to where the film was before a big jump. */
+.party-undo-jump {
+  width: auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .party-unread {
   min-width: 20px;
   height: 20px;

@@ -44,6 +44,8 @@ export type PartyEvent =
   | { type: "position"; positionSeconds: number; at: number }
   /** The one stream that sends heartbeats; null when nobody leads yet (any controller may claim it). */
   | { type: "leader"; clientId: string | null }
+  /** The room moved more than JUMP_UNDO_SECONDS: where it was, so a controller can take it back. */
+  | { type: "jumped"; from: number; to: number; by: string }
   | { type: "ended" };
 
 export interface Member {
@@ -80,6 +82,13 @@ export interface RoomState {
    */
   leader: Member | null;
 }
+
+/**
+ * A move bigger than this is a jump worth being able to undo — one stray
+ * press on a TV remote's seek or a slip on the seek bar. Taken from SyncTube's
+ * "flashback", which remembers the spot before any jump over 30 s.
+ */
+export const JUMP_UNDO_SECONDS = 30;
 
 /** 1:02:13, or 4:05 under an hour. */
 export function formatClock(seconds: number): string {
@@ -200,6 +209,7 @@ export function applySync(
   positionSeconds: number,
   at: number,
 ): void {
+  const before = currentPosition(room, at);
   room.positionSeconds = positionSeconds;
   // A seek keeps whatever play state the room had.
   if (action !== "seek") room.paused = action === "pause";
@@ -211,6 +221,10 @@ export function applySync(
     origin,
   );
   postNotice(room, syncNotice(action, positionSeconds, by.displayName), at);
+  // Everyone hears it, the sender included: the stray press was usually theirs.
+  if (Math.abs(positionSeconds - before) > JUMP_UNDO_SECONDS) {
+    broadcast(room, { type: "jumped", from: before, to: positionSeconds, by: by.displayName });
+  }
 }
 
 /**

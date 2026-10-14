@@ -236,3 +236,17 @@ test("a playing room with no controller watching pauses where it is, and says wh
   assert.equal(pauseOrphaned(room, 11_000), false, "already paused: nothing to do");
   void phoneChat;
 });
+
+test("a jump of more than 30 s tells everyone, the sender included, where the room was", () => {
+  const room = createRoom(0);
+  const laptop = join(room, tester, "laptop-0001");
+  const tv = join(room, mammannii, "tv-000001");
+  applySync(room, laptop.member, tester, "play", 3700, 0);
+  applySync(room, tv.member, mammannii, "seek", 1200, 10_000); // a stray press
+  const jumps = (events: PartyEvent[]) => events.filter((e) => e.type === "jumped");
+  assert.deepEqual(jumps(tv.got).at(-1), { type: "jumped", from: 3710, to: 1200, by: "mammannii" });
+  assert.deepEqual(jumps(laptop.got).at(-1), jumps(tv.got).at(-1));
+  const count = jumps(tv.got).length;
+  applySync(room, tv.member, mammannii, "seek", 1220, 10_000);
+  assert.equal(jumps(tv.got).length, count, "a 20 s nudge is not a jump");
+});

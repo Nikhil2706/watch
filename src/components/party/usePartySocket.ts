@@ -79,6 +79,8 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
   const [lastSync, setLastSync] = useState<PartySyncEvent | null>(null);
   /** The lead controller's heartbeat while playing — a fresh object every time, so an effect on it re-runs. */
   const [lastPosition, setLastPosition] = useState<{ positionSeconds: number; at: number } | null>(null);
+  /** The room's last jump of more than 30 s, so a controller can take it back. */
+  const [lastJump, setLastJump] = useState<{ from: number; to: number; by: string; heardAt: number } | null>(null);
   /** The stream that sends heartbeats, as the server last named it. */
   const [leaderClientId, setLeaderClientId] = useState<string | null>(null);
 
@@ -150,6 +152,9 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
             break;
           case "position":
             setLastPosition({ positionSeconds: Number(msg.positionSeconds), at: Number(msg.at) });
+            break;
+          case "jumped":
+            setLastJump({ from: Number(msg.from), to: Number(msg.to), by: String(msg.by), heardAt: Date.now() });
             break;
           case "leader":
             setLeaderClientId(typeof msg.clientId === "string" ? msg.clientId : null);
@@ -296,6 +301,7 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
     lastSync,
     lastPosition,
     leaderClientId,
+    lastJump,
     clientId,
     serverNow,
     ended,

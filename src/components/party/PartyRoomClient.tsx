@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PlayerMount, type PlayerMountProps } from "@/components/media/PlayerMount";
 import { useTvBack, useTvMode } from "@/components/tv/TvProvider";
 import { getFocusableElements } from "@/lib/tv/spatial-nav";
+import { formatClock } from "@/lib/party-room";
 import { heartbeatRole, viewerIsController } from "@/lib/party-sync";
 
 import { PartyChatPanel } from "./PartyChatPanel";
@@ -19,6 +20,9 @@ import { usePartySocket } from "./usePartySocket";
  * chat stacked under the video, a scroll away from it.
  */
 const NARROW_QUERY = "(max-width: 899px)";
+
+/** How long "↩ 1:02:13" stays offered after a big jump. */
+const UNDO_OFFER_MS = 30_000;
 
 function subscribeNarrow(onChange: () => void): () => void {
   const query = window.matchMedia(NARROW_QUERY);
@@ -72,6 +76,25 @@ export function PartyRoomClient({
   const [chatDetached, setChatDetached] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
   const router = useRouter();
+
+  /*
+   * Undo a jump: for UNDO_OFFER_MS after the room moved more than 30 s (a
+   * stray press on the remote, a slip on the seek bar), a controller gets
+   * "↩ 1:02:13" beside Chat. It asks this page's player to seek there, which
+   * the room then follows like any other seek.
+   */
+  const [seekRequest, setSeekRequest] = useState<{ to: number; id: number } | null>(null);
+  const [dismissedJump, setDismissedJump] = useState<typeof socket.lastJump>(null);
+  const [, setTick] = useState(0);
+  const jump = socket.lastJump;
+  const undoJump =
+    isController && jump && jump !== dismissedJump && Date.now() - jump.heardAt < UNDO_OFFER_MS && player ? jump : null;
+  useEffect(() => {
+    if (!jump) return;
+    // Re-render once the offer runs out, so the button goes.
+    const timer = setTimeout(() => setTick((t) => t + 1), Math.max(0, UNDO_OFFER_MS - (Date.now() - jump.heardAt)) + 50);
+    return () => clearTimeout(timer);
+  }, [jump]);
 
   /* ---- The chat overlay (TV and phone) ---- */
   const [chatOpen, setChatOpen] = useState(false);
@@ -223,6 +246,20 @@ export function PartyRoomClient({
             ) : null}
           </button>
         ) : null}
+        {undoJump ? (
+          <button
+            type="button"
+            className="btn ghost party-undo-jump"
+            aria-label={`Go back to ${formatClock(undoJump.from)}, where the film was before ${undoJump.by}'s jump`}
+            title={`Back to where the film was before ${undoJump.by}'s jump`}
+            onClick={() => {
+              setSeekRequest({ to: undoJump.from, id: Date.now() });
+              setDismissedJump(socket.lastJump);
+            }}
+          >
+            ↩ {formatClock(undoJump.from)}
+          </button>
+        ) : null}
         <span className="title">{filmTitle}</span>
       </div>
 
@@ -256,6 +293,7 @@ export function PartyRoomClient({
                 lastSync: socket.lastSync,
                 lastPosition: socket.lastPosition,
                 initialState: socket.initialState,
+                seekRequest,
               }}
             />
           ) : (
