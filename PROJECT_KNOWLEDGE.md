@@ -513,7 +513,37 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
-### 2026-09-23 to 09-26 (latest) — Restored onto the HP host; offline downloads made to work; a phone layout
+### 2026-10-14 (latest) — Watch party: handed-over control works, streams stay together, chat over the film on TV and phone
+From a live test: host on a laptop ("tester"), TV and phone on "mammannii".
+
+- **Control handed to the TV did nothing.** Player.tsx bound its play/pause/seek
+  listeners once, when the film loaded, and they kept `party.isController` from
+  that moment. The host is the creator, so it was true from the start; anyone
+  granted control later stayed `false` in those listeners for good, so the TV's
+  pause (remote key or click alike) was never sent. The server side
+  (`party_controllers`, `isController`) was fine. Party state is now read
+  through a ref.
+- **Drift (3 s playing, 7 s after a pause).** Every play/pause/seek carries the
+  sender's position, and a follower more than 1 s off jumps to it. A
+  controller that is playing also sends its position every 5 s, and the room
+  follows one controller at a time (whoever last played, paused or seeked), so
+  two controllers cannot drag everyone between them. A seek no longer marks a
+  paused room as playing. The 300 ms "don't echo what I was just told" flag
+  became a 4 s, one-use expectation, because an HLS seek lands later than 300 ms.
+- **Each stream now has its own id** (`?cid=`). The room used to identify a
+  sender by account, so with two devices on one account it could skip the
+  wrong device when not echoing a sync back to its sender.
+- **End watch party** stays on the page when the chat is sent to another tab
+  (it moves into the "Chat is on your other screen" bar).
+- **TV and phone:** no side panel. "Chat" sits next to "‹ Back" (up from the
+  video, then right on a remote; OK opens it). The chat opens over the film
+  without stopping it, Back closes it and puts focus back on the button, and
+  the button shows an unread count. Desktop keeps the docked layout.
+- The room logic moved into `src/lib/party-room.ts` and the follower logic
+  into `src/lib/party-sync.ts`, so both are tested without a database or a
+  video element.
+
+### 2026-09-23 to 09-26 — Restored onto the HP host; offline downloads made to work; a phone layout
 The Dell's boot SSD failed and the stack was restored onto an HP laptop from the
 2026-09-19 backup. How that host is set up — native Windows tunnel, hidden logon
 tasks, console server, dev copy — is in **HOST-SETUP.md**; read it before

@@ -89,10 +89,12 @@ test("TV remote on a slider: left/right stay with the slider, up leaves the bar"
   assert.deepEqual(resolveTvRemoteKey("ArrowUp", "slider"), { kind: "leaveControls" });
 });
 
-test("TV remote on the Back link above the video: down returns to the video, OK follows the link", () => {
+test("TV remote on the bar above the video: down returns to the video, left/right move along it, OK presses", () => {
   assert.deepEqual(resolveTvRemoteKey("ArrowDown", "topbar"), { kind: "leaveControls" });
   assert.equal(resolveTvRemoteKey("Enter", "topbar"), null);
   assert.equal(resolveTvRemoteKey("ArrowUp", "topbar"), null);
-  assert.equal(resolveTvRemoteKey("ArrowRight", "topbar"), null);
+  // A watch party's "Chat" sits right of "‹ Back".
+  assert.deepEqual(resolveTvRemoteKey("ArrowRight", "topbar"), { kind: "moveTopBar", direction: 1 });
+  assert.deepEqual(resolveTvRemoteKey("ArrowLeft", "topbar"), { kind: "moveTopBar", direction: -1 });
   assert.deepEqual(resolveTvRemoteKey("MediaPlayPause", "topbar"), { kind: "toggle" });
 });

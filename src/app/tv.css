@@ -473,6 +473,56 @@ html[data-tv="true"] .party-room-side input {
   padding: 10px 14px;
 }
 
+/* Chat as an overlay instead of a column (PartyRoomClient): the film takes
+   the screen, and the chat opens over its right side, under the bar that
+   holds "‹ Back" and "Chat". */
+html[data-tv="true"] .party-room-grid.chat-overlay-mode {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html[data-tv="true"] .party-chat-overlay {
+  top: 72px;
+  left: auto;
+  width: 520px;
+  height: auto;
+  padding: 16px;
+  border-radius: 0;
+  border-top: 0;
+  border-left: 1px solid var(--border);
+}
+
+html[data-tv="true"] .party-chat-overlay,
+html[data-tv="true"] .party-chat-overlay :is(p, span, input, button, li) {
+  font-size: 0.9rem;
+}
+
+html[data-tv="true"] .party-chat-overlay button {
+  min-height: 44px;
+  padding: 8px 16px;
+}
+
+html[data-tv="true"] .party-chat-overlay .party-menu-btn {
+  min-width: 44px;
+}
+
+html[data-tv="true"] .party-chat-overlay input {
+  min-height: 52px;
+  padding: 10px 14px;
+}
+
+html[data-tv="true"] .party-chat-toggle .party-unread {
+  min-width: 26px;
+  height: 26px;
+  line-height: 26px;
+  font-size: 0.85rem;
+}
+
+html[data-tv="true"] .party-chat-toggle:focus-visible,
+html[data-tv="true"] .party-chat-toggle:focus {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
 /* Chat moved to a phone: the player takes the whole width again (the two-
    column rule above would otherwise keep an empty 480 px column). */
 html[data-tv="true"] .party-room-grid.chat-detached {
@@ -507,7 +557,7 @@ html[data-tv="true"] .party-guest-qr {
 /* Nothing a TV can do with either: its clipboard goes nowhere, and the app
    has no tabs. The QR is the way to hand a link to someone. */
 html[data-tv="true"] .party-guest-row > button:first-of-type,
-html[data-tv="true"] .party-chat-head-actions > .party-chat-move:last-child {
+html[data-tv="true"] .party-chat-head-actions > .party-chat-newtab {
   display: none;
 }
 

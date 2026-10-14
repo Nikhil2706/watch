@@ -22,6 +22,7 @@ export function PartyChatPanel({
   isCreator,
   socket,
   onMoveOut,
+  onClose,
 }: {
   roomId: string;
   isCreator: boolean;
@@ -34,6 +35,8 @@ export function PartyChatPanel({
    * out of the only thing on the page would be nonsense.
    */
   onMoveOut?: () => void;
+  /** Set when this panel is the chat overlay on a TV or phone: a Close button in its header. */
+  onClose?: () => void;
 }) {
   const { connected, messages, participants, sendChat, grant, revoke } = socket;
   const [draft, setDraft] = useState("");
@@ -72,9 +75,14 @@ export function PartyChatPanel({
             >
               On my phone
             </button>
-            <button type="button" className="party-chat-move" onClick={openInTab}>
+            <button type="button" className="party-chat-move party-chat-newtab" onClick={openInTab}>
               In a new tab
             </button>
+            {onClose ? (
+              <button type="button" className="party-chat-move party-chat-close" onClick={onClose}>
+                Close
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}

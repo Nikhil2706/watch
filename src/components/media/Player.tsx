@@ -37,9 +37,9 @@ import {
 /**
  * What sits beside the player in a watch party room (PartyRoomClient): the
  * chat / guest links / End panel, or, once chat has moved to a phone, the
- * bar that brings it back.
+ * bar that brings it back; on a TV or phone, the chat overlay when open.
  */
-const PLAYER_SIDE_PANEL = ".party-room-side:not([hidden]), .party-chat-away";
+const PLAYER_SIDE_PANEL = ".party-room-side:not([hidden]), .party-chat-away, .party-chat-overlay";
 
 /** The "‹ Back / title" bar above the player (the watch page and the party room). */
 const PLAYER_TOP_BAR = ".player-bar";
@@ -417,6 +417,16 @@ export function Player({
           else player.current?.controls.resume();
         };
         tryFocus();
+        return;
+      }
+      case "moveTopBar": {
+        // Left/right along "‹ Back" and, in a watch party, "Chat".
+        const bar = Array.from(document.querySelectorAll<HTMLElement>(`${PLAYER_TOP_BAR} a, ${PLAYER_TOP_BAR} button`))
+          .filter((el) => el.getClientRects().length > 0)
+          .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+        const i = target ? bar.indexOf(target) : -1;
+        bar[i + action.direction]?.focus();
+        holdControls();
         return;
       }
       case "moveControl": {

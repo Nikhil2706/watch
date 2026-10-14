@@ -59,6 +59,8 @@ export function usePartySocket(roomId: string) {
   const [connected, setConnected] = useState(false);
   const [unreachable, setUnreachable] = useState(false);
   const [messages, setMessages] = useState<PartyChatMessage[]>([]);
+  /** The room's chat history has arrived at least once (so an unread count has a baseline). */
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [participants, setParticipants] = useState<PartyParticipant[]>([]);
   const [initialState, setInitialState] = useState<{ positionSeconds: number; paused: boolean; receivedAt: number } | null>(null);
   const [lastSync, setLastSync] = useState<PartySyncEvent | null>(null);
@@ -100,6 +102,7 @@ export function usePartySocket(roomId: string) {
         switch (msg.type) {
           case "history":
             setMessages((msg.messages as PartyChatMessage[]) ?? []);
+            setHistoryLoaded(true);
             break;
           case "chat":
             setMessages((prev) => [...prev, msg.message as PartyChatMessage]);
@@ -230,6 +233,7 @@ export function usePartySocket(roomId: string) {
     connected,
     unreachable,
     messages,
+    historyLoaded,
     participants,
     initialState,
     lastSync,
