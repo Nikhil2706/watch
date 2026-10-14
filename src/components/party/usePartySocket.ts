@@ -81,6 +81,8 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
   /** The room's chat history has arrived at least once (so an unread count has a baseline). */
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [participants, setParticipants] = useState<PartyParticipant[]>([]);
+  /** This viewer's id in the participants list (an opaque one the server picks, not their real id). */
+  const [selfId, setSelfId] = useState<string | null>(null);
   const [initialState, setInitialState] = useState<{ positionSeconds: number; paused: boolean; at: number } | null>(null);
   const [lastSync, setLastSync] = useState<PartySyncEvent | null>(null);
   /** The lead controller's heartbeat while playing — a fresh object every time, so an effect on it re-runs. */
@@ -147,6 +149,9 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
             setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, reactions } : m)));
             break;
           }
+          case "you":
+            setSelfId(String(msg.id));
+            break;
           case "participants":
             setParticipants((msg.list as PartyParticipant[]) ?? []);
             break;
@@ -338,6 +343,7 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
     messages,
     historyLoaded,
     participants,
+    selfId,
     initialState,
     lastSync,
     lastPosition,

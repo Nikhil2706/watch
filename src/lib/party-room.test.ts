@@ -46,6 +46,9 @@ function playNow(room: RoomState, origin: Member | undefined, by: Member["identi
   }
 }
 
+/** Stand-in for the server's keyed hash: anything that is not the real id. */
+const pub = (identity: { kind: string; id: string }) => `pub-${identity.kind}-${identity.id.length}`;
+
 function leaders(events: PartyEvent[]) {
   return events.flatMap((e) => (e.type === "leader" ? [e.clientId] : []));
 }
@@ -155,7 +158,7 @@ test("the participant list shows a person once, however many screens they have",
   join(room, tester, "laptop-0001");
   join(room, mammannii, "phone-00001");
   join(room, mammannii, "tv-000001");
-  const list = participantList(room, (identity) => identity.id === tester.id);
+  const list = participantList(room, (identity) => identity.id === tester.id, pub);
   assert.deepEqual(
     list.map((p) => [p.displayName, p.isController]),
     [
@@ -274,13 +277,13 @@ test("drift beside each name: from the furthest-out screen, only while both are 
   playNow(room, laptop.member, tester, "play", 100, 0); // room at 100 + t
   tv.member.report = { positionSeconds: 109.6, paused: false, at: 10_000 }; // 0.4 s behind
   phone.member.report = { positionSeconds: 108.8, paused: false, at: 10_000 }; // 1.2 s behind
-  const list = participantList(room, () => false, 12_000);
-  assert.equal(list.find((p) => p.id === mammannii.id)?.driftSeconds, -1.2, "the worse of the TV and the phone");
-  assert.equal(list.find((p) => p.id === tester.id)?.driftSeconds, null, "nothing reported");
+  const list = participantList(room, () => false, pub, 12_000);
+  assert.equal(list.find((p) => p.id === pub(mammannii))?.driftSeconds, -1.2, "the worse of the TV and the phone");
+  assert.equal(list.find((p) => p.id === pub(tester))?.driftSeconds, null, "nothing reported");
 
   phone.member.report = { positionSeconds: 108.8, paused: true, at: 10_000 };
-  assert.equal(participantList(room, () => false, 12_000).find((p) => p.id === mammannii.id)?.driftSeconds, -0.4, "a paused screen is not 'behind'");
-  assert.equal(participantList(room, () => false, 40_000).find((p) => p.id === mammannii.id)?.driftSeconds, null, "stale reports say nothing");
+  assert.equal(participantList(room, () => false, pub, 12_000).find((p) => p.id === pub(mammannii))?.driftSeconds, -0.4, "a paused screen is not 'behind'");
+  assert.equal(participantList(room, () => false, pub, 40_000).find((p) => p.id === pub(mammannii))?.driftSeconds, null, "stale reports say nothing");
   void chat;
 });
 
@@ -364,4 +367,15 @@ test("reactions are grouped per emoji with who reacted; a reply quotes a short e
   assert.equal(excerpt("  did   you see\nthat  "), "did you see that");
   assert.equal(excerpt("x".repeat(100)).length, 80);
   assert.ok(excerpt("x".repeat(100)).endsWith("…"));
+});
+
+test("the participant list never carries a guest's token (it is their way in), only the public id", () => {
+  const room = createRoom(0);
+  const token = "g7Qx2-secret-guest-link-token";
+  const guest = { kind: "guest" as const, id: token, displayName: "Guest 1" };
+  join(room, tester, "laptop-0001");
+  join(room, guest, "guest-phone-1", false);
+  const sent = JSON.stringify(participantList(room, () => false, pub));
+  assert.equal(sent.includes(token), false);
+  assert.ok(sent.includes(pub(guest)));
 });

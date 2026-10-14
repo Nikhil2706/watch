@@ -45,14 +45,12 @@ function subscribeNarrow(onChange: () => void): () => void {
  */
 export function PartyRoomClient({
   roomId,
-  myId,
   isCreator,
   filmTitle,
   player,
   guestLinks,
 }: {
   roomId: string;
-  myId: string;
   isCreator: boolean;
   filmTitle: string;
   /** null when the room's title has no playable stream right now (mirrors /watch/[id]'s own "cannot play this title" state). */
@@ -60,8 +58,10 @@ export function PartyRoomClient({
   guestLinks: PartyGuestLinkView[];
 }) {
   const socket = usePartySocket(roomId, { watching: player !== null });
-  const isController = viewerIsController(isCreator, socket.participants, myId);
-  const myName = socket.participants.find((p) => p.id === myId)?.displayName;
+  // Matched by the opaque id the server gave this stream: the list never
+  // carries anyone's real id (a guest's is their way in).
+  const isController = viewerIsController(isCreator, socket.participants, socket.selfId ?? "");
+  const myName = socket.participants.find((p) => p.id === socket.selfId)?.displayName;
   const role = heartbeatRole({ isController, clientId: socket.clientId, leaderClientId: socket.leaderClientId });
 
   const tvMode = useTvMode();
