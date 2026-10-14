@@ -80,6 +80,12 @@ export type PartyEvent =
   | { type: "participants"; list: PartyParticipant[] }
   /** This stream's own public id, as it appears in the participants list. */
   | { type: "you"; id: string }
+  /**
+   * Whether this person also has the chat open on another device (a phone
+   * that scanned the TV's QR): the TV can then put the chat away and give the
+   * whole screen to the film.
+   */
+  | { type: "chatElsewhere"; value: boolean }
   | { type: "chat"; message: PartyChatMessage }
   /** A message's reactions changed: the whole new set for it. */
   | { type: "reactions"; messageId: string; reactions: PartyReaction[] }
@@ -257,15 +263,35 @@ export function fallbackLeader(room: RoomState, except?: Member): Member | null 
 }
 
 /** A new stream: told who leads, and the creator's first stream leads if nobody has acted yet. */
+/** This person has a chat-only stream open here (the room's chat page, as the TV's QR opens it). */
+export function chatElsewhere(room: RoomState, identityId: string): boolean {
+  return [...room.members].some((m) => m.identity.id === identityId && !m.watching);
+}
+
+/** Tells this person's screens that have the film open whether their chat is also open elsewhere. */
+function announceChatElsewhere(room: RoomState, identityId: string): void {
+  const value = chatElsewhere(room, identityId);
+  for (const m of room.members) {
+    if (m.identity.id !== identityId || !m.watching) continue;
+    try {
+      m.send({ type: "chatElsewhere", value });
+    } catch {
+      // A dead stream is cleaned up by its own unsubscribe.
+    }
+  }
+}
+
 export function addMember(room: RoomState, member: Member): void {
   room.members.add(member);
   if (!room.leader && member.isCreator) setLeader(room, member);
   else member.send({ type: "leader", clientId: room.leader?.clientId ?? null });
+  announceChatElsewhere(room, member.identity.id);
 }
 
 export function removeMember(room: RoomState, member: Member, now = Date.now()): void {
   room.members.delete(member);
   if (room.leader === member) setLeader(room, fallbackLeader(room));
+  announceChatElsewhere(room, member.identity.id);
   // Nobody waits for a screen that has gone.
   if (room.pending?.waiting.delete(member)) {
     if (room.pending.waiting.size === 0) startTogether(room, now);

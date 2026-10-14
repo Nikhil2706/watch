@@ -379,3 +379,17 @@ test("the participant list never carries a guest's token (it is their way in), o
   assert.equal(sent.includes(token), false);
   assert.ok(sent.includes(pub(guest)));
 });
+
+test("a TV hears when the same person opens the chat on their phone (the QR), and when they close it", () => {
+  const room = createRoom(0);
+  const tv = join(room, mammannii, "tv-000001");
+  const laptop = join(room, tester, "laptop-0001");
+  const flags = (events: PartyEvent[]) => events.flatMap((e) => (e.type === "chatElsewhere" ? [e.value] : []));
+  assert.deepEqual(flags(tv.got), [false]);
+  const phoneChat = join(room, mammannii, "phone-chat-01", false);
+  assert.deepEqual(flags(tv.got), [false, true]);
+  assert.deepEqual(flags(phoneChat.got), [], "the chat page itself is not told");
+  assert.deepEqual(flags(laptop.got), [false], "nobody else's chat counts");
+  removeMember(room, phoneChat.member);
+  assert.deepEqual(flags(tv.got), [false, true, false]);
+});

@@ -81,6 +81,8 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
   /** The room's chat history has arrived at least once (so an unread count has a baseline). */
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [participants, setParticipants] = useState<PartyParticipant[]>([]);
+  /** This viewer also has the chat open on another device (their phone, from the TV's QR). */
+  const [chatElsewhere, setChatElsewhere] = useState(false);
   /** This viewer's id in the participants list (an opaque one the server picks, not their real id). */
   const [selfId, setSelfId] = useState<string | null>(null);
   const [initialState, setInitialState] = useState<{ positionSeconds: number; paused: boolean; at: number } | null>(null);
@@ -149,6 +151,9 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
             setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, reactions } : m)));
             break;
           }
+          case "chatElsewhere":
+            setChatElsewhere(Boolean(msg.value));
+            break;
           case "you":
             setSelfId(String(msg.id));
             break;
@@ -344,6 +349,7 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
     historyLoaded,
     participants,
     selfId,
+    chatElsewhere,
     initialState,
     lastSync,
     lastPosition,
