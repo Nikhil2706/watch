@@ -22,7 +22,9 @@ import {
   endCooldownOnPlaying,
   expectFromPlan,
   HEARTBEAT_INTERVAL_MS,
+  IN_SYNC_SECONDS,
   newDriftControl,
+  PAUSED_MATCH_SECONDS,
   planDrift,
   planExplicit,
   startCooldown,
@@ -80,6 +82,11 @@ const TICKS_PER_SECOND = 10_000_000;
 const PROGRESS_INTERVAL_MS = 10_000;
 /** Watch party: a refused play() is tried again this often, this many times (a slow seek can take seconds). */
 const PLAY_RETRY_MS = 500;
+/** Start together: a play this far or more ahead is scheduled rather than done now. */
+const SCHEDULE_MIN_MS = 20;
+/** Start together: how often to check whether the film has buffered at the agreed spot (the room stops waiting after 8 s anyway). */
+const READY_CHECK_MS = 150;
+const READY_CHECKS = 60;
 /** Watch party: how often this screen says where its film is (for the drift beside names). */
 const REPORT_INTERVAL_MS = 5000;
 /** "Sync me" is offered once this screen has been this far from the room for SYNC_ME_AFTER_TICKS seconds running. */
@@ -187,6 +194,9 @@ export interface PlayerPartySync {
   onOutOfStep?: (outOfStep: boolean) => void;
   /** "Sync me": jump this screen to the room now; a new id each time. Not sent to anyone. */
   syncNowRequest?: number | null;
+  /** Start together: get to this spot, paused, and say ready once buffered. */
+  prepare?: { id: string; positionSeconds: number } | null;
+  sendReady?: (id: string) => void;
 }
 
 interface PlayerProps {
@@ -807,8 +817,15 @@ export function Player({
     const video = mediaElement();
     setNeedsTap(false);
     if (!instance || !video) return;
-    // A tap is a gesture: this play is allowed. Still the room's, not the viewer's.
-    expectedRemote.current = expectFromPlan({ seekTo: null, setPaused: false }, Date.now());
+    // The room kept going while the button waited: join where it is now,
+    // not where this screen stopped. A tap is a gesture, so this play is
+    // allowed; still the room's doing, not the viewer's.
+    const current = partyRef.current;
+    const target = roomTarget.current;
+    const to = current && target ? targetPosition(target, current.serverNow()) : null;
+    const seek = to !== null && Math.abs(video.currentTime - to) > IN_SYNC_SECONDS;
+    expectedRemote.current = expectFromPlan({ seekTo: seek ? to : null, setPaused: false }, Date.now());
+    if (seek) video.currentTime = to;
     video.play().catch(() => setNeedsTap(true));
   }
 
@@ -852,19 +869,42 @@ export function Player({
     if (rateNudged.current) setSteeringRate(instance, 1);
   }
 
-  /** An explicit play/pause/seek from a controller, or the room's state on joining. */
-  function applyExplicit(remote: RoomPosition) {
+  /** Start together: a play scheduled for the moment everyone starts. */
+  const scheduledPlay = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function cancelScheduledPlay() {
+    if (scheduledPlay.current) clearTimeout(scheduledPlay.current);
+    scheduledPlay.current = null;
+  }
+
+  /**
+   * An explicit play/pause/seek from a controller, or the room's state on
+   * joining. `precise`: land on the spot (joining), rather than leave a
+   * follower within SEEK_THRESHOLD_SECONDS to steer in over the next minute.
+   */
+  function applyExplicit(remote: RoomPosition, precise = false) {
     const instance = player.current;
     const current = partyRef.current;
     if (!instance || !current) return;
     const now = Date.now();
+    cancelScheduledPlay();
+    // Start together: the room plays from a moment just ahead. Be at the spot
+    // now, and start when everyone else does.
+    const startsIn = remote.paused ? 0 : remote.at - current.serverNow();
+    if (startsIn > SCHEDULE_MIN_MS) {
+      if (Math.abs(mediaTime(instance) - remote.positionSeconds) > PAUSED_MATCH_SECONDS) {
+        expectedRemote.current = expectFromPlan({ seekTo: remote.positionSeconds, setPaused: null }, now);
+        mediaSeek(instance, remote.positionSeconds);
+      }
+      scheduledPlay.current = setTimeout(() => applyExplicit(remote, precise), startsIn);
+      return;
+    }
     followTarget.current = current.followsHeartbeat ? remote : null;
     stopSteering(instance);
     const plan = planExplicit(
       { positionSeconds: mediaTime(instance), paused: mediaPaused(instance) },
       remote,
       current.serverNow(),
-      current.followsHeartbeat,
+      current.followsHeartbeat && !precise,
     );
     if (plan.seekTo === null && plan.setPaused === null) return;
     expectedRemote.current = expectFromPlan(plan, now);
@@ -962,7 +1002,7 @@ export function Player({
     if (!party?.initialState || !player.current) return;
     roomTarget.current = party.initialState;
     seededPartyState.current = true;
-    applyExplicit(party.initialState);
+    applyExplicit(party.initialState, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [party?.initialState]);
 
@@ -973,6 +1013,40 @@ export function Player({
     mediaSeek(instance, party.seekRequest.to);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [party?.seekRequest]);
+
+  /**
+   * Start together: pause at the agreed spot, and once buffered there say
+   * ready. Nothing plays until the room's scheduled "play" arrives.
+   */
+  useEffect(() => {
+    const instance = player.current;
+    const current = partyRef.current;
+    if (!party?.prepare || !instance || !current) return;
+    const { id, positionSeconds } = party.prepare;
+    const now = Date.now();
+    cancelScheduledPlay();
+    stopSteering(instance);
+    roomTarget.current = { positionSeconds, paused: true, at: current.serverNow() };
+    followTarget.current = current.followsHeartbeat ? roomTarget.current : null;
+    const seek = Math.abs(mediaTime(instance) - positionSeconds) > PAUSED_MATCH_SECONDS;
+    const pause = !mediaPaused(instance);
+    expectedRemote.current = expectFromPlan({ seekTo: seek ? positionSeconds : null, setPaused: pause ? true : null }, now);
+    wantPlaying.current = false;
+    if (pause) mediaPause(instance);
+    if (seek) mediaSeek(instance, positionSeconds);
+    let checks = 0;
+    const poll = setInterval(() => {
+      const video = mediaElement();
+      // HAVE_FUTURE_DATA: enough buffered to start playing from here.
+      const ready = video ? video.readyState >= 3 && !video.seeking : true;
+      if (ready) partyRef.current?.sendReady?.(id);
+      if (ready || ++checks > READY_CHECKS) clearInterval(poll);
+    }, READY_CHECK_MS);
+    return () => clearInterval(poll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [party?.prepare]);
+
+  useEffect(() => cancelScheduledPlay, []);
 
   useEffect(() => {
     if (!party?.lastSync) return;
@@ -1028,7 +1102,7 @@ export function Player({
     if (current) {
       if (seeded.current || !current.initialState) return;
       seeded.current = true;
-      applyExplicit(current.initialState);
+      applyExplicit(current.initialState, true);
       return;
     }
     if (seeded.current || startSeconds <= 0) return;
@@ -1187,7 +1261,10 @@ export function Player({
         poster={poster ?? undefined}
         crossOrigin="anonymous"
         playsInline
-        autoPlay
+        // In a watch party the room decides: autoplay used to start the film
+        // as the page loaded, and a controller's player then told the whole
+        // (paused) room to play.
+        autoPlay={!party}
         // Keys are handled by the document-level listener above (every
         // shortcut, with on-screen feedback); Vidstack's own set would fight it.
         keyDisabled

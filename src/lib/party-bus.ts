@@ -15,11 +15,14 @@ import {
   dropLeaderIf,
   controllerWatching,
   findOrigin,
+  GROUP_START_TIMEOUT_MS,
+  markReady,
   participantList,
   pauseOrphaned,
   postNotice,
   removeMember,
   stampTime,
+  startTogether,
   type Member,
   type PartyChatMessage,
   type PartyEvent,
@@ -268,8 +271,29 @@ export function postSync(
   if (!isController(roomId, identity)) return false;
   const room = roomState(roomId);
   const at = stampTime(sentAt, Date.now());
-  applySync(room, findOrigin(room, identity.id, clientId), identity, action, positionSeconds, at);
+  const result = applySync(room, findOrigin(room, identity.id, clientId), identity, action, positionSeconds, at);
+  if (result === "waiting" && room.pending) {
+    // One slow screen cannot hold everyone: start without it after a while.
+    const id = room.pending.id;
+    const timer = setTimeout(() => {
+      if (room.pending?.id === id) startTogether(room, Date.now());
+    }, GROUP_START_TIMEOUT_MS);
+    timer.unref?.();
+  }
   return true;
+}
+
+/** A screen has buffered at the spot a "prepare" named; see markReady. */
+export function postReady(
+  roomId: string,
+  identity: PartyIdentity,
+  clientId: string | null,
+  startId: string,
+  rttMs: number,
+): boolean {
+  const room = bus().rooms.get(roomId);
+  if (!room) return false;
+  return markReady(room, findOrigin(room, identity.id, clientId), startId, rttMs, Date.now());
 }
 
 /** How often the participants list (with everyone's drift) is re-sent while reports come in. */

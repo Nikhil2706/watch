@@ -50,6 +50,14 @@ export type PartyEvent =
   | { type: "position"; positionSeconds: number; at: number }
   /** The one stream that sends heartbeats; null when nobody leads yet (any controller may claim it). */
   | { type: "leader"; clientId: string | null }
+  /**
+   * Start together: pause at positionSeconds, get ready to play from there,
+   * and answer {type:"ready", id} once buffered. The play follows as a
+   * "sync" with `at` a moment in the future, for everyone at once.
+   */
+  | { type: "prepare"; id: string; positionSeconds: number; by: string }
+  /** Who the room is still waiting for before it starts (empty: not waiting). */
+  | { type: "waiting"; names: string[] }
   /** The room moved more than JUMP_UNDO_SECONDS: where it was, so a controller can take it back. */
   | { type: "jumped"; from: number; to: number; by: string }
   | { type: "ended" };
@@ -89,7 +97,31 @@ export interface RoomState {
    * every other controller knows to stay quiet.
    */
   leader: Member | null;
+  /** A start-together in progress: who has not said "ready" yet. */
+  pending: PendingStart | null;
 }
+
+/**
+ * Start together, taken from Jellyfin SyncPlay's waiting state: on a play
+ * (or a seek while playing) every screen with the film open pauses at the
+ * new spot and buffers; the room starts once all of them say ready — or
+ * after GROUP_START_TIMEOUT_MS, so one slow screen cannot hold everyone up
+ * (it catches up by steering, like SyncPlay's "ignore wait").
+ */
+export interface PendingStart {
+  id: string;
+  positionSeconds: number;
+  by: string;
+  waiting: Set<Member>;
+  /** The slowest round trip any ready screen reported, for how far ahead to schedule the start. */
+  maxRttMs: number;
+}
+
+export const GROUP_START_TIMEOUT_MS = 8000;
+/** The start is scheduled this far ahead of now: the slowest round trip plus a margin, within these bounds. */
+const START_LEAD_MIN_MS = 300;
+const START_LEAD_MAX_MS = 1500;
+const START_LEAD_MARGIN_MS = 200;
 
 /**
  * A move bigger than this is a jump worth being able to undo — one stray
@@ -128,12 +160,13 @@ export function postNotice(room: RoomState, text: string, now: number): void {
 }
 
 export function createRoom(now: number): RoomState {
-  return { members: new Set(), positionSeconds: 0, paused: true, updatedAt: now, leader: null };
+  return { members: new Set(), positionSeconds: 0, paused: true, updatedAt: now, leader: null, pending: null };
 }
 
 export function currentPosition(room: RoomState, now: number): number {
   if (room.paused) return room.positionSeconds;
-  return room.positionSeconds + (now - room.updatedAt) / 1000;
+  // A start scheduled a moment ahead has not moved yet.
+  return room.positionSeconds + Math.max(0, now - room.updatedAt) / 1000;
 }
 
 /**
@@ -192,9 +225,55 @@ export function addMember(room: RoomState, member: Member): void {
   else member.send({ type: "leader", clientId: room.leader?.clientId ?? null });
 }
 
-export function removeMember(room: RoomState, member: Member): void {
+export function removeMember(room: RoomState, member: Member, now = Date.now()): void {
   room.members.delete(member);
   if (room.leader === member) setLeader(room, fallbackLeader(room));
+  // Nobody waits for a screen that has gone.
+  if (room.pending?.waiting.delete(member)) {
+    if (room.pending.waiting.size === 0) startTogether(room, now);
+    else announceWaiting(room);
+  }
+}
+
+function waitingNames(room: RoomState): string[] {
+  return [...new Set([...(room.pending?.waiting ?? [])].map((m) => m.identity.displayName))];
+}
+
+function announceWaiting(room: RoomState): void {
+  broadcast(room, { type: "waiting", names: waitingNames(room) });
+}
+
+/**
+ * Everyone is ready (or the wait ran out): play, from the agreed spot, at a
+ * moment just far enough ahead for the slowest screen to hear about it.
+ * Sent to every stream, the one that pressed play included.
+ */
+export function startTogether(room: RoomState, now: number): void {
+  const pending = room.pending;
+  if (!pending) return;
+  const late = waitingNames(room);
+  room.pending = null;
+  const lead = Math.min(START_LEAD_MAX_MS, Math.max(START_LEAD_MIN_MS, pending.maxRttMs + START_LEAD_MARGIN_MS));
+  const at = now + lead;
+  room.positionSeconds = pending.positionSeconds;
+  room.paused = false;
+  room.updatedAt = at;
+  broadcast(room, { type: "waiting", names: [] });
+  broadcast(room, { type: "sync", action: "play", positionSeconds: pending.positionSeconds, paused: false, at, by: pending.by });
+  if (late.length > 0) postNotice(room, `Started without ${late.join(", ")} (still loading; catching up)`, now);
+}
+
+/** A screen has buffered at the agreed spot. Returns true if that was the last one and the room has started. */
+export function markReady(room: RoomState, member: Member | undefined, id: string, rttMs: number, now: number): boolean {
+  const pending = room.pending;
+  if (!member || !pending || pending.id !== id || !pending.waiting.delete(member)) return false;
+  if (Number.isFinite(rttMs)) pending.maxRttMs = Math.max(pending.maxRttMs, Math.min(Math.max(0, rttMs), START_LEAD_MAX_MS));
+  if (pending.waiting.size > 0) {
+    announceWaiting(room);
+    return false;
+  }
+  startTogether(room, now);
+  return true;
 }
 
 /** Control taken away from someone: if they led, the lead goes back to the creator. */
@@ -208,6 +287,10 @@ export function dropLeaderIf(room: RoomState, identityId: string): void {
  * everyone from it. Everyone except the stream that did it is told: echoing a
  * seek back at its sender makes that player fight itself — but every other
  * stream is, including the same person's other device.
+ *
+ * A play, or a seek while playing, with other screens watching starts
+ * together instead (PendingStart): everyone, the sender included, is told to
+ * prepare, and the play follows once all are ready. Returns "waiting" then.
  */
 export function applySync(
   room: RoomState,
@@ -216,23 +299,42 @@ export function applySync(
   action: PartySyncAction,
   positionSeconds: number,
   at: number,
-): void {
+  startId: string = globalThis.crypto.randomUUID(),
+): "applied" | "waiting" {
   const before = currentPosition(room, at);
-  room.positionSeconds = positionSeconds;
-  // A seek keeps whatever play state the room had.
-  if (action !== "seek") room.paused = action === "pause";
-  room.updatedAt = at;
+  const playing = !room.paused || room.pending !== null;
+  const startsPlaying = action === "play" || (action === "seek" && playing);
+  const watchers = [...room.members].filter((m) => m.watching);
+  const othersWatching = watchers.some((m) => m !== origin);
   if (origin) setLeader(room, origin);
-  broadcast(
-    room,
-    { type: "sync", action, positionSeconds, paused: room.paused, at, by: by.displayName },
-    origin,
-  );
+  room.pending = null;
+  room.positionSeconds = positionSeconds;
+  room.updatedAt = at;
+
+  let result: "applied" | "waiting" = "applied";
+  if (startsPlaying && othersWatching) {
+    room.paused = true;
+    room.pending = { id: startId, positionSeconds, by: by.displayName, waiting: new Set(watchers), maxRttMs: 0 };
+    broadcast(room, { type: "prepare", id: startId, positionSeconds, by: by.displayName });
+    announceWaiting(room);
+    result = "waiting";
+  } else {
+    // A seek keeps whatever play state the room had.
+    if (action !== "seek") room.paused = action === "pause";
+    broadcast(
+      room,
+      { type: "sync", action, positionSeconds, paused: room.paused, at, by: by.displayName },
+      origin,
+    );
+    // A pause or a lone screen's play ends any wait in progress.
+    broadcast(room, { type: "waiting", names: [] });
+  }
   postNotice(room, syncNotice(action, positionSeconds, by.displayName), at);
   // Everyone hears it, the sender included: the stray press was usually theirs.
   if (Math.abs(positionSeconds - before) > JUMP_UNDO_SECONDS) {
     broadcast(room, { type: "jumped", from: before, to: positionSeconds, by: by.displayName });
   }
+  return result;
 }
 
 /**

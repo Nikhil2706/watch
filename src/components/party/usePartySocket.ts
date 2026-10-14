@@ -81,6 +81,10 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
   const [lastSync, setLastSync] = useState<PartySyncEvent | null>(null);
   /** The lead controller's heartbeat while playing — a fresh object every time, so an effect on it re-runs. */
   const [lastPosition, setLastPosition] = useState<{ positionSeconds: number; at: number } | null>(null);
+  /** Start together: the latest "get to this spot and say when you're ready". */
+  const [prepare, setPrepare] = useState<{ id: string; positionSeconds: number; by: string } | null>(null);
+  /** Who the room is still waiting for before it starts (empty: not waiting). */
+  const [waitingFor, setWaitingFor] = useState<string[]>([]);
   /** The room's last jump of more than 30 s, so a controller can take it back. */
   const [lastJump, setLastJump] = useState<{ from: number; to: number; by: string; heardAt: number } | null>(null);
   /** The stream that sends heartbeats, as the server last named it. */
@@ -154,6 +158,12 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
             break;
           case "position":
             setLastPosition({ positionSeconds: Number(msg.positionSeconds), at: Number(msg.at) });
+            break;
+          case "prepare":
+            setPrepare({ id: String(msg.id), positionSeconds: Number(msg.positionSeconds), by: String(msg.by) });
+            break;
+          case "waiting":
+            setWaitingFor(Array.isArray(msg.names) ? msg.names.map(String) : []);
             break;
           case "jumped":
             setLastJump({ from: Number(msg.from), to: Number(msg.to), by: String(msg.by), heardAt: Date.now() });
@@ -277,6 +287,14 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
     (positionSeconds: number) => void post({ type: "position", positionSeconds, sentAt: serverNow(), clientId }),
     [post, clientId, serverNow],
   );
+  /** Buffered at the spot a "prepare" named. The quickest round trip tells the room how far ahead to schedule the start. */
+  const sendReady = useCallback(
+    (id: string) => {
+      const rtts = clockSamples.current.map((s) => s.rttMs);
+      void post({ type: "ready", id, rttMs: rtts.length ? Math.min(...rtts) : 0, clientId });
+    },
+    [post, clientId],
+  );
   /** Where this screen's film is, for the drift shown beside names; moves nothing. */
   const sendReport = useCallback(
     (positionSeconds: number, paused: boolean) =>
@@ -317,6 +335,9 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
     sendSync,
     sendPosition,
     sendReport,
+    sendReady,
+    prepare,
+    waitingFor,
     grant,
     revoke,
     end,

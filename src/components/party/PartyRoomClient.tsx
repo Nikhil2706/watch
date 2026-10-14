@@ -296,6 +296,11 @@ export function PartyRoomClient({
         {/* On a TV the film stays under the open chat but out of the remote's
             reach, so the D-pad cannot wander off the chat onto the video. */}
         <div className="party-room-player" inert={overlayMode && chatOpen && tvMode}>
+          {player && socket.waitingFor.length > 0 ? (
+            <div className="party-waiting" role="status">
+              Starting together · waiting for {socket.waitingFor.join(", ")}
+            </div>
+          ) : null}
           {player ? (
             <PlayerMount
               {...player}
@@ -313,6 +318,8 @@ export function PartyRoomClient({
                 sendReport: socket.sendReport,
                 onOutOfStep: setOutOfStep,
                 syncNowRequest,
+                prepare: socket.prepare,
+                sendReady: socket.sendReady,
               }}
             />
           ) : (
