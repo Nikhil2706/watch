@@ -11,6 +11,7 @@ import { formatClock } from "@/lib/party-room";
 import { heartbeatRole, viewerIsController } from "@/lib/party-sync";
 
 import { PartyChatPanel } from "./PartyChatPanel";
+import { PartyOverlay, type PartyOverlayTab } from "./PartyOverlay";
 import { PartyGuestLinksPanel, type PartyGuestLinkView } from "./PartyGuestLinksPanel";
 import { usePartySocket } from "./usePartySocket";
 
@@ -102,6 +103,7 @@ export function PartyRoomClient({
 
   /* ---- The chat overlay (TV and phone) ---- */
   const [chatOpen, setChatOpen] = useState(false);
+  const [overlayTab, setOverlayTab] = useState<PartyOverlayTab>("chat");
   const chatButtonRef = useRef<HTMLButtonElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   /** Set when the overlay closes, so focus goes back to the Chat button once it is focusable again. */
@@ -112,7 +114,13 @@ export function PartyRoomClient({
    * still counts what arrived while the stream was down.
    */
   const [seen, setSeen] = useState<ReadonlySet<string> | null>(null);
-  const showingChat = overlayMode ? chatOpen : !chatDetached;
+  /**
+   * TV: the phone scanned the QR and opened the chat. From then on the chat
+   * lives there: the TV's panel goes away, the QR with it, and the film gets
+   * the whole screen. (Messages count as read: they are on the phone.)
+   */
+  const chatOnPhone = tvMode && socket.chatElsewhere;
+  const showingChat = chatOnPhone || (overlayMode ? chatOpen && overlayTab === "chat" : !chatDetached);
   useEffect(() => {
     if (!socket.historyLoaded) return;
     if (seen !== null && !showingChat) return;
@@ -121,6 +129,14 @@ export function PartyRoomClient({
   }, [socket.historyLoaded, socket.messages, showingChat, seen]);
   // The room's own lines (who paused) are not something to come and read.
   const unread = seen ? socket.messages.filter((m) => m.kind !== "system" && !seen.has(m.id)).length : 0;
+
+  useEffect(() => {
+    if (!chatOnPhone || !chatOpen || overlayTab !== "chat") return;
+    setChatOpen(false);
+    // Back to the film, not to the Chat button: the bar hides with the controls.
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(".vds-player")?.focus());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatOnPhone]);
 
   function closeChat() {
     returnFocus.current = true;
@@ -135,14 +151,15 @@ export function PartyRoomClient({
 
   useEffect(() => {
     if (chatOpen) {
-      // On a TV, into the chat straight away: the remote has nowhere else to
-      // start from. Not on a phone, where focusing the box would throw the
-      // keyboard up over the film before anyone asked to type.
+      // On a TV, onto the open tab straight away: the remote has nowhere else
+      // to start from, and down goes into it. (Not the message box: with no
+      // keyboard, the QR beside it is how a TV joins the chat.) Not on a
+      // phone, where focusing anything would throw the keyboard up.
       if (!tvMode) return;
       const panel = overlayRef.current;
       if (!panel) return;
-      const field = panel.querySelector<HTMLElement>(".party-composer input:not([disabled])");
-      (field ?? getFocusableElements(panel)[0])?.focus();
+      const tab = panel.querySelector<HTMLElement>(".party-overlay-tab.is-active");
+      (tab ?? getFocusableElements(panel)[0])?.focus();
       return;
     }
     if (returnFocus.current) {
@@ -168,7 +185,13 @@ export function PartyRoomClient({
    * open at all. The route broadcasts `ended` to everyone else.
    */
   async function handleEndParty() {
+    // Desktop asks with the browser's own dialog; the TV/phone panel asks on
+    // screen first (PartyOverlay) and calls endParty() directly.
     if (!confirm("End this watch party for everyone?")) return;
+    await endParty();
+  }
+
+  async function endParty() {
     setEnding(true);
     setEndError(null);
     try {
@@ -211,13 +234,6 @@ export function PartyRoomClient({
         ) : null}
       </div>
     ) : null;
-
-  const creatorExtras = (
-    <>
-      {isCreator ? <PartyGuestLinksPanel roomId={roomId} initialLinks={guestLinks} /> : null}
-      {endControls}
-    </>
-  );
 
   const gridClass = [
     "party-room-grid",
@@ -335,17 +351,23 @@ export function PartyRoomClient({
 
         {overlayMode ? (
           chatOpen ? (
-            <div className="party-chat-overlay" ref={overlayRef} role="dialog" aria-label="Chat">
-              <PartyChatPanel
-                roomId={roomId}
-                isCreator={isCreator}
-                socket={socket}
-                onMoveOut={closeChat}
-                onClose={closeChat}
-                myName={myName}
-              />
-              {creatorExtras}
-            </div>
+            <PartyOverlay
+              roomId={roomId}
+              socket={socket}
+              isCreator={isCreator}
+              myName={myName}
+              guestLinks={guestLinks}
+              tab={overlayTab}
+              onTab={setOverlayTab}
+              unread={unread}
+              tvMode={tvMode}
+              showPhoneQr={tvMode && !socket.chatElsewhere}
+              onClose={closeChat}
+              onEnd={() => void endParty()}
+              ending={ending}
+              endError={endError}
+              overlayRef={overlayRef}
+            />
           ) : null
         ) : (
           <>

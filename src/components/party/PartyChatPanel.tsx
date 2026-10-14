@@ -29,6 +29,7 @@ export function PartyChatPanel({
   onMoveOut,
   onClose,
   myName,
+  variant = "docked",
 }: {
   roomId: string;
   isCreator: boolean;
@@ -45,7 +46,13 @@ export function PartyChatPanel({
   onClose?: () => void;
   /** This viewer's name, to show which reactions are theirs. */
   myName?: string;
+  /**
+   * "overlay": the TV/phone panel (PartyOverlay), which has its own tabs —
+   * just the conversation and the message box here, no header, no people.
+   */
+  variant?: "docked" | "overlay";
 }) {
+  const overlay = variant === "overlay";
   const { connected, messages, participants, sendChat, react, grant, revoke } = socket;
   const [draft, setDraft] = useState("");
   /** The message whose react/reply menu is open. */
@@ -53,6 +60,12 @@ export function PartyChatPanel({
   /** The message the next one sent will answer. */
   const [replyTo, setReplyTo] = useState<{ id: string; displayName: string; body: string } | null>(null);
   const draftRef = useRef<HTMLInputElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
+  // The reaction row opens with focus on its first emoji: on a TV, "down"
+  // from "⋯" at the right edge would otherwise land on Reply, at the far end.
+  useEffect(() => {
+    if (actionsFor) actionsRef.current?.querySelector<HTMLElement>("button")?.focus();
+  }, [actionsFor]);
   const [openMenuFor, setOpenMenuFor] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -76,8 +89,8 @@ export function PartyChatPanel({
   }
 
   return (
-    <div className="party-chat">
-      {onMoveOut ? (
+    <div className={overlay ? "party-chat party-chat-overlay-variant" : "party-chat"}>
+      {onMoveOut && !overlay ? (
         <div className="party-chat-head">
           <span className="party-chat-title">Chat</span>
           <div className="party-chat-head-actions">
@@ -117,7 +130,7 @@ export function PartyChatPanel({
         </div>
       ) : null}
 
-      <div className="party-participants">
+      <div className="party-participants" hidden={overlay}>
         {participants.map((p) => (
           <div key={p.id} className="party-participant">
             <span className={p.kind === "guest" ? "party-name party-name-guest" : "party-name"}>{p.displayName}</span>
@@ -189,7 +202,7 @@ export function PartyChatPanel({
               ⋯
             </button>
             {actionsFor === m.id ? (
-              <div className="party-message-actions" role="group" aria-label="React or reply">
+              <div className="party-message-actions" role="group" aria-label="React or reply" ref={actionsRef}>
                 {REACTION_EMOJI.map((emoji) => (
                   <button
                     key={emoji}
@@ -258,6 +271,7 @@ export function PartyChatPanel({
       <form className="party-composer" onSubmit={submit}>
         <input
           ref={draftRef}
+          enterKeyHint="send"
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

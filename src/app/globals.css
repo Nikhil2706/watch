@@ -4286,41 +4286,290 @@ html[data-tv="true"] .appbar-more {
   text-align: center;
 }
 
-/* A sheet over the lower part of the screen on a phone held upright: the
-   film keeps playing, visible above it. */
+/* ---- The party panel on a TV or a phone (PartyOverlay) ----------------
+   Tabs (Chat / People / Invite) over the film. Each tab fills the panel and
+   scrolls on its own, so the conversation is never squeezed by guest links
+   or the End button. Phone held upright: a sheet over the lower screen with
+   the film above it. Phone sideways: a full-height column on the right.
+   TV: tv.css. Touch targets are 44px or more; the message box is 16px so
+   iPhones do not zoom in on it. */
 .party-chat-overlay {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 62dvh;
+  height: 76dvh;
   z-index: 40;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px;
-  overflow-y: auto;
-  background: rgba(10, 12, 17, 0.94);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  overflow: hidden;
+  background: rgba(10, 12, 17, 0.97);
   border-top: 1px solid var(--border);
-  border-radius: 14px 14px 0 0;
+  border-radius: 16px 16px 0 0;
   box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.5);
 }
 
-.party-chat-overlay .party-chat {
-  background: transparent;
-  min-height: 0;
+.party-sheet-handle {
+  flex: none;
+  width: 40px;
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.25);
 }
 
-/* Sideways phone: a column down the right, over the edge of the film. */
+.party-overlay-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.party-overlay-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 4px;
+}
+
+.party-overlay-tab {
+  width: auto;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.party-overlay-tab.is-active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+.party-overlay-count {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.party-overlay-close {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.party-overlay-body,
+.party-overlay-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.party-overlay-pane[hidden],
+.party-participants[hidden] {
+  display: none;
+}
+
+.party-overlay-scroll {
+  overflow-y: auto;
+  gap: 16px;
+  padding: 12px;
+}
+
+/* The conversation itself: messages scroll, the box stays at the bottom. */
+.party-chat-overlay-variant {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.party-chat-overlay-variant .party-messages {
+  padding: 12px 14px;
+}
+
+.party-chat-overlay-variant .party-message {
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+/* "⋯" sits at the message's right edge instead of wrapping onto a line
+   of its own under longer messages. */
+.party-chat-overlay-variant .party-message {
+  padding-right: 44px;
+}
+
+.party-chat-overlay-variant .party-message-actions-btn {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  min-width: 36px;
+  min-height: 32px;
+  margin: 0;
+  opacity: 0.8;
+}
+
+.party-chat-overlay-variant .party-message-actions button,
+.party-chat-overlay-variant .party-reaction {
+  min-height: 36px;
+  padding: 2px 12px;
+  font-size: 0.95rem;
+}
+
+.party-chat-overlay-variant .party-composer {
+  padding: 10px 12px;
+}
+
+.party-chat-overlay-variant .party-composer input {
+  min-height: 44px;
+  font-size: 16px;
+}
+
+.party-chat-overlay-variant .party-composer button {
+  min-height: 44px;
+}
+
+.party-chat-overlay .party-guests {
+  border: 0;
+  padding: 0;
+}
+
+.party-chat-overlay .party-guests button,
+.party-chat-overlay .party-guests input {
+  min-height: 44px;
+}
+
+/* People: one large row each. */
+.party-people {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.party-person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.party-person-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.party-person-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.party-person-you {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.party-person-status {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.party-person-action {
+  flex: none;
+  width: auto;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+/* End: last thing in People, set apart, and asked about on screen. */
+.party-overlay-end {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.party-overlay-end > .party-end-btn {
+  width: 100%;
+  min-height: 48px;
+  font-size: 1rem;
+}
+
+.party-end-confirm p {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+}
+
+.party-end-confirm-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.party-end-confirm-actions button {
+  flex: 1;
+  min-height: 48px;
+  font-size: 1rem;
+}
+
+.party-end-cancel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* TV only: the QR that moves the chat to a phone (tv.css sizes it). */
+.party-tv-qr {
+  display: none;
+}
+
+/* Sideways phone: a full-height column down the right, over the film's edge. */
 @media (orientation: landscape) {
   .party-chat-overlay {
     left: auto;
     top: 0;
-    width: min(380px, 48vw);
+    width: min(420px, 55vw);
     height: auto;
     border-top: 0;
     border-left: 1px solid var(--border);
     border-radius: 0;
+  }
+
+  .party-sheet-handle {
+    display: none;
   }
 }
 

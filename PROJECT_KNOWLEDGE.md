@@ -513,6 +513,30 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
+### 2026-10-14 (latest) — Watch party on a TV or phone: the film first, the party in tabs
+- **TV: the film takes the whole screen**, as on the solo player. There is no
+  frame, and the "‹ Back · Chat" bar lies over the picture and hides with the
+  controls. It stays up while focus is on it or while "↩ undo" / "Sync me"
+  is offered.
+- **The QR is the TV's chat.** Nobody types with a remote, so the QR that
+  moves the chat to a phone is shown at the top of the TV's chat, not behind
+  a button. Once the same person's phone opens the chat (the server notices
+  a chat-only stream for them), the TV closes its panel, drops the QR and the
+  unread count, and gives the screen back to the film. The QR returns if the
+  phone leaves.
+- **The panel has tabs: Chat, People, Invite.** On a phone the guest links
+  used to push the conversation down to nothing. Chat is now full height with
+  the message box pinned. People has large rows and a plain "Give control" /
+  "Take back control" button per person instead of the ⋮ menu. Invite holds
+  the guest links (host only).
+- **End watch party** is at the bottom of People and asks on screen ("End
+  it" / "Cancel", with focus on Cancel). A browser confirm() is unreliable in
+  the TV app's WebView.
+- **Sizes:** on a TV, around 20 px text and controls at least 56 px tall with
+  a strong focus ring. On a phone, 44 px touch targets and a 16 px message
+  box (iPhones zoom in on anything smaller). A phone held sideways gets a
+  full-height column. The desktop layout is unchanged.
+
 ### 2026-10-14 (latest) — "Find matching subtitles" works for shows with built-in subtitles
 Branch off `platform-additions`, not deployed yet.
 
