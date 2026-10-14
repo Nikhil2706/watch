@@ -1492,7 +1492,12 @@ a.curator-card:hover {
     display: flex;
     position: absolute;
     inset: 0;
-    z-index: 2; /* below .plyr__controls (z-index: 3), above the video itself */
+    /* Above the video, below the control layer. Not 2: .plyr__controls' z-index
+       of 3 only counts inside .plyr, which is itself at z-index 1, so 2 put
+       these zones over the play button and seek bar and every tap on a phone
+       landed here instead (found 2026-10-14). .plyr lets taps on its empty
+       areas through (pointer-events: none), so the zones still get those. */
+    z-index: 0;
   }
 
   .mobile-tap-zone {
