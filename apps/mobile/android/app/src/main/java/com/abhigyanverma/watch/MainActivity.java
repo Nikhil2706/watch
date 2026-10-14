@@ -8,6 +8,7 @@ import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.view.KeyEvent;
 import android.webkit.CookieManager;
 import android.webkit.URLUtil;
 import android.webkit.WebSettings;
@@ -182,6 +183,56 @@ public class MainActivity extends BridgeActivity {
         // Throttled inside; catches a release that landed while the app sat
         // in the background.
         UpdateChecker.checkInBackground(this, false);
+    }
+
+    /**
+     * A remote's media keys (play/pause, play, pause, fast-forward, rewind)
+     * did nothing in the player. Android does not give these to the WebView
+     * as page keys: an unhandled media key goes to the media session, and the
+     * WebView has none, so the key was simply lost (seen 2026-10-14 on a
+     * Hisense Android 9 TV, `adb shell input keyevent KEYCODE_MEDIA_PLAY_PAUSE`).
+     *
+     * The activity sees every key before any view or the media-session
+     * fallback does. These ones are handed to the page as the KeyboardEvent a
+     * browser would send for them ("MediaPlayPause", ...), which the player
+     * already handles (src/lib/player-keys.ts, resolveMediaKey). Everything
+     * else - the D-pad, OK, Back, volume - goes through super untouched.
+     */
+    private static String mediaKeyName(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+                return "MediaPlayPause";
+            case KeyEvent.KEYCODE_MEDIA_PLAY:
+                return "MediaPlay";
+            case KeyEvent.KEYCODE_MEDIA_PAUSE:
+                return "MediaPause";
+            case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                return "MediaFastForward";
+            case KeyEvent.KEYCODE_MEDIA_REWIND:
+                return "MediaRewind";
+            default:
+                return null;
+        }
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        String key = mediaKeyName(event.getKeyCode());
+        if (key == null || this.bridge == null || this.bridge.getWebView() == null) {
+            return super.dispatchKeyEvent(event);
+        }
+        // One press, one action: the key-up and a held key's repeats are
+        // swallowed too, so nothing else (the WebView, a media session) also
+        // acts on them.
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+            // `key` is one of the fixed names above, never outside input.
+            this.bridge.getWebView().evaluateJavascript(
+                "(function(){var t=document.activeElement||document.body;"
+                    + "t.dispatchEvent(new KeyboardEvent('keydown',{key:'" + key + "',code:'" + key
+                    + "',bubbles:true,cancelable:true}));})()",
+                null);
+        }
+        return true;
     }
 
     /**

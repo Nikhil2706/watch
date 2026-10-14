@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { clampTime, nextSpeed, PLAYER_SHORTCUTS, resolvePlayerKey, resolveTvRemoteKey } from "./player-keys.ts";
+import {
+  clampTime,
+  nextSpeed,
+  PLAYER_SHORTCUTS,
+  resolveMediaKey,
+  resolvePlayerKey,
+  resolveTvRemoteKey,
+} from "./player-keys.ts";
 
 test("YouTube's keys", () => {
   assert.deepEqual(resolvePlayerKey({ key: " " }), { kind: "toggle" });
@@ -97,4 +104,20 @@ test("TV remote on the bar above the video: down returns to the video, left/righ
   assert.deepEqual(resolveTvRemoteKey("ArrowRight", "topbar"), { kind: "moveTopBar", direction: 1 });
   assert.deepEqual(resolveTvRemoteKey("ArrowLeft", "topbar"), { kind: "moveTopBar", direction: -1 });
   assert.deepEqual(resolveTvRemoteKey("MediaPlayPause", "topbar"), { kind: "toggle" });
+});
+
+test("a remote's media keys mean the film, wherever focus is (the Android TV app forwards them from the native layer)", () => {
+  assert.deepEqual(resolveMediaKey("MediaPlayPause"), { kind: "toggle" });
+  assert.deepEqual(resolveMediaKey("MediaPlay"), { kind: "play" });
+  assert.deepEqual(resolveMediaKey("MediaPause"), { kind: "pause" });
+  assert.deepEqual(resolveMediaKey("MediaFastForward"), { kind: "seek", by: 10 });
+  assert.deepEqual(resolveMediaKey("MediaRewind"), { kind: "seek", by: -10 });
+  for (const zone of ["video", "controls", "slider", "topbar"] as const) {
+    assert.deepEqual(resolveTvRemoteKey("MediaPause", zone), { kind: "pause" }, zone);
+    assert.deepEqual(resolveTvRemoteKey("MediaPlay", zone), { kind: "play" }, zone);
+  }
+  // The D-pad and OK are not media keys.
+  for (const key of ["Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Escape", " "]) {
+    assert.equal(resolveMediaKey(key), null, key);
+  }
 });

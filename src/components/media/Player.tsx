@@ -38,6 +38,7 @@ import {
   clampTime,
   nextSpeed,
   PLAYER_SHORTCUTS,
+  resolveMediaKey,
   resolvePlayerKey,
   resolveTvRemoteKey,
   type PlayerAction,
@@ -514,6 +515,16 @@ export function Player({
   useEffect(() => {
     function onTvKey(event: KeyboardEvent) {
       if (!tvModeRef.current || event.defaultPrevented) return;
+      // Play/pause on the remote means the film, wherever focus is: in the
+      // watch party's chat panel, on the "‹ Back" bar, anywhere. (The checks
+      // below hand keys outside the player back to the page.)
+      const media = resolveMediaKey(event.key);
+      if (media) {
+        event.preventDefault();
+        event.stopPropagation();
+        runActionRef.current(media);
+        return;
+      }
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
       // "Tap to join the film" is a real button: OK presses it.

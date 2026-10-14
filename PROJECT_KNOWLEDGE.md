@@ -513,7 +513,20 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
-### 2026-10-14 (latest) — Watch party on a TV or phone: the film first, the party in tabs
+### 2026-10-14 (latest) — The TV remote's play/pause key works in the app
+On the Android TV app the remote's play/pause, play and pause keys did nothing
+(Hisense Android 9, `adb shell input keyevent KEYCODE_MEDIA_PLAY_PAUSE`).
+Android does not hand media keys to a WebView as page keys: an unhandled one
+goes to the media session, and the WebView has none.
+`MainActivity.dispatchKeyEvent` now catches play/pause, play, pause,
+fast-forward and rewind before anything else does. It hands each to the page
+as the KeyboardEvent a browser would send ("MediaPlayPause", ...), which the
+player already handles. The D-pad, OK, Back and volume go through
+untouched. In the player, media keys now work wherever focus is (for example
+with the watch party's chat open); before, a key arriving outside the player
+was handed back to the page. Merging this ships an app update.
+
+### 2026-10-14 — Watch party on a TV or phone: the film first, the party in tabs
 - **TV: the film takes the whole screen**, as on the solo player. There is no
   frame, and the "‹ Back · Chat" bar lies over the picture and hides with the
   controls. It stays up while focus is on it or while "↩ undo" / "Sync me"
