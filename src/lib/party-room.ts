@@ -13,17 +13,58 @@ export interface PartyMemberIdentity {
 
 export interface PartyChatMessage {
   id: string;
-  kind: "user" | "guest";
+  /** "system": a line the room writes itself (who paused, who seeked). Not stored; gone after a reload. */
+  kind: "user" | "guest" | "system";
   displayName: string;
   body: string;
   createdAt: number;
+  /** The message this one answers, shown above it as a short quote. */
+  replyTo?: { id: string; displayName: string; excerpt: string } | null;
+  /** Emoji reactions, with who reacted (names only: a guest's id is their way in). */
+  reactions?: PartyReaction[];
+}
+
+export interface PartyReaction {
+  emoji: string;
+  by: string[];
+}
+
+/** The reactions on offer, taken from WatchParty's chat. A fixed set: free text here would be a second chat. */
+export const REACTION_EMOJI = ["👍", "❤️", "😂", "😮", "😢", "🔥"] as const;
+
+/** A reply's quote of the message it answers. */
+export function excerpt(body: string, max = 80): string {
+  const flat = body.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
+/** Reaction rows (oldest first) as one entry per emoji, in the order each was first used. */
+export function groupReactions(rows: ReadonlyArray<{ emoji: string; displayName: string }>): PartyReaction[] {
+  const byEmoji = new Map<string, string[]>();
+  for (const r of rows) {
+    const names = byEmoji.get(r.emoji) ?? [];
+    if (!names.includes(r.displayName)) names.push(r.displayName);
+    byEmoji.set(r.emoji, names);
+  }
+  return [...byEmoji].map(([emoji, by]) => ({ emoji, by }));
 }
 
 export interface PartyParticipant {
+  /**
+   * An opaque id for this person in this room, never their real id: for a
+   * guest the real id is their guest-link token, which is their way in, and
+   * this list goes to everyone in the room.
+   */
   id: string;
   kind: "user" | "guest";
   displayName: string;
   isController: boolean;
+  /**
+   * How far this person's film is from the room's, in seconds (+ ahead,
+   * − behind), from the furthest-out of their screens. null: no screen
+   * playing to compare (chat only, paused, or not reported yet).
+   */
+  driftSeconds: number | null;
 }
 
 export type PartySyncAction = "play" | "pause" | "seek";
@@ -37,12 +78,26 @@ export type PartyEvent =
   | { type: "history"; messages: PartyChatMessage[] }
   | { type: "state"; positionSeconds: number; paused: boolean; at: number }
   | { type: "participants"; list: PartyParticipant[] }
+  /** This stream's own public id, as it appears in the participants list. */
+  | { type: "you"; id: string }
   | { type: "chat"; message: PartyChatMessage }
+  /** A message's reactions changed: the whole new set for it. */
+  | { type: "reactions"; messageId: string; reactions: PartyReaction[] }
   | { type: "sync"; action: PartySyncAction; positionSeconds: number; paused: boolean; at: number; by: string }
   /** The leader's position while playing, every few seconds, so followers can correct drift. */
   | { type: "position"; positionSeconds: number; at: number }
   /** The one stream that sends heartbeats; null when nobody leads yet (any controller may claim it). */
   | { type: "leader"; clientId: string | null }
+  /**
+   * Start together: pause at positionSeconds, get ready to play from there,
+   * and answer {type:"ready", id} once buffered. The play follows as a
+   * "sync" with `at` a moment in the future, for everyone at once.
+   */
+  | { type: "prepare"; id: string; positionSeconds: number; by: string }
+  /** Who the room is still waiting for before it starts (empty: not waiting). */
+  | { type: "waiting"; names: string[] }
+  /** The room moved more than JUMP_UNDO_SECONDS: where it was, so a controller can take it back. */
+  | { type: "jumped"; from: number; to: number; by: string }
   | { type: "ended" };
 
 export interface Member {
@@ -55,6 +110,14 @@ export interface Member {
   clientId: string | null;
   /** The room's creator: leads the heartbeat when no other controller has acted. */
   isCreator: boolean;
+  /**
+   * This stream has a player (the room page), not just the chat (a chat tab,
+   * a phone used for chat, a guest). Only these can press play, wait to start
+   * together, or drift.
+   */
+  watching: boolean;
+  /** Where this stream last said its film was (every few seconds, while it has the film open). */
+  report?: { positionSeconds: number; paused: boolean; at: number };
   send: (event: PartyEvent) => void;
 }
 
@@ -72,15 +135,76 @@ export interface RoomState {
    * every other controller knows to stay quiet.
    */
   leader: Member | null;
+  /** A start-together in progress: who has not said "ready" yet. */
+  pending: PendingStart | null;
+}
+
+/**
+ * Start together, taken from Jellyfin SyncPlay's waiting state: on a play
+ * (or a seek while playing) every screen with the film open pauses at the
+ * new spot and buffers; the room starts once all of them say ready — or
+ * after GROUP_START_TIMEOUT_MS, so one slow screen cannot hold everyone up
+ * (it catches up by steering, like SyncPlay's "ignore wait").
+ */
+export interface PendingStart {
+  id: string;
+  positionSeconds: number;
+  by: string;
+  waiting: Set<Member>;
+  /** The slowest round trip any ready screen reported, for how far ahead to schedule the start. */
+  maxRttMs: number;
+}
+
+export const GROUP_START_TIMEOUT_MS = 8000;
+/** The start is scheduled this far ahead of now: the slowest round trip plus a margin, within these bounds. */
+const START_LEAD_MIN_MS = 300;
+const START_LEAD_MAX_MS = 1500;
+const START_LEAD_MARGIN_MS = 200;
+
+/**
+ * A move bigger than this is a jump worth being able to undo — one stray
+ * press on a TV remote's seek or a slip on the seek bar. Taken from SyncTube's
+ * "flashback", which remembers the spot before any jump over 30 s.
+ */
+export const JUMP_UNDO_SECONDS = 30;
+
+/** 1:02:13, or 4:05 under an hour. */
+export function formatClock(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = String(s % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
+/** What a play/pause/seek reads as in the chat. */
+export function syncNotice(action: PartySyncAction, positionSeconds: number, by: string): string {
+  const at = formatClock(positionSeconds);
+  if (action === "play") return `${by} played from ${at}`;
+  if (action === "pause") return `${by} paused at ${at}`;
+  return `${by} jumped to ${at}`;
+}
+
+/**
+ * Tells the whole room something happened, as a line in the chat. Who
+ * paused, who jumped: on 2026-10-14 nobody could tell which screen had done
+ * what. Ephemeral — party_messages needs a user or guest behind every row.
+ */
+export function postNotice(room: RoomState, text: string, now: number): void {
+  broadcast(room, {
+    type: "chat",
+    message: { id: `sys-${globalThis.crypto.randomUUID()}`, kind: "system", displayName: "", body: text, createdAt: now },
+  });
 }
 
 export function createRoom(now: number): RoomState {
-  return { members: new Set(), positionSeconds: 0, paused: true, updatedAt: now, leader: null };
+  return { members: new Set(), positionSeconds: 0, paused: true, updatedAt: now, leader: null, pending: null };
 }
 
 export function currentPosition(room: RoomState, now: number): number {
   if (room.paused) return room.positionSeconds;
-  return room.positionSeconds + (now - room.updatedAt) / 1000;
+  // A start scheduled a moment ahead has not moved yet.
+  return room.positionSeconds + Math.max(0, now - room.updatedAt) / 1000;
 }
 
 /**
@@ -139,9 +263,55 @@ export function addMember(room: RoomState, member: Member): void {
   else member.send({ type: "leader", clientId: room.leader?.clientId ?? null });
 }
 
-export function removeMember(room: RoomState, member: Member): void {
+export function removeMember(room: RoomState, member: Member, now = Date.now()): void {
   room.members.delete(member);
   if (room.leader === member) setLeader(room, fallbackLeader(room));
+  // Nobody waits for a screen that has gone.
+  if (room.pending?.waiting.delete(member)) {
+    if (room.pending.waiting.size === 0) startTogether(room, now);
+    else announceWaiting(room);
+  }
+}
+
+function waitingNames(room: RoomState): string[] {
+  return [...new Set([...(room.pending?.waiting ?? [])].map((m) => m.identity.displayName))];
+}
+
+function announceWaiting(room: RoomState): void {
+  broadcast(room, { type: "waiting", names: waitingNames(room) });
+}
+
+/**
+ * Everyone is ready (or the wait ran out): play, from the agreed spot, at a
+ * moment just far enough ahead for the slowest screen to hear about it.
+ * Sent to every stream, the one that pressed play included.
+ */
+export function startTogether(room: RoomState, now: number): void {
+  const pending = room.pending;
+  if (!pending) return;
+  const late = waitingNames(room);
+  room.pending = null;
+  const lead = Math.min(START_LEAD_MAX_MS, Math.max(START_LEAD_MIN_MS, pending.maxRttMs + START_LEAD_MARGIN_MS));
+  const at = now + lead;
+  room.positionSeconds = pending.positionSeconds;
+  room.paused = false;
+  room.updatedAt = at;
+  broadcast(room, { type: "waiting", names: [] });
+  broadcast(room, { type: "sync", action: "play", positionSeconds: pending.positionSeconds, paused: false, at, by: pending.by });
+  if (late.length > 0) postNotice(room, `Started without ${late.join(", ")} (still loading; catching up)`, now);
+}
+
+/** A screen has buffered at the agreed spot. Returns true if that was the last one and the room has started. */
+export function markReady(room: RoomState, member: Member | undefined, id: string, rttMs: number, now: number): boolean {
+  const pending = room.pending;
+  if (!member || !pending || pending.id !== id || !pending.waiting.delete(member)) return false;
+  if (Number.isFinite(rttMs)) pending.maxRttMs = Math.max(pending.maxRttMs, Math.min(Math.max(0, rttMs), START_LEAD_MAX_MS));
+  if (pending.waiting.size > 0) {
+    announceWaiting(room);
+    return false;
+  }
+  startTogether(room, now);
+  return true;
 }
 
 /** Control taken away from someone: if they led, the lead goes back to the creator. */
@@ -155,6 +325,10 @@ export function dropLeaderIf(room: RoomState, identityId: string): void {
  * everyone from it. Everyone except the stream that did it is told: echoing a
  * seek back at its sender makes that player fight itself — but every other
  * stream is, including the same person's other device.
+ *
+ * A play, or a seek while playing, with other screens watching starts
+ * together instead (PendingStart): everyone, the sender included, is told to
+ * prepare, and the play follows once all are ready. Returns "waiting" then.
  */
 export function applySync(
   room: RoomState,
@@ -163,17 +337,42 @@ export function applySync(
   action: PartySyncAction,
   positionSeconds: number,
   at: number,
-): void {
-  room.positionSeconds = positionSeconds;
-  // A seek keeps whatever play state the room had.
-  if (action !== "seek") room.paused = action === "pause";
-  room.updatedAt = at;
+  startId: string = globalThis.crypto.randomUUID(),
+): "applied" | "waiting" {
+  const before = currentPosition(room, at);
+  const playing = !room.paused || room.pending !== null;
+  const startsPlaying = action === "play" || (action === "seek" && playing);
+  const watchers = [...room.members].filter((m) => m.watching);
+  const othersWatching = watchers.some((m) => m !== origin);
   if (origin) setLeader(room, origin);
-  broadcast(
-    room,
-    { type: "sync", action, positionSeconds, paused: room.paused, at, by: by.displayName },
-    origin,
-  );
+  room.pending = null;
+  room.positionSeconds = positionSeconds;
+  room.updatedAt = at;
+
+  let result: "applied" | "waiting" = "applied";
+  if (startsPlaying && othersWatching) {
+    room.paused = true;
+    room.pending = { id: startId, positionSeconds, by: by.displayName, waiting: new Set(watchers), maxRttMs: 0 };
+    broadcast(room, { type: "prepare", id: startId, positionSeconds, by: by.displayName });
+    announceWaiting(room);
+    result = "waiting";
+  } else {
+    // A seek keeps whatever play state the room had.
+    if (action !== "seek") room.paused = action === "pause";
+    broadcast(
+      room,
+      { type: "sync", action, positionSeconds, paused: room.paused, at, by: by.displayName },
+      origin,
+    );
+    // A pause or a lone screen's play ends any wait in progress.
+    broadcast(room, { type: "waiting", names: [] });
+  }
+  postNotice(room, syncNotice(action, positionSeconds, by.displayName), at);
+  // Everyone hears it, the sender included: the stray press was usually theirs.
+  if (Math.abs(positionSeconds - before) > JUMP_UNDO_SECONDS) {
+    broadcast(room, { type: "jumped", from: before, to: positionSeconds, by: by.displayName });
+  }
+  return result;
 }
 
 /**
@@ -197,19 +396,68 @@ export function applyHeartbeat(
   return true;
 }
 
-/** One entry per person, however many screens they have open. */
+/**
+ * Someone here could press play or pause: a controller with the film open.
+ * With nobody like that, a playing room carries on with nobody steering it.
+ */
+export function controllerWatching(room: RoomState, isController: (identity: PartyMemberIdentity) => boolean): boolean {
+  return [...room.members].some((m) => m.watching && isController(m.identity));
+}
+
+/**
+ * The last controller left (or lost control) while the room played: it
+ * pauses where it is, so nobody watches on alone and has to be found again.
+ * Taken from SyncTube, which pauses when its leader disconnects.
+ */
+export function pauseOrphaned(room: RoomState, now: number): boolean {
+  if (room.paused) return false;
+  room.positionSeconds = currentPosition(room, now);
+  room.paused = true;
+  room.updatedAt = now;
+  broadcast(room, { type: "sync", action: "pause", positionSeconds: room.positionSeconds, paused: true, at: now, by: "" });
+  postNotice(room, `Paused at ${formatClock(room.positionSeconds)}: nobody who can control playback is watching`, now);
+  return true;
+}
+
+/** Reports older than this say nothing about now (the stream stopped reporting). */
+const REPORT_STALE_MS = 15_000;
+
+/**
+ * How far one stream's film is from the room's right now, to a tenth of a
+ * second. Taken from WatchParty, which shows every viewer's offset beside
+ * their name. Only while both are playing: a paused screen in a playing room
+ * is "paused", not "behind by a growing number".
+ */
+export function memberDrift(member: Member, room: RoomState, now: number): number | null {
+  const report = member.report;
+  if (!report || room.paused || report.paused || now - report.at > REPORT_STALE_MS) return null;
+  const theirs = report.positionSeconds + (now - report.at) / 1000;
+  return Math.round((theirs - currentPosition(room, now)) * 10) / 10;
+}
+
+/** One entry per person, however many screens they have open; drift from the furthest-out screen. */
 export function participantList(
   room: RoomState,
   isController: (identity: PartyMemberIdentity) => boolean,
+  publicIdOf: (identity: PartyMemberIdentity) => string,
+  now = Date.now(),
 ): PartyParticipant[] {
   const byId = new Map<string, PartyParticipant>();
   for (const member of room.members) {
-    if (byId.has(member.identity.id)) continue;
+    const drift = memberDrift(member, room, now);
+    const existing = byId.get(member.identity.id);
+    if (existing) {
+      if (drift !== null && (existing.driftSeconds === null || Math.abs(drift) > Math.abs(existing.driftSeconds))) {
+        existing.driftSeconds = drift;
+      }
+      continue;
+    }
     byId.set(member.identity.id, {
-      id: member.identity.id,
+      id: publicIdOf(member.identity),
       kind: member.identity.kind,
       displayName: member.identity.displayName,
       isController: isController(member.identity),
+      driftSeconds: drift,
     });
   }
   return [...byId.values()];

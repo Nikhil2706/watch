@@ -414,6 +414,11 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "users") && !columnExists(db, "users", "hide_watched")) {
     db.exec("ALTER TABLE users ADD COLUMN hide_watched INTEGER NOT NULL DEFAULT 0");
   }
+
+  // v56: party chat replies. Reactions are a new table, created by SCHEMA_SQL.
+  if (tableExists(db, "party_messages") && !columnExists(db, "party_messages", "reply_to_id")) {
+    db.exec("ALTER TABLE party_messages ADD COLUMN reply_to_id TEXT");
+  }
 }
 
 /**

@@ -36,11 +36,16 @@
  * row (see the v24/v27 notes in db.ts for what happens without one).
  */
 /*
- * 56: what OMDb says each IMDb id is (omdb_title_kind), series names, which
+ * 57: what OMDb says each IMDb id is (omdb_title_kind), series names, which
  * groups were made by the auto-grouper, and what the curator has said must
  * stay ungrouped. New tables only. See series-autogroup.ts.
  */
-export const SCHEMA_VERSION = 56;
+/*
+ * 57, not 56, because two branches both used 56: platform-additions took it
+ * for party chat replies and reactions. Every 57 table is CREATE ... IF NOT
+ * EXISTS, so the number only has to advance past what a database records.
+ */
+export const SCHEMA_VERSION = 57;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -996,10 +1001,27 @@ CREATE TABLE IF NOT EXISTS party_messages (
   display_name TEXT NOT NULL,
   body         TEXT NOT NULL,
   created_at   INTEGER NOT NULL,
+  -- The message this one answers (v56). Added by ALTER in db.ts for
+  -- databases from before it; here for fresh ones.
+  reply_to_id  TEXT,
   CHECK ((user_id IS NULL) != (guest_token IS NULL))
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_party_messages_room ON party_messages(room_id, created_at);
+
+-- Emoji reactions on a party chat message (v56). One row per person per
+-- emoji per message; reacting again takes it back. reactor is "u:<userId>"
+-- or "g:<guest token>" so one key covers both kinds of participant, and is
+-- never sent to clients (a guest token is that guest's way in); only
+-- display_name is.
+CREATE TABLE IF NOT EXISTS party_message_reactions (
+  message_id   TEXT NOT NULL REFERENCES party_messages(id) ON DELETE CASCADE,
+  reactor      TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  emoji        TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY (message_id, reactor, emoji)
+) STRICT;
 
 -- Who besides the room's creator currently has playback control (pause,
 -- seek) — granted via the participant list's three-dot menu. The creator
@@ -1453,7 +1475,7 @@ CREATE TABLE IF NOT EXISTS file_checks (
 
 CREATE INDEX IF NOT EXISTS idx_file_checks_verdict ON file_checks(verdict);
 
--- What OMDb says an IMDb id IS (v56): a movie, a series, or an episode and of
+-- What OMDb says an IMDb id IS (v57): a movie, a series, or an episode and of
 -- which series. Written from the same response as rating_cache, so it costs
 -- no extra call; Jellyfin matches episode files as films, and this is how an
 -- episode is told apart (series-detect.ts). season/episode are OMDb's own.
@@ -1486,7 +1508,7 @@ CREATE TABLE IF NOT EXISTS library_group_auto (
   created_at INTEGER NOT NULL
 ) STRICT;
 
--- What the curator has said must stay ungrouped (v56). subject is either a
+-- What the curator has said must stay ungrouped (v57). subject is either a
 -- series key ("imdb:tt0123"), written when its group is dissolved, so the
 -- auto-grouper does not make it again; or "path:" + a file path, written when
 -- a file is taken out of a group or its group is dissolved, so it is not

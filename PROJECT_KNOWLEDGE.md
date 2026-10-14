@@ -542,8 +542,37 @@ Branch off `platform-additions`, not deployed yet.
 - **Film pages say "Includes N special features"** in the title/meta row, linking
   to the section further down: smooth scroll, and on a TV focus moves to the
   first feature. A D-pad stop like any other link; OK follows it.
+- Schema v57 (new tables only); v56 is the watch-party replies and reactions.
 
-### 2026-10-14 (latest, later) — Watch party: followers play smoothly instead of skipping
+### 2026-10-14 (later still) — Watch party: seven ideas taken from open-source watch parties
+We read the sync and chat code of Jellyfin SyncPlay, SyncTube, CyTube and
+WatchParty, and took the best of each:
+
+- **Everyone starts together** (SyncPlay): a play, or a seek while playing,
+  pauses every screen at the spot. Each says "ready" once buffered, and the
+  room starts them all at one scheduled moment. It waits 8 s at most, after
+  which a slow screen catches up on its own. A banner says who it is waiting
+  for.
+- **Who did what, in the chat** (WatchParty): "mammannii paused at 1:02:13".
+  Not stored.
+- **Undo a big jump** (SyncTube's flashback): after any jump of more than
+  30 s, controllers get "↩ 1:02:13" next to Chat for 30 s.
+- **Tap to join** (WatchParty): when a browser blocks autoplay, a button
+  appears instead of a silently paused screen.
+- **How far behind each person is**, and **Sync me** (WatchParty, CyTube).
+- **The room pauses when nobody who can control it is watching** (SyncTube),
+  after 15 s.
+- **Reactions and replies** in the chat (WatchParty). Schema v56.
+
+Found along the way: opening the room page as a controller used to un-pause
+the whole room (the player's autoplay). Autoplay is now off in a party.
+Each stream now says whether it has the film open (`?player=1`).
+
+Not taken: SyncPlay's high-speed catch-up (its own notes say it sounds bad),
+CyTube's seek-only sync, and WatchParty's "median of everyone" as the
+reference.
+
+### 2026-10-14 (later) — Watch party: followers play smoothly instead of skipping
 The sync above made the TV and phone jump forward every few seconds (+18 s in
 one 15-second sample). Fixed in `party-sync.ts`, `party-room.ts`, Player.tsx:
 

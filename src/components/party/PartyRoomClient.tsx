@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PlayerMount, type PlayerMountProps } from "@/components/media/PlayerMount";
 import { useTvBack, useTvMode } from "@/components/tv/TvProvider";
 import { getFocusableElements } from "@/lib/tv/spatial-nav";
+import { formatClock } from "@/lib/party-room";
 import { heartbeatRole, viewerIsController } from "@/lib/party-sync";
 
 import { PartyChatPanel } from "./PartyChatPanel";
@@ -19,6 +20,9 @@ import { usePartySocket } from "./usePartySocket";
  * chat stacked under the video, a scroll away from it.
  */
 const NARROW_QUERY = "(max-width: 899px)";
+
+/** How long "↩ 1:02:13" stays offered after a big jump. */
+const UNDO_OFFER_MS = 30_000;
 
 function subscribeNarrow(onChange: () => void): () => void {
   const query = window.matchMedia(NARROW_QUERY);
@@ -41,22 +45,23 @@ function subscribeNarrow(onChange: () => void): () => void {
  */
 export function PartyRoomClient({
   roomId,
-  myId,
   isCreator,
   filmTitle,
   player,
   guestLinks,
 }: {
   roomId: string;
-  myId: string;
   isCreator: boolean;
   filmTitle: string;
   /** null when the room's title has no playable stream right now (mirrors /watch/[id]'s own "cannot play this title" state). */
   player: PlayerMountProps | null;
   guestLinks: PartyGuestLinkView[];
 }) {
-  const socket = usePartySocket(roomId);
-  const isController = viewerIsController(isCreator, socket.participants, myId);
+  const socket = usePartySocket(roomId, { watching: player !== null });
+  // Matched by the opaque id the server gave this stream: the list never
+  // carries anyone's real id (a guest's is their way in).
+  const isController = viewerIsController(isCreator, socket.participants, socket.selfId ?? "");
+  const myName = socket.participants.find((p) => p.id === socket.selfId)?.displayName;
   const role = heartbeatRole({ isController, clientId: socket.clientId, leaderClientId: socket.leaderClientId });
 
   const tvMode = useTvMode();
@@ -72,6 +77,28 @@ export function PartyRoomClient({
   const [chatDetached, setChatDetached] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
   const router = useRouter();
+
+  /*
+   * Undo a jump: for UNDO_OFFER_MS after the room moved more than 30 s (a
+   * stray press on the remote, a slip on the seek bar), a controller gets
+   * "↩ 1:02:13" beside Chat. It asks this page's player to seek there, which
+   * the room then follows like any other seek.
+   */
+  const [seekRequest, setSeekRequest] = useState<{ to: number; id: number } | null>(null);
+  /** This screen has drifted from the room for a while: "Sync me" snaps it back (taken from WatchParty and CyTube). */
+  const [outOfStep, setOutOfStep] = useState(false);
+  const [syncNowRequest, setSyncNowRequest] = useState<number | null>(null);
+  const [dismissedJump, setDismissedJump] = useState<typeof socket.lastJump>(null);
+  const [, setTick] = useState(0);
+  const jump = socket.lastJump;
+  const undoJump =
+    isController && jump && jump !== dismissedJump && Date.now() - jump.heardAt < UNDO_OFFER_MS && player ? jump : null;
+  useEffect(() => {
+    if (!jump) return;
+    // Re-render once the offer runs out, so the button goes.
+    const timer = setTimeout(() => setTick((t) => t + 1), Math.max(0, UNDO_OFFER_MS - (Date.now() - jump.heardAt)) + 50);
+    return () => clearTimeout(timer);
+  }, [jump]);
 
   /* ---- The chat overlay (TV and phone) ---- */
   const [chatOpen, setChatOpen] = useState(false);
@@ -92,7 +119,8 @@ export function PartyRoomClient({
     if (seen !== null && socket.messages.every((m) => seen.has(m.id))) return;
     setSeen(new Set(socket.messages.map((m) => m.id)));
   }, [socket.historyLoaded, socket.messages, showingChat, seen]);
-  const unread = seen ? socket.messages.filter((m) => !seen.has(m.id)).length : 0;
+  // The room's own lines (who paused) are not something to come and read.
+  const unread = seen ? socket.messages.filter((m) => m.kind !== "system" && !seen.has(m.id)).length : 0;
 
   function closeChat() {
     returnFocus.current = true;
@@ -222,6 +250,33 @@ export function PartyRoomClient({
             ) : null}
           </button>
         ) : null}
+        {outOfStep && player ? (
+          <button
+            type="button"
+            className="btn ghost party-sync-me"
+            title="This screen has fallen out of step with the room"
+            onClick={() => {
+              setSyncNowRequest(Date.now());
+              setOutOfStep(false);
+            }}
+          >
+            Sync me
+          </button>
+        ) : null}
+        {undoJump ? (
+          <button
+            type="button"
+            className="btn ghost party-undo-jump"
+            aria-label={`Go back to ${formatClock(undoJump.from)}, where the film was before ${undoJump.by}'s jump`}
+            title={`Back to where the film was before ${undoJump.by}'s jump`}
+            onClick={() => {
+              setSeekRequest({ to: undoJump.from, id: Date.now() });
+              setDismissedJump(socket.lastJump);
+            }}
+          >
+            ↩ {formatClock(undoJump.from)}
+          </button>
+        ) : null}
         <span className="title">{filmTitle}</span>
       </div>
 
@@ -242,6 +297,11 @@ export function PartyRoomClient({
         {/* On a TV the film stays under the open chat but out of the remote's
             reach, so the D-pad cannot wander off the chat onto the video. */}
         <div className="party-room-player" inert={overlayMode && chatOpen && tvMode}>
+          {player && socket.waitingFor.length > 0 ? (
+            <div className="party-waiting" role="status">
+              Starting together · waiting for {socket.waitingFor.join(", ")}
+            </div>
+          ) : null}
           {player ? (
             <PlayerMount
               {...player}
@@ -255,6 +315,12 @@ export function PartyRoomClient({
                 lastSync: socket.lastSync,
                 lastPosition: socket.lastPosition,
                 initialState: socket.initialState,
+                seekRequest,
+                sendReport: socket.sendReport,
+                onOutOfStep: setOutOfStep,
+                syncNowRequest,
+                prepare: socket.prepare,
+                sendReady: socket.sendReady,
               }}
             />
           ) : (
@@ -276,6 +342,7 @@ export function PartyRoomClient({
                 socket={socket}
                 onMoveOut={closeChat}
                 onClose={closeChat}
+                myName={myName}
               />
               {creatorExtras}
             </div>
@@ -298,6 +365,7 @@ export function PartyRoomClient({
                 isCreator={isCreator}
                 socket={socket}
                 onMoveOut={() => setChatDetached(true)}
+                myName={myName}
               />
               {isCreator ? <PartyGuestLinksPanel roomId={roomId} initialLinks={guestLinks} /> : null}
               {chatDetached ? null : endControls}
