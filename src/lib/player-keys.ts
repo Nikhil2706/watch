@@ -75,6 +75,53 @@ export type TvRemoteAction =
  * or link presses it).
  */
 /**
+ * One OK press, one action.
+ *
+ * On the Android TV app a single OK on the player's focused Pause button
+ * paused and played again at once (2026-10-14, Hisense Android 9, adb
+ * KEYCODE_DPAD_CENTER): in a watch party the chat logged "paused at 1:38"
+ * then "played from 1:38". The WebView on a TV runs its own remote
+ * navigation, which "clicks" the focused element when OK is released,
+ * pointer events included. Vidstack's buttons had already acted on the
+ * keydown, and react to pointerup as well, so the release pressed them a
+ * second time. (A desktop browser has no such release click, so one Enter
+ * was always one action there.)
+ *
+ * The rule, the same for every control in the player: whatever acts on the
+ * OK keydown is the press. If the keydown was handled (default prevented,
+ * by Vidstack's button or by the player's own toggle), the OK release and any
+ * pointer, mouse or click events that follow within OK_ECHO_MS are that same
+ * press and are swallowed. If nothing handled it (a plain button such as
+ * "Tap to join the film"), the release and its click go through untouched:
+ * they are the press.
+ */
+export const OK_ECHO_MS = 700;
+
+const OK_KEYS = new Set(["Enter", " "]);
+const ECHO_EVENTS = new Set(["pointerdown", "pointerup", "mousedown", "mouseup", "click"]);
+
+export interface OkPressGuard {
+  /** After a keydown has been through the page's handlers: was it OK, and did something act on it? */
+  noteKeydown(key: string, handled: boolean, now: number): void;
+  /** Whether this event is the echo of an OK press already acted on. */
+  shouldSwallow(type: string, key: string | undefined, now: number): boolean;
+}
+
+export function createOkPressGuard(windowMs = OK_ECHO_MS): OkPressGuard {
+  let actedAt = -Infinity;
+  return {
+    noteKeydown(key, handled, now) {
+      if (OK_KEYS.has(key) && handled) actedAt = now;
+    },
+    shouldSwallow(type, key, now) {
+      if (now - actedAt > windowMs) return false;
+      if (type === "keyup") return key !== undefined && OK_KEYS.has(key);
+      return ECHO_EVENTS.has(type);
+    },
+  };
+}
+
+/**
  * A remote's transport keys (play/pause, play, pause, fast-forward, rewind),
  * whatever has focus. On the Android TV app these arrive from the native
  * layer (MainActivity.dispatchKeyEvent), because Android sends media keys to

@@ -513,7 +513,24 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
-### 2026-10-14 (latest) — The TV remote's play/pause key works in the app
+### 2026-10-14 (latest) — One OK press on the TV is one action
+In the TV app, one OK on the player's focused Pause button paused and played
+again at once. In a watch party the chat logged "paused at 1:38", then
+"played from 1:38", so the TV never stayed paused. A TV's WebView runs its
+own remote navigation, which "clicks" the focused element when OK is
+released, pointer events included. Vidstack's buttons had already acted on
+the keydown, and they also react to pointerup, so the release pressed them
+again. A desktop browser has no such release click, which is why it never
+showed there.
+
+The rule now, for every control in the player: whatever acts on the OK
+keydown is the press. If something handled it, the OK release and any
+pointer/mouse/click events that follow within 700 ms are swallowed as its
+echo. If nothing handled it (a plain button such as "Tap to join the film"),
+the release click is the press and goes through.
+`createOkPressGuard` in player-keys.ts; TV mode and the player only.
+
+### 2026-10-14 — The TV remote's play/pause key works in the app
 On the Android TV app the remote's play/pause, play and pause keys did nothing
 (Hisense Android 9, `adb shell input keyevent KEYCODE_MEDIA_PLAY_PAUSE`).
 Android does not hand media keys to a WebView as page keys: an unhandled one

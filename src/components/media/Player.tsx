@@ -36,6 +36,7 @@ import { importOrReload } from "@/lib/chunk-reload";
 import { getFocusableElements } from "@/lib/tv/spatial-nav";
 import {
   clampTime,
+  createOkPressGuard,
   nextSpeed,
   PLAYER_SHORTCUTS,
   resolveMediaKey,
@@ -509,6 +510,40 @@ export function Player({
     return () => cancelAnimationFrame(frame);
   }, [tvMode]);
 
+  /**
+   * One OK press, one action (player-keys.ts, createOkPressGuard): on a TV the
+   * WebView "clicks" the focused element again when OK is released, and
+   * Vidstack's buttons, having already acted on the keydown, took that as a
+   * second press. The player's own toggle notes its OK presses directly
+   * (it stops the keydown before it reaches the window); a Vidstack button's
+   * is seen once the keydown has bubbled back up.
+   */
+  const okGuard = useRef(createOkPressGuard());
+  useEffect(() => {
+    const inPlayer = (target: EventTarget | null) =>
+      target instanceof Element && !!target.closest(".player-stage");
+    function afterKeydown(event: KeyboardEvent) {
+      if (!tvModeRef.current || !inPlayer(event.target)) return;
+      okGuard.current.noteKeydown(event.key, event.defaultPrevented, performance.now());
+    }
+    function swallowEcho(event: Event) {
+      if (!tvModeRef.current || !inPlayer(event.target)) return;
+      const key = event instanceof KeyboardEvent ? event.key : undefined;
+      if (!okGuard.current.shouldSwallow(event.type, key, performance.now())) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+    const echoes = ["keyup", "pointerdown", "pointerup", "mousedown", "mouseup", "click"];
+    // Bubble phase: after the focused control's own keydown handler has run.
+    window.addEventListener("keydown", afterKeydown);
+    // Capture phase: before Vidstack's button sees the echo.
+    for (const type of echoes) window.addEventListener(type, swallowEcho, true);
+    return () => {
+      window.removeEventListener("keydown", afterKeydown);
+      for (const type of echoes) window.removeEventListener(type, swallowEcho, true);
+    };
+  }, []);
+
   // TV remote keys. Capture phase on window, so they arrive before anything
   // inside the player: with focus on the player element, Vidstack's layout
   // marked OK handled first and the toggle never ran.
@@ -556,6 +591,8 @@ export function Player({
       }
       event.preventDefault();
       event.stopPropagation();
+      // Stopped here, so the guard's window listener never sees it: note it now.
+      if (target && target.closest(".player-stage")) okGuard.current.noteKeydown(event.key, true, performance.now());
       runTvActionRef.current(tvAction, target);
     }
     window.addEventListener("keydown", onTvKey, true);
