@@ -23,7 +23,7 @@ export default async function PicksPage() {
 
   return (
     <>
-      <AppBar username={session.username} langloisMode={session.langloisMode} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
 
       <div className="page-head">
         <h1>Picks</h1>
