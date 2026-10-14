@@ -33,7 +33,7 @@ export default async function SearchPage({
 
   return (
     <>
-      <AppBar username={session.username} query={query} langloisMode={session.langloisMode} />
+      <AppBar username={session.username} query={query} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
 
       <div className="page-head">
         <h1>{query ? `Results for “${query}”` : "Search"}</h1>

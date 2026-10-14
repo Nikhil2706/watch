@@ -29,7 +29,7 @@ export default async function PickPage({ params }: { params: Promise<{ id: strin
 
   return (
     <>
-      <AppBar username={session.username} langloisMode={session.langloisMode} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
 
       <div className="page-head pk-page-head">
         <Link className="pk-back" href="/picks">

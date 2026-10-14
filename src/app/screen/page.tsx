@@ -17,7 +17,7 @@ export default async function ScreenPage() {
 
   return (
     <>
-      <AppBar username={session.username} langloisMode={session.langloisMode} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
       <ScreenCode />
     </>
   );
