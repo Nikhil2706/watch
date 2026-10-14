@@ -2,6 +2,8 @@
 
 import dynamic from "next/dynamic";
 
+import { importOrReload } from "@/lib/chunk-reload";
+
 import type { PlayerPartySync, PlayerSubtitle } from "./Player";
 
 /**
@@ -14,8 +16,12 @@ import type { PlayerPartySync, PlayerSubtitle } from "./Player";
  * allowed from a Server Component, hence this thin wrapper.
  *
  * The placeholder keeps the page from jumping when the real controls arrive.
+ *
+ * The player is its own chunk, fetched when the watch page opens. A TV left
+ * on a page from before a deploy asks for the old one; importOrReload loads
+ * the page again instead of failing (chunk-reload.ts).
  */
-const Player = dynamic(() => import("./Player").then((m) => m.Player), {
+const Player = dynamic(() => importOrReload(() => import("./Player")).then((m) => m.Player), {
   ssr: false,
   loading: () => (
     <div className="player-stage">

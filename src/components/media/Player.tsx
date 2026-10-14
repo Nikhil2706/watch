@@ -32,6 +32,7 @@ import {
   type ExpectedRemote,
   type RoomPosition,
 } from "@/lib/party-sync";
+import { importOrReload } from "@/lib/chunk-reload";
 import { getFocusableElements } from "@/lib/tv/spatial-nav";
 import {
   clampTime,
@@ -1082,7 +1083,8 @@ export function Player({
    */
   function onProviderChange(provider: MediaProviderAdapter | null) {
     if (isHLSProvider(provider)) {
-      provider.library = () => import("hls.js");
+      // Its own chunk, so after a deploy it can be gone: reload once (chunk-reload.ts).
+      provider.library = () => importOrReload(() => import("hls.js"));
       provider.config = {
         // Jellyfin transcodes just ahead of the playhead, so a large forward
         // buffer only makes the server work harder for segments nobody may

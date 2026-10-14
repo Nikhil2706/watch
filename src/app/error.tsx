@@ -2,15 +2,20 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { startTransition, useEffect } from "react";
+import { startTransition, useEffect, useState } from "react";
 
 import { MobileTabBar } from "@/components/MobileTabBar";
+import { reloadOnceForChunkErrorInBrowser } from "@/lib/chunk-reload";
 
 /**
  * Route-segment error boundary. Catches a render crash anywhere under this
  * layout and reports it back to the server — otherwise a client-side crash
  * is invisible to everyone but the one person staring at their own browser
  * console when it happened.
+ *
+ * Except a page left open across a deploy, asking for code the new build no
+ * longer has: that reloads itself once instead (chunk-reload.ts), and is not
+ * reported, since nothing is broken.
  */
 export default function Error({
   error,
@@ -20,8 +25,13 @@ export default function Error({
   reset: () => void;
 }) {
   const router = useRouter();
+  const [reloading, setReloading] = useState(false);
 
   useEffect(() => {
+    if (reloadOnceForChunkErrorInBrowser(error)) {
+      setReloading(true);
+      return;
+    }
     void fetch("/api/client-error", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -32,6 +42,14 @@ export default function Error({
       }),
     }).catch(() => {});
   }, [error]);
+
+  if (reloading) {
+    return (
+      <div className="empty" role="status">
+        <p>Updating to the latest version…</p>
+      </div>
+    );
+  }
 
   // The boundary replaces the whole page, app bar included, so it carries its
   // own way out: in the app there was otherwise nothing to tap but Back.
