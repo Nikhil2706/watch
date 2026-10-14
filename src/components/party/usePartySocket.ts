@@ -66,7 +66,8 @@ function newClientId(): string {
   return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
-export function usePartySocket(roomId: string) {
+/** `watching`: this page has the film open (the room page), not only the chat. */
+export function usePartySocket(roomId: string, { watching = false }: { watching?: boolean } = {}) {
   const [clientId] = useState(newClientId);
   const [connected, setConnected] = useState(false);
   const [unreachable, setUnreachable] = useState(false);
@@ -103,7 +104,7 @@ export function usePartySocket(roomId: string) {
       if (closedByUs.current || endedRef.current) return;
 
       const source = new EventSource(
-        `/api/party/${encodeURIComponent(roomId)}/events?cid=${encodeURIComponent(clientId)}`,
+        `/api/party/${encodeURIComponent(roomId)}/events?cid=${encodeURIComponent(clientId)}${watching ? "&player=1" : ""}`,
       );
       sourceRef.current = source;
 
@@ -207,7 +208,7 @@ export function usePartySocket(roomId: string) {
       sourceRef.current?.close();
       sourceRef.current = null;
     };
-  }, [roomId, clientId]);
+  }, [roomId, clientId, watching]);
 
   const post = useCallback(
     async (payload: Record<string, unknown>) => {

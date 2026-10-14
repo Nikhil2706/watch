@@ -3,6 +3,8 @@ import { test } from "node:test";
 
 import {
   addMember,
+  controllerWatching,
+  pauseOrphaned,
   applyHeartbeat,
   applySync,
   canControl,
@@ -23,9 +25,9 @@ const tester = { kind: "user" as const, id: "u-tester", displayName: "tester" };
 const mammannii = { kind: "user" as const, id: "u-mam", displayName: "mammannii" };
 
 /** tester created the room in every test here. */
-function join(room: RoomState, identity: Member["identity"], clientId: string) {
+function join(room: RoomState, identity: Member["identity"], clientId: string, watching = true) {
   const got: PartyEvent[] = [];
-  const member: Member = { identity, clientId, isCreator: identity.id === tester.id, send: (e) => void got.push(e) };
+  const member: Member = { identity, clientId, isCreator: identity.id === tester.id, watching, send: (e) => void got.push(e) };
   addMember(room, member);
   return { member, got };
 }
@@ -211,4 +213,26 @@ test("play, pause and seek are told to the room as chat lines, the sender includ
     events.flatMap((e) => (e.type === "chat" && e.message.kind === "system" ? [e.message.body] : []));
   assert.deepEqual(lines(laptop.got), ["mammannii paused at 1:02:13", "mammannii jumped to 1:05"]);
   assert.deepEqual(lines(tv.got), lines(laptop.got), "the TV sees its own actions in the chat too");
+});
+
+test("a playing room with no controller watching pauses where it is, and says why", () => {
+  const room = createRoom(0);
+  const laptop = join(room, tester, "laptop-0001");
+  const phoneChat = join(room, tester, "chat-tab-01", false); // the host's chat-only tab
+  const tv = join(room, mammannii, "tv-000001");
+  const hostOnly = (identity: Member["identity"]) => identity.id === tester.id;
+  applySync(room, laptop.member, tester, "play", 100, 0);
+
+  assert.equal(controllerWatching(room, hostOnly), true);
+  removeMember(room, laptop.member);
+  assert.equal(controllerWatching(room, hostOnly), false, "a chat-only tab cannot press play");
+
+  assert.equal(pauseOrphaned(room, 10_000), true);
+  assert.equal(room.paused, true);
+  assert.equal(currentPosition(room, 99_000), 110);
+  assert.deepEqual(syncs(tv.got).at(-1), { type: "sync", action: "pause", positionSeconds: 110, paused: true, at: 10_000, by: "" });
+  const notice = tv.got.findLast((e) => e.type === "chat");
+  assert.ok(notice?.type === "chat" && notice.message.body.startsWith("Paused at 1:50"));
+  assert.equal(pauseOrphaned(room, 11_000), false, "already paused: nothing to do");
+  void phoneChat;
 });

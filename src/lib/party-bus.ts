@@ -13,8 +13,10 @@ import {
   createRoom,
   currentPosition,
   dropLeaderIf,
+  controllerWatching,
   findOrigin,
   participantList,
+  pauseOrphaned,
   postNotice,
   removeMember,
   stampTime,
@@ -63,8 +65,16 @@ const SWEEP_INTERVAL_MS = 60 * 1000;
 
 export type { PartyChatMessage, PartyEvent, PartyParticipant } from "./party-room";
 
+/**
+ * How long a playing room waits for a controller to come back before it
+ * pauses. A stream that drops and reconnects (backoff starts at 2 s) must not
+ * pause everyone.
+ */
+const ORPHAN_GRACE_MS = 15_000;
+
 interface BusState {
   rooms: Map<string, RoomState>;
+  orphanTimers?: Map<string, ReturnType<typeof setTimeout>>;
   emptySince: Map<string, number>;
   sweepTimer: ReturnType<typeof setInterval> | null;
 }
@@ -180,15 +190,41 @@ export function broadcastParticipants(roomId: string): void {
 }
 
 /** Opens an event stream for one participant. Returns an unsubscribe function. */
+/**
+ * After anyone leaves or loses control: if nobody who could press pause is
+ * still watching a playing room, pause it — after a grace period, and only if
+ * that is still true then.
+ */
+function checkOrphaned(roomId: string): void {
+  const state = bus();
+  const timers = (state.orphanTimers ??= new Map());
+  const room = state.rooms.get(roomId);
+  const control = (identity: PartyIdentity) => isController(roomId, identity);
+  if (!room || room.paused || controllerWatching(room, control)) {
+    clearTimeout(timers.get(roomId));
+    timers.delete(roomId);
+    return;
+  }
+  if (timers.has(roomId)) return;
+  const timer = setTimeout(() => {
+    timers.delete(roomId);
+    const current = bus().rooms.get(roomId);
+    if (current && !controllerWatching(current, control)) pauseOrphaned(current, Date.now());
+  }, ORPHAN_GRACE_MS);
+  timer.unref?.();
+  timers.set(roomId, timer);
+}
+
 export function joinRoom(
   roomId: string,
   identity: PartyIdentity,
   clientId: string | null,
+  watching: boolean,
   send: (event: PartyEvent) => void,
 ): () => void {
   ensureSweep();
   const room = roomState(roomId);
-  const member: Member = { identity, clientId, isCreator: isCreator(roomId, identity), send };
+  const member: Member = { identity, clientId, isCreator: isCreator(roomId, identity), watching, send };
   bus().emptySince.delete(roomId);
 
   send({ type: "history", messages: loadHistory(roomId) });
@@ -197,9 +233,12 @@ export function joinRoom(
   addMember(room, member);
   broadcastParticipants(roomId);
 
+  checkOrphaned(roomId);
+
   return () => {
     removeMember(room, member);
     broadcastParticipants(roomId);
+    checkOrphaned(roomId);
   };
 }
 
@@ -267,6 +306,7 @@ export function setController(
     getDb().prepare(`DELETE FROM party_controllers WHERE room_id = ? AND ${column} = ?`).run(roomId, targetId);
     if (room) dropLeaderIf(room, targetId);
   }
+  checkOrphaned(roomId);
   if (room) {
     const name = target.identity.displayName;
     postNotice(room, grant ? `${identity.displayName} gave ${name} playback control` : `${identity.displayName} took back playback control from ${name}`, Date.now());

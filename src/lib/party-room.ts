@@ -56,6 +56,12 @@ export interface Member {
   clientId: string | null;
   /** The room's creator: leads the heartbeat when no other controller has acted. */
   isCreator: boolean;
+  /**
+   * This stream has a player (the room page), not just the chat (a chat tab,
+   * a phone used for chat, a guest). Only these can press play, wait to start
+   * together, or drift.
+   */
+  watching: boolean;
   send: (event: PartyEvent) => void;
 }
 
@@ -225,6 +231,29 @@ export function applyHeartbeat(
   room.positionSeconds = positionSeconds;
   room.updatedAt = at;
   broadcast(room, { type: "position", positionSeconds, at }, origin);
+  return true;
+}
+
+/**
+ * Someone here could press play or pause: a controller with the film open.
+ * With nobody like that, a playing room carries on with nobody steering it.
+ */
+export function controllerWatching(room: RoomState, isController: (identity: PartyMemberIdentity) => boolean): boolean {
+  return [...room.members].some((m) => m.watching && isController(m.identity));
+}
+
+/**
+ * The last controller left (or lost control) while the room played: it
+ * pauses where it is, so nobody watches on alone and has to be found again.
+ * Taken from SyncTube, which pauses when its leader disconnects.
+ */
+export function pauseOrphaned(room: RoomState, now: number): boolean {
+  if (room.paused) return false;
+  room.positionSeconds = currentPosition(room, now);
+  room.paused = true;
+  room.updatedAt = now;
+  broadcast(room, { type: "sync", action: "pause", positionSeconds: room.positionSeconds, paused: true, at: now, by: "" });
+  postNotice(room, `Paused at ${formatClock(room.positionSeconds)}: nobody who can control playback is watching`, now);
   return true;
 }
 

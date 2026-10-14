@@ -55,7 +55,7 @@ export function PartyRoomClient({
   player: PlayerMountProps | null;
   guestLinks: PartyGuestLinkView[];
 }) {
-  const socket = usePartySocket(roomId);
+  const socket = usePartySocket(roomId, { watching: player !== null });
   const isController = viewerIsController(isCreator, socket.participants, myId);
   const role = heartbeatRole({ isController, clientId: socket.clientId, leaderClientId: socket.leaderClientId });
 
