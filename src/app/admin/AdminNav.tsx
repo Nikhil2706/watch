@@ -14,7 +14,7 @@ export const ADMIN_TABS: ReadonlyArray<{ key: string; label: string; ported: boo
   { key: "invites", label: "Invites", ported: true },
   { key: "uploads", label: "Uploads", ported: true },
   { key: "dupes", label: "Duplicates", ported: false },
-  { key: "worker", label: "Worker", ported: false },
+  { key: "worker", label: "Worker", ported: true },
   { key: "accolades", label: "Accolades", ported: false },
   { key: "tmdb", label: "TMDB", ported: false },
   { key: "picks", label: "Picks", ported: false },
