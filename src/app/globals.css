@@ -4115,6 +4115,36 @@ html[data-tv="true"] .appbar-more {
   font-variant-numeric: tabular-nums;
 }
 
+/* The room is playing but this browser wants a tap before it plays sound. */
+.party-tap-to-join {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+  padding: 14px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.party-tap-to-join svg {
+  width: 22px;
+  height: 22px;
+}
+
+.party-tap-to-join:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
 .party-unread {
   min-width: 20px;
   height: 20px;

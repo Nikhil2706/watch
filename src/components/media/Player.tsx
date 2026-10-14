@@ -494,6 +494,8 @@ export function Player({
       if (!tvModeRef.current || event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      // "Tap to join the film" is a real button: OK presses it.
+      if (target?.closest?.(".party-tap-to-join")) return;
       // An open settings menu keeps up/down/OK (Vidstack moves through it).
       // Left/right mean nothing there, but left unhandled the WebView's own
       // D-pad navigation jumped focus out of the menu (onto fullscreen).
@@ -782,6 +784,27 @@ export function Player({
 
   /** The room last told this player to play (and has not since said pause). */
   const wantPlaying = useRef(false);
+  /**
+   * The room is playing but this browser refused to start without a tap.
+   * Taken from WatchParty, which tests for autoplay and asks for the click.
+   */
+  const [needsTap, setNeedsTap] = useState(false);
+  const tapButtonRef = useRef<HTMLButtonElement>(null);
+
+  function joinByTap() {
+    const instance = player.current;
+    const video = mediaElement();
+    setNeedsTap(false);
+    if (!instance || !video) return;
+    // A tap is a gesture: this play is allowed. Still the room's, not the viewer's.
+    expectedRemote.current = expectFromPlan({ seekTo: null, setPaused: false }, Date.now());
+    video.play().catch(() => setNeedsTap(true));
+  }
+
+  // TV: the button takes focus, so OK presses it.
+  useEffect(() => {
+    if (needsTap && tvModeRef.current) tapButtonRef.current?.focus();
+  }, [needsTap]);
 
   /**
    * play() for the room. It can be refused (before the first load, or
@@ -792,7 +815,13 @@ export function Player({
   function playWhenReady(instance: MediaPlayerInstance, attempt = 0) {
     wantPlaying.current = true;
     const video = mediaElement();
-    (video ? video.play() : instance.play()).catch(() => {
+    (video ? video.play() : instance.play()).catch((error: unknown) => {
+      // The browser will not start sound without a tap (phones, mostly). No
+      // retry gets past that: ask for the tap instead of sitting paused.
+      if (error instanceof DOMException && error.name === "NotAllowedError") {
+        if (wantPlaying.current) setNeedsTap(true);
+        return;
+      }
       if (attempt >= PLAY_RETRIES) return;
       setTimeout(() => {
         if (!wantPlaying.current || !mediaPaused(instance)) return;
@@ -834,7 +863,10 @@ export function Player({
       mediaSeek(instance, plan.seekTo);
       startCooldown(driftControl.current, now);
     }
-    if (plan.setPaused === true) wantPlaying.current = false;
+    if (plan.setPaused === true) {
+      wantPlaying.current = false;
+      setNeedsTap(false);
+    }
     if (plan.setPaused === false) playWhenReady(instance);
   }
 
@@ -1017,7 +1049,10 @@ export function Player({
     };
     const onSeeked = () => shareWithParty("seek");
     // A follower's seek has landed: heartbeats may be listened to again.
-    const onPlaying = () => endCooldownOnPlaying(driftControl.current, Date.now());
+    const onPlaying = () => {
+      endCooldownOnPlaying(driftControl.current, Date.now());
+      setNeedsTap(false);
+    };
     const onEnded = () => report("/Stopped");
     const onError = () => {
       const mediaError = instance.state.error;
@@ -1144,6 +1179,13 @@ export function Player({
         ) : null}
 
         {/* Inside the player, so both still show in fullscreen. */}
+        {needsTap ? (
+          <button ref={tapButtonRef} type="button" className="party-tap-to-join" onClick={joinByTap}>
+            <PlayIcon />
+            <span>Tap to join the film</span>
+          </button>
+        ) : null}
+
         {osd ? (
           <div className="player-osd" role="status" aria-live="polite">
             {osd}
