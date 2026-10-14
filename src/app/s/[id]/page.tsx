@@ -13,6 +13,7 @@ import {
 } from "@/lib/screening";
 import { screeningSession } from "@/lib/screening-playback";
 import { defaultTrack, listSubtitles } from "@/lib/subtitles";
+import { resolvePlaybackClientFromRequest } from "@/lib/tv/detect";
 
 export const dynamic = "force-dynamic";
 
@@ -92,7 +93,9 @@ export default async function ScreeningPage({
     );
   }
 
-  const plan = await getPlaybackPlan(guestSession, item.jellyfinItemId).catch(() => null);
+  const plan = await getPlaybackPlan(guestSession, item.jellyfinItemId, await resolvePlaybackClientFromRequest()).catch(
+    () => null,
+  );
   if (!plan || !media) {
     return (
       <div className="screening">

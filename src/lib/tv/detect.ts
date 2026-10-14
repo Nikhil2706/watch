@@ -2,6 +2,7 @@ import "server-only";
 
 import { cookies, headers } from "next/headers";
 
+import { playbackClient, type PlaybackClient } from "../playback-profile";
 import { TV_MODE_COOKIE, resolveTvMode } from "./constants";
 
 export { TV_MODE_COOKIE, isTvUserAgent, tvModeFromCookie, resolveTvMode } from "./constants";
@@ -17,6 +18,18 @@ export { TV_MODE_COOKIE, isTvUserAgent, tvModeFromCookie, resolveTvMode } from "
 export async function resolveTvModeFromRequest(): Promise<boolean> {
   const [cookieStore, headerStore] = await Promise.all([cookies(), headers()]);
   return resolveTvMode({
+    cookieValue: cookieStore.get(TV_MODE_COOKIE)?.value,
+    userAgent: headerStore.get("user-agent"),
+  });
+}
+
+/**
+ * Which kind of client this request is from, for the playback profile
+ * (playback-profile.ts): TV mode first, then a handheld agent, else desktop.
+ */
+export async function resolvePlaybackClientFromRequest(): Promise<PlaybackClient> {
+  const [cookieStore, headerStore] = await Promise.all([cookies(), headers()]);
+  return playbackClient({
     cookieValue: cookieStore.get(TV_MODE_COOKIE)?.value,
     userAgent: headerStore.get("user-agent"),
   });

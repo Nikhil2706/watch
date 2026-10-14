@@ -33,6 +33,7 @@ import {
 import { getAlternateVersionPathSet } from "./film-versions";
 import { getRatings, type Ratings } from "./ratings";
 import { getHiddenRolloutImdbSet, getHiddenRolloutPathSet } from "./rollout";
+import { browserProfile, type PlaybackClient } from "./playback-profile";
 import { stripCredentials } from "./strip-credentials";
 import type { ResolvedSession } from "./session";
 
@@ -907,108 +908,6 @@ export interface PlaybackPlan {
   transcodeReasons: string[];
 }
 
-/**
- * A deliberately conservative browser profile.
- *
- * Direct play is claimed only for the combinations every browser handles: H.264
- * video with AAC/MP3 audio in an MP4 container, plus WebM. Everything else —
- * MKV containers, HEVC, TrueHD — is declared unsupported so Jellyfin transcodes
- * to HLS rather than sending something the <video> element will silently refuse.
- *
- * This is the honest profile for a browser client. Claiming more here would
- * produce a black screen instead of a transcode.
- */
-/**
- * Ceiling for transcoded output.
- *
- * A transcode is only ever a fallback for a file the browser cannot play, and
- * re-encoding a 4K source at 4K is close to the worst thing you can ask of a
- * CPU. Measured on a 16-thread i5-1240P, software-transcoding a 3840x1920 HEVC
- * 10-bit source to H.264 at full resolution ran at 1.77x realtime — barely
- * ahead of playback, so any seek dropped it behind and the player stalled. On
- * the i3-6100 this is actually deployed to, the same job is well below realtime
- * and simply does not work.
- *
- * Capping the ladder at 1080p cuts the pixel count by ~4x. Nobody watching on a
- * phone over a home uplink can tell the difference, and it is the difference
- * between a transcode that keeps up and one that does not.
- */
-const MAX_TRANSCODE_WIDTH = 1920;
-const MAX_TRANSCODE_HEIGHT = 1080;
-const MAX_TRANSCODE_BITRATE = 8_000_000;
-
-const BROWSER_PROFILE = {
-  // Was 120 Mbps, which told Jellyfin to spend an enormous bitrate re-encoding
-  // 4K. Nothing streaming to a browser over a home connection needs that.
-  MaxStreamingBitrate: MAX_TRANSCODE_BITRATE,
-  DirectPlayProfiles: [
-    { Container: "mp4,m4v", Type: "Video", VideoCodec: "h264", AudioCodec: "aac,mp3" },
-    { Container: "webm", Type: "Video", VideoCodec: "vp8,vp9,av1", AudioCodec: "vorbis,opus" },
-  ],
-  TranscodingProfiles: [
-    {
-      Container: "ts",
-      Type: "Video",
-      VideoCodec: "h264",
-      AudioCodec: "aac",
-      Protocol: "hls",
-      Context: "Streaming",
-      MaxAudioChannels: "2",
-      MinSegments: 1,
-      BreakOnNonKeyFrames: true,
-    },
-  ],
-  ContainerProfiles: [],
-  /**
-   * This is what actually makes Jellyfin downscale. Without these conditions it
-   * builds a `scale=` filter bounded by the *source* dimensions, which is a
-   * no-op, and encodes at full resolution.
-   *
-   * `IsRequired: false` marks them as preferences rather than hard requirements:
-   * Jellyfin brings the output down to satisfy them instead of refusing to play
-   * anything that exceeds them.
-   */
-  CodecProfiles: [
-    {
-      Type: "Video",
-      Codec: "h264",
-      Conditions: [
-        {
-          Condition: "LessThanEqual",
-          Property: "Width",
-          Value: String(MAX_TRANSCODE_WIDTH),
-          IsRequired: false,
-        },
-        {
-          Condition: "LessThanEqual",
-          Property: "Height",
-          Value: String(MAX_TRANSCODE_HEIGHT),
-          IsRequired: false,
-        },
-        {
-          Condition: "LessThanEqual",
-          Property: "VideoBitrate",
-          Value: String(MAX_TRANSCODE_BITRATE),
-          IsRequired: false,
-        },
-        // 4.1 is the highest level with broad hardware-decode support on
-        // phones. Above it, some devices fall back to software decode and
-        // drain the battery or drop frames.
-        {
-          Condition: "LessThanEqual",
-          Property: "VideoLevel",
-          Value: "41",
-          IsRequired: false,
-        },
-      ],
-    },
-  ],
-  SubtitleProfiles: [
-    { Format: "vtt", Method: "External" },
-    { Format: "srt", Method: "External" },
-  ],
-};
-
 interface PlaybackInfoResponse {
   PlaySessionId: string;
   MediaSources: Array<{
@@ -1021,9 +920,14 @@ interface PlaybackInfoResponse {
   }>;
 }
 
+/**
+ * `client` picks the H.264 level ceiling (playback-profile.ts). Callers that
+ * can't tell get the phone's, which never sends a file a device can't decode.
+ */
 export async function getPlaybackPlan(
   session: ResolvedSession,
   itemId: string,
+  client: PlaybackClient = "phone",
 ): Promise<PlaybackPlan | null> {
   const [token, device] = creds(session);
 
@@ -1031,7 +935,7 @@ export async function getPlaybackPlan(
     token,
     device,
     `/Items/${encodeURIComponent(itemId)}/PlaybackInfo`,
-    { DeviceProfile: BROWSER_PROFILE, EnableDirectPlay: true, EnableTranscoding: true },
+    { DeviceProfile: browserProfile(client), EnableDirectPlay: true, EnableTranscoding: true },
     { userId: session.jellyfinUserId },
   );
 
