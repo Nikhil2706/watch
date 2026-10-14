@@ -94,9 +94,23 @@ deploy)
   # so restart the console to pick up the new one.
   docker restart jellyfin-gate-console >/dev/null 2>&1
   if [ "$ok" = 1 ] && [ "$(docker inspect jellyfin-gate --format '{{.Image}}')" = "$(docker image inspect watch-gate:latest --format '{{.Id}}')" ]; then
-    notify "Deployed $NEW" "The site is up on the new version."; echo "deployed $NEW"; exit 0
+    notify "Deployed $NEW" "The site is up on the new version."; echo "deployed $NEW"
+    bash "$0" tidy; exit 0
   fi
   echo "site did not come back - rolling back"; bash "$0" rollback; notify "Deploy rolled back" "The new version did not start; the previous one is back. See watch-deploy.log."; exit 1
+  ;;
+
+tidy)
+  # Keep the two most recent rollback copies of each image; older ones are
+  # ~0.9 GB a deploy on a disk Final Cut also wants. Build cache older than
+  # three days goes too (rebuilt on demand).
+  for repo in watch-gate watch-worker; do
+    docker images --format '{{.Tag}}' "$repo" | grep '^pre-' | sort -r | tail -n +3 | while read -r t; do
+      docker rmi "$repo:$t" >/dev/null 2>&1 && echo "removed $repo:$t"
+    done
+  done
+  docker builder prune -f --filter until=72h 2>/dev/null | tail -1
+  docker image prune -f >/dev/null 2>&1
   ;;
 
 rollback)
