@@ -737,3 +737,229 @@
 .adm-ok {
   color: #5fd38b;
 }
+
+/* ---- Health tab ---- */
+.adm-health .adm-card {
+  margin-bottom: 14px;
+}
+.adm-card-title {
+  font-size: 1rem;
+  margin: 0;
+}
+.adm-health-banner {
+  align-items: center;
+}
+.adm-health-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: 0 0 auto;
+}
+.adm-health-dot.ok {
+  background: #5fd38b;
+}
+.adm-health-dot.warning {
+  background: var(--warm);
+}
+.adm-health-dot.critical {
+  background: var(--danger);
+}
+.adm-health-headline {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+.adm-health-headline.warning {
+  color: var(--warm);
+}
+.adm-health-headline.critical {
+  color: var(--danger);
+}
+.adm-health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.adm-health-card {
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.adm-health-card.ok {
+  border-left-color: #5fd38b;
+}
+.adm-health-card.warning {
+  border-left-color: var(--warm);
+}
+.adm-health-card.critical {
+  border-left-color: var(--danger);
+}
+.adm-hc-label {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.adm-hc-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 2px 0;
+}
+.adm-hc-sub {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.adm-issue {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.adm-job {
+  border-top: 1px solid var(--border);
+  padding: 10px 0;
+}
+.adm-job.off {
+  opacity: 0.7;
+}
+.adm-job-top {
+  align-items: flex-start;
+}
+.adm-job-name {
+  font-weight: 600;
+}
+.adm-job-meta {
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+.adm-job-edit {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.adm-job-history {
+  margin-top: 10px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.adm-wait {
+  color: var(--warm);
+}
+.adm-bad {
+  color: var(--danger);
+}
+.adm-always {
+  margin-top: 12px;
+}
+.adm-always-row {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+.adm-bar-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(80px, 2fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.adm-bar-name {
+  font-size: 0.85rem;
+}
+.adm-upper {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.75rem;
+}
+.adm-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.adm-bar > div {
+  height: 100%;
+  background: var(--accent);
+}
+.adm-bar.warn > div {
+  background: var(--warm);
+}
+.adm-bar.crit > div {
+  background: var(--danger);
+}
+.adm-bar-none {
+  background: none;
+}
+.adm-bar-count {
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.adm-loop-line {
+  margin: 6px 0 0;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+.adm-log-row {
+  border-top: 1px solid var(--border);
+}
+.adm-log-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 7px 0;
+  color: var(--text);
+  font-weight: 400;
+}
+.adm-log-head:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.adm-log-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: 0 0 auto;
+}
+.adm-log-dot.critical,
+.adm-log-dot.error {
+  background: var(--danger);
+}
+.adm-log-dot.warning {
+  background: var(--warm);
+}
+.adm-log-source {
+  color: var(--muted);
+  font-size: 0.75rem;
+  flex: 0 0 auto;
+}
+.adm-log-msg {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.adm-log-detail {
+  white-space: pre-wrap;
+  font-size: 0.75rem;
+  background: var(--surface);
+  padding: 8px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+@media (max-width: 700px) {
+  .adm-bar-row {
+    grid-template-columns: 1fr auto;
+  }
+  .adm-bar-row .adm-bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
