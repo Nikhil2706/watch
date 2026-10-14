@@ -518,6 +518,22 @@ html[data-tv="true"] .chat-overlay-mode .party-room-player {
   border-radius: 0;
 }
 
+/* The screen's height has to reach .player-stage, which centres the picture
+   (place-items: center), as on the solo player. Without these the player was
+   only as tall as the film and sat at the top of the screen, a wide film with
+   most of the screen black below it (2026-10-14). */
+html[data-tv="true"] .party-room-grid.chat-overlay-mode {
+  flex: 1;
+  min-height: 100dvh;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+html[data-tv="true"] .chat-overlay-mode .party-room-player {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
 html[data-tv="true"] .party-page:has(.chat-overlay-mode) :is(.vds-player, .vds-player video, .player-stage video) {
   max-height: 100dvh;
 }
