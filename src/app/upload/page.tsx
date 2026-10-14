@@ -19,7 +19,7 @@ export default async function UploadPage() {
 
   return (
     <>
-      <AppBar username={session.username} langloisMode={session.langloisMode} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
 
       <div style={{ padding: "18px 20px 0", maxWidth: 640, margin: "0 auto" }}>
         <h1 style={{ margin: 0, fontSize: "1.25rem" }}>Upload a film</h1>
