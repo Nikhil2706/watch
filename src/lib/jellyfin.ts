@@ -565,6 +565,37 @@ export async function refreshItem(itemId: string): Promise<void> {
   });
 }
 
+/**
+ * A subtitle track's text, as SubRip. For a built-in track Jellyfin extracts
+ * it from the video with its own ffmpeg — the gate image has none (only the
+ * worker does), so this is how the gate reads an embedded subtitle. The same
+ * endpoint the player gets WebVTT from; slow the first time for a long file,
+ * cached by Jellyfin after.
+ */
+export async function getSubtitleTrackText(itemId: string, mediaSourceId: string, streamIndex: number): Promise<string> {
+  const path =
+    `/Videos/${encodeURIComponent(itemId)}/${encodeURIComponent(mediaSourceId)}` +
+    `/Subtitles/${streamIndex}/Stream.srt`;
+  let response: Response;
+  try {
+    response = await fetch(`${env.jellyfinUrl}${path}`, {
+      headers: { Authorization: authHeader({ token: env.jellyfinApiKey }) },
+      signal: AbortSignal.timeout(120_000),
+      cache: "no-store",
+    });
+  } catch (cause) {
+    throw new JellyfinError(
+      `Could not reach Jellyfin at ${env.jellyfinUrl}${path}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      0,
+      "",
+    );
+  }
+  if (!response.ok) {
+    throw new JellyfinError(`Jellyfin GET ${path} failed with ${response.status}`, response.status, "");
+  }
+  return response.text();
+}
+
 /* ------------------------------------------------------------------ *
  * Library review — duplicate/metadata curation
  * ------------------------------------------------------------------ */
@@ -858,10 +889,19 @@ export interface AdminMovieListItem {
   /** Only present when getAdminMovie is asked for it — see withPeople. */
   People?: AdminPersonCredit[];
   MediaSources?: Array<{
+    Id?: string;
     Container?: string;
     /** Bytes on disk. Returned with MediaSources; only ever read to compare two copies of the same film. */
     Size?: number;
-    MediaStreams?: Array<{ Type: string; Codec?: string; Width?: number; Height?: number }>;
+    MediaStreams?: Array<{
+      Type: string;
+      Codec?: string;
+      Width?: number;
+      Height?: number;
+      Index?: number;
+      Language?: string;
+      IsExternal?: boolean;
+    }>;
   }>;
 }
 

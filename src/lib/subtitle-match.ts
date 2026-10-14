@@ -23,6 +23,11 @@ export interface SubtitleCandidate {
   downloadCount: number;
   /** OpenSubtitles says this subtitle was synced to this exact video file. */
   hashMatch: boolean;
+  /** Uploaded by someone OpenSubtitles marks as trusted. */
+  fromTrusted?: boolean;
+  /** OpenSubtitles' 0-10 rating, and how many votes it rests on. */
+  rating?: number | null;
+  votes?: number | null;
 }
 
 /** The family signature of the approved episode's subtitle. */

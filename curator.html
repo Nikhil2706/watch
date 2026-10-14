@@ -105,6 +105,8 @@
   .ac-browse-card .lw-rail-name { white-space: normal; }
   .ac-browse-card.sel { background: rgba(91, 141, 239, 0.14); box-shadow: inset 2px 0 0 var(--accent); }
   .lw-rail-sub { display: block; font-size: 10.5px; color: var(--dead); }
+  /* "Group as <series>" right on the rail row: one click, no pane needed. */
+  .lw-rail-act { flex: 0 0 auto; width: auto; font-size: 11px; padding: 3px 8px; }
   .lw-rail-check { width: auto; flex: 0 0 auto; margin: 0; }
   .lw-thumb { width: 26px; height: 39px; flex: 0 0 auto; border-radius: 3px; object-fit: cover;
     background: var(--surface-2); border: 1px solid var(--border); }
@@ -4019,6 +4021,9 @@
   var LW_REASONS = [
     { key: "meta", label: "No metadata", test: function (r) { return r.isThinMetadata && !r.isWhitelisted; } },
     { key: "damaged", label: "Damaged file", test: function (r) { return r.isDamaged; } },
+    // Recognised as an episode (OMDb, TMDB or an SxxEyy name) and in no show:
+    // off the site until it is grouped, or kept as a film.
+    { key: "episode", label: "Episode, not in a show", test: function (r) { return Boolean(r.pendingEpisode); } },
     { key: "dup", label: "Duplicate", test: function (r) { return r.isDuplicate; } },
     { key: "guess", label: "Might be a special feature", test: function (r) { return Boolean(r.featureGuess); } },
     { key: "unmapped", label: "Feature, not shown anywhere", test: function (r) {
@@ -4041,7 +4046,11 @@
    * agree with it. Keyed on the same lowercased title the pane groups by.
    */
   function lwDupKey(r) {
-    return r.kind === "film" && r.isDuplicate ? "dup:" + r.name.toLowerCase() : null;
+    if (r.kind !== "film") return null;
+    // Sixteen loose episodes of one series are one decision too: one row,
+    // with "Group as <series>" on it.
+    if (r.pendingEpisode) return "ep:" + r.pendingEpisode.key;
+    return r.isDuplicate ? "dup:" + r.name.toLowerCase() : null;
   }
 
   function lwCollapseDuplicates(rows) {
@@ -4205,6 +4214,7 @@
       isDamaged: Boolean(it.damage && it.damage.verdict === "damaged" && !it.damageAllowed),
       isWhitelisted: it.isWhitelisted,
       isExcluded: it.isExcluded,
+      pendingEpisode: it.pendingEpisode || null,
       // Filled in by sfApplyToRows once the marks and any suggestions are
       // loaded; rebuilding rows must not drop them.
       isSpecialFeature: false,
@@ -4359,6 +4369,9 @@
       var sub;
       if (r.kind === "show") {
         sub = r.members.length + " files";
+      } else if (r.pendingEpisode) {
+        var pe = r.pendingEpisode;
+        sub = pe.files + " episode" + (pe.files === 1 ? "" : "s") + " of " + pe.name + ", in no show";
       } else if (r.dupCount > 1) {
         // The pair reads as one thing to decide, which is what it is.
         sub = r.dupCount + " copies" + (r.year ? " · " + r.year : "");
@@ -4380,8 +4393,16 @@
         '<span class="lw-rail-name">' + esc(r.name) +
           (sub ? '<span class="lw-rail-sub">' + esc(sub) + '</span>' : "") +
         '</span>' +
+        (r.pendingEpisode ? lwGroupEpisodesButton(r.pendingEpisode, "ghost lw-rail-act") : "") +
         '</div>';
     }).join("");
+  }
+
+  /* "Group as Nirvanna the Band the Show", or "Add to <show>" when a show for
+     that series already exists. Every loose episode of the series, one click. */
+  function lwGroupEpisodesButton(pe, cls) {
+    return '<button class="' + cls + '" data-lw-action="group-episodes" data-lw-target="' + esc(pe.key) + '">' +
+      esc((pe.joins ? "Add to " : "Group as ") + pe.name) + '</button>';
   }
 
   function lwRenderBulk() {
@@ -4417,6 +4438,7 @@
         : "Small fault in the file, still shown: " + it.damage.detail);
     }
     if (it.isDuplicate) bits.push("Duplicate title");
+    if (it.pendingEpisode) bits.push("Episode of " + it.pendingEpisode.name + ", in no show \u2014 off the site until grouped");
     if (it.version) bits.push(it.version.isPrimary ? "Main of " + it.version.setSize + " cuts" : "Cut: " + it.version.label);
     if (it.isMissingSubtitles) bits.push("No subtitles");
     if (!bits.length) bits.push("Nothing needs deciding");
@@ -4425,6 +4447,11 @@
 
   function lwFilmActions(it) {
     var out = "";
+    if (it.pendingEpisode) {
+      out += lwGroupEpisodesButton(it.pendingEpisode, "");
+      out += '<button class="ghost" data-lw-action="keep-film" data-lw-target="' + esc(it.id) + '" ' +
+        'title="Not an episode, or it should stand on its own: shown on the site, never grouped unasked">Keep as a film</button>';
+    }
     out += '<button data-action="search" data-item-id="' + esc(it.id) + '">Identify</button>';
     out += '<button class="ghost" data-action="manual" data-item-id="' + esc(it.id) + '">Type it in</button>';
     out += '<button class="ghost" data-action="poster" data-item-id="' + esc(it.id) + '">Poster</button>';
@@ -4503,26 +4530,31 @@
       }).join("") + '</div>';
   }
 
-  /* The subtitle plan for a show (src/lib/subtitle-series.ts): the family the
-     approved episode came from, then one row per episode with its pick. */
+  /* The subtitle plan for a show (src/lib/subtitle-series-plan.ts): how many
+     episodes need one, what it learned from (an .srt, a built-in track, or
+     nothing), then one row per episode with no subtitle and its pick. */
   function subsPlanHtml(plan) {
     var ref = plan.reference;
     var code = function (e) { return "S" + String(e.season).padStart(2, "0") + "E" + String(e.episode).padStart(2, "0"); };
     var planned = plan.episodes.filter(function (e) { return e.status === "planned"; }).length;
-    var head = '<div class="note" style="margin:8px 0">' +
-      (ref ? "<b>" + code(ref) + "</b> is the approved episode. " + esc(ref.note) : "") +
+    var learned;
+    if (ref.kind === "external") learned = "Learned from the subtitle file next to <b>" + code(ref) + "</b> (" + esc(ref.source) + "). ";
+    else if (ref.kind === "embedded") learned = "No episode has a subtitle file, so it learned from <b>" + code(ref) + "</b>'s " + esc(ref.source) + ". ";
+    else learned = "";
+    var head = '<div class="note" style="margin:8px 0"><b>' + esc(plan.headline) + '</b><br>' +
+      learned + esc(ref.note) +
       (plan.downloadsUsed ? " Identifying it used " + plan.downloadsUsed + " download" + (plan.downloadsUsed === 1 ? "" : "s") +
         (plan.downloadsLeft != null ? " (" + plan.downloadsLeft + " left today)" : "") + "." : "") +
       '</div>';
+    if (!plan.episodes.length) return head;
     var rows = plan.episodes.map(function (e, i) {
       var what;
-      if (e.status === "approved") what = '<span class="muted">approved — the reference</span>';
-      else if (e.status === "has-subtitle") what = '<span class="muted">already has a subtitle</span>';
-      else if (e.status === "planned") what = '<label style="display:flex;gap:8px;align-items:flex-start;margin:0;text-transform:none;letter-spacing:0;font-weight:400">' +
+      if (e.status === "planned") what = '<label style="display:flex;gap:8px;align-items:flex-start;margin:0;text-transform:none;letter-spacing:0;font-weight:400">' +
           '<input type="checkbox" checked data-subs-pick="' + i + '">' +
           '<span>' + esc(e.pick.release || e.pick.fileName || "subtitle") +
-          ' <span class="muted">· ' + esc(e.pick.uploader || "unknown uploader") + ' · ' + esc(e.pick.why.join(", ")) + '</span></span></label>';
-      else what = '<span style="color:var(--warn)">no match</span> <span class="muted">' + esc(e.note || "") + '</span>';
+          ' <span class="muted">· <b>' + esc(e.pick.methodLabel) + '</b> · ' + esc(e.pick.uploader || "unknown uploader") +
+          (e.pick.why.length ? ' · ' + esc(e.pick.why.join(", ")) : "") + '</span></span></label>';
+      else what = '<span style="color:var(--warn)">' + (e.status === "error" ? "search failed" : "no match") + '</span> <span class="muted">' + esc(e.note || "") + '</span>';
       return '<div class="lw-ep"><span class="lw-ep-n">' + code(e) + '</span><span class="lw-ep-t" style="white-space:normal">' + what + '</span></div>';
     }).join("");
     return head + '<div class="lw-list-box">' + rows + '</div>' +
@@ -4591,13 +4623,12 @@
       '</div>' +
       '<div class="cur-group-panel-slot" data-panel-for-group="' + esc(row.groupId) + '" data-open="0"></div>' +
       '<div class="lw-section">Subtitles for every episode</div>' +
-      '<div class="note" style="margin-bottom:8px">Put the right subtitle next to one episode first. This finds which ' +
-        'OpenSubtitles upload it is and picks the same uploader\'s file for the others — you see every pick before ' +
-        'anything is downloaded.</div>' +
+      '<div class="note" style="margin-bottom:8px">Finds a subtitle for each episode that has none — built-in or file. ' +
+        'If one episode has a subtitle file (or, failing that, a built-in track), it works out which OpenSubtitles upload ' +
+        'that is and picks the same uploader\'s files; otherwise the one synced to each video, else the best-rated. ' +
+        'You see every pick before anything is downloaded.</div>' +
       '<div class="lw-acts" style="align-items:center">' +
         '<button data-lw-action="subs-plan" data-lw-target="' + esc(row.groupId) + '">Find matching subtitles</button>' +
-        '<label style="display:flex;align-items:center;gap:6px;margin:0;text-transform:none;letter-spacing:0;font-size:12.5px">' +
-          '<input type="checkbox" id="subsAllSeasons-' + esc(row.groupId) + '"> all seasons, not just that one</label>' +
       '</div>' +
       '<div class="subs-plan-slot" data-subs-plan-for="' + esc(row.groupId) + '"></div>' +
       '<div class="lw-section">Files</div>' +
@@ -4779,6 +4810,9 @@
   });
 
   $("lwRail").addEventListener("click", function (e) {
+    // The rail's own "Group as ..." is handled with the pane's actions below;
+    // it should not also open the row.
+    if (e.target.closest("[data-lw-action]")) return;
     var check = e.target.closest("[data-lw-check]");
     if (check) {
       lw.checked[check.getAttribute("data-lw-check")] = check.checked;
@@ -5268,11 +5302,10 @@
 
     if (action === "subs-plan") {
       var slot = document.querySelector('[data-subs-plan-for="' + target + '"]');
-      var all = document.getElementById("subsAllSeasons-" + target);
       if (!slot) return;
       btn.disabled = true;
-      slot.innerHTML = '<div class="muted" style="padding:8px 0">Searching OpenSubtitles episode by episode — about a second each…</div>';
-      api("/api/admin/subtitles/series/plan", { method: "POST", body: { groupId: target, allSeasons: !!(all && all.checked) } })
+      slot.innerHTML = '<div class="muted" style="padding:8px 0">Searching OpenSubtitles for each episode without subtitles — about a second each…</div>';
+      api("/api/admin/subtitles/series/plan", { method: "POST", body: { groupId: target } })
         .then(function (r) { lw.subsPlans = lw.subsPlans || {}; lw.subsPlans[target] = r.plan; slot.innerHTML = subsPlanHtml(r.plan); })
         .catch(function (err) { slot.innerHTML = '<div class="msg-inline err">' + esc(err.message) + '</div>'; })
         .then(function () { btn.disabled = false; });
@@ -5357,6 +5390,27 @@
       }
       btn.disabled = true;
       req.then(function () { show("ok", "Saved."); return lwLoad(true); })
+        .catch(function (err) { show("err", err.message); btn.disabled = false; });
+      return;
+    }
+
+    if (action === "group-episodes") {
+      btn.disabled = true;
+      api("/api/admin/library/group-episodes", { method: "POST", body: { key: target } })
+        .then(function (r) {
+          show("ok", (r.files === 1 ? "1 episode" : r.files + " episodes") + " grouped into " + r.name + ".");
+          return lwLoad(true);
+        })
+        .catch(function (err) { show("err", err.message); btn.disabled = false; });
+      return;
+    }
+
+    if (action === "keep-film") {
+      var keep = lwRowById(target);
+      if (!keep || !keep.item || !keep.item.path) return;
+      btn.disabled = true;
+      api("/api/admin/library/keep-as-film", { method: "POST", body: { path: keep.item.path } })
+        .then(function () { show("ok", "Kept as a film. It is back on the site."); return lwLoad(true); })
         .catch(function (err) { show("err", err.message); btn.disabled = false; });
       return;
     }

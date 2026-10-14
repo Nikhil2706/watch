@@ -147,7 +147,19 @@ export function addToGroup(groupId: string, paths: string[]): number {
   return added;
 }
 
+/**
+ * Dissolving a group by hand is a decision the auto-grouper
+ * (series-autogroup.ts) must not undo: its files are recorded as staying
+ * ungrouped, and shown as films again, and the series it stood for is not
+ * grouped again unasked. Only the console calls this.
+ */
 export function ungroup(groupId: string): boolean {
+  const group = getGroup(groupId);
+  if (group) {
+    for (const key of seriesKeysOfGroup(groupId)) declineSubject(key, group.groupName);
+    for (const path of group.paths) declineSubject(`path:${path}`, group.groupName);
+  }
+  getDb().prepare("DELETE FROM library_group_auto WHERE group_id = ?").run(groupId);
   const result = getDb().prepare("DELETE FROM library_groups WHERE group_id = ?").run(groupId);
   getDb().prepare("DELETE FROM library_group_overview WHERE group_id = ?").run(groupId);
   getDb().prepare("DELETE FROM library_group_series WHERE group_id = ?").run(groupId);
@@ -156,9 +168,52 @@ export function ungroup(groupId: string): boolean {
   return Number(result.changes) > 0;
 }
 
+/** Taking one file out of a group by hand: it stays out, and is shown as a film (see ungroup). */
 export function removeFromGroup(path: string): boolean {
   const result = getDb().prepare("DELETE FROM library_groups WHERE path = ?").run(path);
-  return Number(result.changes) > 0;
+  const removed = Number(result.changes) > 0;
+  if (removed) declineSubject(`path:${path}`, null);
+  return removed;
+}
+
+/* ------------------------------------------------------------------ *
+ * What the auto-grouper may not redo (library_group_declined)
+ * ------------------------------------------------------------------ */
+
+/** Records a series key ("imdb:tt0123") or a "path:" + file as staying ungrouped. */
+export function declineSubject(subject: string, label: string | null): void {
+  getDb()
+    .prepare(
+      `INSERT INTO library_group_declined (subject, label, created_at) VALUES (?, ?, ?)
+       ON CONFLICT(subject) DO UPDATE SET label = excluded.label, created_at = excluded.created_at`,
+    )
+    .run(subject, label, Date.now());
+}
+
+/** Marks a group as made by the auto-grouper, for which series. */
+export function markAutoGroup(groupId: string, seriesKey: string): void {
+  getDb()
+    .prepare("INSERT OR REPLACE INTO library_group_auto (group_id, series_key, created_at) VALUES (?, ?, ?)")
+    .run(groupId, seriesKey, Date.now());
+}
+
+/** Which series a group stands for: the key it was auto-made under, and any series it is linked to. */
+function seriesKeysOfGroup(groupId: string): string[] {
+  const db = getDb();
+  const keys = new Set<string>();
+  const auto = db.prepare("SELECT series_key FROM library_group_auto WHERE group_id = ?").get(groupId) as
+    | { series_key: string }
+    | undefined;
+  if (auto) keys.add(auto.series_key);
+  const imdb = db.prepare("SELECT imdb_id FROM library_group_series WHERE group_id = ?").get(groupId) as
+    | { imdb_id: string }
+    | undefined;
+  if (imdb) keys.add(`imdb:${imdb.imdb_id}`);
+  const tmdb = db
+    .prepare("SELECT tmdb_id FROM tmdb_links WHERE subject_type = 'group' AND subject_id = ? AND tmdb_kind = 'tv'")
+    .get(groupId) as { tmdb_id: number } | undefined;
+  if (tmdb) keys.add(`tmdb:${tmdb.tmdb_id}`);
+  return [...keys];
 }
 
 /** Renames a group. group_name is denormalised onto every member row, so every row updates together. */

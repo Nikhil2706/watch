@@ -1,38 +1,35 @@
 import "server-only";
 
+import { execFile } from "node:child_process";
 import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 
 import { getAdminMovies } from "./admin-library-cache";
-import { asRows, getDb } from "./db";
+import { asRow, asRows, getDb } from "./db";
 import { parseEpisodeInfo } from "./episode-naming";
-import { refreshItem } from "./jellyfin";
+import { getSubtitleTrackText, refreshItem, type AdminMovieListItem } from "./jellyfin";
 import { downloadSubtitle, isOpenSubtitlesConfigured, searchEpisodeSubtitles } from "./opensubtitles";
-import {
-  pickFromFamily,
-  subtitleTextSimilarity,
-  type SubtitleCandidate,
-  type SubtitleFamily,
-} from "./subtitle-match";
+import { buildSeriesPlan, type BuiltPlan, type SeriesEpisode } from "./subtitle-series-plan";
 import { getCached, getLink } from "./tmdb-store";
 
 /**
- * Subtitles for a whole show from the one episode a person got right.
+ * Subtitles for every episode of a show that has none — wiring only; the
+ * judgement is in subtitle-series-plan.ts.
  *
- * Plan, then apply. Planning finds which OpenSubtitles upload the approved
- * file is (by downloading that episode's top few candidates and comparing the
- * words — the only way to know, since the approved file was renamed to match
- * its video), then picks each other episode's subtitle from the same family
- * (subtitle-match.ts). Applying downloads only what the person accepted and
- * writes it next to the video as "<video>.eng.srt", which Jellyfin reads.
+ * Plan, then apply. Planning reads the show's episodes from Jellyfin (which
+ * knows each file's built-in tracks) and the disk (which knows the sidecar
+ * files), learns which OpenSubtitles upload a reference episode's subtitle is
+ * when there is one, and picks a file for each episode with no subtitle at
+ * all. Applying downloads only what the person accepted and writes it next to
+ * the video as "<video>.eng.srt", which Jellyfin reads.
  *
  * Quota: search is free; each download is one of the day's allowance. A plan
- * spends at most IDENTIFY_LIMIT, and only when the family isn't obvious.
+ * spends at most IDENTIFY_LIMIT (5), only when there is a reference to
+ * identify; applying spends one per ticked episode.
  */
 
 const LANG = "en";
 const SUB_EXTENSIONS = new Set([".srt", ".ass", ".ssa", ".vtt", ".sub"]);
-const IDENTIFY_LIMIT = 5;
 
 /** OpenSubtitles' moviehash: file size plus the 64-bit sums of the first and last 64 KB. */
 export function moviehash(path: string): string {
@@ -52,6 +49,14 @@ export function moviehash(path: string): string {
   }
 }
 
+function safeMoviehash(path: string): string | null {
+  try {
+    return existsSync(path) ? moviehash(path) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** A subtitle file sitting next to the video, if there is one ("x.srt", "x.eng.srt"...). */
 function externalSubtitle(videoPath: string): string | null {
   const dir = dirname(videoPath);
@@ -66,196 +71,158 @@ function externalSubtitle(videoPath: string): string | null {
   }
 }
 
-function showImdbId(groupId: string): string | null {
+function showIds(groupId: string): { imdbId: string | null; tmdbId: number | null } {
   const link = getLink("group", groupId);
-  if (!link || link.tmdbKind !== "tv" || link.tmdbId <= 0) return null;
+  if (!link || link.tmdbKind !== "tv" || link.tmdbId <= 0) return { imdbId: null, tmdbId: null };
   const show = getCached<{ external_ids?: { imdb_id?: string } }>("tv", link.tmdbId);
-  return show?.imdbId ?? show?.payload.external_ids?.imdb_id ?? null;
+  return { imdbId: show?.imdbId ?? show?.payload.external_ids?.imdb_id ?? null, tmdbId: link.tmdbId };
 }
 
-export interface EpisodePlan {
-  path: string;
-  season: number;
-  episode: number;
-  status: "approved" | "has-subtitle" | "planned" | "no-match" | "error";
-  pick?: { fileId: number; release: string | null; fileName: string | null; uploader: string | null; why: string[] };
-  note?: string;
+/**
+ * The episode's own IMDb id, only when OMDb says it is an episode of THIS show
+ * with these numbers — Jellyfin matches episode files as films, often wrongly.
+ * The TMDB episode id comes from the season already cached (no call).
+ */
+function episodeIds(
+  item: AdminMovieListItem | undefined,
+  show: { imdbId: string | null; tmdbId: number | null },
+  season: number,
+  episode: number,
+): { episodeImdbId: string | null; episodeTmdbId: number | null } {
+  let episodeImdbId: string | null = null;
+  const own = item?.ProviderIds?.Imdb;
+  if (own && show.imdbId) {
+    const kind = asRow<{ series_imdb_id: string | null; season: number | null; episode: number | null }>(
+      getDb()
+        .prepare("SELECT series_imdb_id, season, episode FROM omdb_title_kind WHERE imdb_id = ? AND type = 'episode'")
+        .get(own),
+    );
+    if (kind && kind.series_imdb_id === show.imdbId && kind.season === season && kind.episode === episode) {
+      episodeImdbId = own;
+    }
+  }
+  let episodeTmdbId: number | null = null;
+  if (show.tmdbId) {
+    const cached = getCached<{ episodes?: Array<{ id?: number; episode_number: number }> }>("season", show.tmdbId, season);
+    episodeTmdbId = cached?.payload.episodes?.find((x) => x.episode_number === episode)?.id ?? null;
+  }
+  return { episodeImdbId, episodeTmdbId };
 }
 
-export interface SeriesSubtitlePlan {
+/**
+ * A built-in track's text. Through Jellyfin, which extracts it with its own
+ * ffmpeg; the gate image carries no ffmpeg. Where ffmpeg is on the PATH (a dev
+ * machine, the worker image) and Jellyfin can't be asked, it is read directly.
+ */
+async function readEmbeddedText(item: AdminMovieListItem | undefined, path: string, index: number): Promise<string> {
+  const sourceId = item?.MediaSources?.[0]?.Id;
+  let jellyfinError: unknown = null;
+  if (item && sourceId) {
+    try {
+      return await getSubtitleTrackText(item.Id, sourceId, index);
+    } catch (error) {
+      jellyfinError = error;
+    }
+  }
+  try {
+    return await ffmpegExtract(path, index);
+  } catch (error) {
+    if ((error as { code?: string }).code === "ENOENT" && jellyfinError) throw jellyfinError;
+    throw error;
+  }
+}
+
+function ffmpegExtract(path: string, index: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "ffmpeg",
+      ["-v", "error", "-nostdin", "-i", path, "-map", `0:${index}`, "-f", "srt", "-"],
+      { maxBuffer: 16 * 1024 * 1024, timeout: 120_000 },
+      (error, stdout, stderr) => {
+        if (error) {
+          if ((error as { code?: unknown }).code === "ENOENT") reject(error);
+          else reject(new Error(`ffmpeg could not read track ${index}: ${String(stderr).trim().slice(0, 200) || error.message}`));
+        } else resolve(stdout);
+      },
+    );
+  });
+}
+
+export interface SeriesSubtitlePlan extends BuiltPlan {
   groupId: string;
   groupName: string;
   showImdbId: string | null;
-  reference: {
-    path: string;
-    season: number;
-    episode: number;
-    family: SubtitleFamily | null;
-    similarity: number | null;
-    note: string;
-  } | null;
-  episodes: EpisodePlan[];
-  downloadsUsed: number;
-  downloadsLeft: number | null;
-}
-
-function candidateFamily(c: SubtitleCandidate): SubtitleFamily {
-  return { uploader: c.uploader, release: c.release, fileName: c.fileName, hearingImpaired: c.hearingImpaired, fps: c.fps };
 }
 
 /**
- * Which search result the approved file is. Free when OpenSubtitles says only
- * one candidate was synced to the approved episode's video — that is almost
- * certainly where it came from. Otherwise downloads up to IDENTIFY_LIMIT
- * candidates and compares the words.
+ * The plan for one show: which reference it learned from (an .srt, a built-in
+ * track, or none), and for every episode with no subtitle at all, what would
+ * be downloaded and which method chose it.
  */
-async function identifyFamily(
-  approvedText: string,
-  candidates: SubtitleCandidate[],
-  budget: { used: number; left: number | null },
-): Promise<{ family: SubtitleFamily; similarity: number | null; note: string } | null> {
-  const ordered = [...candidates].sort(
-    (a, b) => Number(b.hashMatch) - Number(a.hashMatch) || b.downloadCount - a.downloadCount,
-  );
-  let best: { c: SubtitleCandidate; sim: number } | null = null;
-  for (const c of ordered.slice(0, IDENTIFY_LIMIT)) {
-    if (budget.left !== null && budget.left <= 0) break;
-    try {
-      const d = await downloadSubtitle(c.fileId);
-      budget.used += 1;
-      budget.left = d.remaining;
-      const sim = subtitleTextSimilarity(approvedText, d.content);
-      if (!best || sim > best.sim) best = { c, sim };
-      if (sim >= 0.9) break; // unmistakable; stop spending
-    } catch {
-      /* one failed download is not a reason to give up on the rest */
-    }
+export async function planSeriesSubtitles(groupId: string): Promise<SeriesSubtitlePlan> {
+  if (!isOpenSubtitlesConfigured()) {
+    throw new Error("OpenSubtitles isn't set up: put OPENSUBTITLES_API_KEY in .env and restart the gate.");
   }
-  if (best && best.sim >= 0.5) {
-    return {
-      family: candidateFamily(best.c),
-      similarity: best.sim,
-      note: `Your file matches ${best.c.uploader ?? "an upload"}'s "${best.c.release ?? best.c.fileName}" (${Math.round(best.sim * 100)}% of lines).`,
-    };
-  }
-  const synced = ordered.filter((c) => c.hashMatch);
-  if (synced.length > 0) {
-    return {
-      family: candidateFamily(synced[0]!),
-      similarity: best?.sim ?? null,
-      note: "Couldn't confirm which upload your file is; following the one synced to that episode's video.",
-    };
-  }
-  return null;
-}
-
-/**
- * The plan for one show: the approved episode, the family it came from, and
- * for every other episode missing subtitles, what would be downloaded and
- * why. `seasons` narrows it ("reference" = the approved episode's season).
- */
-export async function planSeriesSubtitles(
-  groupId: string,
-  options: { allSeasons?: boolean } = {},
-): Promise<SeriesSubtitlePlan> {
-  if (!isOpenSubtitlesConfigured()) throw new Error("OpenSubtitles is not configured.");
 
   const rows = asRows<{ path: string; group_name: string }>(
     getDb().prepare("SELECT path, group_name FROM library_groups WHERE group_id = ?").all(groupId),
   );
-  if (rows.length === 0) throw new Error("No such show.");
+  if (rows.length === 0) throw new Error("This show no longer exists; reload the Library tab.");
   const hidden = new Set(
     asRows<{ path: string }>(getDb().prepare("SELECT path FROM library_excluded").all()).map((r) => r.path),
   );
-  const imdb = showImdbId(groupId);
+  const show = showIds(groupId);
 
-  const eps = rows
-    .filter((r) => !hidden.has(r.path))
-    .map((r) => ({ path: r.path, ...parseEpisodeInfo(r.path) }))
-    .filter((e): e is typeof e & { season: number; episode: number } => e.episode !== null)
-    .map((e) => ({ ...e, season: e.season ?? 1 }))
+  const items = new Map<string, AdminMovieListItem>();
+  for (const m of await getAdminMovies()) if (m.Path) items.set(m.Path, m);
+
+  const visible = rows.filter((r) => !hidden.has(r.path));
+  const parsed = visible.map((r) => ({ path: r.path, ...parseEpisodeInfo(r.path) }));
+  const unparsed = parsed.filter((e) => e.episode === null).length;
+  const episodes: SeriesEpisode[] = parsed
+    .filter((e): e is typeof e & { episode: number } => e.episode !== null)
+    .map((e) => {
+      const season = e.season ?? 1;
+      const item = items.get(e.path);
+      const streams = (item?.MediaSources?.[0]?.MediaStreams ?? []).filter((s) => s.Type === "Subtitle");
+      return {
+        path: e.path,
+        season,
+        episode: e.episode,
+        externalFile: externalSubtitle(e.path),
+        embedded: streams
+          .filter((s) => !s.IsExternal && typeof s.Index === "number")
+          .map((s) => ({ index: s.Index!, codec: s.Codec ?? null, language: s.Language ?? null })),
+        jellyfinHasSubtitle: streams.length > 0,
+        ...episodeIds(item, show, season, e.episode),
+      };
+    })
     .sort((a, b) => a.season - b.season || a.episode - b.episode);
 
-  const plan: SeriesSubtitlePlan = {
-    groupId,
-    groupName: rows[0]!.group_name,
-    showImdbId: imdb,
-    reference: null,
-    episodes: [],
-    downloadsUsed: 0,
-    downloadsLeft: null,
-  };
-
-  const approved = eps.find((e) => externalSubtitle(e.path));
-  if (!approved) throw new Error("No episode of this show has a subtitle file yet. Add the right one to one episode first.");
-  if (!imdb) throw new Error("This show isn't linked to TMDB yet, so its IMDb id is unknown.");
-
-  const budget = { used: 0, left: null as number | null };
-  const approvedFile = externalSubtitle(approved.path)!;
-  const refCandidates = await searchEpisodeSubtitles({
-    parentImdbId: imdb,
-    season: approved.season,
-    episode: approved.episode,
-    languages: LANG,
-    moviehash: existsSync(approved.path) ? moviehash(approved.path) : null,
-  });
-  const identified = await identifyFamily(readFileSync(approvedFile, "utf8"), refCandidates, budget);
-  plan.reference = {
-    path: approved.path,
-    season: approved.season,
-    episode: approved.episode,
-    family: identified?.family ?? null,
-    similarity: identified?.similarity ?? null,
-    note: identified?.note ?? "Couldn't tell which upload your file is, so nothing can be matched to it.",
-  };
-
-  for (const e of eps) {
-    if (!options.allSeasons && e.season !== approved.season) continue;
-    const base = { path: e.path, season: e.season, episode: e.episode };
-    if (e.path === approved.path) {
-      plan.episodes.push({ ...base, status: "approved" });
-      continue;
-    }
-    if (externalSubtitle(e.path)) {
-      plan.episodes.push({ ...base, status: "has-subtitle" });
-      continue;
-    }
-    if (!identified) {
-      plan.episodes.push({ ...base, status: "no-match", note: "No family to match against." });
-      continue;
-    }
-    try {
-      const candidates = await searchEpisodeSubtitles({
-        parentImdbId: imdb,
-        season: e.season,
-        episode: e.episode,
-        languages: LANG,
-        moviehash: existsSync(e.path) ? moviehash(e.path) : null,
-      });
-      const best = pickFromFamily(candidates, identified.family, basename(e.path));
-      plan.episodes.push(
-        best
-          ? {
-              ...base,
-              status: "planned",
-              pick: {
-                fileId: best.candidate.fileId,
-                release: best.candidate.release,
-                fileName: best.candidate.fileName,
-                uploader: best.candidate.uploader,
-                why: best.why,
-              },
-            }
-          : { ...base, status: "no-match", note: `${candidates.length} results, none from the same family.` },
-      );
-    } catch (error) {
-      plan.episodes.push({ ...base, status: "error", note: error instanceof Error ? error.message : String(error) });
-    }
+  if (episodes.length === 0) {
+    throw new Error(
+      "None of this show's files has a season/episode number in its name (like S01E07), so there is nothing to search by. Rename the files, then try again.",
+    );
+  }
+  if (!show.imdbId && !show.tmdbId && !episodes.some((e) => e.episodeImdbId || e.episodeTmdbId)) {
+    throw new Error(
+      "This show isn't linked to TMDB, so OpenSubtitles can't be searched for it. Link it under Show settings → TMDB, then try again.",
+    );
   }
 
-  plan.downloadsUsed = budget.used;
-  plan.downloadsLeft = budget.left;
-  return plan;
+  const byPath = (p: string) => items.get(p);
+  const plan = await buildSeriesPlan(
+    { episodes, unparsed, show },
+    {
+      search: (input) => searchEpisodeSubtitles({ ...input, languages: LANG }),
+      download: (fileId) => downloadSubtitle(fileId),
+      readExternal: async (file) => readFileSync(file, "utf8"),
+      readEmbedded: (e, track) => readEmbeddedText(byPath(e.path), e.path, track.index),
+      moviehash: safeMoviehash,
+      basename: (p) => basename(p),
+    },
+  );
+  return { groupId, groupName: rows[0]!.group_name, showImdbId: show.imdbId, ...plan };
 }
 
 export interface ApplyResult {
@@ -266,7 +233,7 @@ export interface ApplyResult {
 
 /**
  * Downloads the accepted picks and writes each next to its video. Only paths
- * in this show, still without a subtitle, are touched — the plan came back
+ * in this show, still without a subtitle of any kind, are touched — the plan came back
  * from the browser, so it is re-checked rather than trusted.
  */
 export async function applySeriesSubtitles(
@@ -278,7 +245,7 @@ export async function applySeriesSubtitles(
       (r) => r.path,
     ),
   );
-  const idByPath = new Map((await getAdminMovies({ withMediaSources: false })).map((m) => [m.Path, m.Id]));
+  const byPath = new Map((await getAdminMovies()).map((m) => [m.Path, m]));
   const results: ApplyResult[] = [];
   let left: number | null = null;
 
@@ -291,6 +258,10 @@ export async function applySeriesSubtitles(
       results.push({ path, ok: false, message: "Already has a subtitle; left alone." });
       continue;
     }
+    if (byPath.get(path)?.MediaSources?.[0]?.MediaStreams?.some((s) => s.Type === "Subtitle")) {
+      results.push({ path, ok: false, message: "Already has a built-in subtitle; left alone." });
+      continue;
+    }
     if (left !== null && left <= 0) {
       results.push({ path, ok: false, message: "Out of downloads for today." });
       continue;
@@ -300,7 +271,7 @@ export async function applySeriesSubtitles(
       left = d.remaining;
       const target = `${path.slice(0, path.length - extname(path).length)}.eng.srt`;
       writeFileSync(target, d.content, "utf8");
-      const itemId = idByPath.get(path);
+      const itemId = byPath.get(path)?.Id;
       if (itemId) await refreshItem(itemId).catch(() => undefined);
       results.push({ path, ok: true, message: basename(target) });
     } catch (error) {
