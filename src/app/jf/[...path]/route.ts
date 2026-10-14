@@ -467,13 +467,19 @@ async function proxy(request: Request): Promise<Response> {
     });
   }
 
-  const headers = buildDownstreamHeaders(upstream, isCacheableImage(decodedPath, url));
+  const cacheable = isCacheableImage(decodedPath, url);
+  const headers = buildDownstreamHeaders(upstream, cacheable);
 
   // Sliding renewal. `touchSession` is a no-op until the session has burned
   // most of its lifetime, which keeps a seek-heavy playback session from
   // issuing a SQLite write per Range request.
+  //
+  // Never on a publicly cacheable image: Cloudflare may keep that response
+  // and hand it to anyone who asks for the same poster, so a Set-Cookie on it
+  // would give one viewer's session to strangers. The renewal waits for the
+  // next ordinary request, which comes within seconds.
   try {
-    if (session && touchSession(session)) {
+    if (session && !cacheable && touchSession(session)) {
       headers.append("Set-Cookie", sessionCookie(session.sessionId));
     } else if (screening) {
       // A screening session has no sliding cookie to renew — its lifetime is
