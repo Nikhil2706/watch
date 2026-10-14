@@ -70,15 +70,27 @@ shown. Each reason says, as data rather than as scattered `if`s:
 | `no_metadata` | Jellyfin item + not whitelisted | discovery, resume | yes | "Not identified: nothing knows what this file is" | identify, show_anyway, place_as …, hide |
 | `identifying` | `no_metadata` + an open `folder_match_suggestions` row | discovery, resume | yes | "Probably *Amblin* (1968): from its folder, Steven Spielberg" | accept suggestion, identify, show_anyway, hide |
 | `scheduled` | `library_rollout_slots` unrevealed | all | no | "Coming 21 Oct" | release now, reschedule |
-| `special_feature` | `special_features` | discovery | only if mapped nowhere | "Extras for Tenet" | place_as …, unmark |
-| `version` | `film_versions`, not primary | discovery | no | "Director's cut of Blade Runner" | make primary, split off |
+| `special_feature` | `special_features` | discovery, show episodes | only if mapped nowhere | "Extras for Tenet" | place_as …, unmark |
+| `version` | `film_versions`, not primary | discovery, show episodes | no | "Director's cut of Blade Runner" | make primary, split off |
 | `episode` | `library_groups` | none here (folded later) | no | "Episode 7 of E.R." | move, take out |
 | `duplicate` | `duplicate-titles.ts` | none | yes | "Duplicate: 2 copies of *Heat*" | keep this one (hides the rest), keep as versions |
 | `damaged_allowed` | `file_checks` damaged, allowed | none | no | "Shown despite damage: 74 broken pieces of picture" | take off the site, recheck |
 
 "Hides in" reproduces today's behaviour exactly (section 6), including its two
 existing exceptions: special features and other cuts stay in Continue
-Watching, and a show's own episode list ignores the no-metadata rule. Changing
+Watching (and only there), and a show's own episode list ignores the
+no-metadata rule. The equivalence tests found the "only there": a show's own
+list hides features and other cuts as well, which the first draft of this
+table missed.
+
+Some questions are already answered another way, so they don't put the file
+in the inbox even though the reason still holds and is still shown:
+
+- a file the curator **hid** asks nothing else (the console has always
+  skipped excluded files);
+- a file **in a show** isn't asked about its missing metadata or a
+  same-named copy (grouping answered "what is this?"). A damaged episode
+  still is. Changing
 any of that is a later, separate decision, not part of the migration.
 
 ### 2.2 States
