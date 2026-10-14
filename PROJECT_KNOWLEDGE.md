@@ -513,7 +513,32 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
-### 2026-10-14 (latest) — Episodes group themselves; special features said up top
+### 2026-10-14 (latest) — "Find matching subtitles" works for shows with built-in subtitles
+Branch off `platform-additions`, not deployed yet.
+
+- **It never worked for Buffy.** The show button needed one episode with a
+  separate .srt to learn from. Buffy (144 mp4s) has none: 141 episodes carry a
+  built-in subtitle track, 3 (Angel, Surprise, Revelations) have nothing. So it
+  stopped at "No episode of this show has a subtitle file yet".
+- **Only episodes with no subtitle at all are planned for**, built-in or file
+  (the console's "No subtitles"), and the plan says so up top: "3 episodes need
+  subtitles; 141 already have built-in ones." The season checkbox is gone; every
+  such episode is covered.
+- **What it learns from:** an episode's .srt first; failing that, a built-in
+  text track (mov_text/subrip/ass), read out through Jellyfin's own subtitle
+  endpoint, since the gate image has no ffmpeg (only the worker does; Jellyfin
+  carries its own). Its words are compared with that episode's OpenSubtitles
+  results as before (at most 5 downloads). With nothing usable, each episode is
+  matched on its own: the subtitle synced to that exact file (moviehash), then
+  the best-rated one (trusted uploader, rating with 3+ votes, downloads). Each
+  pick says which of the three chose it. Judgement in `subtitle-series-plan.ts`
+  (tested, OpenSubtitles mocked); wiring in `subtitle-series.ts`.
+- **Applying refuses an episode that has a built-in track**, as well as one with
+  a file, since the plan comes back from the browser.
+- Tested end to end against the real app with stand-ins for Jellyfin and
+  OpenSubtitles; not yet against the real OpenSubtitles or the film drive.
+
+### 2026-10-14 — Episodes group themselves; special features said up top
 Branch off `platform-additions`, not deployed yet.
 
 - **Episodes no longer show as films.** "Nirvanna the Band the Show" (16 files,
