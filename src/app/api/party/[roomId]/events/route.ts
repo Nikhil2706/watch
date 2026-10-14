@@ -58,7 +58,10 @@ export async function GET(
 
   // Which stream this is (?cid=), so the room can tell two devices on one
   // account apart; see party-room.ts's Member.clientId.
-  const clientId = cleanClientId(new URL(request.url).searchParams.get("cid"));
+  const query = new URL(request.url).searchParams;
+  const clientId = cleanClientId(query.get("cid"));
+  // ?player=1: this stream has the film open, not only the chat.
+  const watching = query.get("player") === "1";
 
   const encoder = new TextEncoder();
   let leave: (() => void) | null = null;
@@ -82,7 +85,7 @@ export async function GET(
         /* already closed */
       }
 
-      leave = joinRoom(roomId, identity, clientId, send);
+      leave = joinRoom(roomId, identity, clientId, watching, send);
       heartbeat = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(`: keep-alive\n\n`));

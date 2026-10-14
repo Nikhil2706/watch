@@ -26,10 +26,15 @@ import { bestOffset, clockSample, type ClockSample } from "@/lib/party-sync";
 
 export interface PartyChatMessage {
   id: string;
-  kind: "user" | "guest";
+  /** "system": the room's own lines (who paused, who jumped); not kept after a reload. */
+  kind: "user" | "guest" | "system";
   displayName: string;
   body: string;
   createdAt: number;
+  /** The message this one answers, quoted above it. */
+  replyTo?: { id: string; displayName: string; excerpt: string } | null;
+  /** Emoji reactions and who gave them (by name). */
+  reactions?: { emoji: string; by: string[] }[];
 }
 
 export interface PartyParticipant {
@@ -37,6 +42,8 @@ export interface PartyParticipant {
   kind: "user" | "guest";
   displayName: string;
   isController: boolean;
+  /** Seconds from the room's film (+ ahead, − behind); null when there is nothing playing to compare. */
+  driftSeconds: number | null;
 }
 
 /** Positions are stamped with the server time they were true at (`at`); see party-sync.ts. */
@@ -65,7 +72,8 @@ function newClientId(): string {
   return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
-export function usePartySocket(roomId: string) {
+/** `watching`: this page has the film open (the room page), not only the chat. */
+export function usePartySocket(roomId: string, { watching = false }: { watching?: boolean } = {}) {
   const [clientId] = useState(newClientId);
   const [connected, setConnected] = useState(false);
   const [unreachable, setUnreachable] = useState(false);
@@ -77,6 +85,12 @@ export function usePartySocket(roomId: string) {
   const [lastSync, setLastSync] = useState<PartySyncEvent | null>(null);
   /** The lead controller's heartbeat while playing — a fresh object every time, so an effect on it re-runs. */
   const [lastPosition, setLastPosition] = useState<{ positionSeconds: number; at: number } | null>(null);
+  /** Start together: the latest "get to this spot and say when you're ready". */
+  const [prepare, setPrepare] = useState<{ id: string; positionSeconds: number; by: string } | null>(null);
+  /** Who the room is still waiting for before it starts (empty: not waiting). */
+  const [waitingFor, setWaitingFor] = useState<string[]>([]);
+  /** The room's last jump of more than 30 s, so a controller can take it back. */
+  const [lastJump, setLastJump] = useState<{ from: number; to: number; by: string; heardAt: number } | null>(null);
   /** The stream that sends heartbeats, as the server last named it. */
   const [leaderClientId, setLeaderClientId] = useState<string | null>(null);
 
@@ -102,7 +116,7 @@ export function usePartySocket(roomId: string) {
       if (closedByUs.current || endedRef.current) return;
 
       const source = new EventSource(
-        `/api/party/${encodeURIComponent(roomId)}/events?cid=${encodeURIComponent(clientId)}`,
+        `/api/party/${encodeURIComponent(roomId)}/events?cid=${encodeURIComponent(clientId)}${watching ? "&player=1" : ""}`,
       );
       sourceRef.current = source;
 
@@ -127,6 +141,12 @@ export function usePartySocket(roomId: string) {
           case "chat":
             setMessages((prev) => [...prev, msg.message as PartyChatMessage]);
             break;
+          case "reactions": {
+            const id = String(msg.messageId);
+            const reactions = (msg.reactions as PartyChatMessage["reactions"]) ?? [];
+            setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, reactions } : m)));
+            break;
+          }
           case "participants":
             setParticipants((msg.list as PartyParticipant[]) ?? []);
             break;
@@ -148,6 +168,15 @@ export function usePartySocket(roomId: string) {
             break;
           case "position":
             setLastPosition({ positionSeconds: Number(msg.positionSeconds), at: Number(msg.at) });
+            break;
+          case "prepare":
+            setPrepare({ id: String(msg.id), positionSeconds: Number(msg.positionSeconds), by: String(msg.by) });
+            break;
+          case "waiting":
+            setWaitingFor(Array.isArray(msg.names) ? msg.names.map(String) : []);
+            break;
+          case "jumped":
+            setLastJump({ from: Number(msg.from), to: Number(msg.to), by: String(msg.by), heardAt: Date.now() });
             break;
           case "leader":
             setLeaderClientId(typeof msg.clientId === "string" ? msg.clientId : null);
@@ -206,7 +235,7 @@ export function usePartySocket(roomId: string) {
       sourceRef.current?.close();
       sourceRef.current = null;
     };
-  }, [roomId, clientId]);
+  }, [roomId, clientId, watching]);
 
   const post = useCallback(
     async (payload: Record<string, unknown>) => {
@@ -256,7 +285,12 @@ export function usePartySocket(roomId: string) {
     };
   }, [connected, post]);
 
-  const sendChat = useCallback((body: string) => void post({ type: "chat", body }), [post]);
+  const sendChat = useCallback(
+    (body: string, replyToId: string | null = null) => void post({ type: "chat", body, replyToId }),
+    [post],
+  );
+  /** Adds this person's reaction, or takes it back if already given. */
+  const react = useCallback((messageId: string, emoji: string) => void post({ type: "react", messageId, emoji }), [post]);
   // sentAt: when the position was read, by the server's clock, so the time
   // the request spends travelling is not counted against it.
   const sendSync = useCallback(
@@ -266,6 +300,20 @@ export function usePartySocket(roomId: string) {
   );
   const sendPosition = useCallback(
     (positionSeconds: number) => void post({ type: "position", positionSeconds, sentAt: serverNow(), clientId }),
+    [post, clientId, serverNow],
+  );
+  /** Buffered at the spot a "prepare" named. The quickest round trip tells the room how far ahead to schedule the start. */
+  const sendReady = useCallback(
+    (id: string) => {
+      const rtts = clockSamples.current.map((s) => s.rttMs);
+      void post({ type: "ready", id, rttMs: rtts.length ? Math.min(...rtts) : 0, clientId });
+    },
+    [post, clientId],
+  );
+  /** Where this screen's film is, for the drift shown beside names; moves nothing. */
+  const sendReport = useCallback(
+    (positionSeconds: number, paused: boolean) =>
+      void post({ type: "report", positionSeconds, paused, sentAt: serverNow(), clientId }),
     [post, clientId, serverNow],
   );
   const grant = useCallback((targetId: string) => void post({ type: "grant", targetId }), [post]);
@@ -294,12 +342,18 @@ export function usePartySocket(roomId: string) {
     lastSync,
     lastPosition,
     leaderClientId,
+    lastJump,
     clientId,
     serverNow,
     ended,
     sendChat,
+    react,
     sendSync,
     sendPosition,
+    sendReport,
+    sendReady,
+    prepare,
+    waitingFor,
     grant,
     revoke,
     end,

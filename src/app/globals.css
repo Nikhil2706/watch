@@ -3667,6 +3667,7 @@ html[data-tv="true"] .appbar-more {
 }
 
 .party-room-player {
+  position: relative;
   min-width: 0;
   border-radius: 10px;
   overflow: hidden;
@@ -3897,6 +3898,112 @@ html[data-tv="true"] .appbar-more {
   gap: 8px;
 }
 
+/* Reactions and replies (from WatchParty's chat). */
+.party-message {
+  position: relative;
+}
+
+.party-message-quote {
+  display: block;
+  margin-bottom: 2px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+  font-size: 0.74rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.party-message-actions-btn {
+  width: auto;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  cursor: pointer;
+  opacity: 0.55;
+}
+
+.party-message:hover .party-message-actions-btn,
+.party-message-actions-btn:focus-visible,
+.party-message-actions-btn[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.party-message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.party-message-actions button,
+.party-reaction {
+  width: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.party-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.party-reaction-mine {
+  border-color: var(--accent);
+  background: rgba(91, 141, 239, 0.16);
+}
+
+.party-replying {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.party-replying span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.party-replying button {
+  width: auto;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* The room's own lines: who paused, who jumped. Quieter than what people say. */
+.party-message-system {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.party-message-system .party-message-body {
+  color: var(--muted);
+}
+
 .party-empty {
   color: var(--muted);
   font-size: 0.82rem;
@@ -4095,6 +4202,75 @@ html[data-tv="true"] .appbar-more {
   align-items: center;
   gap: 8px;
   width: auto;
+}
+
+/* "↩ 1:02:13": back to where the film was before a big jump. */
+.party-undo-jump {
+  width: auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The room is playing but this browser wants a tap before it plays sound. */
+.party-tap-to-join {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+  padding: 14px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.party-tap-to-join svg {
+  width: 22px;
+  height: 22px;
+}
+
+.party-tap-to-join:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* How far someone's film is from the room's, beside their name. */
+.party-drift {
+  color: var(--warm);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.party-sync-me {
+  width: auto;
+  white-space: nowrap;
+}
+
+/* Start together: who the room is still waiting for, over the top of the film. */
+.party-waiting {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  max-width: calc(100% - 24px);
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 .party-unread {
