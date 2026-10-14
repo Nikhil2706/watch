@@ -90,6 +90,9 @@ function columnExists(db: DatabaseSync, table: string, column: string): boolean 
  * fail the moment SCHEMA_SQL replays a second time after the column already
  * exists.
  */
+/** The owner's account: the one made an admin when users.is_admin arrives (v59). */
+export const OWNER_USERNAME = "mammannii";
+
 function runVersionedMigrations(db: DatabaseSync): void {
   // v13: accolade_label added to article_film_links (a win/nomination's
   // display text — "Won: Best Sound Editing, 92nd Academy Awards" — isn't a
@@ -424,6 +427,15 @@ function runVersionedMigrations(db: DatabaseSync): void {
   // creator, or inherited when the creator left. Every existing row was a grant.
   if (tableExists(db, "party_controllers") && !columnExists(db, "party_controllers", "reason")) {
     db.exec("ALTER TABLE party_controllers ADD COLUMN reason TEXT NOT NULL DEFAULT 'granted'");
+  }
+
+  // v59: users.is_admin, so the curator's tools can live behind the normal
+  // sign-in (/admin) instead of a key in a separate console. The owner's
+  // account is made an admin in the same step, once: only when the column is
+  // new, so a later "not an admin" by hand is never undone.
+  if (tableExists(db, "users") && !columnExists(db, "users", "is_admin")) {
+    db.exec("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0");
+    db.prepare("UPDATE users SET is_admin = 1 WHERE lower(username) = ?").run(OWNER_USERNAME);
   }
 }
 

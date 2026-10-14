@@ -58,5 +58,7 @@ export async function screeningSession(deviceId: string): Promise<ResolvedSessio
     // apply. Same precedent as getItem() not applying filterVisible().
     parentalControl: false,
     hideWatched: false,
+    // A guest is never an admin, whatever account the API key belongs to.
+    isAdmin: false,
   };
 }
