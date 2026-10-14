@@ -513,7 +513,21 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
-### 2026-10-14 (latest) — One OK press on the TV is one action
+### 2026-10-14 (latest) — Watch party: when the starter leaves, control passes on
+Before, if the person who started a party left (laptop closed, tab shut) and
+nobody else who could control was watching, the film paused for everyone
+after 15 s. Now, once the starter has had no stream open for 60 s, control
+passes to the real account watching that has been in the room longest. The
+film keeps playing. The chat says "tester left; mammannii can now control
+playback", and the People tab says "took over when the host left". A drop of
+under 60 s (phone locking, TV reloading) does nothing. Guests (chat only)
+never inherit; if nobody can be given control, a playing room still pauses.
+When the starter returns they share control ("tester is back and shares
+control") and keep End/grant/revoke. Schema v58 records `reason`
+('granted' or 'inherited') on party_controllers. Details in
+DESIGN-watch-party.md, Permissions.
+
+### 2026-10-14 — One OK press on the TV is one action
 In the TV app, one OK on the player's focused Pause button paused and played
 again at once. In a watch party the chat logged "paused at 1:38", then
 "played from 1:38", so the TV never stayed paused. A TV's WebView runs its

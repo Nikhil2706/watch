@@ -45,7 +45,7 @@
  * for party chat replies and reactions. Every 57 table is CREATE ... IF NOT
  * EXISTS, so the number only has to advance past what a database records.
  */
-export const SCHEMA_VERSION = 57;
+export const SCHEMA_VERSION = 58;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1031,6 +1031,11 @@ CREATE TABLE IF NOT EXISTS party_controllers (
   user_id     TEXT REFERENCES users(id) ON DELETE CASCADE,
   guest_token TEXT REFERENCES party_guest_links(token) ON DELETE CASCADE,
   granted_at  INTEGER NOT NULL,
+  -- Why they have control (v58): 'granted' by the creator, or 'inherited'
+  -- when the creator left and control passed to them (party-room.ts,
+  -- planOrphan). Revoking works the same for both. Added by ALTER in db.ts
+  -- for databases from before it.
+  reason      TEXT NOT NULL DEFAULT 'granted',
   CHECK ((user_id IS NULL) != (guest_token IS NULL))
 ) STRICT;
 

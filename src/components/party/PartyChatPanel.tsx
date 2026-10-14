@@ -134,7 +134,14 @@ export function PartyChatPanel({
         {participants.map((p) => (
           <div key={p.id} className="party-participant">
             <span className={p.kind === "guest" ? "party-name party-name-guest" : "party-name"}>{p.displayName}</span>
-            {p.isController ? <span className="party-controller-badge" title="Can control playback">▶</span> : null}
+            {p.isController ? (
+              <span
+                className="party-controller-badge"
+                title={p.inheritedControl ? "Can control playback (took over when the host left)" : "Can control playback"}
+              >
+                ▶
+              </span>
+            ) : null}
             {p.driftSeconds !== null && Math.abs(p.driftSeconds) >= DRIFT_SHOWN_SECONDS ? (
               <span
                 className="party-drift"

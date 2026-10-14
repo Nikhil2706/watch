@@ -37,7 +37,13 @@ export function PartyPeopleList({
                 {you ? <span className="party-person-you"> (you)</span> : null}
               </span>
               <span className="party-person-status">
-                {p.isController ? "Controls playback" : p.kind === "guest" ? "Guest · chat only" : "Watching"}
+                {p.isController
+                  ? p.inheritedControl
+                    ? "Controls playback · took over when the host left"
+                    : "Controls playback"
+                  : p.kind === "guest"
+                    ? "Guest · chat only"
+                    : "Watching"}
                 {drift ? <span className="party-drift"> · {drift}</span> : null}
               </span>
             </div>

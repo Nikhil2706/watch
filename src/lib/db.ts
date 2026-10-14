@@ -419,6 +419,12 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "party_messages") && !columnExists(db, "party_messages", "reply_to_id")) {
     db.exec("ALTER TABLE party_messages ADD COLUMN reply_to_id TEXT");
   }
+
+  // v58: why someone has playback control in a party: granted by the
+  // creator, or inherited when the creator left. Every existing row was a grant.
+  if (tableExists(db, "party_controllers") && !columnExists(db, "party_controllers", "reason")) {
+    db.exec("ALTER TABLE party_controllers ADD COLUMN reason TEXT NOT NULL DEFAULT 'granted'");
+  }
 }
 
 /**
