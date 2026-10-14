@@ -2,7 +2,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { env } from "@/lib/env";
 import { getLibraryScanStatus, JellyfinError } from "@/lib/jellyfin";
 import { toLibraryPath } from "@/lib/library-folders";
-import { scanLibraryNow } from "@/lib/library-scan";
+import { LibraryDriveAbsentError, scanLibraryNow } from "@/lib/library-scan";
 import { readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -80,6 +80,9 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     if (error instanceof ValidationError) {
       return Response.json({ error: "invalid_request", message: error.message }, { status: 400, headers: NO_STORE });
+    }
+    if (error instanceof LibraryDriveAbsentError) {
+      return Response.json({ error: "drive_absent", message: error.message }, { status: 409, headers: NO_STORE });
     }
     if (error instanceof JellyfinError && error.status === 0) {
       console.error("[admin/library/scan] Jellyfin unreachable:", error.message);

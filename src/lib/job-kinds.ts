@@ -9,11 +9,21 @@ import "server-only";
  * scrapers, the TMDB store and the library scan should load when a job of
  * that kind actually runs, not before.
  *
- * A "host" kind is not run here at all. The site lives in a container and
- * cannot start a script on the machine around it, so those are handed to
- * scripts/host-jobs.sh, which asks what is due and reports back. Its list of
- * what it may run is fixed in that script: a kind's name is all that ever
- * crosses from the database to a command line.
+ * A "worker" kind is not run here either: it needs what only the worker
+ * container has (the backup drive, Jellyfin's config), so the worker
+ * collects it each cycle and runs it from its own fixed list
+ * (scripts/worker-jobs.mjs). Its schedule, and whether to wait while someone
+ * is watching, are still decided here.
+ *
+ * A "loop" kind is the worker's continuous work (conversions, the upload
+ * virus scan, the damaged-file check). It has no schedule; it is listed so
+ * that each run the worker records shows in the Health tab beside the rest.
+ *
+ * A "host" kind was handed to a script on the computer itself
+ * (deploy/mac/host-jobs/jellyfin-gate-host-jobs.sh), which asked what was due
+ * and reported back. The backup was the only one, and now runs in the
+ * worker; the runner still works for any kind given it again. A kind's name
+ * is all that ever crosses from the database to a command line.
  */
 
 export interface JobParamField {
@@ -26,7 +36,7 @@ export interface JobKind {
   kind: string;
   label: string;
   description: string;
-  runner: "gate" | "host";
+  runner: "gate" | "worker" | "loop" | "host";
   /** What the console asks for when creating one. */
   params?: JobParamField[];
   /** Whether "wait while someone is watching" is on for a new job of this kind. */
@@ -187,11 +197,14 @@ const KINDS: JobKind[] = [
   {
     kind: "library_scan",
     label: "Library scan",
-    description: "Asks Jellyfin to look for added and removed files, then links any list entries waiting on them.",
+    description:
+      "Asks Jellyfin to look for added and removed files, then links any list entries waiting on them. Only when the film drive is there: a scan of a missing drive would tell Jellyfin every film was deleted. Jellyfin's own 12-hourly scan is switched off; this replaces it.",
     runner: "gate",
-    politeByDefault: false,
+    politeByDefault: true,
     run: async () => {
       const { scanLibraryNow } = await import("./library-scan");
+      // A missing drive throws LibraryDriveAbsentError: the run shows as
+      // failed, with the reason, and the log says so too.
       const r = await scanLibraryNow();
       return `scan started, ${r.subtitlesPromoted} subtitle files put in place`;
     },
@@ -261,9 +274,39 @@ const KINDS: JobKind[] = [
   {
     kind: "backup",
     label: "Backup",
-    description: "Copies the database and settings to the backup disk. Runs on the computer itself, outside the site.",
-    runner: "host",
+    description:
+      "Copies the database, Jellyfin's settings, .env and the compose file to the backup folder on the drive, reads the copy back, and only then removes the older ones. Run by the worker. A scheduled run skips when the newest backup is under a week old; Run now always takes one.",
+    runner: "worker",
     politeByDefault: true,
+  },
+  {
+    kind: "loop_conversions",
+    label: "Conversions and download copies",
+    description: "Converts queued films a browser cannot play, and prepares offline downloads. Runs in the worker whenever something is queued.",
+    runner: "loop",
+    politeByDefault: false,
+  },
+  {
+    kind: "loop_upload_scan",
+    label: "Upload virus scan",
+    description: "Scans uploads waiting in quarantine with ClamAV. Runs in the worker whenever an upload is waiting and nobody is watching.",
+    runner: "loop",
+    politeByDefault: false,
+  },
+  {
+    kind: "loop_file_check",
+    label: "Damaged-file check",
+    description: "Reads library files through for damage, a few minutes at a time, when nothing is queued and nobody is watching.",
+    runner: "loop",
+    politeByDefault: false,
+  },
+  {
+    kind: "loop_browser_audio",
+    label: "Browser audio",
+    description:
+      "Adds a stereo AAC track to films whose only sound a browser can't play (DTS, TrueHD...), so they play straight off the drive instead of having their audio re-encoded live. Keeps every original track. Up to 20 a day, when nothing is queued and nobody is watching; \"Add browser audio now\" on a film does one at once.",
+    runner: "loop",
+    politeByDefault: false,
   },
 ];
 
@@ -294,14 +337,18 @@ export function missingParam(kind: JobKind, params: Record<string, string>): str
 /**
  * Things that run on their own every few minutes and are not schedulable:
  * each is part of a feature working at all, and "every Thursday" would break
- * it. Listed so the Jobs card accounts for everything that runs.
+ * it. Listed so the Jobs card accounts for everything that runs, including
+ * the little that still runs on the Mac itself rather than in the stack.
+ * The worker's continuous work is not here: it records its runs, so it is
+ * in the job list (the "loop" kinds above).
  */
 export const ALWAYS_ON: Array<{ label: string; every: string; where: string }> = [
   { label: "New film, show and episode notifications", every: "10 minutes", where: "the site" },
   { label: "Starting scheduled watch parties", every: "1 minute", where: "the site" },
+  { label: "Ending watch parties nobody has been in for 15 minutes", every: "1 minute", where: "the site" },
   { label: "Revealing scheduled episodes", every: "10 minutes", where: "the site" },
   { label: "Removing expired screenings", every: "1 hour", where: "the site" },
-  { label: "Converting new films in the watch folder", every: "continuously", where: "the worker" },
-  { label: "Freeing unused memory", every: "5 minutes", where: "this computer" },
-  { label: "Starting the site and the tunnel", every: "when you sign in to Windows", where: "this computer" },
+  { label: "Refreshing the list of known films", every: "a few hours", where: "the site" },
+  { label: "Starting the site once the film drive is mounted, stopping it if the drive goes", every: "2 minutes", where: "the Mac (com.watch.up)" },
+  { label: "Off-hours shutdown and start-up", every: "as set in Watch Control", where: "the Mac" },
 ];

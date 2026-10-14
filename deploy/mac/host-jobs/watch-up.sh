@@ -32,8 +32,10 @@ fi
 
 # The drive went away while the site was running (a loose cable, an eject).
 # Stop Jellyfin and the two processes that write to the library before
-# Jellyfin's own 12-hourly library scan can see an empty folder and drop
-# every film, and with them the ids everything else is keyed on. The site
+# anything can scan an empty folder and drop every film, and with them the
+# ids everything else is keyed on. (Jellyfin's own 12-hourly scan is switched
+# off by the site at boot, and the site's scan checks for the drive; this is
+# the belt to those braces.) The site
 # comes back by the block below once the drive is there again.
 if [ ! -d "$DRIVE/Da Moveesh" ]; then
   if docker ps --format '{{.Names}}' | grep -qx -e jellyfin -e jellyfin-gate -e jellyfin-gate-worker; then

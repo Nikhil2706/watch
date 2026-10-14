@@ -539,7 +539,38 @@ ruled out this way: IMDb, Letterboxd, MUBI Notebook, Roger Ebert, IndieWire.
 Newest entries at the top. Each one is a short "what changed and why," not a
 full replay of the work.
 
-### 2026-10-14 (latest) — Watch party: when the starter leaves, control passes on
+### 2026-10-15 (latest) — Everything that runs on a schedule is in the Health tab
+Nothing runs on a schedule the site can't see any more.
+
+- **The backup runs in the worker.** It is no longer a launchd script on the
+  Mac doing every drive read through `docker run`. The worker has the
+  drive's `jellyfin-gate-backups` (`BACKUP_PATH`), Jellyfin's config
+  (read-only) and `.env` + compose files (read-only) mounted.
+  `scripts/backup.mjs` snapshots the database (VACUUM INTO), tars Jellyfin's
+  config, copies `.env`/compose, writes MANIFEST.txt, reads it all back
+  (gzip -t, tar -t), and only then deletes older dated folders. A scheduled
+  run skips while the newest is under a week old; Run now always takes one.
+  It refuses a folder with no earlier backup and no `.watch-backups` file
+  (so it never writes to the Mac's own disk if the drive is missing). The
+  "host" runner still works but nothing uses it; `com.watch.hostjobs` is
+  retired.
+- **Library scans only through the site.** At every boot the site removes
+  the triggers from Jellyfin's own "Scan Media Library" task (it scanned
+  every 12 h, even with the drive missing). A built-in "Library scan" job
+  (daily 2:30 am, waits while someone watches) replaces it. That scan, the
+  console's Scan button and the start-up scan all refuse when the film
+  drive looks absent: the library folder is empty or unreadable, or most of
+  the top-level folders Jellyfin knows are missing. The refusal is logged
+  and shows as a failed run.
+- **The worker's loops report their runs** (conversions and download
+  copies, the upload virus scan, the damaged-file check) as rows of their
+  own in the job list. A pass that found nothing to do leaves no row.
+- **The party empty-room sweep starts at boot**, not on the first join
+  after a restart.
+- The dev copy (`deploy/mac/dev-stack`) runs no scheduled jobs
+  (`SCHEDULED_JOBS=false`): it shares production's Jellyfin.
+
+### 2026-10-14 — Watch party: when the starter leaves, control passes on
 Before, if the person who started a party left (laptop closed, tab shut) and
 nobody else who could control was watching, the film paused for everyone
 after 15 s. Now, once the starter has had no stream open for 60 s, control

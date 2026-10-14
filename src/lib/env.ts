@@ -111,6 +111,16 @@ export const env = {
   mediaLibraryPath: optional("MEDIA_LIBRARY", "/media"),
 
   /**
+   * Top-level folders of the library that must all be there before a scan
+   * (comma-separated names, e.g. "Horror,Drama"). Empty: most of the
+   * folders Jellyfin knows must be there instead. See library-drive.ts.
+   */
+  mediaExpectedFolders: optional("MEDIA_EXPECTED_FOLDERS", "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean),
+
+  /**
    * Where excluded files are moved to — deliberately a SEPARATE mount, not a
    * subfolder of mediaLibraryPath. A subfolder was tried first and was wrong:
    * Jellyfin scans its library root recursively, so a "_Excluded" folder

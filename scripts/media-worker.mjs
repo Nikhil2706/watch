@@ -43,11 +43,15 @@ import {
   statSync,
   copyFileSync,
   unlinkSync,
+  utimesSync,
 } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 
 import { countErrors, isStale, isStillArriving, judge } from "./file-check.mjs";
+import { mp4SubtitlesBlock, needsBrowserAudio, remuxArgs, verifyRemux } from "./browser-audio.mjs";
 import { clamavScanner, scanWaitingUploads, writeHeartbeat } from "./upload-scan.mjs";
+import { backupStamp, runBackup, snapshotDatabase } from "./backup.mjs";
+import { failInterruptedWorkerRuns, recordLoopRun, runWorkerJobs } from "./worker-jobs.mjs";
 
 /* ------------------------------------------------------------------ *
  * Config
@@ -246,6 +250,11 @@ async function waitForSchema() {
 
 await waitForSchema();
 
+{
+  const cut = failInterruptedWorkerRuns(db);
+  if (cut > 0) log(`${cut} job run(s) were cut off when the worker last stopped`);
+}
+
 /* ------------------------------------------------------------------ *
  * Reading files through for damage
  * ------------------------------------------------------------------ */
@@ -330,14 +339,17 @@ async function checkFile(file, size, mtimeMs) {
   return verdict;
 }
 
-/** Checks files for up to the time budget. Returns how many it got through. */
+/**
+ * Checks files for up to the time budget. Returns a line for the Health tab,
+ * or null when it read nothing.
+ */
 async function checkFilesForAWhile() {
-  if (!FILE_CHECK || !fileChecksReady()) return 0;
+  if (!FILE_CHECK || !fileChecksReady()) return null;
   const mark = db.prepare("SELECT mtime_ms FROM file_checks WHERE path = ?").get(WALK_MARK);
   // mtime_ms on the marker row is when the library is next worth walking:
   // set ahead when there was nothing left to do, or the day's allowance was
   // used, so an idle worker is not listing 1,800 files every half minute.
-  if (mark && Date.now() < Number(mark.mtime_ms)) return 0;
+  if (mark && Date.now() < Number(mark.mtime_ms)) return null;
 
   const known = new Map(db.prepare("SELECT path, size, mtime_ms FROM file_checks").all().map((r) => [r.path, r]));
   const todo = [];
@@ -368,6 +380,7 @@ async function checkFilesForAWhile() {
   const started = Date.now();
   let done = 0;
   let damaged = 0;
+  const damagedNames = [];
   let waiting = 0;
   for (const next of todo) {
     if (stopping || Date.now() - started > FILE_CHECK_BUDGET_MS) break;
@@ -384,6 +397,7 @@ async function checkFilesForAWhile() {
     done += 1;
     if (verdict === "damaged") {
       damaged += 1;
+      damagedNames.push(basename(next.file));
       log(`file check: DAMAGED ${next.file}`);
     }
   }
@@ -395,10 +409,223 @@ async function checkFilesForAWhile() {
     `INSERT INTO file_checks (path, size, mtime_ms, checked_at, verdict) VALUES (?, ?, ?, ?, 'ok')
      ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime_ms = excluded.mtime_ms, checked_at = excluded.checked_at`,
   ).run(WALK_MARK, left, rest, Date.now());
-  if (done > 0) {
-    log(`file check: ${done} read through, ${damaged} damaged, ${left} still to do` + (allowance <= 0 ? ` (today's ${FILE_CHECK_PER_DAY} done)` : ""));
+  if (done === 0) return null;
+  const line =
+    `${done} read through, ${damaged} damaged${damagedNames.length ? ` (${damagedNames.slice(0, 5).join(", ")})` : ""}, ${left} still to do` +
+    (allowance <= 0 ? ` (today's ${FILE_CHECK_PER_DAY} done)` : "");
+  log(`file check: ${line}`);
+  return line;
+}
+
+/* ------------------------------------------------------------------ *
+ * Browser audio (scripts/browser-audio.mjs for the rules)
+ * ------------------------------------------------------------------ *
+ * A stereo AAC track added to films whose only sound a browser cannot play,
+ * so Jellyfin stops re-encoding their audio live for every viewer. Same
+ * habits as the damaged-file check: only when nothing is queued and nobody is
+ * watching, a little at a time, each file looked at once (browser_audio
+ * table) and again only if the file changes. Files the curator asked for
+ * ("Add browser audio now") come first and don't count against the day.
+ */
+const BROWSER_AUDIO = !/^(0|false|no|off)$/i.test(process.env.BROWSER_AUDIO ?? "true");
+const BROWSER_AUDIO_PER_DAY = Number(process.env.BROWSER_AUDIO_PER_DAY ?? 20);
+/** Files probed per pass while working through the library the first time. */
+const BROWSER_AUDIO_PROBES_PER_PASS = Number(process.env.BROWSER_AUDIO_PROBES_PER_PASS ?? 300);
+const BROWSER_AUDIO_IDLE_MS = 30 * 60 * 1000;
+const AUDIO_WALK_MARK = "::last-walk";
+
+function browserAudioReady() {
+  return Boolean(db.prepare("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='browser_audio'").get());
+}
+
+/** Every stream, with what the audio rules need. Null when unreadable. */
+async function probeStreams(file) {
+  const { code, stdout } = await run(FFPROBE, [
+    "-v", "error",
+    "-show_entries", "format=duration:stream=index,codec_type,codec_name,channels,pix_fmt:stream_tags=language:stream_disposition=default",
+    "-of", "json",
+    file,
+  ]);
+  if (code !== 0) return null;
+  try {
+    const data = JSON.parse(stdout);
+    return { format: data.format ?? {}, streams: data.streams ?? [] };
+  } catch {
+    return null;
   }
-  return done;
+}
+
+/** True while Jellyfin reports someone playing this very file. */
+async function isBeingPlayed(file) {
+  if (!JELLYFIN_API_KEY) return false;
+  try {
+    const response = await fetch(`${JELLYFIN_URL}/Sessions`, {
+      headers: { Authorization: `MediaBrowser Token="${JELLYFIN_API_KEY}"` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return true; // can't tell: don't swap now
+    const sessions = await response.json();
+    return sessions.some((s) => s.NowPlayingItem?.Path === file);
+  } catch {
+    return true;
+  }
+}
+
+function recordBrowserAudio(file, status, detail) {
+  let size = 0;
+  let mtimeMs = 0;
+  try {
+    const stat = statSync(file);
+    size = stat.size;
+    mtimeMs = Math.round(stat.mtimeMs);
+  } catch { /* gone: recorded as last seen */ }
+  db.prepare(
+    `INSERT INTO browser_audio (path, size, mtime_ms, status, detail, checked_at) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime_ms = excluded.mtime_ms,
+       status = excluded.status, detail = excluded.detail, checked_at = excluded.checked_at`,
+  ).run(file, size, mtimeMs, status, detail, Date.now());
+}
+
+/**
+ * Adds the track to one file if it needs one. Returns { status, detail }, or
+ * null when it should simply be tried again later (someone started playing
+ * it). Writes a hidden temp file beside the original (Jellyfin skips
+ * dotfiles), checks it, and only then puts it in the original's place,
+ * keeping the original's dates so nothing else thinks the film is new.
+ */
+async function addBrowserAudio(file) {
+  const ext = extname(file);
+  const before = await probeStreams(file);
+  if (!before) return { status: "failed", detail: "the file can't be read" };
+  const need = needsBrowserAudio(before.streams, ext);
+  if (!need.needed) return { status: "not_needed", detail: need.reason };
+  if (mp4SubtitlesBlock(before.streams, ext)) {
+    return { status: "not_needed", detail: "an MP4 whose subtitles would not copy back into MP4" };
+  }
+  let original;
+  try {
+    original = statSync(file);
+  } catch {
+    return { status: "failed", detail: "the file disappeared" };
+  }
+  const temp = join(dirname(file), `.${basename(file, ext)}.browser-audio${ext}`);
+  const cleanUp = () => {
+    try {
+      if (existsSync(temp)) unlinkSync(temp);
+    } catch { /* best effort */ }
+  };
+  log(`browser audio: adding a stereo AAC track to ${basename(file)} (${need.reason})`);
+  const result = await run(FFMPEG, remuxArgs(file, temp, before.streams, ext));
+  if (result.code !== 0) {
+    cleanUp();
+    const why = result.stderr.trim().split("\n").slice(-1)[0] || `ffmpeg exited ${result.code}`;
+    return { status: "failed", detail: `ffmpeg: ${why.slice(0, 300)}` };
+  }
+  const check = verifyRemux(before, await probeStreams(temp));
+  if (!check.ok) {
+    cleanUp();
+    return { status: "failed", detail: `not swapped in: ${check.reason}` };
+  }
+  if (await isBeingPlayed(file)) {
+    cleanUp();
+    log(`browser audio: ${basename(file)} is being watched, trying again later`);
+    return null;
+  }
+  try {
+    renameSync(temp, file);
+    utimesSync(file, original.atime, original.mtime);
+  } catch (error) {
+    cleanUp();
+    return { status: "failed", detail: `could not put it in place: ${error.message}` };
+  }
+  noteLibraryChange(file);
+  return { status: "added", detail: `stereo AAC added (it had ${need.reason})` };
+}
+
+async function addBrowserAudioForAWhile() {
+  if (!BROWSER_AUDIO || !browserAudioReady()) return null;
+  const lines = [];
+
+  // What the curator asked for, first, whatever the day's count.
+  for (const { path } of db.prepare("SELECT path FROM browser_audio WHERE status = 'requested' ORDER BY checked_at").all()) {
+    if (stopping || (await someoneIsWatching())) break;
+    if (!existsSync(path)) {
+      db.prepare("DELETE FROM browser_audio WHERE path = ?").run(path);
+      continue;
+    }
+    const outcome = await addBrowserAudio(path);
+    if (!outcome) continue;
+    recordBrowserAudio(path, outcome.status, outcome.detail);
+    lines.push(`${basename(path)}: ${outcome.status === "added" ? "added" : outcome.detail}`);
+  }
+
+  const mark = db.prepare("SELECT mtime_ms FROM browser_audio WHERE path = ?").get(AUDIO_WALK_MARK);
+  if (!(mark && Date.now() < Number(mark.mtime_ms))) {
+    const known = new Map(db.prepare("SELECT path, size, mtime_ms, status FROM browser_audio").all().map((r) => [r.path, r]));
+    const present = new Set();
+    const todo = [];
+    for (const file of walkVideos(LIBRARY)) {
+      let stat;
+      try {
+        stat = statSync(file);
+      } catch {
+        continue;
+      }
+      present.add(file);
+      if (isStillArriving(stat.mtimeMs, Date.now())) continue;
+      const row = known.get(file);
+      if (row && row.status !== "requested" && Number(row.size) === stat.size && Number(row.mtime_ms) === Math.round(stat.mtimeMs)) continue;
+      todo.push(file);
+    }
+    for (const path of known.keys()) {
+      if (path !== AUDIO_WALK_MARK && !present.has(path)) db.prepare("DELETE FROM browser_audio WHERE path = ?").run(path);
+    }
+
+    const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    let allowance =
+      BROWSER_AUDIO_PER_DAY -
+      Number(db.prepare("SELECT COUNT(*) AS n FROM browser_audio WHERE status IN ('added', 'failed') AND checked_at > ?").get(dayAgo)?.n ?? 0);
+    let probed = 0;
+    let added = 0;
+    let waiting = 0;
+    for (const file of todo) {
+      if (stopping || probed >= BROWSER_AUDIO_PROBES_PER_PASS) break;
+      if (await someoneIsWatching()) break;
+      probed += 1;
+      const before = await probeStreams(file);
+      const need = before ? needsBrowserAudio(before.streams, extname(file)) : { needed: false, reason: "the file can't be read" };
+      if (!need.needed) {
+        recordBrowserAudio(file, before ? "not_needed" : "failed", need.reason);
+        continue;
+      }
+      if (allowance <= 0) {
+        waiting += 1; // not recorded: tomorrow's allowance picks it up
+        continue;
+      }
+      allowance -= 1;
+      const outcome = await addBrowserAudio(file);
+      if (!outcome) continue;
+      recordBrowserAudio(file, outcome.status, outcome.detail);
+      if (outcome.status === "added") added += 1;
+      if (outcome.status !== "not_needed") lines.push(`${basename(file)}: ${outcome.status === "added" ? "added" : outcome.detail}`);
+    }
+    const left = todo.length - probed + waiting;
+    const rest = left <= waiting ? Date.now() + BROWSER_AUDIO_IDLE_MS : 0;
+    db.prepare(
+      `INSERT INTO browser_audio (path, size, mtime_ms, status, detail, checked_at) VALUES (?, ?, ?, 'not_needed', 'walk marker', ?)
+       ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime_ms = excluded.mtime_ms, checked_at = excluded.checked_at`,
+    ).run(AUDIO_WALK_MARK, left, rest, Date.now());
+    if (probed > 0 && added === 0 && lines.length === 0 && probed >= 50) {
+      lines.push(`${probed} files looked at, none needed a track`);
+    }
+    if (waiting > 0) lines.push(`${waiting} waiting for tomorrow's allowance of ${BROWSER_AUDIO_PER_DAY}`);
+  }
+
+  if (lines.length === 0) return null;
+  await flushLibraryChanges(true);
+  const line = lines.slice(0, 6).join("; ") + (lines.length > 6 ? `; and ${lines.length - 6} more` : "");
+  log(`browser audio: ${line}`);
+  return line;
 }
 
 /* ------------------------------------------------------------------ *
@@ -678,36 +905,34 @@ const insertUploadEvent = db.prepare(
    VALUES (?, 'upload', ?, 'upload_scan', ?, ?, NULL, NULL, ?)`,
 );
 
+/** Returns a line for the Health tab, or null when there was nothing to scan. Throws on failure. */
 async function scanUploads() {
-  if (!UPLOAD_SCAN || stopping) return;
-  try {
-    const r = await scanWaitingUploads(db, {
-      scanner: uploadScanner,
-      isBusy: someoneIsWatching,
-      heartbeat: (info) => {
-        try {
-          writeHeartbeat(QUARANTINE, info);
-        } catch (err) {
-          log("upload scan: heartbeat not written:", err.message);
-        }
-      },
-      logEvent: ({ severity, message, detail }) => {
-        try {
-          insertUploadEvent.run(randomUUID(), severity, message.slice(0, 2000), JSON.stringify(detail ?? {}).slice(0, 4000), Date.now());
-        } catch (err) {
-          log("event log write failed:", err.message);
-        }
-      },
-      fileExists: existsSync,
-      now: Date.now,
-      log,
-    });
-    if (r.scanned || r.recovered) {
-      log(`upload scan: ${r.scanned} scanned (${r.clean} clean, ${r.infected} infected, ${r.failed} failed)` + (r.recovered ? `, ${r.recovered} interrupted before` : ""));
-    }
-  } catch (err) {
-    log("upload scan failed:", err.message);
-  }
+  if (!UPLOAD_SCAN || stopping) return null;
+  const r = await scanWaitingUploads(db, {
+    scanner: uploadScanner,
+    isBusy: someoneIsWatching,
+    heartbeat: (info) => {
+      try {
+        writeHeartbeat(QUARANTINE, info);
+      } catch (err) {
+        log("upload scan: heartbeat not written:", err.message);
+      }
+    },
+    logEvent: ({ severity, message, detail }) => {
+      try {
+        insertUploadEvent.run(randomUUID(), severity, message.slice(0, 2000), JSON.stringify(detail ?? {}).slice(0, 4000), Date.now());
+      } catch (err) {
+        log("event log write failed:", err.message);
+      }
+    },
+    fileExists: existsSync,
+    now: Date.now,
+    log,
+  });
+  if (!r.scanned && !r.recovered) return null;
+  const line = `${r.scanned} scanned (${r.clean} clean, ${r.infected} infected, ${r.failed} failed)` + (r.recovered ? `, ${r.recovered} interrupted before` : "");
+  log(`upload scan: ${line}`);
+  return line;
 }
 
 /**
@@ -1458,6 +1683,70 @@ async function processDownloadJob() {
 }
 
 /* ------------------------------------------------------------------ *
+ * The site's scheduled jobs that run here, and the record of each pass
+ * (worker-jobs.mjs). The Health tab lists them with everything else.
+ * ------------------------------------------------------------------ */
+
+// The backup folder on the drive, Jellyfin's config (read-only) and the
+// stack's .env and compose files (read-only), as docker-compose.yml mounts them.
+const BACKUP_DIR = abs(process.env.BACKUP_DIR, "/backups");
+const BACKUP_JELLYFIN_CONFIG = abs(process.env.BACKUP_JELLYFIN_CONFIG, "/jellyfin-config");
+const BACKUP_STACK_DIR = abs(process.env.BACKUP_STACK_DIR, "/stack");
+
+/** What each "worker" job kind means here. Nothing else is ever run for a kind. */
+const WORKER_JOBS = {
+  backup: ({ forced }) =>
+    runBackup({
+      root: BACKUP_DIR,
+      stamp: backupStamp(Date.now()),
+      forced,
+      // Beside the database, in the same volume, and removed once compressed.
+      snapshot: (destGz) =>
+        snapshotDatabase({ db, DatabaseSync, snapshotPath: join(dirname(DB_PATH), ".backup-snapshot.db"), destGz }),
+      jellyfinConfig: BACKUP_JELLYFIN_CONFIG,
+      stackDir: BACKUP_STACK_DIR,
+      log,
+    }),
+};
+
+async function scheduledJobs() {
+  if (stopping) return;
+  try {
+    await runWorkerJobs(db, WORKER_JOBS, { log });
+  } catch (err) {
+    log("scheduled jobs failed:", err.message);
+  }
+}
+
+/** The rows the worker's own passes are recorded under (scheduler.ts BUILTINS). */
+const LOOP = {
+  conversions: "builtin-loop-conversions",
+  uploadScan: "builtin-loop-upload-scan",
+  fileCheck: "builtin-loop-file-check",
+  browserAudio: "builtin-loop-browser-audio",
+};
+
+function names(rows) {
+  const shown = rows.slice(0, 4).map((r) => r.title);
+  return shown.join(", ") + (rows.length > 4 ? ` and ${rows.length - 4} more` : "");
+}
+
+/** What the conversion and download queues did since `since`, or null for nothing. */
+function describeQueueWork(since) {
+  const jobs = db.prepare("SELECT status, title FROM media_jobs WHERE finished_at >= ? ORDER BY finished_at").all(since);
+  const downloads = db.prepare("SELECT status, title FROM download_jobs WHERE finished_at >= ? ORDER BY finished_at").all(since);
+  if (jobs.length === 0 && downloads.length === 0) return null;
+  const parts = [];
+  const of = (rows, status) => rows.filter((r) => r.status === status);
+  if (of(jobs, "done").length) parts.push(`converted ${names(of(jobs, "done"))}`);
+  if (of(jobs, "skipped").length) parts.push(`already playable ${names(of(jobs, "skipped"))}`);
+  if (of(jobs, "failed").length) parts.push(`FAILED ${names(of(jobs, "failed"))}`);
+  if (of(downloads, "done").length) parts.push(`${of(downloads, "done").length} download(s) prepared`);
+  if (of(downloads, "failed").length) parts.push(`${of(downloads, "failed").length} download(s) failed`);
+  return parts.join("; ") || `${jobs.length + downloads.length} finished`;
+}
+
+/* ------------------------------------------------------------------ *
  * Main loop
  * ------------------------------------------------------------------ */
 
@@ -1479,6 +1768,7 @@ if (WORKER_MODE === "watch") {
   log(`library    ${LIBRARY} (scan ${LIBRARY_SCAN ? "on" : "off"}, every ${LIBRARY_SCAN_INTERVAL_MS / 60000}m)`);
 
   while (!stopping) {
+    await scheduledJobs();
     scanIncoming();
     await scanLibrary();
 
@@ -1491,21 +1781,26 @@ if (WORKER_MODE === "watch") {
     // Strictly one conversion at a time. Two parallel ffmpeg jobs on a
     // four-thread box make both of them slower than running them in sequence,
     // and starve the transcoder serving anyone actually watching.
-    let worked = await processOne();
-    while (worked && !stopping) {
-      await flushLibraryChanges(false);
-      worked = await processOne();
-    }
-    // One report for the whole batch, now that the queue is empty.
-    await flushLibraryChanges(true);
-    let workedDownload = await processDownloadJob();
-    while (workedDownload && !stopping) {
-      workedDownload = await processDownloadJob();
-    }
+    await recordLoopRun(db, LOOP.conversions, async () => {
+      const since = Date.now();
+      let worked = await processOne();
+      while (worked && !stopping) {
+        await flushLibraryChanges(false);
+        worked = await processOne();
+      }
+      // One report for the whole batch, now that the queue is empty.
+      await flushLibraryChanges(true);
+      let workedDownload = await processDownloadJob();
+      while (workedDownload && !stopping) {
+        workedDownload = await processDownloadJob();
+      }
+      return describeQueueWork(since);
+    }, { log });
     // Uploads waiting for their virus scan, then, last and only with nothing
     // else to do, the library's damage check.
-    await scanUploads();
-    if (!stopping) await checkFilesForAWhile();
+    await recordLoopRun(db, LOOP.uploadScan, scanUploads, { log });
+    if (!stopping) await recordLoopRun(db, LOOP.fileCheck, checkFilesForAWhile, { log });
+    if (!stopping && !(await someoneIsWatching())) await recordLoopRun(db, LOOP.browserAudio, addBrowserAudioForAWhile, { log });
 
     if (stopping) break;
     await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
@@ -1519,39 +1814,50 @@ if (WORKER_MODE === "watch") {
   // folder watching, no library-wide auto-discovery — this is what "the
   // worker never runs on its own" means in practice, short of never
   // starting the container at all.
+  // The site's scheduled jobs that run here (the backup) first: they come
+  // due once a day at most, and a conversion queue can take hours.
+  await scheduledJobs();
+
   let queued = nextPending.get() !== undefined || nextPendingDownload.get() !== undefined;
   if (!queued) {
     log("nothing queued — exiting");
   }
 
-  let worked = await processOne();
-  while (worked && !stopping) {
-    if (await someoneIsWatching()) {
-      log("someone is watching — deferring conversions");
-      await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
-      continue;
-    }
-    await flushLibraryChanges(false);
-    worked = await processOne();
-  }
-  await flushLibraryChanges(true);
+  if (queued) {
+    await recordLoopRun(db, LOOP.conversions, async () => {
+      const since = Date.now();
+      let worked = await processOne();
+      while (worked && !stopping) {
+        if (await someoneIsWatching()) {
+          log("someone is watching — deferring conversions");
+          await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
+          continue;
+        }
+        await flushLibraryChanges(false);
+        worked = await processOne();
+      }
+      await flushLibraryChanges(true);
 
-  let workedDownload = await processDownloadJob();
-  while (workedDownload && !stopping) {
-    if (await someoneIsWatching()) {
-      log("someone is watching — deferring download prep");
-      await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
-      continue;
-    }
-    workedDownload = await processDownloadJob();
+      let workedDownload = await processDownloadJob();
+      while (workedDownload && !stopping) {
+        if (await someoneIsWatching()) {
+          log("someone is watching — deferring download prep");
+          await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
+          continue;
+        }
+        workedDownload = await processDownloadJob();
+      }
+      return describeQueueWork(since);
+    }, { log });
   }
 
   // Last, and only with nothing else to do: read a few library files through
   // for damage. This process then exits and is started again shortly, so the
   // library is worked through a few minutes at a time.
   // Uploads waiting for their virus scan (it checks for viewers itself).
-  await scanUploads();
-  if (!stopping && !queued && !(await someoneIsWatching())) await checkFilesForAWhile();
+  await recordLoopRun(db, LOOP.uploadScan, scanUploads, { log });
+  if (!stopping && !queued && !(await someoneIsWatching())) await recordLoopRun(db, LOOP.fileCheck, checkFilesForAWhile, { log });
+  if (!stopping && !queued && !(await someoneIsWatching())) await recordLoopRun(db, LOOP.browserAudio, addBrowserAudioForAWhile, { log });
 
   db.close();
   log(stopping ? "stopped" : "queue drained — exiting");
