@@ -41,6 +41,8 @@ export async function register(): Promise<void> {
   void startScreeningPurgeLoop();
   void startRolloutRevealLoop();
   void startKnownFilmsRefreshLoop();
+  void startPartySweep();
+  void removeJellyfinScanSchedule();
 }
 
 declare global {
@@ -71,6 +73,13 @@ declare global {
  */
 async function startSchedulerLoop(): Promise<void> {
   if (globalThis.__jellyfinGateSchedulerTimer) return;
+  // A dev copy shares production's Jellyfin (deploy/mac/dev-stack): its own
+  // nightly library scan, backup and removals are production's jobs run a
+  // second time. "Run now" in its console still works.
+  if (process.env.SCHEDULED_JOBS === "false") {
+    console.log("[boot] scheduled jobs off (SCHEDULED_JOBS=false)");
+    return;
+  }
 
   try {
     const { ensureBuiltinJobs, failInterruptedGateRuns, runSchedulerTick } = await import("./lib/scheduler");
@@ -225,6 +234,45 @@ async function startKnownFilmsRefreshLoop(): Promise<void> {
   }
 }
 
+/** The watch-party empty-room sweep (party-bus.ts), from boot rather than the first join. */
+async function startPartySweep(): Promise<void> {
+  try {
+    const { startPartySweep: start } = await import("./lib/party-bus");
+    start();
+    console.log("[boot] party empty-room sweep started");
+  } catch (error) {
+    console.error("[boot] party empty-room sweep failed to start (it starts on the next join instead):", error);
+  }
+}
+
+/**
+ * Takes the schedule off Jellyfin's own "Scan Media Library" task
+ * (jellyfin-scan-trigger.ts): scans come only from the site, which checks
+ * the film drive first. Jellyfin is healthy before the gate starts
+ * (depends_on), but is given a few tries in case it is still settling.
+ */
+async function removeJellyfinScanSchedule(): Promise<void> {
+  const { removeLibraryScanTriggers } = await import("./lib/jellyfin-scan-trigger");
+  const { jellyfinAdminCall } = await import("./lib/jellyfin");
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      const result = await removeLibraryScanTriggers(jellyfinAdminCall);
+      if (result.changed) {
+        console.log(`[boot] removed Jellyfin's own library scan schedule (${result.removed.join(", ")}); scans now come only from the site`);
+      } else if (result.reason === "no_task") {
+        console.warn("[boot] Jellyfin has no \"Scan Media Library\" task to unschedule");
+      }
+      return;
+    } catch (error) {
+      if (attempt === 5) {
+        console.error("[boot] could not remove Jellyfin's own library scan schedule (it may still scan every 12 hours):", error);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 30_000));
+    }
+  }
+}
+
 async function warmBrowseCache(): Promise<void> {
   try {
     const { warmBrowsePeopleCache } = await import("./lib/browse-data");
@@ -280,6 +328,10 @@ async function runStartupScan(): Promise<void> {
       return;
     }
 
+    // Not while the film drive looks absent (library-drive.ts): it would
+    // tell Jellyfin every film is gone. That case is logged and thrown.
+    const { assertLibraryDrivePresent } = await import("./lib/library-scan");
+    await assertLibraryDrivePresent();
     const { refreshLibrary } = await import("./lib/jellyfin");
     await refreshLibrary();
     console.log("[boot] startup library scan triggered");

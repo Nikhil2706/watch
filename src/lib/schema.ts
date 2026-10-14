@@ -1371,7 +1371,7 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
   enabled         INTEGER NOT NULL DEFAULT 1,
   skip_if_playing INTEGER NOT NULL DEFAULT 0,
   builtin         INTEGER NOT NULL DEFAULT 0,
-  runner          TEXT NOT NULL DEFAULT 'gate', -- 'gate' | 'host'
+  runner          TEXT NOT NULL DEFAULT 'gate', -- 'gate' | 'worker' | 'loop' | 'host' (scheduler.ts)
   next_run_at     INTEGER NOT NULL,
   waiting_since   INTEGER,
   run_requested   INTEGER NOT NULL DEFAULT 0,

@@ -7,7 +7,7 @@
 #   env        write ~/watch/.env and the compose override from the package
 #   volumes    create the Docker volumes and fill them from the snapshot
 #   console    start the admin console container
-#   agents     install the launchd agents (start-up guard, host jobs)
+#   agents     install the launchd agent (start-up guard)
 #   ops        put the day-to-day helper scripts in ~/watch-ops
 #   check      the final checks, printed as a list
 set -uo pipefail
@@ -24,20 +24,23 @@ env)
   [ -d "$DRIVE/Da Moveesh" ] || { echo "no film library at $DRIVE/Da Moveesh"; exit 1; }
   mkdir -p "$HOME/watch-data/incoming" "$DRIVE/_Excluded"
   # Every key as it was; only the three host paths and the compose list change.
-  grep -v -E '^(MEDIA_PATH|MEDIA_INCOMING|MEDIA_EXCLUDED_PATH|COMPOSE_FILE|CF_CREDS_DIR|CF_USER|TUNNEL_TOKEN)=' "$P/config/env" > "$REPO/.env"
+  grep -v -E '^(MEDIA_PATH|MEDIA_INCOMING|MEDIA_EXCLUDED_PATH|BACKUP_PATH|COMPOSE_FILE|CF_CREDS_DIR|CF_USER|TUNNEL_TOKEN)=' "$P/config/env" > "$REPO/.env"
   {
     echo
     echo "# Host paths for this Mac (written by watch-mac-restore/mac/setup.sh env)"
     echo "MEDIA_PATH=$DRIVE/Da Moveesh"
     echo "MEDIA_EXCLUDED_PATH=$DRIVE/_Excluded"
     echo "MEDIA_INCOMING=$HOME/watch-data/incoming"
+    # The worker writes the backup here (scripts/backup.mjs).
+    echo "BACKUP_PATH=$DRIVE/jellyfin-gate-backups"
     echo "COMPOSE_FILE=docker-compose.yml:docker-compose.override.yml"
   } >> "$REPO/.env"
   chmod 600 "$REPO/.env"
   cp "$PKG/mac/docker-compose.override.yml" "$REPO/docker-compose.override.yml"
   say "wrote $REPO/.env ($(grep -c '=' "$REPO/.env") settings) and the compose override"
   (cd "$REPO" && docker compose config >/dev/null && echo "compose reads it") || echo "COMPOSE DOES NOT ACCEPT IT - read the error above"
-  (cd "$REPO" && docker compose config | grep -E 'source: .*(Da Moveesh|_Excluded|incoming)' | sort -u)
+  mkdir -p "$DRIVE/jellyfin-gate-backups" && touch "$DRIVE/jellyfin-gate-backups/.watch-backups"
+  (cd "$REPO" && docker compose config | grep -E 'source: .*(Da Moveesh|_Excluded|incoming|jellyfin-gate-backups)' | sort -u)
   ;;
 
 volumes)
@@ -88,17 +91,20 @@ console)
 
 agents)
   mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" "$HOME/.config/watch" "$HOME/watch-host"
-  cp "$PKG/mac/host-jobs/"*.sh "$PKG/mac/watch-up.sh" "$HOME/watch-host/" && chmod 755 "$HOME/watch-host/"*.sh
-  printf 'JFG_REPO=%s\nJFG_BACKUP_ROOT=%s\n' "$REPO" "$DRIVE/jellyfin-gate-backups" > "$HOME/.config/watch/jellyfin-gate"
+  cp "$PKG/mac/watch-up.sh" "$HOME/watch-host/" && chmod 755 "$HOME/watch-host/"*.sh
   BREW=$(brew --prefix 2>/dev/null || echo /opt/homebrew)
   DOCKERBIN=$(dirname "$(command -v docker)")
-  for name in com.watch.up com.watch.hostjobs; do
+  # The backup runs in the worker now, on the site's schedule: the host-jobs
+  # agent that used to run it every minute is taken out if it is there.
+  launchctl bootout "gui/$(id -u)/com.watch.hostjobs" 2>/dev/null && echo "removed com.watch.hostjobs"
+  rm -f "$HOME/Library/LaunchAgents/com.watch.hostjobs.plist"
+  for name in com.watch.up; do
     sed -e "s#__HOME__#$HOME#g" -e "s#__DRIVE__#$DRIVE#g" -e "s#__BREW__#$BREW#g" -e "s#__DOCKERBIN__#$DOCKERBIN#g" \
       "$PKG/mac/launchd/$name.plist" > "$HOME/Library/LaunchAgents/$name.plist"
     launchctl bootout "gui/$(id -u)/$name" 2>/dev/null
     launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/$name.plist" && echo "loaded $name"
   done
-  echo "logs: ~/Library/Logs/watch-up.log and ~/Library/Logs/jellyfin-gate-host-jobs.log"
+  echo "log: ~/Library/Logs/watch-up.log"
   ;;
 
 ops)

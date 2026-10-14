@@ -439,6 +439,24 @@ export async function applyRestrictedPolicy(
 }
 
 /**
+ * A call to Jellyfin's API with the site's admin key, for the few places
+ * that take Jellyfin as a parameter so tests can stand in for it
+ * (jellyfin-scan-trigger.ts).
+ */
+export function jellyfinAdminCall<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  return jellyfinFetch<T>(path, { ...init, token: env.jellyfinApiKey, timeoutMs: 15_000 });
+}
+
+/** Every folder path Jellyfin knows in the library, for library-drive.ts's idea of what should be on the drive. */
+export async function listLibraryFolderPaths(): Promise<string[]> {
+  const data = await jellyfinFetch<{ Items: Array<{ Path?: string }> }>(
+    "/Items?Recursive=true&IncludeItemTypes=Folder&Fields=Path&Limit=5000",
+    { token: env.jellyfinApiKey, timeoutMs: 30_000 },
+  );
+  return data.Items.map((f) => f.Path).filter((p): p is string => typeof p === "string");
+}
+
+/**
  * Kicks off a full library scan so Jellyfin picks up files added or removed
  * on disk since the last scan. Fire-and-forget on Jellyfin's side — the
  * response returns before the scan finishes, so this only confirms the
