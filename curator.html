@@ -1507,6 +1507,7 @@
           <option value="client">Client</option>
           <option value="media_job">Conversion</option>
           <option value="scrape_job">Scraping</option>
+          <option value="upload">Upload scan</option>
         </select>
         <select id="logSeverity">
           <option value="">All severities</option>
@@ -2174,7 +2175,7 @@
    * Uploads — Langlois-mode quarantine review
    * ================================================================ */
   var UPLOAD_STATUS_LABEL = {
-    uploaded: "Uploaded, awaiting scan",
+    uploaded: "Waiting for the virus scan",
     scanning: "Scanning",
     clean: "Clean — ready for review",
     infected: "Infected",
@@ -2240,7 +2241,7 @@
         '<td>' + esc(u.username) + '</td>' +
         '<td>' + fmtBytes(u.size_bytes) + '</td>' +
         '<td><span class="pill ' + statusClass + '">' + esc(statusLabel) + '</span>' +
-          (u.status === "infected" && u.scan_result ? '<div class="muted">' + esc(u.scan_result) + '</div>' : '') +
+          (u.scan_result && u.status !== "approved" && u.status !== "rejected" ? '<div class="muted">' + esc(u.scan_result) + '</div>' : '') +
         '</td>' +
         '<td>' + fmtDate(new Date(u.created_at).toISOString()) + '</td>' +
         '<td style="text-align:right">' + actions + '</td>' +
@@ -2485,19 +2486,24 @@
       "",
       ""
     ));
-    // The antivirus scan of uploads runs on Windows, outside the site; this
-    // is the only place that says whether it is running at all.
+    // The worker's ClamAV scan of uploads (scripts/upload-scan.mjs); this is
+    // the only place that says whether it is running at all.
     var us = h.uploadScanner;
     if (us) {
+      var usNote = us.stalled
+        ? us.waiting + " upload" + (us.waiting === 1 ? "" : "s") + " waiting and nothing is scanning them — see the worker's log"
+        : us.lastRunAt
+          ? (us.waiting
+              ? us.waiting + " waiting for a scan" + (us.deferred ? " (held off: " + us.deferred + ")" : "")
+              : "nothing waiting")
+          : "no sign the worker's scanner has run — uploads cannot be approved until it does";
+      if (us.infected) usNote += " · " + us.infected + " failed the scan — reject " + (us.infected === 1 ? "it" : "them") + " in Uploads";
+      if (us.signaturesAt) usNote += " · signatures of " + fmtAgo(us.signaturesAt);
       cards.push(healthCard(
         "Upload scanner",
         us.lastRunAt ? fmtAgo(us.lastRunAt) : "Not set up",
-        us.stalled
-          ? us.waiting + " upload" + (us.waiting === 1 ? "" : "s") + " waiting and nothing is scanning them"
-          : us.lastRunAt
-            ? (us.waiting ? us.waiting + " waiting for a scan" : "nothing waiting")
-            : "no sign it has ever run on this PC — uploads cannot be approved until it does",
-        us.stalled ? "warning" : ""
+        usNote,
+        us.stalled || us.infected ? "warning" : ""
       ));
     }
     $("healthGrid").innerHTML = cards.join("");

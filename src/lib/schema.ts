@@ -375,7 +375,7 @@ CREATE TABLE IF NOT EXISTS job_controls (
 -- instead of six.
 CREATE TABLE IF NOT EXISTS event_log (
   id         TEXT PRIMARY KEY,
-  category   TEXT NOT NULL, -- internal_api | external_api | playback | client | media_job | scrape_job
+  category   TEXT NOT NULL, -- internal_api | external_api | playback | client | media_job | scrape_job | upload
   severity   TEXT NOT NULL, -- info | warning | error | critical
   source     TEXT NOT NULL, -- e.g. 'omdb', 'wikipedia', 'jf_proxy', 'player', 'worker'
   message    TEXT NOT NULL,

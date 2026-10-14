@@ -47,6 +47,7 @@ import {
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 
 import { countErrors, isStale, isStillArriving, judge } from "./file-check.mjs";
+import { clamavScanner, scanWaitingUploads, writeHeartbeat } from "./upload-scan.mjs";
 
 /* ------------------------------------------------------------------ *
  * Config
@@ -655,6 +656,60 @@ function logWorkerFailure(message, detail) {
     log("event log write failed:", err.message);
   }
 }
+/* ------------------------------------------------------------------ *
+ * Virus scan of uploads (upload-scan.mjs)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Langlois-mode uploads wait in MEDIA_QUARANTINE until scanned clean. ClamAV's
+ * clamscan runs here, on demand, never while someone is watching; see
+ * upload-scan.mjs for the states and docker-compose.yml for the memory it
+ * needs. UPLOAD_SCAN=false turns it off (uploads then wait, as before).
+ */
+const UPLOAD_SCAN = !/^(0|false|no|off)$/i.test(process.env.UPLOAD_SCAN ?? "true");
+const QUARANTINE = abs(process.env.MEDIA_QUARANTINE, "./media-quarantine");
+const uploadScanner = clamavScanner({
+  dbDir: process.env.CLAMAV_DB ?? "/var/lib/clamav",
+  maxMb: Number(process.env.UPLOAD_SCAN_MAX_MB ?? 4000),
+  log,
+});
+const insertUploadEvent = db.prepare(
+  `INSERT INTO event_log (id, category, severity, source, message, detail, item_id, username, created_at)
+   VALUES (?, 'upload', ?, 'upload_scan', ?, ?, NULL, NULL, ?)`,
+);
+
+async function scanUploads() {
+  if (!UPLOAD_SCAN || stopping) return;
+  try {
+    const r = await scanWaitingUploads(db, {
+      scanner: uploadScanner,
+      isBusy: someoneIsWatching,
+      heartbeat: (info) => {
+        try {
+          writeHeartbeat(QUARANTINE, info);
+        } catch (err) {
+          log("upload scan: heartbeat not written:", err.message);
+        }
+      },
+      logEvent: ({ severity, message, detail }) => {
+        try {
+          insertUploadEvent.run(randomUUID(), severity, message.slice(0, 2000), JSON.stringify(detail ?? {}).slice(0, 4000), Date.now());
+        } catch (err) {
+          log("event log write failed:", err.message);
+        }
+      },
+      fileExists: existsSync,
+      now: Date.now,
+      log,
+    });
+    if (r.scanned || r.recovered) {
+      log(`upload scan: ${r.scanned} scanned (${r.clean} clean, ${r.infected} infected, ${r.failed} failed)` + (r.recovered ? `, ${r.recovered} interrupted before` : ""));
+    }
+  } catch (err) {
+    log("upload scan failed:", err.message);
+  }
+}
+
 /**
  * Pause is implemented with SIGSTOP/SIGCONT rather than by killing ffmpeg.
  *
@@ -1447,7 +1502,9 @@ if (WORKER_MODE === "watch") {
     while (workedDownload && !stopping) {
       workedDownload = await processDownloadJob();
     }
-    // Last, and only with nothing else to do.
+    // Uploads waiting for their virus scan, then, last and only with nothing
+    // else to do, the library's damage check.
+    await scanUploads();
     if (!stopping) await checkFilesForAWhile();
 
     if (stopping) break;
@@ -1492,6 +1549,8 @@ if (WORKER_MODE === "watch") {
   // Last, and only with nothing else to do: read a few library files through
   // for damage. This process then exits and is started again shortly, so the
   // library is worked through a few minutes at a time.
+  // Uploads waiting for their virus scan (it checks for viewers itself).
+  await scanUploads();
   if (!stopping && !queued && !(await someoneIsWatching())) await checkFilesForAWhile();
 
   db.close();

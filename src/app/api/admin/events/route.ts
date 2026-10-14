@@ -13,6 +13,7 @@ const CATEGORIES = new Set<EventCategory>([
   "client",
   "media_job",
   "scrape_job",
+  "upload",
 ]);
 const SEVERITIES = new Set<EventSeverity>(["info", "warning", "error", "critical"]);
 

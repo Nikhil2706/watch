@@ -12,15 +12,17 @@ import { env } from "./env";
  * normal watch-folder pipeline into the real library). See the `uploads`
  * table comment in schema.ts for the full status-flow reasoning.
  *
- * The antivirus step happens OUTSIDE this app entirely: Windows Defender
- * can't be invoked from inside this Linux container, so a native
- * PowerShell script (scripts/windows/upload-scanner.ps1, run on a
- * schedule like docker-watchdog.ps1 already is) watches the quarantine
- * folder on the host side, runs MpCmdRun.exe, and drops one
- * "<upload-id>.scan-result.json" file per upload next to the quarantined
- * file. reconcileScanResults() below is the only place that reads those
- * marker files back into the database — called opportunistically whenever
- * the admin Uploads list is loaded, not on any timer of its own.
+ * The antivirus step is the worker's (scripts/upload-scan.mjs): ClamAV
+ * scans each waiting upload, never while someone is streaming, and writes
+ * the verdict straight into this table — status 'clean' or 'infected' with
+ * the detail in scan_result, or back to 'uploaded' with "Scan failed: ..."
+ * and the attempt's time in scanned_at, retried an hour later. It also
+ * writes a heartbeat file into the quarantine folder, which is how the health
+ * check knows it is running.
+ *
+ * reconcileScanResults() below still reads the marker files the old Windows
+ * Defender script (scripts/windows/upload-scanner.ps1) would have written,
+ * for a host that runs that instead; on the Docker stack there are none.
  */
 
 export type UploadStatus = "uploaded" | "scanning" | "clean" | "infected" | "approved" | "rejected";
@@ -86,8 +88,8 @@ function stripBom(text: string): string {
 }
 
 /**
- * The scanner's sign of life: it writes this file into the quarantine folder
- * on every run, found something or not. Without it there is no telling a
+ * The scanner's sign of life: the worker writes this file into the quarantine
+ * folder on every pass (scripts/upload-scan.mjs), found something or not. Without it there is no telling a
  * scanner that has nothing to do from one that was never set up on this
  * machine — which is how the task came to be missing after the move to this
  * PC with nobody the wiser.
@@ -101,25 +103,51 @@ export interface UploadScannerStatus {
   waiting: number;
   /** When the longest-waiting of those arrived. */
   oldestWaitingAt: number | null;
+  /** Uploads that failed the scan and haven't been rejected yet. */
+  infected: number;
+  /** When the virus signatures it last scanned with were updated, if it said. */
+  signaturesAt: number | null;
+  /** Set when its last run held off, e.g. "someone is watching". */
+  deferred: string | null;
+  /** When the scan in progress started, if one is. */
+  scanningSince: number | null;
 }
 
 export function getUploadScannerStatus(): UploadScannerStatus {
   let lastRunAt: number | null = null;
+  let signaturesAt: number | null = null;
+  let deferred: string | null = null;
   try {
     const raw = JSON.parse(stripBom(readFileSync(join(env.mediaQuarantinePath, HEARTBEAT_FILE), "utf8"))) as {
       ranAt?: unknown;
+      signaturesAt?: unknown;
+      deferred?: unknown;
     };
     const at = typeof raw.ranAt === "string" ? Date.parse(raw.ranAt) : NaN;
     lastRunAt = Number.isFinite(at) ? at : null;
+    signaturesAt = typeof raw.signaturesAt === "number" ? raw.signaturesAt : null;
+    deferred = typeof raw.deferred === "string" ? raw.deferred : null;
   } catch {
     // No file, or not readable: the scanner has not run here.
   }
+  const infected = asRow<{ n: number }>(getDb().prepare("SELECT COUNT(*) AS n FROM uploads WHERE status = 'infected'").get());
+  const scanning = asRow<{ since: number | null }>(
+    getDb().prepare("SELECT MIN(scanned_at) AS since FROM uploads WHERE status = 'scanning'").get(),
+  );
   const waiting = asRow<{ n: number; oldest: number | null }>(
     getDb()
       .prepare("SELECT COUNT(*) AS n, MIN(created_at) AS oldest FROM uploads WHERE status IN ('uploaded', 'scanning')")
       .get(),
   );
-  return { lastRunAt, waiting: waiting?.n ?? 0, oldestWaitingAt: waiting?.oldest ?? null };
+  return {
+    lastRunAt,
+    waiting: waiting?.n ?? 0,
+    oldestWaitingAt: waiting?.oldest ?? null,
+    infected: infected?.n ?? 0,
+    signaturesAt,
+    deferred,
+    scanningSince: scanning?.since ?? null,
+  };
 }
 
 function readScanMarker(quarantinePath: string): ScanMarker | null {

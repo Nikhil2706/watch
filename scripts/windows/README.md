@@ -1,5 +1,10 @@
 # Upload scanner — setup (NOT set up on the current PC; never tested)
 
+> **Superseded on the Docker stack (2026-10-14).** The worker now scans uploads
+> itself with ClamAV (`scripts/upload-scan.mjs`, see the `worker` service in
+> `docker-compose.yml`), so nothing below needs setting up. It is kept for a
+> Windows host that would rather use Defender; don't run both.
+
 `upload-scanner.ps1` runs the Windows Defender side of the Langlois-mode
 upload pipeline: quarantine → **this script** → curator approval.
 
