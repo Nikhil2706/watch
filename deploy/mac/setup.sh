@@ -92,7 +92,7 @@ agents)
   printf 'JFG_REPO=%s\nJFG_BACKUP_ROOT=%s\n' "$REPO" "$DRIVE/jellyfin-gate-backups" > "$HOME/.config/watch/jellyfin-gate"
   BREW=$(brew --prefix 2>/dev/null || echo /opt/homebrew)
   DOCKERBIN=$(dirname "$(command -v docker)")
-  for name in com.watch.up com.watch.hostjobs; do
+  for name in com.watch.up com.watch.hostjobs com.watch.yield; do
     sed -e "s#__HOME__#$HOME#g" -e "s#__DRIVE__#$DRIVE#g" -e "s#__BREW__#$BREW#g" -e "s#__DOCKERBIN__#$DOCKERBIN#g" \
       "$PKG/mac/launchd/$name.plist" > "$HOME/Library/LaunchAgents/$name.plist"
     launchctl bootout "gui/$(id -u)/$name" 2>/dev/null
