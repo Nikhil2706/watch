@@ -162,7 +162,7 @@ export default async function HomePage() {
   if (!featured) {
     return (
       <>
-        <AppBar username={session.username} langloisMode={session.langloisMode} />
+        <AppBar username={session.username} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
         <PartyBanner live={liveParties} upcoming={upcomingParties} />
         <ProcessingRow jobs={processing} />
         {libraryUnreachable ? (
@@ -197,7 +197,7 @@ export default async function HomePage() {
 
   return (
     <>
-      <AppBar username={session.username} langloisMode={session.langloisMode} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
       <GetAppPrompt variant="banner" />
       <PartyBanner live={liveParties} upcoming={upcomingParties} />
       <Hero
