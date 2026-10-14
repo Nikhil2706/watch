@@ -963,3 +963,75 @@
     grid-row: 2;
   }
 }
+
+/* ---- tables (Invites, Users, Uploads) ---- */
+.adm-invites .adm-card {
+  margin-bottom: 14px;
+}
+.adm-list-head {
+  align-items: center;
+  margin-bottom: 10px;
+}
+.adm-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 10px;
+}
+.adm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.adm-table th {
+  text-align: left;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.adm-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.adm-right {
+  text-align: right;
+  white-space: nowrap;
+}
+.adm-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.adm-pill.s-active,
+.adm-pill.s-clean {
+  border-color: #5fd38b;
+  color: #5fd38b;
+}
+.adm-pill.s-revoked,
+.adm-pill.s-infected {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.adm-pill.s-expired,
+.adm-pill.s-exhausted {
+  color: var(--muted);
+}
+.adm-invite-foot {
+  align-items: center;
+  margin-top: 6px;
+}
+.adm-link-out {
+  margin-top: 10px;
+  align-items: center;
+}
+.adm-link-out input {
+  flex: 1 1 280px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.8rem;
+}
