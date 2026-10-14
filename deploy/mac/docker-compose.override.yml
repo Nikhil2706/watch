@@ -1,0 +1,27 @@
+# Local to this Mac. Not in git.
+services:
+  # The Cloudflare tunnel runs on the Mac itself (cloudflared, installed as a
+  # service), not as a container: its ingress is "http://localhost:3000",
+  # which inside a container would be the container.
+  tunnel:
+    profiles: ["disabled"]
+
+  # The base file's limits were set for the old PC's 4-thread i3. Here, with
+  # 2.5 cores, a 1080p conversion ran at 0.35x real time (buffering); with 6
+  # it runs at 1.35x and leaves 4 of the M4's 10 cores to Final Cut and the
+  # rest of the Mac (owner's choice, 2026-10-14).
+  jellyfin:
+    cpus: "6"
+
+  # Start the site without asking Jellyfin for a full library scan. New files
+  # are picked up from the console (Folders…) or by a scheduled Library scan.
+  gate:
+    environment:
+      - STARTUP_LIBRARY_SCAN=false
+
+  # The damaged-file check is ON here (it was paused on the old PC only
+  # because that machine was short of memory). It reads 100 files a day, when
+  # nothing is queued and nobody is watching. To pause it again:
+  #   worker:
+  #     environment:
+  #       - FILE_CHECK=false

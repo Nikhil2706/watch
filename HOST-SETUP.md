@@ -1,5 +1,8 @@
 # HOST-SETUP — how the HP host is actually set up
 
+> **Now on a Mac (since 2026-10-14).** The site runs on a Mac mini with OrbStack; see [deploy/mac/README.md](deploy/mac/README.md) for what runs where. What follows describes the earlier Linux/WSL hosts and is kept for reference.
+
+
 What `jellyfin-gate-restore/RESTORE.md (on the media drive)` did not know, written after the
 2026-09-23/26 restore onto the HP laptop. Where this and RESTORE.md disagree,
 this is current. No secrets in here — only where they live.
