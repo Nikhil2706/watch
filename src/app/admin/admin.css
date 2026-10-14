@@ -1039,3 +1039,33 @@
 .adm-break {
   overflow-wrap: anywhere;
 }
+
+/* ---- TMDB tab ---- */
+.adm-finding {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.adm-finding.suspect {
+  border-color: rgba(239, 91, 107, 0.4);
+}
+.adm-finding-title {
+  font-weight: 600;
+}
+.adm-finding-tag {
+  margin-left: 6px;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+}
+.adm-cand {
+  padding: 6px 0 0 14px;
+}
+.adm-stills {
+  margin-top: 14px;
+}
+.adm-stills-row {
+  padding: 5px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+}
