@@ -1035,3 +1035,7 @@
   font-family: ui-monospace, Menlo, monospace;
   font-size: 0.8rem;
 }
+
+.adm-break {
+  overflow-wrap: anywhere;
+}

@@ -12,7 +12,7 @@ export const ADMIN_TABS: ReadonlyArray<{ key: string; label: string; ported: boo
   { key: "library", label: "Library", ported: true },
   { key: "health", label: "Health", ported: true },
   { key: "invites", label: "Invites", ported: true },
-  { key: "uploads", label: "Uploads", ported: false },
+  { key: "uploads", label: "Uploads", ported: true },
   { key: "dupes", label: "Duplicates", ported: false },
   { key: "worker", label: "Worker", ported: false },
   { key: "accolades", label: "Accolades", ported: false },
