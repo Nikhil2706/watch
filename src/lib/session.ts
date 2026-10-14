@@ -46,6 +46,8 @@ export interface ResolvedSession {
   parentalControl: boolean;
   /** Their own switch: leave what they have watched out of Home's rows and Browse. */
   hideWatched: boolean;
+  /** May use /admin and /api/admin/* (users.is_admin, v59), unless the account is suspended. */
+  isAdmin: boolean;
 }
 
 interface JoinedRow extends SessionRow {
@@ -54,6 +56,8 @@ interface JoinedRow extends SessionRow {
   langlois_mode: number;
   parental_control: number;
   hide_watched: number;
+  is_admin: number;
+  suspended: number;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -213,7 +217,7 @@ export function getSession(sessionId: string | null): ResolvedSession | null {
   const row = asRow<JoinedRow>(
     getDb()
       .prepare(
-        `SELECT s.*, u.username, u.jellyfin_user_id, u.langlois_mode, u.parental_control, u.hide_watched
+        `SELECT s.*, u.username, u.jellyfin_user_id, u.langlois_mode, u.parental_control, u.hide_watched, u.is_admin, u.suspended
            FROM sessions s
            JOIN users u ON u.id = s.user_id
           WHERE s.id = ?`,
@@ -239,6 +243,7 @@ export function getSession(sessionId: string | null): ResolvedSession | null {
     langloisMode: row.langlois_mode === 1,
     parentalControl: row.parental_control === 1,
     hideWatched: row.hide_watched === 1,
+    isAdmin: row.is_admin === 1 && row.suspended !== 1,
   };
 }
 
