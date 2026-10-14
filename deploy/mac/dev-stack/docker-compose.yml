@@ -1,0 +1,102 @@
+# Isolated dev copy of the gate + worker, for testing the phone app against
+# unmerged code. Run from this directory:
+#
+#   COMPOSE_FILE=docker-compose.yml docker compose --env-file ~/watch/.env up -d
+#   (or ~/watch-ops/build-dev.sh <worktree>, which builds and does this).
+#   COMPOSE_FILE must be set: ~/watch/.env names production's compose files.
+#
+# What it shares with production, and what it deliberately does not:
+#   - Jellyfin: shared (the real library, over the existing internal network).
+#   - Database: NOT shared. Its own volume, seeded once from a copy of prod,
+#     so dev logins, list edits and download jobs never touch the real one.
+#   - Media: mounted READ-ONLY. Download prep only reads; nothing here can
+#     move, convert or delete a file in the real library.
+#   - Downloads cache: its own directory.
+#   - Reachable only on 127.0.0.1:3100 — a phone gets to it with
+#     `adb reverse tcp:3100 tcp:3100` over USB, never over the LAN.
+name: watch-dev
+
+services:
+  gate:
+    image: watch-gate:dev
+    container_name: jellyfin-gate-dev
+    restart: "no"
+    cpus: "1.0"
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:3100:3000"
+    networks: [internal]
+    environment:
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      JELLYFIN_API_KEY: ${JELLYFIN_API_KEY}
+      DDD_API_KEY: ${DDD_API_KEY:-}
+      OMDB_API_KEY: ${OMDB_API_KEY:-}
+      OPENSUBTITLES_API_KEY: ${OPENSUBTITLES_API_KEY:-}
+      TMDB_READ_ACCESS_TOKEN: ${TMDB_READ_ACCESS_TOKEN:-}
+      DATABASE_PATH: /app/data/jellyfin-gate.db
+      JELLYFIN_URL: http://jellyfin:8096
+      HOST_MEDIA_PATH: ${MEDIA_PATH}
+      MEDIA_LIBRARY: /media
+      MEDIA_EXCLUDED: /excluded
+      MEDIA_DOWNLOADS_CACHE: /downloads-cache
+      MEDIA_QUARANTINE: /quarantine
+      MEDIA_INCOMING: /incoming
+      # Plain http on localhost: no Cloudflare in front, and Secure cookies
+      # would be dropped over http.
+      PUBLIC_URL: http://localhost:3100
+      COOKIE_SECURE: "false"
+      TRUST_CF_CONNECTING_IP: "false"
+      STARTUP_LIBRARY_SCAN: "false"
+    volumes:
+      - gate-data:/app/data
+      - ${MEDIA_PATH}:/media:ro
+      - ${MEDIA_EXCLUDED_PATH}:/excluded:ro
+      - ./downloads-cache:/downloads-cache
+      - ./quarantine:/quarantine
+      - ./incoming:/incoming
+
+  worker:
+    image: watch-worker:dev
+    container_name: jellyfin-gate-worker-dev
+    restart: "no"
+    cpus: "1.0"
+    mem_limit: 1g
+    networks: [internal]
+    command:
+      - sh
+      - -c
+      - |
+        trap 'kill -TERM "$$child" 2>/dev/null; exit 0' TERM INT
+        while true; do
+          node /app/scripts/media-worker.mjs & child=$$!
+          wait "$$child"
+          sleep 20
+        done
+    environment:
+      JELLYFIN_API_KEY: ${JELLYFIN_API_KEY}
+      DATABASE_PATH: /app/data/jellyfin-gate.db
+      JELLYFIN_URL: http://jellyfin:8096
+      WORKER_MODE: queue
+      LIBRARY_SCAN: "false"
+      # The damaged-file check belongs to production; a second copy would
+      # re-read the same films into its own database for nothing.
+      FILE_CHECK: "false"
+      PAUSE_WHILE_STREAMING: "true"
+      TRANSCODE_PRESET: veryfast
+      MEDIA_LIBRARY: /media
+      MEDIA_INCOMING: /incoming
+      MEDIA_ARCHIVE: /incoming/.processed
+      MEDIA_DOWNLOADS_CACHE: /downloads-cache
+    volumes:
+      - gate-data:/app/data
+      - ${MEDIA_PATH}:/media:ro
+      - ./downloads-cache:/downloads-cache
+      - ./incoming:/incoming
+
+networks:
+  internal:
+    external: true
+    name: watch_internal
+
+volumes:
+  gate-data:

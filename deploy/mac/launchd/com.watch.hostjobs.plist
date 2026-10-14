@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.watch.hostjobs</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>__HOME__/watch-host/jellyfin-gate-host-jobs.sh</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- GNU tools first: the scripts were written for Linux (date -Is, stat -c, head -n -1, flock). -->
+    <key>PATH</key><string>__BREW__/opt/coreutils/libexec/gnubin:__BREW__/opt/gnu-tar/libexec/gnubin:__DOCKERBIN__:__BREW__/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <!-- Every minute, as cron did on the PC. The script exits at once when the site has nothing for it. -->
+  <key>StartInterval</key><integer>60</integer>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/jellyfin-gate-host-jobs.err.log</string>
+</dict>
+</plist>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.watch.up</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>__HOME__/watch-host/watch-up.sh</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>__DOCKERBIN__:__BREW__/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>WATCH_DRIVE</key><string>__DRIVE__</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>StartInterval</key><integer>120</integer>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/watch-up.log</string>
+</dict>
+</plist>
