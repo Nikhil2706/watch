@@ -18,7 +18,7 @@ export const ADMIN_TABS: ReadonlyArray<{ key: string; label: string; ported: boo
   { key: "accolades", label: "Accolades", ported: false },
   { key: "tmdb", label: "TMDB", ported: false },
   { key: "picks", label: "Picks", ported: false },
-  { key: "screenings", label: "Screening Room", ported: false },
+  { key: "screenings", label: "Screening Room", ported: true },
 ];
 
 export function AdminNav() {
