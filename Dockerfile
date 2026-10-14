@@ -119,6 +119,8 @@ RUN apk add --no-cache clamav-scanner freshclam \
 COPY --chown=node:node scripts/media-worker.mjs ./scripts/media-worker.mjs
 COPY --chown=node:node scripts/file-check.mjs ./scripts/file-check.mjs
 COPY --chown=node:node scripts/upload-scan.mjs ./scripts/upload-scan.mjs
+COPY --chown=node:node scripts/backup.mjs ./scripts/backup.mjs
+COPY --chown=node:node scripts/worker-jobs.mjs ./scripts/worker-jobs.mjs
 
 RUN mkdir -p /app/data && chown -R node:node /app
 USER node

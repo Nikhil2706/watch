@@ -25,3 +25,8 @@ services:
   #   worker:
   #     environment:
   #       - FILE_CHECK=false
+
+  # The backup (run by the worker) copies this file too.
+  worker:
+    volumes:
+      - ./docker-compose.override.yml:/stack/docker-compose.override.yml:ro

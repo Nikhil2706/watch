@@ -1,17 +1,49 @@
 import "server-only";
 
+import { readdirSync, statSync } from "node:fs";
+
 import { invalidateAdminMovies } from "./admin-library-cache";
 import { syncLeavingPick } from "./folder-removals";
 import { getDb } from "./db";
-import { refreshLibrary, refreshLibraryFolders } from "./jellyfin";
+import { env } from "./env";
+import { listLibraryFolderPaths, refreshLibrary, refreshLibraryFolders } from "./jellyfin";
+import { checkLibraryDrive, expectedTopFolders, type DriveCheck } from "./library-drive";
 import { relinkUnmatchedPickItems } from "./picks";
 import { relinkUnmatchedAccoladeEntries, relinkUnmatchedArticleLinks } from "./scraping/articles";
 import { relinkUnmatchedFilmSeriesEntries } from "./scraping/film-series";
 import { invalidateLibraryIndex } from "./scraping/match";
 import { promoteSubtitles } from "./subtitle-promotion";
 
+/** A scan was refused because the film drive does not look like it is there. */
+export class LibraryDriveAbsentError extends Error {}
+
+/**
+ * Whether the film drive is there, by library-drive.ts's rules, measured
+ * against the folders Jellyfin knows (or MEDIA_EXPECTED_FOLDERS).
+ */
+export async function libraryDriveCheck(): Promise<DriveCheck> {
+  const root = env.mediaLibraryPath;
+  const expected =
+    env.mediaExpectedFolders.length > 0
+      ? { folders: env.mediaExpectedFolders, allRequired: true }
+      : { folders: expectedTopFolders(await listLibraryFolderPaths(), root), allRequired: false };
+  return checkLibraryDrive(root, expected, {
+    readdir: (path) => readdirSync(path),
+    isDirectory: (path) => statSync(path).isDirectory(),
+  });
+}
+
+/** Throws LibraryDriveAbsentError, and says so in the log, when the drive does not look present. */
+export async function assertLibraryDrivePresent(): Promise<void> {
+  const drive = await libraryDriveCheck();
+  if (drive.present) return;
+  console.warn(`[library-scan] NOT scanning: the film drive looks absent — ${drive.reason}`);
+  throw new LibraryDriveAbsentError(`The film drive looks absent: ${drive.reason}. Nothing was scanned.`);
+}
+
 /**
  * A library scan, as the console's button and the scheduled job both run it.
+ * Refused (LibraryDriveAbsentError) when the film drive does not look present.
  *
  * Subtitle promotion first: any newly-dropped Subs folder should be flattened
  * into place before Jellyfin re-reads the folder, so the same scan that
@@ -26,6 +58,10 @@ import { promoteSubtitles } from "./subtitle-promotion";
 export async function scanLibraryNow(
   folders: string[] = [],
 ): Promise<{ subtitlesPromoted: number; scanned: string[] }> {
+  // Before anything, subtitle promotion included: a scan of an empty or
+  // unreadable library folder tells Jellyfin every film is gone.
+  await assertLibraryDrivePresent();
+
   const subtitles = await promoteSubtitles();
   if (subtitles.failed.length > 0) {
     console.error("[library-scan] subtitle promotion failures:", subtitles.failed);

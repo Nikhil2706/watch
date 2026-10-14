@@ -3261,7 +3261,7 @@
   function jobLastLine(j) {
     var r = j.runs[0];
     if (j.running) return '<span class="wait">Running now</span>, started ' + jobAgo(r.started_at);
-    if (j.runRequested) return '<span class="wait">Queued</span> — starts on this computer within a minute';
+    if (j.runRequested) return '<span class="wait">Queued</span> — ' + (j.runner === "worker" ? "the worker starts it within a minute or two" : "starts on this computer within a minute");
     if (!r) return "Has not run yet";
     var when = jobAgo(r.started_at) + (r.trigger === "manual" ? ", run by hand" : "");
     return r.status === "failed"
@@ -3273,7 +3273,9 @@
     var el = $("jobList");
     if (!jobs.list.length) { el.innerHTML = '<div class="muted">No jobs.</div>'; return; }
     el.innerHTML = jobs.list.map(function (j) {
-      var next = !j.enabled ? "Paused"
+      var loop = j.runner === "loop";
+      var next = loop ? "Runs when there is work"
+        : !j.enabled ? "Paused"
         : j.waitingSince ? '<span class="wait">Waiting — someone is watching.</span> Looks again ' + jobTime(j.nextRunAt)
         : "Next: " + jobTime(j.nextRunAt);
       var edit = jobs.editing === j.id
@@ -3290,14 +3292,15 @@
         : "";
       return '<div class="job' + (j.enabled ? "" : " off") + '" data-job="' + esc(j.id) + '">' +
         '<div class="job-top"><div style="min-width:0;flex:1 1 260px">' +
-        '<div class="job-name">' + esc(j.label) + (j.runner === "host" ? ' <span class="muted">· on this computer</span>' : "") + '</div>' +
+        '<div class="job-name">' + esc(j.label) + (j.runner === "host" ? ' <span class="muted">· on this computer</span>'
+          : j.runner === "worker" || loop ? ' <span class="muted">· in the worker</span>' : "") + '</div>' +
         '<div class="job-when">' + esc(j.scheduleText) + '</div>' +
         '<div class="job-meta">' + next + '<br>' + jobLastLine(j) + '</div></div>' +
-        '<div class="job-actions">' +
+        (loop ? "" : '<div class="job-actions">' +
         '<button data-job-run' + (j.running || j.runRequested ? " disabled" : "") + '>Run now</button>' +
         '<button class="ghost" data-job-edit>Reschedule</button>' +
         '<button class="ghost" data-job-toggle>' + (j.enabled ? "Pause" : "Resume") + '</button>' +
-        '</div></div>' + edit + '</div>';
+        '</div>') + '</div>' + edit + '</div>';
     }).join("");
     el.querySelectorAll("[data-job-when]").forEach(jobWhenSync);
   }

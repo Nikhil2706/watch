@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 #
+# RETIRED 2026-10-14, not installed: the backup is a job the worker runs
+# (scripts/backup.mjs), on the schedule in the console's Health tab. Kept as
+# the working example of the site's "host" runner.
+#
 # Back the stack up to the external drive, a different physical disk from the
 # Mac's own. (It was written for the old PC's E: drive, hence the name.)
 #

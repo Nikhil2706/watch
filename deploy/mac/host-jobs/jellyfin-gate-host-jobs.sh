@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 #
+# RETIRED 2026-10-14, not installed: the backup is a job the worker runs
+# (scripts/backup.mjs), on the schedule in the console's Health tab. Kept as
+# the working example of the site's "host" runner.
+#
 # Runs the scheduled jobs that have to happen on this computer rather than
 # inside the site — today, the backup.
 #

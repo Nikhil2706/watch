@@ -30,14 +30,14 @@ function present(job: ScheduledJob) {
     label: job.label,
     params: parseParams(job),
     schedule: scheduleOf(job),
-    scheduleText: describeSchedule(scheduleOf(job)),
+    scheduleText: job.runner === "loop" ? "Runs on its own in the worker, whenever there is something to do" : describeSchedule(scheduleOf(job)),
     enabled: job.enabled === 1,
     skipIfPlaying: job.skip_if_playing === 1,
     builtin: job.builtin === 1,
     runner: job.runner,
     nextRunAt: job.next_run_at,
     waitingSince: job.waiting_since,
-    runRequested: job.run_requested === 1,
+    runRequested: job.run_requested > 0,
     running: runs[0]?.status === "running",
     runs,
   };
@@ -58,7 +58,8 @@ export async function GET(request: Request): Promise<Response> {
     {
       now: Date.now(),
       jobs: listJobs().map(present),
-      kinds: listJobKinds().map((k) => ({
+      // The worker's continuous work is listed among the jobs, never created.
+      kinds: listJobKinds().filter((k) => k.runner !== "loop").map((k) => ({
         kind: k.kind,
         label: k.label,
         description: k.description,

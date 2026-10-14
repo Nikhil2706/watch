@@ -47,6 +47,9 @@ services:
       COOKIE_SECURE: "false"
       TRUST_CF_CONNECTING_IP: "false"
       STARTUP_LIBRARY_SCAN: "false"
+      # Production's jobs (the library scan against the shared Jellyfin, the
+      # backup, the removals) are not run a second time from here.
+      SCHEDULED_JOBS: "false"
     volumes:
       - gate-data:/app/data
       - ${MEDIA_PATH}:/media:ro

@@ -265,6 +265,12 @@ services:
       # Bigger files are scanned up to this much (ClamAV's ceiling is 4 GB);
       # the verdict then says only part of it was scanned.
       - UPLOAD_SCAN_MAX_MB=${UPLOAD_SCAN_MAX_MB:-4000}
+      # The site's "Backup" job runs here (scripts/backup.mjs), on the
+      # schedule in the console's Health tab. Where each part is mounted:
+      # see the last four volumes below.
+      - BACKUP_DIR=/backups
+      - BACKUP_JELLYFIN_CONFIG=/jellyfin-config
+      - BACKUP_STACK_DIR=/stack
     volumes:
       # Same database file as the gate. Safe because it is in WAL mode — the
       # worker's progress writes do not block the gateway's page renders.
@@ -280,6 +286,18 @@ services:
       # is the process that publishes new files into the library.
       - ${MEDIA_PATH:-./media}:/media
       - ${MEDIA_DOWNLOADS_CACHE_PATH:-./media-downloads-cache}:/downloads-cache
+      # For the backup. BACKUP_PATH is the backup folder on the drive (on the
+      # Mac, the drive's jellyfin-gate-backups). The backup refuses a folder
+      # with no earlier backup and no .watch-backups file in it, so an unset
+      # BACKUP_PATH (./backups) or a drive missing at start-up, which Docker
+      # answers by creating an empty folder on the Mac's own disk, gets no
+      # backup rather than one in the wrong place.
+      - ${BACKUP_PATH:-./backups}:/backups
+      # Read-only: the backup only reads these. Jellyfin's config is tarred
+      # while Jellyfin runs, as the old host script did.
+      - jellyfin-config:/jellyfin-config:ro
+      - ./.env:/stack/.env:ro
+      - ./docker-compose.yml:/stack/docker-compose.yml:ro
     # GPU access is in docker-compose.linux.yml. Without it the worker encodes
     # in software — correct, just slower.
 
