@@ -3,6 +3,10 @@ import { test } from "node:test";
 
 import {
   addMember,
+  CREATOR_AWAY_MS,
+  creatorReturned,
+  handoverCandidate,
+  planOrphan,
   excerpt,
   groupReactions,
   controllerWatching,
@@ -28,10 +32,10 @@ const tester = { kind: "user" as const, id: "u-tester", displayName: "tester" };
 const mammannii = { kind: "user" as const, id: "u-mam", displayName: "mammannii" };
 
 /** tester created the room in every test here. */
-function join(room: RoomState, identity: Member["identity"], clientId: string, watching = true) {
+function join(room: RoomState, identity: Member["identity"], clientId: string, watching = true, at?: number) {
   const got: PartyEvent[] = [];
   const member: Member = { identity, clientId, isCreator: identity.id === tester.id, watching, send: (e) => void got.push(e) };
-  addMember(room, member);
+  addMember(room, member, at);
   return { member, got };
 }
 
@@ -392,4 +396,107 @@ test("a TV hears when the same person opens the chat on their phone (the QR), an
   assert.deepEqual(flags(laptop.got), [false], "nobody else's chat counts");
   removeMember(room, phoneChat.member);
   assert.deepEqual(flags(tv.got), [false, true, false]);
+});
+
+/* ---- When the starter leaves (planOrphan) ------------------------------ */
+
+const alex = { kind: "user" as const, id: "u-alex", displayName: "alex" };
+const guestSam = { kind: "guest" as const, id: "g-token-sam", displayName: "Sam" };
+
+/** tester (the creator, from join()) controls; anyone else only if listed. */
+const controls = (...ids: string[]) => (identity: Member["identity"]) => identity.id === tester.id || ids.includes(identity.id);
+
+test("starter leaves for 60 s: control passes to the TV, and the film keeps playing", () => {
+  const room = createRoom(0);
+  const laptop = join(room, tester, "laptop-0001", true, 0);
+  join(room, mammannii, "tv-000001", true, 1000);
+  playNow(room, laptop.member, tester, "play", 100, 2000);
+  removeMember(room, laptop.member, 10_000);
+
+  assert.deepEqual(planOrphan(room, controls(), 10_000), { kind: "wait", at: 10_000 + CREATOR_AWAY_MS });
+  assert.deepEqual(planOrphan(room, controls(), 69_999), { kind: "wait", at: 70_000 }, "59.999 s: still waiting");
+  assert.deepEqual(planOrphan(room, controls(), 70_000), { kind: "handover", to: mammannii });
+  assert.equal(room.paused, false, "nothing paused the film");
+  assert.equal(currentPosition(room, 70_000), 168, "or moved it: 100 s + 68 s of play");
+  // Once the TV has control, nothing more to do.
+  assert.deepEqual(planOrphan(room, controls(mammannii.id), 70_001), { kind: "none" });
+});
+
+test("starter back within 60 s (a phone locking, a TV reloading): nothing happens", () => {
+  const room = createRoom(0);
+  const laptop = join(room, tester, "laptop-0001", true, 0);
+  join(room, mammannii, "tv-000001", true, 1000);
+  playNow(room, laptop.member, tester, "play", 100, 2000);
+  removeMember(room, laptop.member, 10_000);
+  const back = join(room, tester, "laptop-0002", true, 40_000);
+  assert.equal(room.creatorAbsentSince, null);
+  assert.deepEqual(planOrphan(room, controls(), 200_000), { kind: "none" }, "long after: still nothing to hand over");
+  assert.equal(creatorReturned(room, back.member), false, "no 'is back' line: nothing was handed on");
+});
+
+test("starter back later: shares control with whoever took over, and the chat hears it once", () => {
+  const room = createRoom(0);
+  const laptop = join(room, tester, "laptop-0001", true, 0);
+  join(room, mammannii, "tv-000001", true, 1000);
+  playNow(room, laptop.member, tester, "play", 100, 2000);
+  removeMember(room, laptop.member, 10_000);
+  assert.equal(planOrphan(room, controls(), 80_000).kind, "handover");
+  room.handedOverWhileAway = true; // what the bus records when it hands over
+
+  const back = join(room, tester, "laptop-0002", true, 300_000);
+  assert.equal(creatorReturned(room, back.member), true);
+  assert.equal(creatorReturned(room, back.member), false, "said once");
+  // Both control now: the TV keeps what it inherited.
+  const ctl = controls(mammannii.id);
+  assert.equal(ctl(tester), true);
+  assert.equal(ctl(mammannii), true);
+  assert.deepEqual(planOrphan(room, ctl, 300_001), { kind: "none" });
+});
+
+test("someone granted control is still watching: nothing changes when the starter leaves", () => {
+  const room = createRoom(0);
+  const laptop = join(room, tester, "laptop-0001", true, 0);
+  join(room, mammannii, "tv-000001", true, 1000);
+  join(room, alex, "alex-phone-1", true, 2000);
+  playNow(room, laptop.member, tester, "play", 100, 3000);
+  removeMember(room, laptop.member, 10_000);
+  assert.deepEqual(planOrphan(room, controls(alex.id), 500_000), { kind: "none" }, "alex was granted it and is watching");
+});
+
+test("only guests (or chat-only screens) left: nobody can be given control, so a playing room pauses as before", () => {
+  const room = createRoom(0);
+  const laptop = join(room, tester, "laptop-0001", true, 0);
+  join(room, guestSam, "guest-phone-1", false, 1000); // a guest link is chat only
+  join(room, mammannii, "phone-chat-01", false, 1500); // a real account, but only the chat open
+  playNow(room, laptop.member, tester, "play", 100, 2000);
+  removeMember(room, laptop.member, 10_000);
+  assert.equal(handoverCandidate(room, controls()), null);
+  assert.deepEqual(planOrphan(room, controls(), 10_001), { kind: "pause" }, "after the usual short grace");
+  room.paused = true;
+  assert.deepEqual(planOrphan(room, controls(), 500_000), { kind: "none" }, "paused: nothing more to do");
+});
+
+test("several viewers: control goes to the real account watching here longest, not a guest, not a chat tab", () => {
+  const room = createRoom(0);
+  const laptop = join(room, tester, "laptop-0001", true, 0);
+  join(room, guestSam, "guest-phone-1", false, 100); // here first, but a guest
+  join(room, mammannii, "phone-chat-01", false, 200); // a chat tab first…
+  join(room, alex, "alex-tv-0001", true, 500);
+  join(room, mammannii, "tv-000001", true, 2000); // …and the film much later
+  playNow(room, laptop.member, tester, "play", 100, 3000);
+  removeMember(room, laptop.member, 10_000);
+  // mammannii arrived at 200 (chat) and so has been in the room longest, with the film open now.
+  assert.deepEqual(planOrphan(room, controls(), 70_000), { kind: "handover", to: mammannii });
+  // Once mammannii has it and leaves too, it passes to the next: alex.
+  const ctl = controls(mammannii.id);
+  for (const m of [...room.members]) if (m.identity.id === mammannii.id) removeMember(room, m, 100_000);
+  assert.deepEqual(planOrphan(room, ctl, 100_000), { kind: "handover", to: alex });
+});
+
+test("a paused room is handed on too, so whoever is left can start it again", () => {
+  const room = createRoom(0);
+  const laptop = join(room, tester, "laptop-0001", true, 0);
+  join(room, mammannii, "tv-000001", true, 1000);
+  removeMember(room, laptop.member, 10_000); // the room never played: still paused
+  assert.deepEqual(planOrphan(room, controls(), 70_000), { kind: "handover", to: mammannii });
 });

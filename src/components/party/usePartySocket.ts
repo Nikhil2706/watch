@@ -42,6 +42,8 @@ export interface PartyParticipant {
   kind: "user" | "guest";
   displayName: string;
   isController: boolean;
+  /** Their control came to them when the starter left, rather than as a grant. */
+  inheritedControl?: boolean;
   /** Seconds from the room's film (+ ahead, − behind); null when there is nothing playing to compare. */
   driftSeconds: number | null;
 }

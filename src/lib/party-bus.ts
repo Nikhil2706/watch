@@ -16,12 +16,14 @@ import {
   excerpt,
   groupReactions,
   REACTION_EMOJI,
-  controllerWatching,
+  creatorReturned,
   findOrigin,
   GROUP_START_TIMEOUT_MS,
   markReady,
   participantList,
   pauseOrphaned,
+  planOrphan,
+  type PartyMemberIdentity,
   postNotice,
   removeMember,
   stampTime,
@@ -83,6 +85,8 @@ interface BusState {
   idSecret?: Buffer;
   rooms: Map<string, RoomState>;
   orphanTimers?: Map<string, ReturnType<typeof setTimeout>>;
+  /** The 60 s wait before control passes on from a creator who left (planOrphan). */
+  handoverTimers?: Map<string, ReturnType<typeof setTimeout>>;
   emptySince: Map<string, number>;
   sweepTimer: ReturnType<typeof setInterval> | null;
 }
@@ -118,13 +122,17 @@ function roomGrants(roomId: string): PartyGrants {
   const room = asRow<{ creator_user_id: string }>(
     db.prepare("SELECT creator_user_id FROM party_rooms WHERE id = ?").get(roomId),
   );
-  const rows = asRows<{ user_id: string | null; guest_token: string | null }>(
-    db.prepare("SELECT user_id, guest_token FROM party_controllers WHERE room_id = ?").all(roomId),
+  const rows = asRows<{ user_id: string | null; guest_token: string | null; reason: string }>(
+    db.prepare("SELECT user_id, guest_token, reason FROM party_controllers WHERE room_id = ?").all(roomId),
   );
   return {
     creatorUserId: room?.creator_user_id ?? null,
     userIds: rows.flatMap((r) => (r.user_id ? [r.user_id] : [])),
     guestTokens: rows.flatMap((r) => (r.guest_token ? [r.guest_token] : [])),
+    // A person granted after inheriting has a 'granted' row: only those with no grant count as inherited.
+    inheritedUserIds: rows.flatMap((r) =>
+      r.user_id && r.reason === "inherited" && !rows.some((g) => g.user_id === r.user_id && g.reason === "granted") ? [r.user_id] : [],
+    ),
   };
 }
 
@@ -279,34 +287,82 @@ export function broadcastParticipants(roomId: string): void {
   const grants = roomGrants(roomId);
   broadcast(room, {
     type: "participants",
-    list: participantList(room, (identity) => canControl(grants, identity), publicIdOf),
+    list: participantList(
+      room,
+      (identity) => canControl(grants, identity),
+      publicIdOf,
+      Date.now(),
+      (identity) => identity.kind === "user" && (grants.inheritedUserIds ?? []).includes(identity.id),
+    ),
   });
 }
 
 /** Opens an event stream for one participant. Returns an unsubscribe function. */
+/** The creator's name, for the chat lines about them leaving and coming back (they may not be here to ask). */
+function creatorName(roomId: string): string {
+  const row = asRow<{ username: string }>(
+    getDb()
+      .prepare("SELECT u.username FROM party_rooms r JOIN users u ON u.id = r.creator_user_id WHERE r.id = ?")
+      .get(roomId),
+  );
+  return row?.username ?? "The host";
+}
+
+/** Control passes to `to` because the creator left (planOrphan). The film is not touched. */
+function handOver(roomId: string, room: RoomState, to: PartyIdentity): void {
+  getDb()
+    .prepare("INSERT INTO party_controllers (room_id, user_id, granted_at, reason) VALUES (?, ?, ?, 'inherited')")
+    .run(roomId, to.id, Date.now());
+  room.handedOverWhileAway = true;
+  postNotice(room, `${creatorName(roomId)} left; ${to.displayName} can now control playback`, Date.now());
+  broadcastParticipants(roomId);
+}
+
 /**
- * After anyone leaves or loses control: if nobody who could press pause is
- * still watching a playing room, pause it — after a grace period, and only if
- * that is still true then.
+ * After anyone joins, leaves, or gains or loses control. See planOrphan in
+ * party-room.ts for the rule: with nobody watching who can control, control
+ * passes on once the creator has been gone 60 s; only if there is nobody to
+ * pass it to does a playing room pause, after a short grace period.
  */
 function checkOrphaned(roomId: string): void {
   const state = bus();
-  const timers = (state.orphanTimers ??= new Map());
+  const pauseTimers = (state.orphanTimers ??= new Map());
+  const handoverTimers = (state.handoverTimers ??= new Map());
   const room = state.rooms.get(roomId);
-  const control = (identity: PartyIdentity) => isController(roomId, identity);
-  if (!room || room.paused || controllerWatching(room, control)) {
+  const stop = (timers: Map<string, ReturnType<typeof setTimeout>>) => {
     clearTimeout(timers.get(roomId));
     timers.delete(roomId);
+  };
+  if (!room) {
+    stop(pauseTimers);
+    stop(handoverTimers);
     return;
   }
-  if (timers.has(roomId)) return;
-  const timer = setTimeout(() => {
-    timers.delete(roomId);
-    const current = bus().rooms.get(roomId);
-    if (current && !controllerWatching(current, control)) pauseOrphaned(current, Date.now());
-  }, ORPHAN_GRACE_MS);
-  timer.unref?.();
-  timers.set(roomId, timer);
+  const control = (identity: PartyMemberIdentity) => isController(roomId, identity as PartyIdentity);
+  const plan = planOrphan(room, control, Date.now());
+
+  if (plan.kind !== "pause") stop(pauseTimers);
+  if (plan.kind !== "wait") stop(handoverTimers);
+
+  if (plan.kind === "handover") {
+    handOver(roomId, room, plan.to as PartyIdentity);
+    checkOrphaned(roomId);
+  } else if (plan.kind === "wait" && !handoverTimers.has(roomId)) {
+    const timer = setTimeout(() => {
+      handoverTimers.delete(roomId);
+      checkOrphaned(roomId);
+    }, Math.max(0, plan.at - Date.now()));
+    timer.unref?.();
+    handoverTimers.set(roomId, timer);
+  } else if (plan.kind === "pause" && !pauseTimers.has(roomId)) {
+    const timer = setTimeout(() => {
+      pauseTimers.delete(roomId);
+      const current = bus().rooms.get(roomId);
+      if (current && planOrphan(current, control, Date.now()).kind === "pause") pauseOrphaned(current, Date.now());
+    }, ORPHAN_GRACE_MS);
+    timer.unref?.();
+    pauseTimers.set(roomId, timer);
+  }
 }
 
 export function joinRoom(
@@ -326,6 +382,9 @@ export function joinRoom(
   const now = Date.now();
   send({ type: "state", positionSeconds: currentPosition(room, now), paused: room.paused, at: now });
   addMember(room, member);
+  if (creatorReturned(room, member)) {
+    postNotice(room, `${identity.displayName} is back and shares control`, Date.now());
+  }
   broadcastParticipants(roomId);
 
   checkOrphaned(roomId);
@@ -451,8 +510,11 @@ export function setController(
 
   const column = target.identity.kind === "user" ? "user_id" : "guest_token";
   if (grant) {
+    // One row per person, recorded as the creator's grant (replacing an
+    // inherited one: the creator has now chosen them).
+    getDb().prepare(`DELETE FROM party_controllers WHERE room_id = ? AND ${column} = ?`).run(roomId, realId);
     getDb()
-      .prepare(`INSERT INTO party_controllers (room_id, ${column}, granted_at) VALUES (?, ?, ?)`)
+      .prepare(`INSERT INTO party_controllers (room_id, ${column}, granted_at, reason) VALUES (?, ?, ?, 'granted')`)
       .run(roomId, realId, Date.now());
   } else {
     getDb().prepare(`DELETE FROM party_controllers WHERE room_id = ? AND ${column} = ?`).run(roomId, realId);

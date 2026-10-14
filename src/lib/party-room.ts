@@ -59,6 +59,8 @@ export interface PartyParticipant {
   kind: "user" | "guest";
   displayName: string;
   isController: boolean;
+  /** Their control came to them when the starter left (not a grant by the starter). */
+  inheritedControl?: boolean;
   /**
    * How far this person's film is from the room's, in seconds (+ ahead,
    * − behind), from the furthest-out of their screens. null: no screen
@@ -143,6 +145,16 @@ export interface RoomState {
   leader: Member | null;
   /** A start-together in progress: who has not said "ready" yet. */
   pending: PendingStart | null;
+  /**
+   * Since when the room's creator has had no stream open here, from any
+   * device; null while they have one. Starts as "absent" until their first
+   * stream arrives (after a server restart they reconnect within seconds).
+   */
+  creatorAbsentSince: number | null;
+  /** When each person (identity id) first joined this room: who has been here longest. */
+  firstSeen: Map<string, number>;
+  /** Control was handed on while the creator was away: say so when they return. */
+  handedOverWhileAway: boolean;
 }
 
 /**
@@ -204,7 +216,17 @@ export function postNotice(room: RoomState, text: string, now: number): void {
 }
 
 export function createRoom(now: number): RoomState {
-  return { members: new Set(), positionSeconds: 0, paused: true, updatedAt: now, leader: null, pending: null };
+  return {
+    members: new Set(),
+    positionSeconds: 0,
+    paused: true,
+    updatedAt: now,
+    leader: null,
+    pending: null,
+    creatorAbsentSince: now,
+    firstSeen: new Map(),
+    handedOverWhileAway: false,
+  };
 }
 
 export function currentPosition(room: RoomState, now: number): number {
@@ -281,8 +303,10 @@ function announceChatElsewhere(room: RoomState, identityId: string): void {
   }
 }
 
-export function addMember(room: RoomState, member: Member): void {
+export function addMember(room: RoomState, member: Member, now = Date.now()): void {
   room.members.add(member);
+  if (!room.firstSeen.has(member.identity.id)) room.firstSeen.set(member.identity.id, now);
+  if (member.isCreator) room.creatorAbsentSince = null;
   if (!room.leader && member.isCreator) setLeader(room, member);
   else member.send({ type: "leader", clientId: room.leader?.clientId ?? null });
   announceChatElsewhere(room, member.identity.id);
@@ -290,6 +314,8 @@ export function addMember(room: RoomState, member: Member): void {
 
 export function removeMember(room: RoomState, member: Member, now = Date.now()): void {
   room.members.delete(member);
+  // Their last device gone: the 60 s before control is handed on starts now.
+  if (member.isCreator && ![...room.members].some((m) => m.isCreator)) room.creatorAbsentSince = now;
   if (room.leader === member) setLeader(room, fallbackLeader(room));
   announceChatElsewhere(room, member.identity.id);
   // Nobody waits for a screen that has gone.
@@ -431,6 +457,82 @@ export function controllerWatching(room: RoomState, isController: (identity: Par
 }
 
 /**
+ * When the room's starter leaves.
+ *
+ * The starter (creator) controls playback, and whoever they grant it to.
+ * If they leave and nobody else who can control is watching, the room used
+ * to pause for everyone after a few seconds: one closed laptop lid stopped
+ * the film on the TV. Now, once the creator has had no stream open here
+ * for CREATOR_AWAY_MS, control passes to one of the people still watching,
+ * and the film carries on untouched:
+ *
+ *  - one person, not everyone: the real account (not a guest link) that has
+ *    been in the room longest, with the film open. That keeps the room's
+ *    "one host decides, and hands out control" shape rather than letting
+ *    everyone left fight over pause, and it is predictable and said in the
+ *    chat. If they leave too, it passes to the next longest the same way;
+ *  - guests never inherit it: a guest link is chat only, with no player to
+ *    pause;
+ *  - anyone who can already control and is watching means nothing changes.
+ *
+ * The pause stays for the case where nobody can be given control (only
+ * guests or chat-only screens left), so a playing room is never left with
+ * nobody able to stop it. A brief drop (a phone locking, a TV reloading
+ * after a deploy) does nothing: the 60 s restart if the creator reconnects.
+ */
+export const CREATOR_AWAY_MS = 60_000;
+
+export type OrphanPlan =
+  /** Someone watching can control, or nothing is playing and nobody needs control: leave it. */
+  | { kind: "none" }
+  /** Control will pass on at `at` unless the creator comes back first. */
+  | { kind: "wait"; at: number }
+  /** Hand control to this person now. */
+  | { kind: "handover"; to: PartyMemberIdentity }
+  /** Playing, and nobody here can control it or be given control: pause after the grace period. */
+  | { kind: "pause" };
+
+/** Who would inherit control: the real account watching here longest that cannot control yet. */
+export function handoverCandidate(
+  room: RoomState,
+  isController: (identity: PartyMemberIdentity) => boolean,
+): PartyMemberIdentity | null {
+  let best: { identity: PartyMemberIdentity; since: number } | null = null;
+  for (const m of room.members) {
+    if (!m.watching || m.identity.kind !== "user" || m.isCreator || isController(m.identity)) continue;
+    const since = room.firstSeen.get(m.identity.id) ?? Infinity;
+    if (!best || since < best.since || (since === best.since && m.identity.displayName < best.identity.displayName)) {
+      best = { identity: m.identity, since };
+    }
+  }
+  return best?.identity ?? null;
+}
+
+export function planOrphan(
+  room: RoomState,
+  isController: (identity: PartyMemberIdentity) => boolean,
+  now: number,
+): OrphanPlan {
+  if (controllerWatching(room, isController)) return { kind: "none" };
+  const creatorHere = [...room.members].some((m) => m.isCreator);
+  const candidate = creatorHere ? null : handoverCandidate(room, isController);
+  if (candidate && room.creatorAbsentSince !== null) {
+    const at = room.creatorAbsentSince + CREATOR_AWAY_MS;
+    return now >= at ? { kind: "handover", to: candidate } : { kind: "wait", at };
+  }
+  // Nobody to hand it to (or the creator is here, just not watching): a
+  // playing room with nobody able to stop it pauses, as before.
+  return room.paused ? { kind: "none" } : { kind: "pause" };
+}
+
+/** The creator has a stream here again after control was handed on: true once, to say so in the chat. */
+export function creatorReturned(room: RoomState, member: Member): boolean {
+  if (!member.isCreator || !room.handedOverWhileAway) return false;
+  room.handedOverWhileAway = false;
+  return true;
+}
+
+/**
  * The last controller left (or lost control) while the room played: it
  * pauses where it is, so nobody watches on alone and has to be found again.
  * Taken from SyncTube, which pauses when its leader disconnects.
@@ -467,6 +569,7 @@ export function participantList(
   isController: (identity: PartyMemberIdentity) => boolean,
   publicIdOf: (identity: PartyMemberIdentity) => string,
   now = Date.now(),
+  inherited: (identity: PartyMemberIdentity) => boolean = () => false,
 ): PartyParticipant[] {
   const byId = new Map<string, PartyParticipant>();
   for (const member of room.members) {
@@ -483,6 +586,7 @@ export function participantList(
       kind: member.identity.kind,
       displayName: member.identity.displayName,
       isController: isController(member.identity),
+      inheritedControl: inherited(member.identity),
       driftSeconds: drift,
     });
   }
@@ -494,6 +598,8 @@ export interface PartyGrants {
   /** user ids and guest tokens named in party_controllers for the room. */
   userIds: readonly string[];
   guestTokens: readonly string[];
+  /** Of userIds, those whose control was inherited when the creator left rather than granted. */
+  inheritedUserIds?: readonly string[];
 }
 
 /** The creator always controls playback; anyone else only while named in party_controllers. */

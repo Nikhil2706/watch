@@ -190,6 +190,21 @@ participant list is a client-side affordance calling a `party`-owned
 (checked server-side in the `party` process — the client-side menu being
 creator-only in the UI is a courtesy, not the actual enforcement).
 
+**When the creator leaves (added 2026-10-14).** If the creator has had no
+stream open in the room from any device for 60 s, and nobody watching can
+control playback, control passes to one person: the real account (not a
+guest link) with the film open that has been in the room longest. The film
+is not paused or moved; the chat says "X left; Y can now control playback",
+and the People tab shows "took over when the host left". It is recorded in
+`party_controllers` with `reason = 'inherited'` (a grant by the creator is
+`'granted'`), so the creator's revoke works the same on it. If that person
+leaves too, it passes on the same way. When the creator comes back they
+control again alongside whoever has it ("X is back and shares control"),
+and keep the creator-only rights (End, grant, revoke) throughout. A drop of
+under 60 s changes nothing. Only when nobody left can be given control
+(guests and chat-only screens) does a playing room pause, after a 15 s grace
+period. The rule itself is `planOrphan` in `src/lib/party-room.ts`.
+
 ## Notifications & home page
 
 Reuses the notification system extended this session
