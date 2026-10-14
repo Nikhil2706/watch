@@ -92,7 +92,8 @@ export function PartyRoomClient({
     if (seen !== null && socket.messages.every((m) => seen.has(m.id))) return;
     setSeen(new Set(socket.messages.map((m) => m.id)));
   }, [socket.historyLoaded, socket.messages, showingChat, seen]);
-  const unread = seen ? socket.messages.filter((m) => !seen.has(m.id)).length : 0;
+  // The room's own lines (who paused) are not something to come and read.
+  const unread = seen ? socket.messages.filter((m) => m.kind !== "system" && !seen.has(m.id)).length : 0;
 
   function closeChat() {
     returnFocus.current = true;

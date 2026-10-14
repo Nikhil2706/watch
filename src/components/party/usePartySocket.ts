@@ -26,7 +26,8 @@ import { bestOffset, clockSample, type ClockSample } from "@/lib/party-sync";
 
 export interface PartyChatMessage {
   id: string;
-  kind: "user" | "guest";
+  /** "system": the room's own lines (who paused, who jumped); not kept after a reload. */
+  kind: "user" | "guest" | "system";
   displayName: string;
   body: string;
   createdAt: number;

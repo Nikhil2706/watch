@@ -13,7 +13,8 @@ export interface PartyMemberIdentity {
 
 export interface PartyChatMessage {
   id: string;
-  kind: "user" | "guest";
+  /** "system": a line the room writes itself (who paused, who seeked). Not stored; gone after a reload. */
+  kind: "user" | "guest" | "system";
   displayName: string;
   body: string;
   createdAt: number;
@@ -72,6 +73,35 @@ export interface RoomState {
    * every other controller knows to stay quiet.
    */
   leader: Member | null;
+}
+
+/** 1:02:13, or 4:05 under an hour. */
+export function formatClock(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = String(s % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
+/** What a play/pause/seek reads as in the chat. */
+export function syncNotice(action: PartySyncAction, positionSeconds: number, by: string): string {
+  const at = formatClock(positionSeconds);
+  if (action === "play") return `${by} played from ${at}`;
+  if (action === "pause") return `${by} paused at ${at}`;
+  return `${by} jumped to ${at}`;
+}
+
+/**
+ * Tells the whole room something happened, as a line in the chat. Who
+ * paused, who jumped: on 2026-10-14 nobody could tell which screen had done
+ * what. Ephemeral — party_messages needs a user or guest behind every row.
+ */
+export function postNotice(room: RoomState, text: string, now: number): void {
+  broadcast(room, {
+    type: "chat",
+    message: { id: `sys-${globalThis.crypto.randomUUID()}`, kind: "system", displayName: "", body: text, createdAt: now },
+  });
 }
 
 export function createRoom(now: number): RoomState {
@@ -174,6 +204,7 @@ export function applySync(
     { type: "sync", action, positionSeconds, paused: room.paused, at, by: by.displayName },
     origin,
   );
+  postNotice(room, syncNotice(action, positionSeconds, by.displayName), at);
 }
 
 /**

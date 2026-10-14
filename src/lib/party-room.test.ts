@@ -200,3 +200,15 @@ test("joining a playing room: the state's stamp lets the joiner carry it forward
   applySync(room, laptop.member, tester, "play", 100, 1000);
   assert.equal(currentPosition(room, 4000), 103);
 });
+
+test("play, pause and seek are told to the room as chat lines, the sender included", () => {
+  const room = createRoom(0);
+  const laptop = join(room, tester, "laptop-0001");
+  const tv = join(room, mammannii, "tv-000001");
+  applySync(room, tv.member, mammannii, "pause", 3733.4, 0);
+  applySync(room, tv.member, mammannii, "seek", 65, 0);
+  const lines = (events: PartyEvent[]) =>
+    events.flatMap((e) => (e.type === "chat" && e.message.kind === "system" ? [e.message.body] : []));
+  assert.deepEqual(lines(laptop.got), ["mammannii paused at 1:02:13", "mammannii jumped to 1:05"]);
+  assert.deepEqual(lines(tv.got), lines(laptop.got), "the TV sees its own actions in the chat too");
+});

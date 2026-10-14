@@ -15,6 +15,7 @@ import {
   dropLeaderIf,
   findOrigin,
   participantList,
+  postNotice,
   removeMember,
   stampTime,
   type Member,
@@ -265,6 +266,10 @@ export function setController(
   } else {
     getDb().prepare(`DELETE FROM party_controllers WHERE room_id = ? AND ${column} = ?`).run(roomId, targetId);
     if (room) dropLeaderIf(room, targetId);
+  }
+  if (room) {
+    const name = target.identity.displayName;
+    postNotice(room, grant ? `${identity.displayName} gave ${name} playback control` : `${identity.displayName} took back playback control from ${name}`, Date.now());
   }
   broadcastParticipants(roomId);
   return true;

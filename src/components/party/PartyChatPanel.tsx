@@ -140,13 +140,20 @@ export function PartyChatPanel({
 
       <div className="party-messages" ref={scrollRef}>
         {messages.length === 0 ? <p className="party-empty">No messages yet — say hello.</p> : null}
-        {messages.map((m) => (
+        {messages.map((m) =>
+          m.kind === "system" ? (
+            <div key={m.id} className="party-message party-message-system">
+              <span className="party-message-body">{m.body}</span>
+              <span className="party-message-time">{timeLabel(m.createdAt)}</span>
+            </div>
+          ) : (
           <div key={m.id} className="party-message">
             <span className={m.kind === "guest" ? "party-name party-name-guest" : "party-name"}>{m.displayName}</span>
             <span className="party-message-body">{m.body}</span>
             <span className="party-message-time">{timeLabel(m.createdAt)}</span>
           </div>
-        ))}
+          ),
+        )}
       </div>
 
       {/* The composer is disabled while the socket is down. sendChat() writes

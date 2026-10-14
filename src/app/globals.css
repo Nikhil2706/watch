@@ -3897,6 +3897,17 @@ html[data-tv="true"] .appbar-more {
   gap: 8px;
 }
 
+/* The room's own lines: who paused, who jumped. Quieter than what people say. */
+.party-message-system {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.party-message-system .party-message-body {
+  color: var(--muted);
+}
+
 .party-empty {
   color: var(--muted);
   font-size: 0.82rem;
