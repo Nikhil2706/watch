@@ -58,7 +58,9 @@ export type TvRemoteAction =
   /** Focus the "‹ Back" link in the bar above the video. */
   | { kind: "focusTopBar" }
   /** Move along the control bar. */
-  | { kind: "moveControl"; direction: 1 | -1 };
+  | { kind: "moveControl"; direction: 1 | -1 }
+  /** Move along the bar above the video ("‹ Back", and a watch party's "Chat"). */
+  | { kind: "moveTopBar"; direction: 1 | -1 };
 
 /**
  * A TV remote has arrows, OK, Back and (sometimes) transport keys — no
@@ -67,8 +69,9 @@ export type TvRemoteAction =
  * bar — and the keys follow it. On the video: OK plays/pauses, left/right
  * jump 10 s, down opens the control bar, up goes to "‹ Back". In the control
  * bar: left/right move between controls (a slider keeps left/right for
- * itself), up returns to the video. On "‹ Back": down returns to the video,
- * OK leaves the film. Returns null to leave the key alone (OK on a button
+ * itself), up returns to the video. On the bar above ("‹ Back", and in a
+ * watch party "Chat"): left/right move along it, down returns to the video,
+ * OK presses what is focused. Returns null to leave the key alone (OK on a button
  * or link presses it).
  */
 export function resolveTvRemoteKey(key: string, zone: TvFocusZone): TvRemoteAction | null {
@@ -90,7 +93,9 @@ export function resolveTvRemoteKey(key: string, zone: TvFocusZone): TvRemoteActi
     return null;
   }
   if (zone === "topbar") {
-    return key === "ArrowDown" ? { kind: "leaveControls" } : null;
+    if (key === "ArrowDown") return { kind: "leaveControls" };
+    if (key === "ArrowLeft" || key === "ArrowRight") return { kind: "moveTopBar", direction: key === "ArrowLeft" ? -1 : 1 };
+    return null;
   }
   if (key === "ArrowUp") return { kind: "leaveControls" };
   if (zone === "controls" && (key === "ArrowLeft" || key === "ArrowRight")) {

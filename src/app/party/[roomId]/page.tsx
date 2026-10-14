@@ -123,13 +123,15 @@ export default async function PartyRoomPage({ params }: { params: Promise<{ room
 
   return (
     <div className="party-page">
-      <div className="player-bar">
-        <Link className="btn ghost" href="/">
-          ‹ Back
-        </Link>
-        <span className="title">{room.filmTitle}</span>
-      </div>
-      <PartyRoomClient roomId={roomId} myId={identity.id} isCreator={isCreator} player={player} guestLinks={guestLinks} />
+      {/* The "‹ Back" bar is the client's: on a TV or phone it carries the Chat button. */}
+      <PartyRoomClient
+        roomId={roomId}
+        myId={identity.id}
+        isCreator={isCreator}
+        filmTitle={room.filmTitle}
+        player={player}
+        guestLinks={guestLinks}
+      />
     </div>
   );
 }

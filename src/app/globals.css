@@ -4047,6 +4047,102 @@ html[data-tv="true"] .appbar-more {
   color: #fff;
 }
 
+.party-end {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.party-end .error {
+  margin: 0;
+}
+
+/* With the chat sent to another tab, End rides in the bar that replaced it:
+   the creator must be able to end the party from here whatever chat is doing. */
+.party-chat-away .party-end {
+  margin-left: 8px;
+}
+
+.party-chat-away .party-end-btn {
+  margin-left: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border-color: var(--danger);
+  color: var(--danger);
+  font-size: 0.76rem;
+}
+
+.party-chat-away .party-end-btn:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* ---- Chat as an overlay (TV and phone) -------------------------------
+   No side panel: the film takes the room, and "Chat" beside "‹ Back" opens
+   the conversation over it without stopping it. PartyRoomClient decides the
+   mode (a TV, or narrower than the 900px docked layout). */
+.party-room-grid.chat-overlay-mode {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.party-chat-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+}
+
+.party-unread {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+/* A sheet over the lower part of the screen on a phone held upright: the
+   film keeps playing, visible above it. */
+.party-chat-overlay {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 62dvh;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  overflow-y: auto;
+  background: rgba(10, 12, 17, 0.94);
+  border-top: 1px solid var(--border);
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.party-chat-overlay .party-chat {
+  background: transparent;
+  min-height: 0;
+}
+
+/* Sideways phone: a column down the right, over the edge of the film. */
+@media (orientation: landscape) {
+  .party-chat-overlay {
+    left: auto;
+    top: 0;
+    width: min(380px, 48vw);
+    height: auto;
+    border-top: 0;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+  }
+}
+
 .party-ended-banner {
   grid-column: 1 / -1;
   padding: 10px 14px;

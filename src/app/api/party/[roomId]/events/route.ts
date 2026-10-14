@@ -1,5 +1,6 @@
 import { isRoomLive, joinRoom, type PartyEvent } from "@/lib/party-bus";
 import { resolvePartyIdentity } from "@/lib/party-identity";
+import { cleanClientId } from "@/lib/party-room";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,6 +56,10 @@ export async function GET(
     return Response.json({ error: "ended" }, { status: 410, headers: { "Cache-Control": "no-store" } });
   }
 
+  // Which stream this is (?cid=), so the room can tell two devices on one
+  // account apart; see party-room.ts's Member.clientId.
+  const clientId = cleanClientId(new URL(request.url).searchParams.get("cid"));
+
   const encoder = new TextEncoder();
   let leave: (() => void) | null = null;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -77,7 +82,7 @@ export async function GET(
         /* already closed */
       }
 
-      leave = joinRoom(roomId, identity, send);
+      leave = joinRoom(roomId, identity, clientId, send);
       heartbeat = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(`: keep-alive\n\n`));

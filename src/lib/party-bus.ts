@@ -4,6 +4,22 @@ import { randomUUID } from "node:crypto";
 
 import { asRow, asRows, getDb } from "./db";
 import type { PartyIdentity } from "./party-identity";
+import {
+  applyHeartbeat,
+  applySync,
+  broadcast,
+  canControl,
+  createRoom,
+  currentPosition,
+  findOrigin,
+  participantList,
+  removeMember,
+  type Member,
+  type PartyChatMessage,
+  type PartyEvent,
+  type PartyGrants,
+  type RoomState,
+} from "./party-room";
 
 /**
  * Watch-party realtime, moved into the gate process and off WebSockets.
@@ -41,43 +57,7 @@ const HISTORY_LIMIT = 200;
 const EMPTY_TIMEOUT_MS = 15 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 60 * 1000;
 
-export interface PartyChatMessage {
-  id: string;
-  kind: "user" | "guest";
-  displayName: string;
-  body: string;
-  createdAt: number;
-}
-
-export interface PartyParticipant {
-  id: string;
-  kind: "user" | "guest";
-  displayName: string;
-  isController: boolean;
-}
-
-export type PartyEvent =
-  | { type: "history"; messages: PartyChatMessage[] }
-  | { type: "state"; positionSeconds: number; paused: boolean }
-  | { type: "participants"; list: PartyParticipant[] }
-  | { type: "chat"; message: PartyChatMessage }
-  | { type: "sync"; action: "play" | "pause" | "seek"; positionSeconds: number; by: string }
-  | { type: "ended" };
-
-type Subscriber = (event: PartyEvent) => void;
-
-interface Member {
-  identity: PartyIdentity;
-  send: Subscriber;
-}
-
-interface RoomState {
-  members: Set<Member>;
-  positionSeconds: number;
-  paused: boolean;
-  /** Wall-clock time positionSeconds was last known accurate, for extrapolating "now" between syncs. */
-  updatedAt: number;
-}
+export type { PartyChatMessage, PartyEvent, PartyParticipant } from "./party-room";
 
 interface BusState {
   rooms: Map<string, RoomState>;
@@ -101,38 +81,37 @@ function roomState(roomId: string): RoomState {
   const state = bus();
   let room = state.rooms.get(roomId);
   if (!room) {
-    room = { members: new Set(), positionSeconds: 0, paused: true, updatedAt: Date.now() };
+    room = createRoom(Date.now());
     state.rooms.set(roomId, room);
   }
   return room;
 }
 
-function currentPosition(room: RoomState): number {
-  if (room.paused) return room.positionSeconds;
-  return room.positionSeconds + (Date.now() - room.updatedAt) / 1000;
-}
-
 /* ------------------------------------------------------------------ *
- * Permissions — ported unchanged from the old party-server.
+ * Permissions — the rule itself is canControl() in party-room.ts.
  * ------------------------------------------------------------------ */
 
-export function isCreator(roomId: string, identity: PartyIdentity): boolean {
-  if (identity.kind !== "user") return false;
-  const row = asRow<{ creator_user_id: string }>(
-    getDb().prepare("SELECT creator_user_id FROM party_rooms WHERE id = ?").get(roomId),
+function roomGrants(roomId: string): PartyGrants {
+  const db = getDb();
+  const room = asRow<{ creator_user_id: string }>(
+    db.prepare("SELECT creator_user_id FROM party_rooms WHERE id = ?").get(roomId),
   );
-  return row?.creator_user_id === identity.id;
+  const rows = asRows<{ user_id: string | null; guest_token: string | null }>(
+    db.prepare("SELECT user_id, guest_token FROM party_controllers WHERE room_id = ?").all(roomId),
+  );
+  return {
+    creatorUserId: room?.creator_user_id ?? null,
+    userIds: rows.flatMap((r) => (r.user_id ? [r.user_id] : [])),
+    guestTokens: rows.flatMap((r) => (r.guest_token ? [r.guest_token] : [])),
+  };
+}
+
+export function isCreator(roomId: string, identity: PartyIdentity): boolean {
+  return identity.kind === "user" && roomGrants(roomId).creatorUserId === identity.id;
 }
 
 export function isController(roomId: string, identity: PartyIdentity): boolean {
-  if (isCreator(roomId, identity)) return true;
-  const column = identity.kind === "user" ? "user_id" : "guest_token";
-  const row = asRow<{ n: number }>(
-    getDb()
-      .prepare(`SELECT COUNT(*) AS n FROM party_controllers WHERE room_id = ? AND ${column} = ?`)
-      .get(roomId, identity.id),
-  );
-  return (row?.n ?? 0) > 0;
+  return canControl(roomGrants(roomId), identity);
 }
 
 export function isRoomLive(roomId: string): boolean {
@@ -186,58 +165,35 @@ export function loadHistory(roomId: string): PartyChatMessage[] {
 }
 
 /* ------------------------------------------------------------------ *
- * Broadcast + membership
+ * Membership — the room logic itself is in party-room.ts.
  * ------------------------------------------------------------------ */
 
-function broadcast(roomId: string, event: PartyEvent, except?: Member): void {
+export function broadcastParticipants(roomId: string): void {
   const room = bus().rooms.get(roomId);
   if (!room) return;
-  for (const member of room.members) {
-    if (member === except) continue;
-    try {
-      member.send(event);
-    } catch {
-      // One dead stream must not stop the rest of the room from being told.
-    }
-  }
-}
-
-function participantList(roomId: string): PartyParticipant[] {
-  const room = bus().rooms.get(roomId);
-  if (!room) return [];
-  // De-duplicated by identity: one person with the film open in two tabs is
-  // one participant, not two.
-  const byId = new Map<string, PartyParticipant>();
-  for (const member of room.members) {
-    if (byId.has(member.identity.id)) continue;
-    byId.set(member.identity.id, {
-      id: member.identity.id,
-      kind: member.identity.kind,
-      displayName: member.identity.displayName,
-      isController: isController(roomId, member.identity),
-    });
-  }
-  return [...byId.values()];
-}
-
-export function broadcastParticipants(roomId: string): void {
-  broadcast(roomId, { type: "participants", list: participantList(roomId) });
+  const grants = roomGrants(roomId);
+  broadcast(room, { type: "participants", list: participantList(room, (identity) => canControl(grants, identity)) });
 }
 
 /** Opens an event stream for one participant. Returns an unsubscribe function. */
-export function joinRoom(roomId: string, identity: PartyIdentity, send: Subscriber): () => void {
+export function joinRoom(
+  roomId: string,
+  identity: PartyIdentity,
+  clientId: string | null,
+  send: (event: PartyEvent) => void,
+): () => void {
   ensureSweep();
   const room = roomState(roomId);
-  const member: Member = { identity, send };
+  const member: Member = { identity, clientId, send };
   room.members.add(member);
   bus().emptySince.delete(roomId);
 
   send({ type: "history", messages: loadHistory(roomId) });
-  send({ type: "state", positionSeconds: currentPosition(room), paused: room.paused });
+  send({ type: "state", positionSeconds: currentPosition(room, Date.now()), paused: room.paused });
   broadcastParticipants(roomId);
 
   return () => {
-    room.members.delete(member);
+    removeMember(room, member);
     broadcastParticipants(roomId);
   };
 }
@@ -252,26 +208,34 @@ export function postChat(roomId: string, identity: PartyIdentity, rawBody: strin
   const body = rawBody.trim().slice(0, MAX_MESSAGE_CHARS);
   if (!body) return null;
   const message = saveMessage(roomId, identity, body);
-  broadcast(roomId, { type: "chat", message });
+  const room = bus().rooms.get(roomId);
+  if (room) broadcast(room, { type: "chat", message });
   return message;
 }
 
 export function postSync(
   roomId: string,
   identity: PartyIdentity,
+  clientId: string | null,
   action: "play" | "pause" | "seek",
   positionSeconds: number,
 ): boolean {
   if (!isController(roomId, identity)) return false;
   const room = roomState(roomId);
-  room.positionSeconds = positionSeconds;
-  room.paused = action === "pause";
-  room.updatedAt = Date.now();
-  // Everyone except the person who did it — echoing their own seek back at
-  // them makes their player fight itself.
-  const origin = [...room.members].find((m) => m.identity.id === identity.id);
-  broadcast(roomId, { type: "sync", action, positionSeconds, by: identity.displayName }, origin);
+  applySync(room, findOrigin(room, identity.id, clientId), identity, action, positionSeconds, Date.now());
   return true;
+}
+
+/** A controller's position while playing; see applyHeartbeat for who is listened to. */
+export function postPosition(
+  roomId: string,
+  identity: PartyIdentity,
+  clientId: string | null,
+  positionSeconds: number,
+): boolean {
+  if (!isController(roomId, identity)) return false;
+  const room = roomState(roomId);
+  return applyHeartbeat(room, findOrigin(room, identity.id, clientId), positionSeconds, Date.now());
 }
 
 export function setController(
@@ -303,7 +267,8 @@ export function setController(
  * safe to call after an end that happened over HTTP.
  */
 export function announceEnded(roomId: string): void {
-  broadcast(roomId, { type: "ended" });
+  const room = bus().rooms.get(roomId);
+  if (room) broadcast(room, { type: "ended" });
   bus().rooms.delete(roomId);
   bus().emptySince.delete(roomId);
 }
