@@ -45,7 +45,12 @@
  * for party chat replies and reactions. Every 57 table is CREATE ... IF NOT
  * EXISTS, so the number only has to advance past what a database records.
  */
-export const SCHEMA_VERSION = 58;
+/*
+ * 59: users.is_admin — an account that may use /admin and /api/admin/*
+ * with its session. Added by runVersionedMigrations (db.ts), which also sets
+ * it for the owner's account, "mammannii".
+ */
+export const SCHEMA_VERSION = 59;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -88,6 +93,9 @@ CREATE TABLE IF NOT EXISTS users (
   -- column's comment. The authoritative per-user flag; invites.langlois_mode
   -- is only ever read once, at the moment this row is created.
   langlois_mode        INTEGER NOT NULL DEFAULT 0,
+  -- May use /admin and /api/admin/* with this account's session (v59). The
+  -- X-Admin-Key header still works for scripts. Set by hand or the migration.
+  is_admin             INTEGER NOT NULL DEFAULT 0,
   -- Curator-toggled from the Users panel (see /api/admin/users/:id). Purely a
   -- gate-side content filter — unlike langlois_mode, nothing here touches the
   -- account's real Jellyfin policy. See parental-control.ts.

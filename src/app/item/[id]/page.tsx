@@ -233,7 +233,7 @@ export default async function ItemPage({
 
   return (
     <div className="detail">
-      <AppBar username={session.username} langloisMode={session.langloisMode} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
 
       <section className="hero">
         {backdrop ? (

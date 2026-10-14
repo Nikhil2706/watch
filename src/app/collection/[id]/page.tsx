@@ -151,7 +151,7 @@ export default async function CollectionPage({
 
   return (
     <>
-      <AppBar username={session.username} langloisMode={session.langloisMode} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
 
       {/* The real series poster, once the admin has linked one — otherwise
           a plain text header rather than guessing at a background. */}
