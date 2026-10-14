@@ -43,10 +43,12 @@ import {
   statSync,
   copyFileSync,
   unlinkSync,
+  utimesSync,
 } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 
 import { countErrors, isStale, isStillArriving, judge } from "./file-check.mjs";
+import { mp4SubtitlesBlock, needsBrowserAudio, remuxArgs, verifyRemux } from "./browser-audio.mjs";
 import { clamavScanner, scanWaitingUploads, writeHeartbeat } from "./upload-scan.mjs";
 import { backupStamp, runBackup, snapshotDatabase } from "./backup.mjs";
 import { failInterruptedWorkerRuns, recordLoopRun, runWorkerJobs } from "./worker-jobs.mjs";
@@ -412,6 +414,217 @@ async function checkFilesForAWhile() {
     `${done} read through, ${damaged} damaged${damagedNames.length ? ` (${damagedNames.slice(0, 5).join(", ")})` : ""}, ${left} still to do` +
     (allowance <= 0 ? ` (today's ${FILE_CHECK_PER_DAY} done)` : "");
   log(`file check: ${line}`);
+  return line;
+}
+
+/* ------------------------------------------------------------------ *
+ * Browser audio (scripts/browser-audio.mjs for the rules)
+ * ------------------------------------------------------------------ *
+ * A stereo AAC track added to films whose only sound a browser cannot play,
+ * so Jellyfin stops re-encoding their audio live for every viewer. Same
+ * habits as the damaged-file check: only when nothing is queued and nobody is
+ * watching, a little at a time, each file looked at once (browser_audio
+ * table) and again only if the file changes. Files the curator asked for
+ * ("Add browser audio now") come first and don't count against the day.
+ */
+const BROWSER_AUDIO = !/^(0|false|no|off)$/i.test(process.env.BROWSER_AUDIO ?? "true");
+const BROWSER_AUDIO_PER_DAY = Number(process.env.BROWSER_AUDIO_PER_DAY ?? 20);
+/** Files probed per pass while working through the library the first time. */
+const BROWSER_AUDIO_PROBES_PER_PASS = Number(process.env.BROWSER_AUDIO_PROBES_PER_PASS ?? 300);
+const BROWSER_AUDIO_IDLE_MS = 30 * 60 * 1000;
+const AUDIO_WALK_MARK = "::last-walk";
+
+function browserAudioReady() {
+  return Boolean(db.prepare("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='browser_audio'").get());
+}
+
+/** Every stream, with what the audio rules need. Null when unreadable. */
+async function probeStreams(file) {
+  const { code, stdout } = await run(FFPROBE, [
+    "-v", "error",
+    "-show_entries", "format=duration:stream=index,codec_type,codec_name,channels,pix_fmt:stream_tags=language:stream_disposition=default",
+    "-of", "json",
+    file,
+  ]);
+  if (code !== 0) return null;
+  try {
+    const data = JSON.parse(stdout);
+    return { format: data.format ?? {}, streams: data.streams ?? [] };
+  } catch {
+    return null;
+  }
+}
+
+/** True while Jellyfin reports someone playing this very file. */
+async function isBeingPlayed(file) {
+  if (!JELLYFIN_API_KEY) return false;
+  try {
+    const response = await fetch(`${JELLYFIN_URL}/Sessions`, {
+      headers: { Authorization: `MediaBrowser Token="${JELLYFIN_API_KEY}"` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return true; // can't tell: don't swap now
+    const sessions = await response.json();
+    return sessions.some((s) => s.NowPlayingItem?.Path === file);
+  } catch {
+    return true;
+  }
+}
+
+function recordBrowserAudio(file, status, detail) {
+  let size = 0;
+  let mtimeMs = 0;
+  try {
+    const stat = statSync(file);
+    size = stat.size;
+    mtimeMs = Math.round(stat.mtimeMs);
+  } catch { /* gone: recorded as last seen */ }
+  db.prepare(
+    `INSERT INTO browser_audio (path, size, mtime_ms, status, detail, checked_at) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime_ms = excluded.mtime_ms,
+       status = excluded.status, detail = excluded.detail, checked_at = excluded.checked_at`,
+  ).run(file, size, mtimeMs, status, detail, Date.now());
+}
+
+/**
+ * Adds the track to one file if it needs one. Returns { status, detail }, or
+ * null when it should simply be tried again later (someone started playing
+ * it). Writes a hidden temp file beside the original (Jellyfin skips
+ * dotfiles), checks it, and only then puts it in the original's place,
+ * keeping the original's dates so nothing else thinks the film is new.
+ */
+async function addBrowserAudio(file) {
+  const ext = extname(file);
+  const before = await probeStreams(file);
+  if (!before) return { status: "failed", detail: "the file can't be read" };
+  const need = needsBrowserAudio(before.streams, ext);
+  if (!need.needed) return { status: "not_needed", detail: need.reason };
+  if (mp4SubtitlesBlock(before.streams, ext)) {
+    return { status: "not_needed", detail: "an MP4 whose subtitles would not copy back into MP4" };
+  }
+  let original;
+  try {
+    original = statSync(file);
+  } catch {
+    return { status: "failed", detail: "the file disappeared" };
+  }
+  const temp = join(dirname(file), `.${basename(file, ext)}.browser-audio${ext}`);
+  const cleanUp = () => {
+    try {
+      if (existsSync(temp)) unlinkSync(temp);
+    } catch { /* best effort */ }
+  };
+  log(`browser audio: adding a stereo AAC track to ${basename(file)} (${need.reason})`);
+  const result = await run(FFMPEG, remuxArgs(file, temp, before.streams, ext));
+  if (result.code !== 0) {
+    cleanUp();
+    const why = result.stderr.trim().split("\n").slice(-1)[0] || `ffmpeg exited ${result.code}`;
+    return { status: "failed", detail: `ffmpeg: ${why.slice(0, 300)}` };
+  }
+  const check = verifyRemux(before, await probeStreams(temp));
+  if (!check.ok) {
+    cleanUp();
+    return { status: "failed", detail: `not swapped in: ${check.reason}` };
+  }
+  if (await isBeingPlayed(file)) {
+    cleanUp();
+    log(`browser audio: ${basename(file)} is being watched, trying again later`);
+    return null;
+  }
+  try {
+    renameSync(temp, file);
+    utimesSync(file, original.atime, original.mtime);
+  } catch (error) {
+    cleanUp();
+    return { status: "failed", detail: `could not put it in place: ${error.message}` };
+  }
+  noteLibraryChange(file);
+  return { status: "added", detail: `stereo AAC added (it had ${need.reason})` };
+}
+
+async function addBrowserAudioForAWhile() {
+  if (!BROWSER_AUDIO || !browserAudioReady()) return null;
+  const lines = [];
+
+  // What the curator asked for, first, whatever the day's count.
+  for (const { path } of db.prepare("SELECT path FROM browser_audio WHERE status = 'requested' ORDER BY checked_at").all()) {
+    if (stopping || (await someoneIsWatching())) break;
+    if (!existsSync(path)) {
+      db.prepare("DELETE FROM browser_audio WHERE path = ?").run(path);
+      continue;
+    }
+    const outcome = await addBrowserAudio(path);
+    if (!outcome) continue;
+    recordBrowserAudio(path, outcome.status, outcome.detail);
+    lines.push(`${basename(path)}: ${outcome.status === "added" ? "added" : outcome.detail}`);
+  }
+
+  const mark = db.prepare("SELECT mtime_ms FROM browser_audio WHERE path = ?").get(AUDIO_WALK_MARK);
+  if (!(mark && Date.now() < Number(mark.mtime_ms))) {
+    const known = new Map(db.prepare("SELECT path, size, mtime_ms, status FROM browser_audio").all().map((r) => [r.path, r]));
+    const present = new Set();
+    const todo = [];
+    for (const file of walkVideos(LIBRARY)) {
+      let stat;
+      try {
+        stat = statSync(file);
+      } catch {
+        continue;
+      }
+      present.add(file);
+      if (isStillArriving(stat.mtimeMs, Date.now())) continue;
+      const row = known.get(file);
+      if (row && row.status !== "requested" && Number(row.size) === stat.size && Number(row.mtime_ms) === Math.round(stat.mtimeMs)) continue;
+      todo.push(file);
+    }
+    for (const path of known.keys()) {
+      if (path !== AUDIO_WALK_MARK && !present.has(path)) db.prepare("DELETE FROM browser_audio WHERE path = ?").run(path);
+    }
+
+    const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    let allowance =
+      BROWSER_AUDIO_PER_DAY -
+      Number(db.prepare("SELECT COUNT(*) AS n FROM browser_audio WHERE status IN ('added', 'failed') AND checked_at > ?").get(dayAgo)?.n ?? 0);
+    let probed = 0;
+    let added = 0;
+    let waiting = 0;
+    for (const file of todo) {
+      if (stopping || probed >= BROWSER_AUDIO_PROBES_PER_PASS) break;
+      if (await someoneIsWatching()) break;
+      probed += 1;
+      const before = await probeStreams(file);
+      const need = before ? needsBrowserAudio(before.streams, extname(file)) : { needed: false, reason: "the file can't be read" };
+      if (!need.needed) {
+        recordBrowserAudio(file, before ? "not_needed" : "failed", need.reason);
+        continue;
+      }
+      if (allowance <= 0) {
+        waiting += 1; // not recorded: tomorrow's allowance picks it up
+        continue;
+      }
+      allowance -= 1;
+      const outcome = await addBrowserAudio(file);
+      if (!outcome) continue;
+      recordBrowserAudio(file, outcome.status, outcome.detail);
+      if (outcome.status === "added") added += 1;
+      if (outcome.status !== "not_needed") lines.push(`${basename(file)}: ${outcome.status === "added" ? "added" : outcome.detail}`);
+    }
+    const left = todo.length - probed + waiting;
+    const rest = left <= waiting ? Date.now() + BROWSER_AUDIO_IDLE_MS : 0;
+    db.prepare(
+      `INSERT INTO browser_audio (path, size, mtime_ms, status, detail, checked_at) VALUES (?, ?, ?, 'not_needed', 'walk marker', ?)
+       ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime_ms = excluded.mtime_ms, checked_at = excluded.checked_at`,
+    ).run(AUDIO_WALK_MARK, left, rest, Date.now());
+    if (probed > 0 && added === 0 && lines.length === 0 && probed >= 50) {
+      lines.push(`${probed} files looked at, none needed a track`);
+    }
+    if (waiting > 0) lines.push(`${waiting} waiting for tomorrow's allowance of ${BROWSER_AUDIO_PER_DAY}`);
+  }
+
+  if (lines.length === 0) return null;
+  await flushLibraryChanges(true);
+  const line = lines.slice(0, 6).join("; ") + (lines.length > 6 ? `; and ${lines.length - 6} more` : "");
+  log(`browser audio: ${line}`);
   return line;
 }
 
@@ -1510,6 +1723,7 @@ const LOOP = {
   conversions: "builtin-loop-conversions",
   uploadScan: "builtin-loop-upload-scan",
   fileCheck: "builtin-loop-file-check",
+  browserAudio: "builtin-loop-browser-audio",
 };
 
 function names(rows) {
@@ -1586,6 +1800,7 @@ if (WORKER_MODE === "watch") {
     // else to do, the library's damage check.
     await recordLoopRun(db, LOOP.uploadScan, scanUploads, { log });
     if (!stopping) await recordLoopRun(db, LOOP.fileCheck, checkFilesForAWhile, { log });
+    if (!stopping && !(await someoneIsWatching())) await recordLoopRun(db, LOOP.browserAudio, addBrowserAudioForAWhile, { log });
 
     if (stopping) break;
     await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
@@ -1642,6 +1857,7 @@ if (WORKER_MODE === "watch") {
   // Uploads waiting for their virus scan (it checks for viewers itself).
   await recordLoopRun(db, LOOP.uploadScan, scanUploads, { log });
   if (!stopping && !queued && !(await someoneIsWatching())) await recordLoopRun(db, LOOP.fileCheck, checkFilesForAWhile, { log });
+  if (!stopping && !queued && !(await someoneIsWatching())) await recordLoopRun(db, LOOP.browserAudio, addBrowserAudioForAWhile, { log });
 
   db.close();
   log(stopping ? "stopped" : "queue drained — exiting");

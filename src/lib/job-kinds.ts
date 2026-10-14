@@ -300,6 +300,14 @@ const KINDS: JobKind[] = [
     runner: "loop",
     politeByDefault: false,
   },
+  {
+    kind: "loop_browser_audio",
+    label: "Browser audio",
+    description:
+      "Adds a stereo AAC track to films whose only sound a browser can't play (DTS, TrueHD...), so they play straight off the drive instead of having their audio re-encoded live. Keeps every original track. Up to 20 a day, when nothing is queued and nobody is watching; \"Add browser audio now\" on a film does one at once.",
+    runner: "loop",
+    politeByDefault: false,
+  },
 ];
 
 export function listJobKinds(): JobKind[] {
