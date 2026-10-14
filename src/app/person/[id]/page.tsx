@@ -73,7 +73,7 @@ export default async function PersonPage({
 
   return (
     <>
-      <AppBar username={session.username} langloisMode={session.langloisMode} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
 
       <SpecialFeaturesRow features={specialFeatures} />
 
