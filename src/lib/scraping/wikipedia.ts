@@ -2,6 +2,9 @@ import "server-only";
 
 import { logEvent, recordExternalApiCall } from "../events";
 import { upsertScrapedArticle, type FilmMentionInput } from "./articles";
+import { pickFilmPageTitle, readPageSource, readSearchHits, type PageSource } from "./wikipedia-shape";
+
+export type { PageSource };
 
 /**
  * Wikipedia via the official MediaWiki REST API — never HTML scraping.
@@ -19,16 +22,8 @@ const API_BASE = "https://en.wikipedia.org/w/rest.php/v1";
 // point, not just a generic fetch UA.
 const USER_AGENT = "jellyfin-gate-curation/1.0 (self-hosted personal media library; single-user, non-commercial)";
 
-interface SearchResult {
-  pages: Array<{ title: string; description?: string | null }>;
-}
-
-export interface PageSource {
-  title: string;
-  source: string;
-}
-
-async function wikiFetch<T>(path: string): Promise<T | null> {
+/** The parsed JSON, or null on a failed request. Unknown on purpose: wikipedia-shape.ts reads it. */
+async function wikiFetch(path: string): Promise<unknown> {
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
@@ -41,7 +36,7 @@ async function wikiFetch<T>(path: string): Promise<T | null> {
       return null;
     }
     recordExternalApiCall("wikipedia", true);
-    return (await res.json()) as T;
+    return (await res.json()) as unknown;
   } catch (error) {
     recordExternalApiCall("wikipedia", false);
     logEvent({
@@ -57,18 +52,13 @@ async function wikiFetch<T>(path: string): Promise<T | null> {
 
 async function findFilmPageTitle(title: string, year: number | null): Promise<string | null> {
   const query = year ? `${title} ${year} film` : `${title} film`;
-  const result = await wikiFetch<SearchResult>(`/search/page?q=${encodeURIComponent(query)}&limit=5`);
-  if (!result || result.pages.length === 0) return null;
-
-  // Prefer a result Wikipedia's own short description calls a film — the
-  // plain title search alone tends to surface disambiguation or unrelated
-  // pages sharing the same words.
-  const filmMatch = result.pages.find((p) => p.description?.toLowerCase().includes("film"));
-  return (filmMatch ?? result.pages[0])?.title ?? null;
+  const result = await wikiFetch(`/search/page?q=${encodeURIComponent(query)}&limit=5`);
+  return pickFilmPageTitle(readSearchHits(result));
 }
 
+/** Null for a failed request and for a page with no title or no wikitext alike: either way there is no article to read. */
 async function fetchPageSource(pageTitle: string): Promise<PageSource | null> {
-  return wikiFetch<PageSource>(`/page/${encodeURIComponent(pageTitle)}`);
+  return readPageSource(await wikiFetch(`/page/${encodeURIComponent(pageTitle)}`));
 }
 
 /** Same fetch, exposed for a caller that already knows the exact page title (a list/awards page, not a film search) — see wikipedia-lists.ts. */
