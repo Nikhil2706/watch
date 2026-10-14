@@ -52,6 +52,17 @@ jobs:
         with:
           node-version: "22"
 
+      # The version comes from the build, not from build.gradle by hand: the
+      # installed app offers an update only for a higher versionCode, and a
+      # merge that forgot to bump it shipped the same number again (PR #30
+      # went out as 1.7 twice, 2026-10-14). versionCode = 100 + this
+      # workflow's run number; versionName = build.gradle's versionName + "."
+      # + run number. Stamped into build.gradle on this runner only, never
+      # committed. See scripts/app-version.mjs (and its tests).
+      - name: Version from the run number
+        id: version
+        run: node scripts/app-version.mjs apps/mobile/android/app/build.gradle "${{ github.run_number }}"
+
       # Match android/variables.gradle rather than trusting whatever the
       # runner image happens to ship this month.
       - uses: android-actions/setup-android@v3
@@ -192,9 +203,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd apps/mobile
-          code=$(grep -oP 'versionCode\s+\K[0-9]+' android/app/build.gradle)
-          name=$(grep -oP 'versionName\s+"\K[^"]+' android/app/build.gradle)
+          # The numbers stamped into this very APK (step "version" above).
+          code="${{ steps.version.outputs.version_code }}"
+          name="${{ steps.version.outputs.version_name }}"
+          test -n "$code" && test -n "$name"
           echo "publishing versionCode=$code versionName=$name"
+          # Belt and braces: the APK itself must say the same.
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging android/app/build/outputs/apk/release/app-release.apk \
+            | grep -q "versionCode='$code' versionName='$name'"
 
           cp android/app/build/outputs/apk/release/app-release.apk \
              "$RUNNER_TEMP/watch-release.apk"
@@ -227,4 +243,4 @@ jobs:
           echo "$body"
           # The app is useless if this 404s, so fail the build rather than ship
           # an update path nobody can reach.
-          echo "$body" | grep -q '"versionCode"'
+          echo "$body" | grep -q '"versionCode": ${{ steps.version.outputs.version_code }},'
