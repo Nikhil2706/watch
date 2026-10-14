@@ -8,6 +8,7 @@ import { getItem, getPlaybackPlan, posterUrl, resumeSeconds } from "@/lib/media"
 import { getPartyRoom, listGuestLinks } from "@/lib/party";
 import { resolvePartyIdentity } from "@/lib/party-identity";
 import { defaultTrack, listSubtitles } from "@/lib/subtitles";
+import { resolvePlaybackClientFromRequest } from "@/lib/tv/detect";
 
 export const dynamic = "force-dynamic";
 
@@ -93,7 +94,7 @@ export default async function PartyRoomPage({ params }: { params: Promise<{ room
   let player = null;
   if (item) {
     try {
-      const plan = await getPlaybackPlan(session, room.jellyfinId);
+      const plan = await getPlaybackPlan(session, room.jellyfinId, await resolvePlaybackClientFromRequest());
       if (!plan) throw new Error("no playback plan");
       const subtitles = listSubtitles(item);
       const preferred = defaultTrack(subtitles);

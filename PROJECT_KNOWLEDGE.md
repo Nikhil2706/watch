@@ -569,6 +569,17 @@ Branch off `platform-additions`, not deployed yet.
   first feature. A D-pad stop like any other link; OK follows it.
 - Schema v57 (new tables only); v56 is the watch-party replies and reactions.
 
+### 2026-10-14 — TVs and desktops play H.264 level 5.x files directly
+Branch off `platform-additions`, not deployed yet. The device profile sent to
+Jellyfin capped H.264 at level 4.1 for every client, so a TV or desktop
+transcoded files it plays directly: The Social Network (High@5.1, 1.3 Mbps)
+transcoded for everyone ("VideoLevelNotSupported"). The profile now lives in
+`playback-profile.ts` and is built per request: 4.1 for phones and tablets
+(and when there's no agent), 5.2 for TV mode (the Watch app on a TV says
+"AndroidTV" in its agent, or the watch_tv cookie) and desktop browsers. The
+watch, party and screening pages pass the kind of client in; nothing else in
+the profile changed.
+
 ### 2026-10-14 (later still) — Watch party: seven ideas taken from open-source watch parties
 We read the sync and chat code of Jellyfin SyncPlay, SyncTube, CyTube and
 WatchParty, and took the best of each:

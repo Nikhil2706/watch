@@ -7,6 +7,7 @@ import { logEvent } from "@/lib/events";
 import { getEpisodeContext, getItem, getPlaybackPlan, posterUrl, resumeSeconds } from "@/lib/media";
 import { extractJellyfinId, itemHref, watchHref } from "@/lib/slugs";
 import { defaultTrack, listSubtitles } from "@/lib/subtitles";
+import { resolvePlaybackClientFromRequest } from "@/lib/tv/detect";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export default async function WatchPage({
   let plan = null;
   let planError: string | null = null;
   try {
-    plan = await getPlaybackPlan(session, id);
+    plan = await getPlaybackPlan(session, id, await resolvePlaybackClientFromRequest());
   } catch (error) {
     console.error("[watch] PlaybackInfo failed:", error);
     logEvent({
