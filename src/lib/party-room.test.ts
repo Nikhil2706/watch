@@ -250,3 +250,22 @@ test("a jump of more than 30 s tells everyone, the sender included, where the ro
   applySync(room, tv.member, mammannii, "seek", 1220, 10_000);
   assert.equal(jumps(tv.got).length, count, "a 20 s nudge is not a jump");
 });
+
+test("drift beside each name: from the furthest-out screen, only while both are playing", () => {
+  const room = createRoom(0);
+  const laptop = join(room, tester, "laptop-0001");
+  const tv = join(room, mammannii, "tv-000001");
+  const phone = join(room, mammannii, "phone-00001");
+  const chat = join(room, mammannii, "chat-tab-01", false);
+  applySync(room, laptop.member, tester, "play", 100, 0); // room at 100 + t
+  tv.member.report = { positionSeconds: 109.6, paused: false, at: 10_000 }; // 0.4 s behind
+  phone.member.report = { positionSeconds: 108.8, paused: false, at: 10_000 }; // 1.2 s behind
+  const list = participantList(room, () => false, 12_000);
+  assert.equal(list.find((p) => p.id === mammannii.id)?.driftSeconds, -1.2, "the worse of the TV and the phone");
+  assert.equal(list.find((p) => p.id === tester.id)?.driftSeconds, null, "nothing reported");
+
+  phone.member.report = { positionSeconds: 108.8, paused: true, at: 10_000 };
+  assert.equal(participantList(room, () => false, 12_000).find((p) => p.id === mammannii.id)?.driftSeconds, -0.4, "a paused screen is not 'behind'");
+  assert.equal(participantList(room, () => false, 40_000).find((p) => p.id === mammannii.id)?.driftSeconds, null, "stale reports say nothing");
+  void chat;
+});

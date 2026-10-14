@@ -38,6 +38,8 @@ export interface PartyParticipant {
   kind: "user" | "guest";
   displayName: string;
   isController: boolean;
+  /** Seconds from the room's film (+ ahead, − behind); null when there is nothing playing to compare. */
+  driftSeconds: number | null;
 }
 
 /** Positions are stamped with the server time they were true at (`at`); see party-sync.ts. */
@@ -275,6 +277,12 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
     (positionSeconds: number) => void post({ type: "position", positionSeconds, sentAt: serverNow(), clientId }),
     [post, clientId, serverNow],
   );
+  /** Where this screen's film is, for the drift shown beside names; moves nothing. */
+  const sendReport = useCallback(
+    (positionSeconds: number, paused: boolean) =>
+      void post({ type: "report", positionSeconds, paused, sentAt: serverNow(), clientId }),
+    [post, clientId, serverNow],
+  );
   const grant = useCallback((targetId: string) => void post({ type: "grant", targetId }), [post]);
   const revoke = useCallback((targetId: string) => void post({ type: "revoke", targetId }), [post]);
 
@@ -308,6 +316,7 @@ export function usePartySocket(roomId: string, { watching = false }: { watching?
     sendChat,
     sendSync,
     sendPosition,
+    sendReport,
     grant,
     revoke,
     end,

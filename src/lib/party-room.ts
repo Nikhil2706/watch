@@ -25,6 +25,12 @@ export interface PartyParticipant {
   kind: "user" | "guest";
   displayName: string;
   isController: boolean;
+  /**
+   * How far this person's film is from the room's, in seconds (+ ahead,
+   * − behind), from the furthest-out of their screens. null: no screen
+   * playing to compare (chat only, paused, or not reported yet).
+   */
+  driftSeconds: number | null;
 }
 
 export type PartySyncAction = "play" | "pause" | "seek";
@@ -64,6 +70,8 @@ export interface Member {
    * together, or drift.
    */
   watching: boolean;
+  /** Where this stream last said its film was (every few seconds, while it has the film open). */
+  report?: { positionSeconds: number; paused: boolean; at: number };
   send: (event: PartyEvent) => void;
 }
 
@@ -271,19 +279,44 @@ export function pauseOrphaned(room: RoomState, now: number): boolean {
   return true;
 }
 
-/** One entry per person, however many screens they have open. */
+/** Reports older than this say nothing about now (the stream stopped reporting). */
+const REPORT_STALE_MS = 15_000;
+
+/**
+ * How far one stream's film is from the room's right now, to a tenth of a
+ * second. Taken from WatchParty, which shows every viewer's offset beside
+ * their name. Only while both are playing: a paused screen in a playing room
+ * is "paused", not "behind by a growing number".
+ */
+export function memberDrift(member: Member, room: RoomState, now: number): number | null {
+  const report = member.report;
+  if (!report || room.paused || report.paused || now - report.at > REPORT_STALE_MS) return null;
+  const theirs = report.positionSeconds + (now - report.at) / 1000;
+  return Math.round((theirs - currentPosition(room, now)) * 10) / 10;
+}
+
+/** One entry per person, however many screens they have open; drift from the furthest-out screen. */
 export function participantList(
   room: RoomState,
   isController: (identity: PartyMemberIdentity) => boolean,
+  now = Date.now(),
 ): PartyParticipant[] {
   const byId = new Map<string, PartyParticipant>();
   for (const member of room.members) {
-    if (byId.has(member.identity.id)) continue;
+    const drift = memberDrift(member, room, now);
+    const existing = byId.get(member.identity.id);
+    if (existing) {
+      if (drift !== null && (existing.driftSeconds === null || Math.abs(drift) > Math.abs(existing.driftSeconds))) {
+        existing.driftSeconds = drift;
+      }
+      continue;
+    }
     byId.set(member.identity.id, {
       id: member.identity.id,
       kind: member.identity.kind,
       displayName: member.identity.displayName,
       isController: isController(member.identity),
+      driftSeconds: drift,
     });
   }
   return [...byId.values()];

@@ -4145,6 +4145,18 @@ html[data-tv="true"] .appbar-more {
   outline-offset: 3px;
 }
 
+/* How far someone's film is from the room's, beside their name. */
+.party-drift {
+  color: var(--warm);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.party-sync-me {
+  width: auto;
+  white-space: nowrap;
+}
+
 .party-unread {
   min-width: 20px;
   height: 20px;

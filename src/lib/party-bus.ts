@@ -272,6 +272,35 @@ export function postSync(
   return true;
 }
 
+/** How often the participants list (with everyone's drift) is re-sent while reports come in. */
+const DRIFT_BROADCAST_MS = 4000;
+const lastDriftBroadcast = new Map<string, number>();
+
+/**
+ * Any watching stream's "my film is here", every few seconds — for the drift
+ * shown beside each name, not for sync. Open to non-controllers: it moves
+ * nothing.
+ */
+export function postReport(
+  roomId: string,
+  identity: PartyIdentity,
+  clientId: string | null,
+  positionSeconds: number,
+  paused: boolean,
+  sentAt: unknown,
+): boolean {
+  const room = bus().rooms.get(roomId);
+  const origin = room ? findOrigin(room, identity.id, clientId) : undefined;
+  if (!room || !origin) return false;
+  const now = Date.now();
+  origin.report = { positionSeconds, paused, at: stampTime(sentAt, now) };
+  if (now - (lastDriftBroadcast.get(roomId) ?? 0) >= DRIFT_BROADCAST_MS) {
+    lastDriftBroadcast.set(roomId, now);
+    broadcastParticipants(roomId);
+  }
+  return true;
+}
+
 /** A controller's position while playing; see applyHeartbeat for who is listened to. */
 export function postPosition(
   roomId: string,

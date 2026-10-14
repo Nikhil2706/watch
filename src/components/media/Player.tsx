@@ -80,6 +80,11 @@ const TICKS_PER_SECOND = 10_000_000;
 const PROGRESS_INTERVAL_MS = 10_000;
 /** Watch party: a refused play() is tried again this often, this many times (a slow seek can take seconds). */
 const PLAY_RETRY_MS = 500;
+/** Watch party: how often this screen says where its film is (for the drift beside names). */
+const REPORT_INTERVAL_MS = 5000;
+/** "Sync me" is offered once this screen has been this far from the room for SYNC_ME_AFTER_TICKS seconds running. */
+const SYNC_ME_SECONDS = 1.5;
+const SYNC_ME_AFTER_TICKS = 4;
 const PLAY_RETRIES = 20;
 const DOUBLE_TAP_WINDOW_MS = 300;
 const CENTER_BUTTON_AUTOHIDE_MS = 2500;
@@ -176,6 +181,12 @@ export interface PlayerPartySync {
   initialState: { positionSeconds: number; paused: boolean; at: number } | null;
   /** A controller asked this player to seek ("↩ 1:02:13", undoing a jump); a new id each time. Sent to the room like the viewer's own seek. */
   seekRequest?: { to: number; id: number } | null;
+  /** Every few seconds: where this screen's film is, for the drift beside names. */
+  sendReport?: (positionSeconds: number, paused: boolean) => void;
+  /** This screen has been more than SYNC_ME_SECONDS from the room for a while (true), or is back in step (false). */
+  onOutOfStep?: (outOfStep: boolean) => void;
+  /** "Sync me": jump this screen to the room now; a new id each time. Not sent to anyone. */
+  syncNowRequest?: number | null;
 }
 
 interface PlayerProps {
@@ -871,10 +882,54 @@ export function Player({
   }
 
   /** A follower's once-a-second correction toward where the leader is now. */
+  /**
+   * Own drift, for "Sync me": how far this screen is from the room, from the
+   * last stamped position heard (any role). The heartbeat source is the
+   * room's reference and has nothing to compare against.
+   */
+  const roomTarget = useRef<RoomPosition | null>(null);
+  const outOfStepTicks = useRef(0);
+  const reportedOutOfStep = useRef(false);
+
+  function checkOwnDrift() {
+    const instance = player.current;
+    const current = partyRef.current;
+    const target = roomTarget.current;
+    let off = false;
+    if (instance && current && target && !target.paused && !current.sendsHeartbeat && !mediaPaused(instance)) {
+      const drift = Math.abs(mediaTime(instance) - targetPosition(target, current.serverNow()));
+      off = drift > SYNC_ME_SECONDS;
+    }
+    outOfStepTicks.current = off ? outOfStepTicks.current + 1 : 0;
+    const now = outOfStepTicks.current >= SYNC_ME_AFTER_TICKS;
+    if (now !== reportedOutOfStep.current) {
+      reportedOutOfStep.current = now;
+      current?.onOutOfStep?.(now);
+    }
+  }
+
+  useEffect(() => {
+    const instance = player.current;
+    const current = partyRef.current;
+    const target = roomTarget.current;
+    if (!party?.syncNowRequest || !instance || !current || !target) return;
+    const now = Date.now();
+    const to = targetPosition(target, current.serverNow());
+    stopSteering(instance);
+    // The room's position, not the viewer's choice: not sent to anyone.
+    expectedRemote.current = expectFromPlan({ seekTo: to, setPaused: target.paused ? null : false }, now);
+    startCooldown(driftControl.current, now);
+    mediaSeek(instance, to);
+    if (!target.paused && mediaPaused(instance)) playWhenReady(instance);
+    outOfStepTicks.current = 0;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [party?.syncNowRequest]);
+
   function steer() {
     const instance = player.current;
     const current = partyRef.current;
     if (!instance) return;
+    checkOwnDrift();
     const target = followTarget.current;
     if (!current?.followsHeartbeat || !target || target.paused || mediaPaused(instance)) {
       stopSteering(instance);
@@ -905,6 +960,7 @@ export function Player({
 
   useEffect(() => {
     if (!party?.initialState || !player.current) return;
+    roomTarget.current = party.initialState;
     seededPartyState.current = true;
     applyExplicit(party.initialState);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -921,12 +977,14 @@ export function Player({
   useEffect(() => {
     if (!party?.lastSync) return;
     const { positionSeconds, paused, at } = party.lastSync;
+    roomTarget.current = { positionSeconds, paused, at };
     applyExplicit({ positionSeconds, paused, at });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [party?.lastSync]);
 
   useEffect(() => {
     const instance = player.current;
+    if (party?.lastPosition) roomTarget.current = { ...party.lastPosition, paused: false };
     // Controllers never follow heartbeats: two of them doing so chased each other.
     if (!party?.lastPosition || !party.followsHeartbeat || !instance) return;
     followTarget.current = { ...party.lastPosition, paused: false };
@@ -1077,6 +1135,14 @@ export function Player({
       current.sendPosition(mediaTime(instance));
     }, HEARTBEAT_INTERVAL_MS);
 
+    // Every screen with the film open says where it is, for the drift shown
+    // beside each name (WatchParty does the same every second).
+    const reporter = setInterval(() => {
+      const current = partyRef.current;
+      if (!current?.sendReport || !seededPartyState.current) return;
+      current.sendReport(mediaTime(instance), mediaPaused(instance));
+    }, REPORT_INTERVAL_MS);
+
     instance.addEventListener("play", onPlay);
     instance.addEventListener("pause", onPause);
     instance.addEventListener("seeked", onSeeked);
@@ -1087,6 +1153,7 @@ export function Player({
     return () => {
       clearInterval(timer);
       clearInterval(heartbeat);
+      clearInterval(reporter);
       instance.removeEventListener("play", onPlay);
       instance.removeEventListener("seeked", onSeeked);
       instance.removeEventListener("playing", onPlaying);

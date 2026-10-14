@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 
 import { usePartySocket } from "./usePartySocket";
 
+/** Closer than this is "in step" and says nothing (steering keeps followers within about 0.3 s). */
+const DRIFT_SHOWN_SECONDS = 0.5;
+
 function timeLabel(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
@@ -108,6 +111,14 @@ export function PartyChatPanel({
           <div key={p.id} className="party-participant">
             <span className={p.kind === "guest" ? "party-name party-name-guest" : "party-name"}>{p.displayName}</span>
             {p.isController ? <span className="party-controller-badge" title="Can control playback">▶</span> : null}
+            {p.driftSeconds !== null && Math.abs(p.driftSeconds) >= DRIFT_SHOWN_SECONDS ? (
+              <span
+                className="party-drift"
+                title={`${p.displayName}'s film is ${Math.abs(p.driftSeconds).toFixed(1)} s ${p.driftSeconds < 0 ? "behind" : "ahead of"} the room`}
+              >
+                {Math.abs(p.driftSeconds).toFixed(1)} s {p.driftSeconds < 0 ? "behind" : "ahead"}
+              </span>
+            ) : null}
             {isCreator ? (
               <div className="party-participant-menu">
                 <button

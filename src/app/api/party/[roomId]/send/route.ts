@@ -1,4 +1,4 @@
-import { isRoomLive, postChat, postPosition, postSync, setController } from "@/lib/party-bus";
+import { isRoomLive, postChat, postPosition, postReport, postSync, setController } from "@/lib/party-bus";
 import { resolvePartyIdentity } from "@/lib/party-identity";
 import { cleanClientId } from "@/lib/party-room";
 import { checkRateLimit, PARTY_SEND_LIMIT, rateLimitHeaders } from "@/lib/ratelimit";
@@ -18,6 +18,7 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
  *   {type:"chat",   body}
  *   {type:"sync",   action:"play"|"pause"|"seek", positionSeconds, sentAt?, clientId?}
  *   {type:"position", positionSeconds, sentAt?, clientId?}  -- the leader's heartbeat while playing
+ *   {type:"report", positionSeconds, paused, sentAt?, clientId?}  -- any watching stream, for the drift beside names
  *   {type:"ping"}   -- nothing; the reply's serverTime is a clock sample
  *   {type:"grant",  targetId}   -- creator only
  *   {type:"revoke", targetId}   -- creator only
@@ -99,6 +100,17 @@ export async function POST(
         return Response.json({ error: "invalid_request" }, { status: 400, headers: NO_STORE });
       }
       const applied = postPosition(roomId, identity, cleanClientId(body.clientId), positionSeconds, body.sentAt);
+      return Response.json({ ok: true, applied, serverTime: Date.now() }, { headers: NO_STORE });
+    }
+
+    case "report": {
+      const positionSeconds = typeof body.positionSeconds === "number" && Number.isFinite(body.positionSeconds)
+        ? Math.max(0, body.positionSeconds)
+        : null;
+      if (positionSeconds === null) {
+        return Response.json({ error: "invalid_request" }, { status: 400, headers: NO_STORE });
+      }
+      const applied = postReport(roomId, identity, cleanClientId(body.clientId), positionSeconds, body.paused === true, body.sentAt);
       return Response.json({ ok: true, applied, serverTime: Date.now() }, { headers: NO_STORE });
     }
 

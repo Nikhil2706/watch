@@ -84,6 +84,9 @@ export function PartyRoomClient({
    * the room then follows like any other seek.
    */
   const [seekRequest, setSeekRequest] = useState<{ to: number; id: number } | null>(null);
+  /** This screen has drifted from the room for a while: "Sync me" snaps it back (taken from WatchParty and CyTube). */
+  const [outOfStep, setOutOfStep] = useState(false);
+  const [syncNowRequest, setSyncNowRequest] = useState<number | null>(null);
   const [dismissedJump, setDismissedJump] = useState<typeof socket.lastJump>(null);
   const [, setTick] = useState(0);
   const jump = socket.lastJump;
@@ -246,6 +249,19 @@ export function PartyRoomClient({
             ) : null}
           </button>
         ) : null}
+        {outOfStep && player ? (
+          <button
+            type="button"
+            className="btn ghost party-sync-me"
+            title="This screen has fallen out of step with the room"
+            onClick={() => {
+              setSyncNowRequest(Date.now());
+              setOutOfStep(false);
+            }}
+          >
+            Sync me
+          </button>
+        ) : null}
         {undoJump ? (
           <button
             type="button"
@@ -294,6 +310,9 @@ export function PartyRoomClient({
                 lastPosition: socket.lastPosition,
                 initialState: socket.initialState,
                 seekRequest,
+                sendReport: socket.sendReport,
+                onOutOfStep: setOutOfStep,
+                syncNowRequest,
               }}
             />
           ) : (
