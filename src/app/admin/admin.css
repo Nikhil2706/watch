@@ -831,6 +831,9 @@
 .adm-job-meta {
   font-size: 0.85rem;
   margin-top: 4px;
+  /* A job's result is whatever it last said; a long unbroken one must still
+     wrap at phone width rather than widen the page. */
+  overflow-wrap: anywhere;
 }
 .adm-job-edit {
   margin-top: 10px;
