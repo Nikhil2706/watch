@@ -88,8 +88,16 @@ site's TV mode in a browser, keys as the remote): one OK is one action.
 - **#69, stacked on #68:** "Watch together?" on a friend's Watching now card
   -> their bell -> /together/{id} -> a party with them in charge, and the
   asker notified with the link (schema 64).
-- **Merge order for the stack:** #65 -> #66 -> #68 -> #69 (each retargets to
-  `platform-additions` once the one below is merged). Schema ends at 64.
+- **#70, stacked on #69:** Coming soon. /admin -> Coming soon announces a
+  film or show by IMDb id (TMDB fills it in; optional note and date;
+  `coming_soon`, schema 65); a single film's release date in the Library
+  film pane (rollout subject `film`); Home's "Coming soon" row and
+  /coming-soon list announcements plus every schedule (film date, show's
+  next episodes, franchise's next film). Franchise one-a-day was already
+  there (Library -> Franchises -> schedule).
+- **Merge order for the stack:** #65 -> #66 -> #68 -> #69 -> #70 (each
+  retargets to `platform-additions` once the one below is merged). Schema
+  ends at 65.
 - **#67:** TV left/right held scrubs, faster the longer it's held, one seek
   on release. Check on the real TV that held keys arrive as repeats.
 - **#63, waiting for the owner to merge:** an Admin tab in the phone tab bar
