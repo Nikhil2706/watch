@@ -67,7 +67,11 @@
  * 63: watch_log and friendships, and users.activity_visibility (added in
  * db.ts runVersionedMigrations) — friends' activity on Home (friends-feed.ts).
  */
-export const SCHEMA_VERSION = 63;
+/*
+ * 64: watch_together — "ask to watch together" from a friend's Watching now
+ * card (watch-together.ts). CREATE ... IF NOT EXISTS; nothing existing changes.
+ */
+export const SCHEMA_VERSION = 64;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1643,4 +1647,20 @@ CREATE TABLE IF NOT EXISTS friendships (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, friend_id)
 ) STRICT;
+
+-- "Ask to watch together" (v64; watch-together.ts): someone saw a friend
+-- watching something and asked to make it a party. The friend answers from
+-- their bell; starting one creates an ordinary party room (room_id).
+CREATE TABLE IF NOT EXISTS watch_together (
+  id           TEXT PRIMARY KEY,
+  from_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  to_user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  item_id      TEXT NOT NULL,
+  film_title   TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  answered_at  INTEGER,
+  room_id      TEXT            -- set when they started a party
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_watch_together_pair ON watch_together(from_user_id, to_user_id, item_id, created_at);
 `;
