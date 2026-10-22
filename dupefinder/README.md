@@ -1,5 +1,14 @@
 # dupefinder
 
+> **Dormant (2026-10-22).** Not running on the Mac and not in `/admin`: the
+> owner chose to drop its tab rather than port it, and keep this code to
+> revive later. Same-title copies are handled by the Library tab's Duplicates
+> filter. To revive it on the Mac: the commands below still assume the old
+> Windows/WSL paths; `/api/delete` deletes files outright, which the owner's
+> rules don't allow, so change it to move to the Trash first; and in `/admin`
+> the site would hold `DUPEFINDER_API_KEY` and pass the thumbnails through,
+> since a phone can't reach the sidecar directly.
+
 Internal sidecar service for duplicate-video detection, wrapping
 [VDF.Core](https://github.com/0x90d/videoduplicatefinder) (vendored at
 `VDF.Core/`, see `VENDORED.md`) behind a small HTTP API of our own
