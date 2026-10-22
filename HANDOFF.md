@@ -73,6 +73,14 @@ site's TV mode in a browser, keys as the remote): one OK is one action.
   Continue watching, heading links to History) and `/history`, everything
   watched to the end by month. Check signed in after deploy: the Jellyfin
   query (played, sorted by date played) hasn't been run for real yet.
+- **#66, stacked on #65 (merge #65 first):** Continue watching gets the
+  next episode of each show (the site's shows are its own groups, so
+  Jellyfin's next-up never saw them; Nathan For You), an ✕ to remove a card
+  without marking it watched (`continue_removed`, schema 62), and "Mark
+  unwatched" (the tick on Recently watched / History, and the film page's
+  button). Check the real Nathan For You row after deploy.
+- **#67:** TV left/right held scrubs, faster the longer it's held, one seek
+  on release. Check on the real TV that held keys arrive as repeats.
 - **#63, waiting for the owner to merge:** an Admin tab in the phone tab bar
   (app and browser) for admin accounts, the links renamed "Admin", and an
   Admin column in Invites → Users to give or remove the site's admin access
