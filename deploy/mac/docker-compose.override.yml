@@ -22,8 +22,13 @@ services:
   # Conversions get 8 of the 10 cores: the worker only runs when nobody is
   # watching (it pauses itself) and Final Cut Pro isn't open (com.watch.yield
   # freezes it), so it only uses a Mac that is otherwise idle (2026-10-15).
+  #
+  # The backup runs in the worker (scripts/backup.mjs) and copies this file
+  # too. Its folder on the drive comes from BACKUP_PATH in .env (setup.sh env).
   worker:
     cpus: "8"
+    volumes:
+      - ./docker-compose.override.yml:/stack/docker-compose.override.yml:ro
 
   # The damaged-file check is ON here (it was paused on the old PC only
   # because that machine was short of memory). It reads 100 files a day, when
@@ -31,8 +36,3 @@ services:
   #   worker:
   #     environment:
   #       - FILE_CHECK=false
-
-  # The backup (run by the worker) copies this file too.
-  worker:
-    volumes:
-      - ./docker-compose.override.yml:/stack/docker-compose.override.yml:ro
