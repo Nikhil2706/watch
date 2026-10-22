@@ -79,6 +79,17 @@ site's TV mode in a browser, keys as the remote): one OK is one action.
   without marking it watched (`continue_removed`, schema 62), and "Mark
   unwatched" (the tick on Recently watched / History, and the film page's
   button). Check the real Nathan For You row after deploy.
+- **#68, stacked on #66:** friends' activity. `watch_log` (schema 63) copies
+  every finish from Jellyfin every 5 min (Jellyfin keeps only the last play;
+  this keeps rewatches, for recommendations later); per-person visibility
+  ("Friends" / "Only me", on History); `EVERYONE_IS_FRIENDS` (default on)
+  with a `friendships` table for a bigger site; Home's "Friends watching
+  now" and "Friends lately" (watches, stars, review snippets).
+- **#69, stacked on #68:** "Watch together?" on a friend's Watching now card
+  -> their bell -> /together/{id} -> a party with them in charge, and the
+  asker notified with the link (schema 64).
+- **Merge order for the stack:** #65 -> #66 -> #68 -> #69 (each retargets to
+  `platform-additions` once the one below is merged). Schema ends at 64.
 - **#67:** TV left/right held scrubs, faster the longer it's held, one seek
   on release. Check on the real TV that held keys arrive as repeats.
 - **#63, waiting for the owner to merge:** an Admin tab in the phone tab bar
