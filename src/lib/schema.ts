@@ -54,7 +54,12 @@
  * 60: browser_audio — files given an extra AAC track so a browser can play
  * them without converting (scripts/browser-audio.mjs).
  */
-export const SCHEMA_VERSION = 60;
+/*
+ * 61: catalogue_items and catalogue_decisions (docs/catalogue-state.md, 3.2
+ * and 3.3): a rebuildable summary of every file's state, and the log of who
+ * decided what. Both CREATE ... IF NOT EXISTS; nothing existing changes.
+ */
+export const SCHEMA_VERSION = 61;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1554,4 +1559,40 @@ CREATE TABLE IF NOT EXISTS library_group_declined (
   label      TEXT,
   created_at INTEGER NOT NULL
 ) STRICT;
+
+-- Every library file's catalogue state (v61; docs/catalogue-state.md, 3.2).
+-- A projection, not a source: rewritten whole by refreshCatalogue() from the
+-- tables that hold the facts, and one row at a time after each decision. The
+-- site never reads it to decide what is shown (it derives that live), so a
+-- stale row can only make a count lag. Dropping it loses nothing.
+CREATE TABLE IF NOT EXISTS catalogue_items (
+  path        TEXT PRIMARY KEY,
+  item_id     TEXT,
+  name        TEXT,
+  state       TEXT NOT NULL,     -- visible | placed | held | needs_decision | identifying
+  reason      TEXT,              -- the primary reason code, null when visible
+  reasons     TEXT NOT NULL,     -- JSON: every reason, with its words
+  placement   TEXT,              -- JSON
+  detail      TEXT,              -- the primary reason in words
+  needs_you   INTEGER NOT NULL DEFAULT 0,
+  decided_by  TEXT,              -- from the latest decision, if any
+  decided_at  INTEGER,
+  derived_at  INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_catalogue_items_state ON catalogue_items(state);
+
+-- Who decided what about a file (v61; 3.3). Append-only, written by the
+-- decision API and the older endpoints it wraps; never read to derive a state.
+CREATE TABLE IF NOT EXISTS catalogue_decisions (
+  id         TEXT PRIMARY KEY,
+  path       TEXT NOT NULL,
+  action     TEXT NOT NULL,
+  params     TEXT,            -- JSON
+  reason     TEXT,            -- the reason it answered, when one
+  decided_by TEXT NOT NULL,   -- "curator", "auto-group", "folder-match", ...
+  decided_at INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_catalogue_decisions_path ON catalogue_decisions(path, decided_at);
 `;

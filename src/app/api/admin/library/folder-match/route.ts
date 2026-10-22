@@ -7,6 +7,7 @@ import {
   runFolderMatch,
 } from "@/lib/folder-match";
 import { optionalBoolean, optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { logDecision } from "@/lib/catalogue-decisions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +52,7 @@ export async function POST(request: Request): Promise<Response> {
         return Response.json({ dismissed: true }, { headers: NO_STORE });
       }
       const applied = await acceptFolderSuggestion(path);
+      logDecision({ path, action: "accept_suggestion" });
       return Response.json({ applied }, { headers: NO_STORE });
     }
     throw new ValidationError("action must be run, accept or dismiss.");

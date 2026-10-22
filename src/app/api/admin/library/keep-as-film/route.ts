@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { invalidateAdminMovies } from "@/lib/admin-library-cache";
 import { keepAsFilm } from "@/lib/series-autogroup";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { logDecision } from "@/lib/catalogue-decisions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!path) throw new ValidationError("path is required.");
 
     keepAsFilm(path);
+    logDecision({ path, action: "place_as", params: { as: "film" } });
     invalidateAdminMovies();
     return Response.json({ kept: true }, { headers: NO_STORE });
   } catch (error) {

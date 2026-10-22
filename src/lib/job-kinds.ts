@@ -227,7 +227,13 @@ const KINDS: JobKind[] = [
       const grouped = await runSeriesAutoGroup()
         .then(describeAutoGroupRun)
         .catch((error) => `episode grouping failed: ${error instanceof Error ? error.message : String(error)}`);
-      return `${matched}. Episodes: ${grouped}`;
+      // Last, so the night's matching and grouping are in it: the catalogue's
+      // summary table (docs/catalogue-state.md, 3.2), rebuilt whole.
+      const { refreshCatalogue } = await import("./catalogue-decisions");
+      const catalogue = await refreshCatalogue()
+        .then((c) => `${c.files} files, ${c.needsYou} need you`)
+        .catch((error) => `refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+      return `${matched}. Episodes: ${grouped}. Catalogue: ${catalogue}`;
     },
   },
   {

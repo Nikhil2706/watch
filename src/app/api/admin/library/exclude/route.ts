@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { excludePath } from "@/lib/library-curation";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { logDecision } from "@/lib/catalogue-decisions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,7 @@ export async function POST(request: Request): Promise<Response> {
     const reason = optionalString(body, "reason");
 
     excludePath(path, reason);
+    logDecision({ path, action: "hide", params: reason ? { note: reason } : null });
     return Response.json({ excluded: true, path }, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof ValidationError) {

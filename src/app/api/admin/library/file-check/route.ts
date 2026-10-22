@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { invalidate } from "@/lib/cache";
 import { fileCheckProgress, requestRecheck, setDamagedAllowed } from "@/lib/file-checks";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { logDecision } from "@/lib/catalogue-decisions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +40,8 @@ export async function POST(request: Request): Promise<Response> {
     else if (action === "recheck") ok = requestRecheck(path);
     else throw new ValidationError("action must be allow, disallow or recheck.");
     if (!ok) throw new ValidationError("That file has no check on record.");
+    if (action === "recheck") logDecision({ path, action: "replace_recheck" });
+    else logDecision({ path, action: action === "allow" ? "show_anyway" : "take_off", reason: "damaged" });
     // The listing viewers read is cached for a minute; what is hidden just changed.
     invalidate("all-movies");
     return Response.json({ ok: true }, { headers: NO_STORE });
