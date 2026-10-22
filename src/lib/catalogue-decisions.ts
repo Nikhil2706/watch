@@ -3,12 +3,20 @@ import "server-only";
 import { getAdminMovies, invalidateAdminMovies } from "./admin-library-cache";
 import { planDecision, type CatalogueWrite, type DecisionRequest } from "./catalogue-decide";
 import { listingFacts, readListingSources, type ListingSources } from "./catalogue-facts";
-import { deriveCatalogueState, primaryReason, type CatalogueState } from "./catalogue-state";
+import { deriveCatalogueState, primaryReason, type CatalogueFacts, type CatalogueState } from "./catalogue-state";
 import { invalidate } from "./cache";
 import { generateId } from "./crypto";
 import { getDb, transaction } from "./db";
-import { requestRecheck, setDamagedAllowed } from "./file-checks";
-import { addToGroup, excludePath, removeFromGroup, unexcludePath, unwhitelistPath, whitelistPath } from "./library-curation";
+import { fileProblems, requestRecheck, setDamagedAllowed } from "./file-checks";
+import {
+  addToGroup,
+  excludePath,
+  getGroupedPathMap,
+  removeFromGroup,
+  unexcludePath,
+  unwhitelistPath,
+  whitelistPath,
+} from "./library-curation";
 import { acceptFolderSuggestion } from "./folder-match";
 import { createVersionSet, removeFromVersionSet, setVersionLabel } from "./film-versions";
 import { groupSeriesNow, keepAsFilm } from "./series-autogroup";
@@ -88,9 +96,40 @@ interface Projected {
   state: CatalogueState;
 }
 
-function project(item: AdminMovieListItem, sources: ListingSources): Projected | null {
+/** What the listing read leaves out and a decision needs: see facts(). */
+interface FullSources extends ListingSources {
+  groups: ReturnType<typeof getGroupedPathMap>;
+  problems: ReturnType<typeof fileProblems>;
+}
+
+function readSources(): FullSources {
+  return { ...readListingSources(), groups: getGroupedPathMap(), problems: fileProblems() };
+}
+
+/**
+ * The listing's facts, plus two things the listing read leaves out because
+ * neither changes a listing, and both matter here:
+ *  - the show a file is in: being in one answers "what is this?"
+ *    (catalogue-state.ts, SILENCED_BY_GROUP); without it every episode with no
+ *    metadata of its own counted as needing you;
+ *  - damage the curator has allowed: the listing only knows damage nobody
+ *    has, so after "show anyway" the file looked undamaged and "take off"
+ *    had nothing to take back.
+ */
+function facts(item: AdminMovieListItem, s: FullSources): CatalogueFacts {
+  const f = listingFacts(item, s);
+  if (!item.Path) return f;
+  const check = s.problems.get(item.Path);
+  return {
+    ...f,
+    group: s.groups.get(item.Path) ?? null,
+    damaged: check?.verdict === "damaged" ? { allowed: check.allowed, detail: check.detail || null } : null,
+  };
+}
+
+function project(item: AdminMovieListItem, s: FullSources): Projected | null {
   if (!item.Path) return null;
-  return { path: item.Path, itemId: item.Id, name: item.Name ?? null, state: deriveCatalogueState(listingFacts(item, sources)) };
+  return { path: item.Path, itemId: item.Id, name: item.Name ?? null, state: deriveCatalogueState(facts(item, s)) };
 }
 
 const UPSERT_SQL = `
@@ -132,7 +171,7 @@ function rowValues(p: Projected, now: number): Array<string | number | null> {
  */
 export async function refreshCatalogue(): Promise<{ files: number; needsYou: number }> {
   const items = await getAdminMovies({ withMediaSources: false });
-  const sources = readListingSources();
+  const sources = readSources();
   const now = Date.now();
   const rows = items.map((item) => project(item, sources)).filter((p): p is Projected => p !== null);
   transaction((db) => {
@@ -170,7 +209,7 @@ export async function decide(
   const item = await itemForPath(path);
   if (!item) throw new DecisionError("That file isn't in the library listing.", 404);
 
-  const plan = planDecision(listingFacts(item, readListingSources()), request);
+  const plan = planDecision(facts(item, readSources()), request);
   if (!plan.ok) throw new DecisionError(plan.message);
 
   for (const write of plan.writes) await runWrite(write);
@@ -192,7 +231,7 @@ export async function decide(
     invalidateAdminMovies();
   }
 
-  const after = project(item, readListingSources())!;
+  const after = project(item, readSources())!;
   getDb().prepare(UPSERT_SQL).run(...rowValues(after, Date.now()));
   return { path, state: after.state };
 }
