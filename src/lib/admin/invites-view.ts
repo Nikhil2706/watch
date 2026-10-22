@@ -103,7 +103,10 @@ export interface User {
   langlois_mode: boolean | number;
   parental_control: boolean | number;
   suspended: boolean | number;
+  /** A Jellyfin server administrator (not the site's own admin access). */
   is_admin: boolean | number;
+  /** The site's own admin access: /admin with their own sign-in (users.is_admin). */
+  site_admin?: boolean | number;
 }
 
 export const PEOPLE_FILTERS = [

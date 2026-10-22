@@ -35,10 +35,11 @@ export async function GET(request: Request): Promise<Response> {
     parental_control: number;
     suspended: number;
     jellyfin_user_id: string;
+    site_admin: number;
   }>(
     getDb()
       .prepare(
-        "SELECT id, username, last_seen_at, langlois_mode, parental_control, suspended, jellyfin_user_id FROM users ORDER BY last_seen_at DESC",
+        "SELECT id, username, last_seen_at, langlois_mode, parental_control, suspended, jellyfin_user_id, is_admin AS site_admin FROM users ORDER BY last_seen_at DESC",
       )
       .all(),
   );
@@ -63,6 +64,9 @@ export async function GET(request: Request): Promise<Response> {
         parental_control: u.parental_control === 1,
         suspended: u.suspended === 1,
         is_admin: isAdmin,
+        // The site's own admin access (users.is_admin): /admin with their own
+        // sign-in. Not the Jellyfin administrator flag above.
+        site_admin: u.site_admin === 1,
       };
     }),
   );
