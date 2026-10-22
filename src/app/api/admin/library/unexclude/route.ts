@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { unexcludePath } from "@/lib/library-curation";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { logDecision } from "@/lib/catalogue-decisions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!path) throw new ValidationError("path is required.");
 
     const found = unexcludePath(path);
+    if (found) logDecision({ path, action: "unhide" });
     return Response.json({ unexcluded: found }, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof ValidationError) {

@@ -301,6 +301,13 @@ async function warmAdminLibrary(): Promise<void> {
     const { warmAdminMovies } = await import("./lib/admin-library-cache");
     const titles = await warmAdminMovies();
     console.log(`[boot] admin library listing warm (${titles} titles)`);
+    // From the listing just read: the catalogue's summary table, so its counts
+    // are there from the start (docs/catalogue-state.md, 3.2).
+    const { refreshCatalogue } = await import("./lib/catalogue-decisions");
+    await refreshCatalogue().then(
+      (c) => console.log(`[boot] catalogue summary rebuilt (${c.files} files, ${c.needsYou} need you)`),
+      (error) => console.error("[boot] catalogue summary rebuild failed (tonight's folder match rebuilds it):", error),
+    );
   } catch (error) {
     console.error("[boot] admin library warm-up failed (the console's first load will fetch it instead):", error);
   }

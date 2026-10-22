@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { whitelistPath } from "@/lib/library-curation";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { logDecision } from "@/lib/catalogue-decisions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!path) throw new ValidationError("path is required.");
 
     whitelistPath(path);
+    logDecision({ path, action: "show_anyway", reason: "no_metadata" });
     return Response.json({ whitelisted: true, path }, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof ValidationError) {

@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { groupSeriesNow } from "@/lib/series-autogroup";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { logDecision } from "@/lib/catalogue-decisions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,8 @@ export async function POST(request: Request): Promise<Response> {
     if (!key) throw new ValidationError("key is required.");
 
     const result = await groupSeriesNow(key);
+    // Grouped by series, not file: logged under the series key.
+    logDecision({ path: `series:${key}`, action: "place_as", params: { as: "episode", seriesKey: key } });
     return Response.json(result, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof ValidationError) {

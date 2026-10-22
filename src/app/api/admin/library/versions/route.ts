@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
+import { logDecision } from "@/lib/catalogue-decisions";
 import {
   createVersionSet,
   listVersionSets,
@@ -41,7 +42,11 @@ export async function POST(request: Request): Promise<Response> {
   if (!isPath(b.primaryPath)) return bad("primaryPath is required.");
   if (paths.filter((p) => p !== b.primaryPath).length < 1) return bad("Choose at least one other file.");
   try {
-    return Response.json({ ok: true, set: createVersionSet(b.primaryPath, paths) }, { headers: NO_STORE });
+    const set = createVersionSet(b.primaryPath, paths);
+    for (const path of paths) {
+      if (path !== b.primaryPath) logDecision({ path, action: "place_as", params: { as: "version", of: b.primaryPath } });
+    }
+    return Response.json({ ok: true, set }, { headers: NO_STORE });
   } catch (error) {
     return bad(error instanceof Error ? error.message : "Could not save that.");
   }

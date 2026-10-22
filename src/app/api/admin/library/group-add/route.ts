@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { addToGroup } from "@/lib/library-curation";
 import { reconcileGroupSlots } from "@/lib/rollout";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { logDecision } from "@/lib/catalogue-decisions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +36,7 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const added = addToGroup(groupId, paths as string[]);
+    for (const path of paths as string[]) logDecision({ path, action: "place_as", params: { as: "episode", groupId } });
     reconcileGroupSlots(groupId);
 
     return Response.json({ added }, { headers: NO_STORE });

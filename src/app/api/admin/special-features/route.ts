@@ -1,5 +1,6 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { invalidateAdminMovies } from "@/lib/admin-library-cache";
+import { logDecision } from "@/lib/catalogue-decisions";
 import {
   addTarget,
   isTargetKind,
@@ -57,12 +58,16 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   switch (body.action) {
+    // Features are keyed on Jellyfin item id, not path (docs/catalogue-state.md,
+    // open question 3), so they are logged under the item.
     case "mark":
       markSpecialFeature(itemId, body.title ?? null, body.note ?? null);
+      logDecision({ path: `item:${itemId}`, action: "place_as", params: { as: "special_feature" } });
       break;
 
     case "unmark":
       unmarkSpecialFeature(itemId);
+      logDecision({ path: `item:${itemId}`, action: "unmark_special_feature" });
       break;
 
     case "map":
@@ -80,6 +85,7 @@ export async function POST(request: Request): Promise<Response> {
         // that is still sitting in Browse, which is never what was meant.
         markSpecialFeature(itemId, body.title ?? null, null);
         addTarget(itemId, kind, targetId, body.targetLabel ?? null);
+        logDecision({ path: `item:${itemId}`, action: "place_as", params: { as: "special_feature", target: { kind, id: targetId } } });
       } else {
         removeTarget(itemId, kind, targetId);
       }
