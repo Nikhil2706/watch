@@ -966,6 +966,67 @@ export async function getActiveSessions(): Promise<JellyfinSessionSummary> {
   };
 }
 
+/** One stream playing right now (friends' "Watching now"). */
+export interface NowPlaying {
+  jellyfinUserId: string;
+  itemId: string;
+  title: string;
+  positionSeconds: number;
+  paused: boolean;
+}
+
+/** Everything playing now, with whose account, read with the server key. */
+export async function listNowPlaying(): Promise<NowPlaying[]> {
+  const sessions = await jellyfinFetch<
+    Array<{
+      UserId?: string;
+      NowPlayingItem?: { Id: string; Name?: string };
+      PlayState?: { PositionTicks?: number; IsPaused?: boolean };
+    }>
+  >("/Sessions", { token: env.jellyfinApiKey, timeoutMs: 5_000 });
+  return sessions.flatMap((s) =>
+    s.UserId && s.NowPlayingItem
+      ? [
+          {
+            jellyfinUserId: s.UserId,
+            itemId: s.NowPlayingItem.Id,
+            title: s.NowPlayingItem.Name ?? "",
+            positionSeconds: Math.floor((s.PlayState?.PositionTicks ?? 0) / 10_000_000),
+            paused: s.PlayState?.IsPaused === true,
+          },
+        ]
+      : [],
+  );
+}
+
+/** One finished title in someone's history, as watch-log.ts records it. */
+export interface PlayedItem {
+  Id: string;
+  Name?: string;
+  Path?: string;
+  ProviderIds?: Record<string, string>;
+  UserData?: { LastPlayedDate?: string };
+}
+
+/** What one account has finished, most recently played first, read with the server key. */
+export async function listPlayedForUser(jellyfinUserId: string, limit: number): Promise<PlayedItem[]> {
+  const query = new URLSearchParams({
+    userId: jellyfinUserId,
+    recursive: "true",
+    filters: "IsPlayed",
+    sortBy: "DatePlayed",
+    sortOrder: "Descending",
+    mediaTypes: "Video",
+    limit: String(limit),
+    fields: "ProviderIds,Path",
+  });
+  const data = await jellyfinFetch<{ Items?: PlayedItem[] }>(`/Items?${query}`, {
+    token: env.jellyfinApiKey,
+    timeoutMs: 15_000,
+  });
+  return data?.Items ?? [];
+}
+
 export async function listAllMoviesAdmin(
   options: { withMediaSources?: boolean } = {},
 ): Promise<AdminMovieListItem[]> {

@@ -437,6 +437,12 @@ function runVersionedMigrations(db: DatabaseSync): void {
     db.exec("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0");
     db.prepare("UPDATE users SET is_admin = 1 WHERE lower(username) = ?").run(OWNER_USERNAME);
   }
+
+  // v63: who may see what someone watches, rates and reviews (friends-feed.ts):
+  // "friends" (the default) or "nobody".
+  if (tableExists(db, "users") && !columnExists(db, "users", "activity_visibility")) {
+    db.exec("ALTER TABLE users ADD COLUMN activity_visibility TEXT NOT NULL DEFAULT 'friends'");
+  }
 }
 
 /**

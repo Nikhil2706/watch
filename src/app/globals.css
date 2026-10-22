@@ -6843,3 +6843,19 @@ html[data-in-app] .app-get {
     pointer-events: auto;
   }
 }
+
+/* History: who sees what you watch (friends' rows on Home). */
+.activity-visibility {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+}
+.activity-visibility select {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px 6px;
+}

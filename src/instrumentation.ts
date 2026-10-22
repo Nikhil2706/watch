@@ -42,6 +42,7 @@ export async function register(): Promise<void> {
   void startRolloutRevealLoop();
   void startKnownFilmsRefreshLoop();
   void startPartySweep();
+  void startWatchLogLoop();
   void removeJellyfinScanSchedule();
 }
 
@@ -58,6 +59,8 @@ declare global {
   var __jellyfinGateScreeningPurgeTimer: ReturnType<typeof setInterval> | undefined;
   // eslint-disable-next-line no-var
   var __jellyfinGateRolloutRevealTimer: ReturnType<typeof setInterval> | undefined;
+  // eslint-disable-next-line no-var
+  var __jellyfinGateWatchLogTimer: ReturnType<typeof setInterval> | undefined;
   // eslint-disable-next-line no-var
   var __jellyfinGateKnownFilmsTimer: ReturnType<typeof setInterval> | undefined;
 }
@@ -344,5 +347,28 @@ async function runStartupScan(): Promise<void> {
     console.log("[boot] startup library scan triggered");
   } catch (error) {
     console.error("[boot] startup library scan failed (will retry on next manual scan):", error);
+  }
+}
+
+/**
+ * Copies each person's finishes from Jellyfin into the watch log (watch-log.ts),
+ * once at boot (which also backfills their recent history) and every five
+ * minutes after: friends' activity on Home is at most that far behind.
+ */
+async function startWatchLogLoop(): Promise<void> {
+  if (globalThis.__jellyfinGateWatchLogTimer) return;
+  try {
+    const { syncWatchLog } = await import("./lib/watch-log");
+    const tick = () =>
+      syncWatchLog()
+        .then((r) => {
+          if (r.added) console.log(`[watch-log] ${r.added} new finishes from ${r.users} people`);
+        })
+        .catch((error) => console.error("[watch-log] sync failed:", error));
+    void tick();
+    globalThis.__jellyfinGateWatchLogTimer = setInterval(tick, 5 * 60 * 1000);
+    console.log("[boot] watch log sync started");
+  } catch (error) {
+    console.error("[boot] watch log sync could not start:", error);
   }
 }
