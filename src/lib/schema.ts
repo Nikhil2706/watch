@@ -63,7 +63,11 @@
  * 62: continue_removed — "Remove from Continue watching", per viewer
  * (next-up.ts). CREATE ... IF NOT EXISTS; nothing existing changes.
  */
-export const SCHEMA_VERSION = 62;
+/*
+ * 63: watch_log and friendships, and users.activity_visibility (added in
+ * db.ts runVersionedMigrations) — friends' activity on Home (friends-feed.ts).
+ */
+export const SCHEMA_VERSION = 63;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1609,5 +1613,34 @@ CREATE TABLE IF NOT EXISTS continue_removed (
   item_id    TEXT NOT NULL,
   removed_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, item_id)
+) STRICT;
+
+-- Every time someone finished something (v63; watch-log.ts). Jellyfin keeps
+-- only the last time each viewer played an item; this keeps each finish, so
+-- rewatches count, and it is what friends' activity on Home and later
+-- recommendations read. Filled from Jellyfin every few minutes; the UNIQUE
+-- key makes that repeatable.
+CREATE TABLE IF NOT EXISTS watch_log (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  item_id    TEXT NOT NULL,     -- Jellyfin item id
+  imdb_id    TEXT,
+  path       TEXT,
+  title      TEXT,
+  watched_at INTEGER NOT NULL,  -- Jellyfin's LastPlayedDate for that finish
+  UNIQUE (user_id, item_id, watched_at)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_watch_log_time ON watch_log(watched_at);
+CREATE INDEX IF NOT EXISTS idx_watch_log_user ON watch_log(user_id, watched_at);
+
+-- Friends (v63; friends.ts). Unused while EVERYONE_IS_FRIENDS is on (the
+-- default: a small site where everyone knows everyone). One row per
+-- direction; two people are friends when both rows exist.
+CREATE TABLE IF NOT EXISTS friendships (
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  friend_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, friend_id)
 ) STRICT;
 `;

@@ -11,6 +11,8 @@ import { PickRow } from "@/components/picks/PickRow";
 import { PartyBanner } from "@/components/party/PartyBanner";
 import { currentSession } from "@/lib/current-user";
 import { episodeCards } from "@/lib/episode-cards";
+import { friendsLately, friendsWatchingNow } from "@/lib/friends-activity";
+import { reviewSnippet, takesLine } from "@/lib/friends-feed";
 import { getActiveJobs } from "@/lib/jobs";
 import { getMemberships } from "@/lib/lists";
 import { homePicksForViewer } from "@/lib/pick-views";
@@ -31,6 +33,15 @@ import {
 } from "@/lib/media";
 
 export const dynamic = "force-dynamic";
+
+/** 34:12, or 1:02:05. */
+function clock(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = String(s % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
 
 /** Cards in Home's Recently watched row; the rest are on /history. */
 const RECENTLY_WATCHED_ROW = 12;
@@ -53,7 +64,7 @@ export default async function HomePage() {
   // down. But if the latest-items call fails, Jellyfin itself is unreachable,
   // and "nothing in the library" would be the wrong thing to tell anyone.
   let libraryUnreachable = false;
-  const [continuing, recent, latest, genres, shelves, picks] = await Promise.all([
+  const [continuing, recent, latest, genres, shelves, picks, friendsNow, friendsRecent] = await Promise.all([
     // Half-watched titles and the next episode of each show (next-up.ts).
     getContinueWatching(session).catch(() => ({ items: [] as MediaItem[], nextUp: new Set<string>() })),
     // What they have finished, newest first. The full list is /history.
@@ -67,6 +78,9 @@ export default async function HomePage() {
     todaysShelves().catch(() => []),
     // Picks published in the last week, and any the curator has pinned.
     homePicksForViewer(session).catch(() => []),
+    // Friends' activity (friends-activity.ts): playing right now, and lately.
+    friendsWatchingNow(session).catch(() => []),
+    friendsLately(session).catch(() => []),
   ]);
 
   const resume = continuing.items;
@@ -134,6 +148,8 @@ export default async function HomePage() {
     ...new Set([
       ...resume.map((i) => i.Id),
       ...recent.map((i) => i.Id),
+      ...friendsNow.map((w) => w.item.Id),
+      ...friendsRecent.map((t) => t.item.Id),
       ...collapsedLatest.items.map((i) => i.Id),
       ...genreRows.flatMap((row) => row.collapsed.items.map((i) => i.Id)),
       ...shelfRows.flatMap((row) => row.items.map((i) => i.Id)),
@@ -153,6 +169,28 @@ export default async function HomePage() {
     resumeLines.set(id, line ? `Next: ${line}` : "Next episode");
   }
   const recentCards = episodeCards(recent);
+
+  // Friends: what they are playing now, and what they watched, rated and
+  // reviewed lately. A show reads as the show; the line says who, and how.
+  const nowCards = episodeCards(friendsNow.map((w) => w.item));
+  const nowLines = new Map(
+    friendsNow.map((w) => {
+      const where = `${w.paused ? "paused at" : "at"} ${clock(w.positionSeconds)}`;
+      const episode = nowCards.lines.get(w.item.Id);
+      return [w.item.Id, [w.friend.username, episode, where].filter(Boolean).join(" · ")];
+    }),
+  );
+  const latelyTitles = new Map<string, string>();
+  const latelyPosters = new Map<string, string | null>();
+  const latelyHrefs = new Map<string, string>();
+  const latelyLines = new Map<string, string>();
+  for (const t of friendsRecent) {
+    if (t.showName) latelyTitles.set(t.item.Id, t.showName);
+    if (t.posterSrc !== undefined) latelyPosters.set(t.item.Id, t.posterSrc);
+    if (t.href) latelyHrefs.set(t.item.Id, t.href);
+    const review = t.card.takes.find((x) => x.review)?.review;
+    latelyLines.set(t.item.Id, [takesLine(t.card.takes), review ? reviewSnippet(review, 60) : null].filter(Boolean).join(" · "));
+  }
 
   const featured: MediaItem | undefined = resume[0] ?? latest[0];
 
@@ -222,6 +260,15 @@ export default async function HomePage() {
         markWatched
         removable
       />
+      <Row
+        title="Friends watching now"
+        items={friendsNow.map((w) => w.item)}
+        lists={lists}
+        itemTitles={nowCards.titles}
+        itemPosters={nowCards.posters}
+        itemBadges={nowLines}
+        shape="poster"
+      />
       {/* Left alone by "Hide what I've seen", like Continue watching: it is
           the viewer's own history, asked for by being on the page. */}
       <Row
@@ -235,6 +282,16 @@ export default async function HomePage() {
         shape="poster"
         // The tick is on here; pressing it marks the title unwatched again.
         markWatched
+      />
+      <Row
+        title="Friends lately"
+        items={friendsRecent.map((t) => t.item)}
+        lists={lists}
+        itemTitles={latelyTitles}
+        itemPosters={latelyPosters}
+        itemHrefs={latelyHrefs}
+        itemBadges={latelyLines}
+        shape="poster"
       />
       {otherPicks.map((pick) => (
         <PickRow key={pick.id} pick={pick} />
