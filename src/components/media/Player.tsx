@@ -35,8 +35,12 @@ import {
 import { importOrReload } from "@/lib/chunk-reload";
 import { getFocusableElements } from "@/lib/tv/spatial-nav";
 import {
+  advanceHold,
   clampTime,
   createOkPressGuard,
+  HOLD_COMMIT_MS,
+  RECENT_SEEK_MS,
+  type HoldSeek,
   nextSpeed,
   PLAYER_SHORTCUTS,
   resolveMediaKey,
@@ -502,6 +506,60 @@ export function Player({
   const runTvActionRef = useRef(runTvAction);
   runTvActionRef.current = runTvAction;
 
+  /*
+   * TV left/right on the video: a press jumps 10 s at once; held, the target
+   * runs ahead on screen, faster the longer the key is held, and the player
+   * seeks once, when it is let go (player-keys.ts, advanceHold). Seeking on
+   * every repeat went nowhere: the player reports the new time only once a
+   * seek lands, so each repeat jumped from nearly the same place.
+   */
+  const hold = useRef<HoldSeek | null>(null);
+  const holdMoved = useRef(false);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSeek = useRef<{ to: number; at: number } | null>(null);
+
+  function commitHold() {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    const h = hold.current;
+    const moved = holdMoved.current;
+    hold.current = null;
+    holdMoved.current = false;
+    const p = player.current;
+    if (!h || !moved || !p) return;
+    p.currentTime = h.target;
+    lastSeek.current = { to: h.target, at: performance.now() };
+    flashOsd(`${h.dir > 0 ? "⏩" : "⏪"}  ${formatClock(h.target)}`);
+  }
+
+  function tvSeek(dir: 1 | -1, repeat: boolean) {
+    const p = player.current;
+    if (!p) return;
+    const now = performance.now();
+    if (!repeat) {
+      commitHold();
+      // A jump made a moment ago hasn't landed yet: count from where it was aimed.
+      const recent = lastSeek.current && now - lastSeek.current.at < RECENT_SEEK_MS ? lastSeek.current.to : null;
+      const h = advanceHold(null, dir, now, recent ?? p.currentTime, p.duration);
+      p.currentTime = h.target;
+      lastSeek.current = { to: h.target, at: now };
+      hold.current = h;
+      flashOsd(`${dir > 0 ? "+" : "−"}10s  ·  ${formatClock(h.target)}`);
+      return;
+    }
+    const h = advanceHold(hold.current, dir, now, lastSeek.current?.to ?? p.currentTime, p.duration);
+    hold.current = h;
+    holdMoved.current = true;
+    flashOsd(`${dir > 0 ? "⏩" : "⏪"}  ${formatClock(h.target)}`);
+    // Let go (or the repeats stop reaching us): seek to it.
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = setTimeout(commitHold, HOLD_COMMIT_MS);
+  }
+  const tvSeekRef = useRef(tvSeek);
+  tvSeekRef.current = tvSeek;
+  const commitHoldRef = useRef(commitHold);
+  commitHoldRef.current = commitHold;
+
   // TV: land on the video, not the bar's "‹ Back" link — the first OK
   // pressed used to leave the film.
   useEffect(() => {
@@ -593,10 +651,23 @@ export function Player({
       event.stopPropagation();
       // Stopped here, so the guard's window listener never sees it: note it now.
       if (target && target.closest(".player-stage")) okGuard.current.noteKeydown(event.key, true, performance.now());
+      if (tvAction.kind === "seek" && zone === "video") {
+        tvSeekRef.current(tvAction.by > 0 ? 1 : -1, event.repeat);
+        return;
+      }
       runTvActionRef.current(tvAction, target);
     }
+    // Letting go of a held left/right seeks to where it got to.
+    function onTvKeyUp(event: KeyboardEvent) {
+      if (!tvModeRef.current) return;
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") commitHoldRef.current();
+    }
     window.addEventListener("keydown", onTvKey, true);
-    return () => window.removeEventListener("keydown", onTvKey, true);
+    window.addEventListener("keyup", onTvKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", onTvKey, true);
+      window.removeEventListener("keyup", onTvKeyUp, true);
+    };
   }, []);
 
   useEffect(() => {
