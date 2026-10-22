@@ -17,7 +17,12 @@ import { getGroup } from "./library-curation";
  * result, rather than this module reaching out to Jellyfin on its own.
  */
 
-export type RolloutSubjectType = "group" | "series";
+/**
+ * "group": a TV show (library_groups); "series": a film franchise
+ * (film_series), released a film at a time; "film": one film on its own
+ * (subject_id is its file path, one slot), released on a date.
+ */
+export type RolloutSubjectType = "group" | "series" | "film";
 export type RolloutMode = "immediate" | "daily" | "weekly";
 
 export interface RolloutPlan {
@@ -346,3 +351,89 @@ export async function runRolloutRevealTick(): Promise<{ revealed: number }> {
   for (const row of due) update.run(now, row.id);
   return { revealed: due.length };
 }
+
+/* ------------------------------------------------------------------ *
+ * One film on its own: hidden until a date (subject "film", one slot
+ * keyed by the file's path, so getHiddenRolloutPathSet() hides it like
+ * an unreleased episode).
+ * ------------------------------------------------------------------ */
+
+export function getFilmRelease(path: string): { releaseAt: number; released: boolean } | null {
+  const plan = getRolloutPlan("film", path);
+  if (!plan) return null;
+  const slot = listRolloutSlots(plan.id)[0];
+  return slot ? { releaseAt: slot.releaseAt, released: slot.revealedAt !== null } : null;
+}
+
+/** Schedules (or moves) a film's release. A film already out goes back into hiding until the new date. */
+export function setFilmRelease(path: string, releaseAt: number): void {
+  const db = getDb();
+  const now = Date.now();
+  const existing = getRolloutPlan("film", path);
+  const planId = existing?.id ?? randomUUID();
+  db.prepare(
+    `INSERT INTO library_rollout_plans (id, subject_type, subject_id, mode, per_release, weekday, time_of_day, start_at, expected_total, created_at, updated_at)
+     VALUES (?, 'film', ?, 'immediate', 1, NULL, NULL, ?, 1, ?, ?)
+     ON CONFLICT(subject_type, subject_id) DO UPDATE SET start_at = excluded.start_at, updated_at = excluded.updated_at`,
+  ).run(planId, path, releaseAt, now, now);
+  const id = getRolloutPlan("film", path)!.id;
+  db.prepare("DELETE FROM library_rollout_slots WHERE plan_id = ?").run(id);
+  db.prepare(
+    "INSERT INTO library_rollout_slots (id, plan_id, slot_index, release_at, path, imdb_id, revealed_at) VALUES (?, ?, 1, ?, ?, NULL, NULL)",
+  ).run(randomUUID(), id, releaseAt, path);
+}
+
+/** Takes a film off its schedule: shown again straight away. */
+export function clearFilmRelease(path: string): boolean {
+  const result = getDb().prepare("DELETE FROM library_rollout_plans WHERE subject_type = 'film' AND subject_id = ?").run(path);
+  return Number(result.changes) > 0;
+}
+
+/** A schedule with something still to come, for Coming soon. */
+export interface UpcomingRelease {
+  subjectType: RolloutSubjectType;
+  subjectId: string;
+  /** The next release still to come. */
+  nextAt: number;
+  /** Slots still to come, assigned or not. */
+  remaining: number;
+  /** What the next one is, when known: an episode's or film's path, or a franchise film's IMDb id. */
+  nextPath: string | null;
+  nextImdbId: string | null;
+}
+
+export function listUpcomingReleases(now = Date.now()): UpcomingRelease[] {
+  const rows = asRows<{
+    subject_type: RolloutSubjectType;
+    subject_id: string;
+    release_at: number;
+    path: string | null;
+    imdb_id: string | null;
+  }>(
+    getDb()
+      .prepare(
+        `SELECT p.subject_type, p.subject_id, s.release_at, s.path, s.imdb_id
+         FROM library_rollout_slots s JOIN library_rollout_plans p ON p.id = s.plan_id
+         WHERE s.revealed_at IS NULL AND s.release_at > ?
+         ORDER BY s.release_at, s.slot_index`,
+      )
+      .all(now),
+  );
+  const out = new Map<string, UpcomingRelease>();
+  for (const r of rows) {
+    const key = `${r.subject_type}:${r.subject_id}`;
+    const seen = out.get(key);
+    if (seen) seen.remaining += 1;
+    else
+      out.set(key, {
+        subjectType: r.subject_type,
+        subjectId: r.subject_id,
+        nextAt: r.release_at,
+        remaining: 1,
+        nextPath: r.path,
+        nextImdbId: r.imdb_id,
+      });
+  }
+  return [...out.values()].sort((a, b) => a.nextAt - b.nextAt);
+}
+

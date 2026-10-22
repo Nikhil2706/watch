@@ -71,7 +71,11 @@
  * 64: watch_together — "ask to watch together" from a friend's Watching now
  * card (watch-together.ts). CREATE ... IF NOT EXISTS; nothing existing changes.
  */
-export const SCHEMA_VERSION = 64;
+/*
+ * 65: coming_soon — titles announced before they are in the library
+ * (coming-soon.ts). CREATE ... IF NOT EXISTS; nothing existing changes.
+ */
+export const SCHEMA_VERSION = 65;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1663,4 +1667,24 @@ CREATE TABLE IF NOT EXISTS watch_together (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_watch_together_pair ON watch_together(from_user_id, to_user_id, item_id, created_at);
+
+-- Announced by the curator from an IMDb id before the title is in the
+-- library (v65; coming-soon.ts): Home's and /coming-soon's "Coming soon",
+-- alongside whatever is scheduled (library_rollout_*). Title, year, poster
+-- and summary come from TMDB once, at announcement. An announcement drops
+-- off by itself once the title is in the library and visible; removed_at is
+-- the curator taking it down.
+CREATE TABLE IF NOT EXISTS coming_soon (
+  id          TEXT PRIMARY KEY,
+  imdb_id     TEXT NOT NULL UNIQUE,
+  kind        TEXT NOT NULL,     -- "film" | "show"
+  title       TEXT NOT NULL,
+  year        INTEGER,
+  overview    TEXT,
+  poster_path TEXT,              -- TMDB's, served through /api/tmdb-image
+  note        TEXT,              -- the curator's own words, optional
+  expected_at INTEGER,           -- when it is expected, optional
+  created_at  INTEGER NOT NULL,
+  removed_at  INTEGER
+) STRICT;
 `;

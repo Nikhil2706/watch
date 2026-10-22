@@ -1520,3 +1520,31 @@
     flex-wrap: wrap;
   }
 }
+
+/* Coming soon: the title found for an IMDb id, and the announced list. */
+.adm-coming-found {
+  display: flex;
+  gap: 14px;
+  margin-top: 12px;
+  align-items: flex-start;
+}
+.adm-coming-found img {
+  width: 92px;
+  border-radius: 6px;
+  flex: none;
+}
+.adm-coming-found label {
+  display: block;
+  margin: 8px 0;
+}
+.adm-coming-found textarea,
+.adm-coming-found input[type="date"] {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+}
+.adm-coming-thumb {
+  width: 40px;
+  border-radius: 4px;
+  flex: none;
+}
