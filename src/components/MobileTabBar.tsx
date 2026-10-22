@@ -18,6 +18,10 @@ import { offlineSupported } from "@/lib/offline/bridge";
  * menu. Downloads is a fifth tab inside the app, where the device can hold
  * files, and absent in a phone browser, where it cannot: a Downloads tab there
  * would only ever say "open this in the app".
+ *
+ * Admin is a last tab for accounts with admin access only (users.is_admin),
+ * in the app and in a phone browser alike: the curator's tools used to be
+ * reachable on a phone only from the More menu.
  */
 
 type Tab = { href: string; label: string; icon: React.ReactNode; match: (p: string) => boolean };
@@ -59,14 +63,22 @@ const PICKS: Tab = {
   match: (p) => p.startsWith("/picks") || p.startsWith("/curator"),
 };
 
-export function MobileTabBar() {
+const ADMIN: Tab = {
+  href: "/admin",
+  label: "Admin",
+  // A sliders icon: settings for the library, not the viewer's own.
+  icon: icon("M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1M15 4v4M9 10v4M17 16v4"),
+  match: (p) => p.startsWith("/admin"),
+};
+
+export function MobileTabBar({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname() ?? "/";
   // After mount: the bridge lives on window, and deciding during render would
   // disagree with the server-rendered HTML.
   const [inApp, setInApp] = useState(false);
   useEffect(() => setInApp(offlineSupported()), []);
 
-  const tabs = inApp ? [HOME, BROWSE, SEARCH, PICKS, DOWNLOADS] : [HOME, BROWSE, SEARCH, PICKS];
+  const tabs = [HOME, BROWSE, SEARCH, PICKS, ...(inApp ? [DOWNLOADS] : []), ...(isAdmin ? [ADMIN] : [])];
 
   return (
     <nav className="tabbar" aria-label="Main">

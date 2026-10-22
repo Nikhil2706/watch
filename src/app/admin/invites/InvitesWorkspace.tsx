@@ -23,6 +23,9 @@ import {
 
 import { useToasts } from "../Toasts";
 
+/** The owner's account keeps admin access (db.ts OWNER_USERNAME; checked again by the server). */
+const OWNER_USERNAME = "mammannii";
+
 /**
  * The Invites tab: make an invite (its link is shown once — only a hash is
  * stored), the invites themselves with Revoke, and the people who have
@@ -320,6 +323,7 @@ function Users() {
                     <th>Last seen</th>
                     <th>Langlois mode</th>
                     <th>Parental control</th>
+                    <th>Admin</th>
                     <th>Access</th>
                   </tr>
                 </thead>
@@ -370,6 +374,24 @@ function Users() {
                             }
                           />
                           <span>{u.parental_control ? "On" : "Off"}</span>
+                        </label>
+                      </td>
+                      <td>
+                        <label
+                          className="adm-check"
+                          title="The curator's tools (/admin), with their own sign-in, from any device. The owner's account always keeps it, and nobody can remove their own."
+                        >
+                          <input
+                            type="checkbox"
+                            checked={Boolean(u.site_admin)}
+                            disabled={busy === u.id || u.username.toLowerCase() === OWNER_USERNAME}
+                            onChange={(e) => {
+                              const on = e.target.checked;
+                              if (on && !confirm(`Give ${u.username} admin access? They'll be able to use everything here: invites, users, the library and the worker.`)) return;
+                              void patch(u, { site_admin: on }, () => `${u.username} ${on ? "is now an admin" : "is no longer an admin"}.`);
+                            }}
+                          />
+                          <span>{u.site_admin ? "Yes" : "No"}</span>
                         </label>
                       </td>
                       <td>

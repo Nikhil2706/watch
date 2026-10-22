@@ -45,7 +45,7 @@ export function AppBar({
           <Link href="/watchlist">My list</Link>
           <Link href="/picks">Picks</Link>
           {langloisMode ? <Link href="/upload">Upload</Link> : null}
-          {isAdmin ? <Link href="/admin">Curator</Link> : null}
+          {isAdmin ? <Link href="/admin">Admin</Link> : null}
           {/* Both halves of the phone-remote feature, reachable from every
               page. Which one you want depends on which device you are holding,
               so both are always offered rather than guessed at: "Remote" turns
@@ -67,14 +67,14 @@ export function AppBar({
         <AppBarMore>
           <span className="appbar-more-who">Signed in as {username}</span>
           {langloisMode ? <Link href="/upload">Upload</Link> : null}
-          {isAdmin ? <Link href="/admin">Curator&apos;s tools</Link> : null}
+          {isAdmin ? <Link href="/admin">Admin</Link> : null}
           <Link href="/remote">Use this phone as a remote</Link>
           <Link href="/screen">Pair a phone with this screen</Link>
           <AppVersionItem />
           <LogoutButton />
         </AppBarMore>
       </header>
-      <MobileTabBar />
+      <MobileTabBar isAdmin={isAdmin} />
     </>
   );
 }

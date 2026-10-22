@@ -1,5 +1,7 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { asRow, getDb } from "@/lib/db";
+import { adminChangeProblem } from "@/lib/admin/admin-grants";
+import { currentSession } from "@/lib/current-user";
+import { asRow, getDb, OWNER_USERNAME } from "@/lib/db";
 import {
   applyRestrictedPolicy,
   getUser,
@@ -62,13 +64,15 @@ export async function PATCH(
   let langloisMode: boolean | undefined;
   let parentalControl: boolean | undefined;
   let suspended: boolean | undefined;
+  let siteAdmin: boolean | undefined;
   try {
     const body = await readJsonBody(request);
     langloisMode = optionalBoolean(body, "langlois_mode");
     parentalControl = optionalBoolean(body, "parental_control");
     suspended = optionalBoolean(body, "suspended");
-    if (langloisMode === undefined && parentalControl === undefined && suspended === undefined) {
-      throw new ValidationError("langlois_mode, parental_control or suspended is required.");
+    siteAdmin = optionalBoolean(body, "site_admin");
+    if (langloisMode === undefined && parentalControl === undefined && suspended === undefined && siteAdmin === undefined) {
+      throw new ValidationError("langlois_mode, parental_control, suspended or site_admin is required.");
     }
   } catch (error) {
     if (error instanceof ValidationError) {
@@ -82,6 +86,23 @@ export async function PATCH(
   );
   if (!user) {
     return Response.json({ error: "not_found", message: `No user with id ${id}.` }, { status: 404, headers: NO_STORE });
+  }
+
+  // The site's own admin access: a gate-side flag, like parental control, so
+  // no Jellyfin check. Refused before anything else is written, so a request
+  // that also changes other settings fails whole rather than half-applied.
+  if (siteAdmin !== undefined) {
+    const actor = await currentSession();
+    const problem = adminChangeProblem({
+      grant: siteAdmin,
+      targetId: id,
+      targetUsername: user.username,
+      actorUserId: actor?.userId ?? null,
+      ownerUsername: OWNER_USERNAME,
+    });
+    if (problem) {
+      return Response.json({ error: "forbidden", message: problem }, { status: 409, headers: NO_STORE });
+    }
   }
 
   // Everything below writes the account's Jellyfin policy from scratch, and
@@ -173,6 +194,12 @@ export async function PATCH(
     getDb().prepare("UPDATE users SET parental_control = ? WHERE id = ?").run(parentalControl ? 1 : 0, id);
   }
 
+  // Read per request (session.ts), so it applies on their next page load.
+  if (siteAdmin !== undefined) {
+    getDb().prepare("UPDATE users SET is_admin = ? WHERE id = ?").run(siteAdmin ? 1 : 0, id);
+    console.log(`[admin/users] ${user.username}: admin access ${siteAdmin ? "given" : "removed"}`);
+  }
+
   return Response.json(
     {
       id,
@@ -180,6 +207,7 @@ export async function PATCH(
       langlois_mode: langloisMode,
       parental_control: parentalControl,
       suspended,
+      site_admin: siteAdmin,
       signed_out: signedOut,
     },
     { headers: NO_STORE },
