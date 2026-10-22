@@ -31,7 +31,11 @@ export type NotificationKind =
   | "new_show"
   | "new_episodes"
   | "watch_party_live"
-  | "watch_party_scheduled";
+  | "watch_party_scheduled"
+  /** A friend asked to watch what you're watching together (actor: them; href: /together/{id}). */
+  | "watch_together_ask"
+  /** The friend you asked started a party (actor: them; href: /party/{roomId}). */
+  | "watch_together_ready";
 
 export interface NotificationItem {
   id: string;
@@ -201,5 +205,26 @@ export function markNotificationsRead(userId: string, target: { id: string } | {
     db.prepare("UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL").run(Date.now(), userId);
   } else {
     db.prepare("UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ?").run(Date.now(), target.id, userId);
+  }
+}
+
+/** "Watch together" between two friends (watch-together.ts): one person, with an actor. Never throws. */
+export function notifyWatchTogether(input: {
+  userId: string;
+  actorUserId: string;
+  kind: "watch_together_ask" | "watch_together_ready";
+  imdbId: string;
+  filmTitle: string;
+  filmHref: string;
+}): void {
+  try {
+    getDb()
+      .prepare(
+        `INSERT INTO notifications (id, user_id, kind, actor_user_id, imdb_id, film_title, film_href, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(generateId(), input.userId, input.kind, input.actorUserId, input.imdbId, input.filmTitle, input.filmHref, Date.now());
+  } catch (error) {
+    console.error("[notifications] notifyWatchTogether failed:", error);
   }
 }

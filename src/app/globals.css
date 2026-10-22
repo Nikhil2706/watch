@@ -6859,3 +6859,38 @@ html[data-in-app] .app-get {
   border-radius: 8px;
   padding: 3px 6px;
 }
+
+/* Home: a friend's Watching now card, with "Watch together?" beneath it. */
+.friends-now-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ask-together {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.ask-together .btn {
+  font-size: 0.8rem;
+  padding: 4px 10px;
+}
+
+/* /together/{id}: a friend's "watch this with me?" */
+.together {
+  max-width: 640px;
+  margin: 48px auto;
+  padding: 0 16px;
+}
+.together h1 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.together-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}

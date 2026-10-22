@@ -6,7 +6,9 @@ import { GetAppPrompt } from "@/components/GetAppPrompt";
 import { Hero } from "@/components/media/Hero";
 import { PickButton } from "@/components/media/PickButton";
 import { ProcessingRow } from "@/components/media/ProcessingRow";
+import { PosterCard } from "@/components/media/PosterCard";
 import { Row } from "@/components/media/Row";
+import { AskToWatchTogether } from "@/components/AskToWatchTogether";
 import { PickRow } from "@/components/picks/PickRow";
 import { PartyBanner } from "@/components/party/PartyBanner";
 import { currentSession } from "@/lib/current-user";
@@ -260,15 +262,25 @@ export default async function HomePage() {
         markWatched
         removable
       />
-      <Row
-        title="Friends watching now"
-        items={friendsNow.map((w) => w.item)}
-        lists={lists}
-        itemTitles={nowCards.titles}
-        itemPosters={nowCards.posters}
-        itemBadges={nowLines}
-        shape="poster"
-      />
+      {friendsNow.length ? (
+        <section className="row friends-now" aria-label="Friends watching now">
+          <h2>Friends watching now</h2>
+          <div className="row-scroll">
+            {friendsNow.map((w) => (
+              <div key={`${w.friend.id}:${w.item.Id}`} className="friends-now-card">
+                <PosterCard
+                  item={w.item}
+                  lists={lists.get(w.item.Id)}
+                  title={nowCards.titles.get(w.item.Id)}
+                  posterSrc={nowCards.posters.get(w.item.Id)}
+                  badge={nowLines.get(w.item.Id)}
+                />
+                <AskToWatchTogether friendId={w.friend.id} friendName={w.friend.username} itemId={w.item.Id} />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {/* Left alone by "Hide what I've seen", like Continue watching: it is
           the viewer's own history, asked for by being on the page. */}
       <Row
