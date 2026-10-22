@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 
+import { ActivityVisibility } from "@/components/ActivityVisibility";
 import { AppBar } from "@/components/AppBar";
 import { PosterCard } from "@/components/media/PosterCard";
 import { currentSession } from "@/lib/current-user";
 import { episodeCards } from "@/lib/episode-cards";
+import { activityVisibility } from "@/lib/friends";
 import { getMemberships } from "@/lib/lists";
 import { getRecentlyWatched } from "@/lib/media";
 import { groupByMonth, watchedOn } from "@/lib/watch-history";
@@ -42,6 +44,7 @@ export default async function HistoryPage() {
             {watched.length} {watched.length === 1 ? "title" : "titles"} watched to the end
           </p>
         ) : null}
+        <ActivityVisibility initial={activityVisibility(session.userId)} />
       </div>
 
       {watched === null ? (
@@ -76,6 +79,8 @@ export default async function HistoryPage() {
                   title={cards.titles.get(item.Id)}
                   posterSrc={cards.posters.get(item.Id)}
                   badge={[line, day].filter(Boolean).join(" · ") || undefined}
+                  // On here: pressing it marks the title unwatched again.
+                  markWatched
                 />
               );
             })}

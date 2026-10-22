@@ -72,6 +72,12 @@ export const env = {
   ),
 
   /** Jellyfin API key from Dashboard -> Advanced -> API Keys. Admin-scoped. */
+  /**
+   * Everyone signed up here counts as everyone's friend (friends.ts): right
+   * for a site of a handful of people who know each other. Turn off for a
+   * bigger one, and the friendships table decides instead.
+   */
+  everyoneIsFriends: bool("EVERYONE_IS_FRIENDS", true),
   jellyfinApiKey: required("JELLYFIN_API_KEY"),
 
   /** Static bearer for /api/admin/*, sent as the X-Admin-Key header. */

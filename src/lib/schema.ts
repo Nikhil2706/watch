@@ -59,7 +59,23 @@
  * and 3.3): a rebuildable summary of every file's state, and the log of who
  * decided what. Both CREATE ... IF NOT EXISTS; nothing existing changes.
  */
-export const SCHEMA_VERSION = 61;
+/*
+ * 62: continue_removed — "Remove from Continue watching", per viewer
+ * (next-up.ts). CREATE ... IF NOT EXISTS; nothing existing changes.
+ */
+/*
+ * 63: watch_log and friendships, and users.activity_visibility (added in
+ * db.ts runVersionedMigrations) — friends' activity on Home (friends-feed.ts).
+ */
+/*
+ * 64: watch_together — "ask to watch together" from a friend's Watching now
+ * card (watch-together.ts). CREATE ... IF NOT EXISTS; nothing existing changes.
+ */
+/*
+ * 65: coming_soon — titles announced before they are in the library
+ * (coming-soon.ts). CREATE ... IF NOT EXISTS; nothing existing changes.
+ */
+export const SCHEMA_VERSION = 65;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1595,4 +1611,80 @@ CREATE TABLE IF NOT EXISTS catalogue_decisions (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_catalogue_decisions_path ON catalogue_decisions(path, decided_at);
+
+-- Cards a viewer took out of Continue watching (v62; next-up.ts). Not a
+-- watched mark: the title stays half-watched in Jellyfin. A row only hides
+-- the card until there is something newer (it is played again, or a later
+-- episode of its show is watched), so it never needs clearing.
+CREATE TABLE IF NOT EXISTS continue_removed (
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  item_id    TEXT NOT NULL,
+  removed_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, item_id)
+) STRICT;
+
+-- Every time someone finished something (v63; watch-log.ts). Jellyfin keeps
+-- only the last time each viewer played an item; this keeps each finish, so
+-- rewatches count, and it is what friends' activity on Home and later
+-- recommendations read. Filled from Jellyfin every few minutes; the UNIQUE
+-- key makes that repeatable.
+CREATE TABLE IF NOT EXISTS watch_log (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  item_id    TEXT NOT NULL,     -- Jellyfin item id
+  imdb_id    TEXT,
+  path       TEXT,
+  title      TEXT,
+  watched_at INTEGER NOT NULL,  -- Jellyfin's LastPlayedDate for that finish
+  UNIQUE (user_id, item_id, watched_at)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_watch_log_time ON watch_log(watched_at);
+CREATE INDEX IF NOT EXISTS idx_watch_log_user ON watch_log(user_id, watched_at);
+
+-- Friends (v63; friends.ts). Unused while EVERYONE_IS_FRIENDS is on (the
+-- default: a small site where everyone knows everyone). One row per
+-- direction; two people are friends when both rows exist.
+CREATE TABLE IF NOT EXISTS friendships (
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  friend_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, friend_id)
+) STRICT;
+
+-- "Ask to watch together" (v64; watch-together.ts): someone saw a friend
+-- watching something and asked to make it a party. The friend answers from
+-- their bell; starting one creates an ordinary party room (room_id).
+CREATE TABLE IF NOT EXISTS watch_together (
+  id           TEXT PRIMARY KEY,
+  from_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  to_user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  item_id      TEXT NOT NULL,
+  film_title   TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  answered_at  INTEGER,
+  room_id      TEXT            -- set when they started a party
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_watch_together_pair ON watch_together(from_user_id, to_user_id, item_id, created_at);
+
+-- Announced by the curator from an IMDb id before the title is in the
+-- library (v65; coming-soon.ts): Home's and /coming-soon's "Coming soon",
+-- alongside whatever is scheduled (library_rollout_*). Title, year, poster
+-- and summary come from TMDB once, at announcement. An announcement drops
+-- off by itself once the title is in the library and visible; removed_at is
+-- the curator taking it down.
+CREATE TABLE IF NOT EXISTS coming_soon (
+  id          TEXT PRIMARY KEY,
+  imdb_id     TEXT NOT NULL UNIQUE,
+  kind        TEXT NOT NULL,     -- "film" | "show"
+  title       TEXT NOT NULL,
+  year        INTEGER,
+  overview    TEXT,
+  poster_path TEXT,              -- TMDB's, served through /api/tmdb-image
+  note        TEXT,              -- the curator's own words, optional
+  expected_at INTEGER,           -- when it is expected, optional
+  created_at  INTEGER NOT NULL,
+  removed_at  INTEGER
+) STRICT;
 `;

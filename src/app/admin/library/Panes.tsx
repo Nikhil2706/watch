@@ -18,7 +18,7 @@ import {
 } from "@/lib/admin/library-rows";
 
 import { useToasts } from "../Toasts";
-import { FeatureBlock, FranchiseBlock } from "./FilmExtras";
+import { FeatureBlock, FranchiseBlock, ReleaseDateBlock } from "./FilmExtras";
 import { GroupSettings } from "./GroupSettings";
 import { IdentifyPanel, ManualPanel, PosterPanel } from "./ItemPanels";
 import type { LibraryContext } from "./LibraryWorkspace";
@@ -312,6 +312,7 @@ export function FilmPane({
 
       <FeatureBlock item={it} name={row.name} feature={feature} guess={row.featureGuess ?? undefined} ctx={ctx} />
       <FranchiseBlock item={it} name={row.name} />
+      <ReleaseDateBlock item={it} />
 
       {it.version ? (
         <>

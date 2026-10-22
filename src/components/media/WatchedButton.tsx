@@ -49,7 +49,9 @@ export function WatchedButton({
     }
   }
 
-  const label = watched ? "Watched" : "Mark watched";
+  // Once watched, the button says what pressing it does: there was no other
+  // way to find "mark unwatched", and "Watched" read as a state, not a control.
+  const label = watched ? "Mark unwatched" : "Mark watched";
   return (
     <div className={`list-buttons list-${variant} watched-toggle${watched ? " has-active" : ""}`}>
       <button
@@ -57,7 +59,7 @@ export function WatchedButton({
         className={`icon-btn${watched ? " on" : ""}`}
         aria-pressed={watched}
         aria-label={watched ? "Mark as not watched" : "Mark as watched"}
-        title={watched ? "You have watched this. Press to undo." : "Mark as watched"}
+        title={watched ? "You have watched this. Press to mark it unwatched." : "Mark as watched"}
         onClick={toggle}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">

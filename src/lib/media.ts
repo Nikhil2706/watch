@@ -7,6 +7,8 @@ import { cache } from "react";
 import { cached } from "./cache";
 import { imageUrl, personImageUrl } from "./image-url";
 import { parseEpisodeInfo } from "./episode-naming";
+import { continueRemovals } from "./continue-removed";
+import { continueWatchingOrder, nextUpEpisodes, type EpisodeState } from "./next-up";
 import { userFetch, userPost } from "./jellyfin";
 import {
   getAllGroupSeriesPosters,
@@ -185,7 +187,8 @@ export async function getResume(session: ResolvedSession): Promise<MediaItem[]> 
   const [token, device] = creds(session);
   const data = await userFetch<ItemsResponse>(token, device, "/UserItems/Resume", {
     userId: session.jellyfinUserId,
-    limit: 12,
+    // More than the row shows: some may have been removed from it (getContinueWatching).
+    limit: 24,
     mediaTypes: "Video",
     fields: LIST_FIELDS,
     enableImageTypes: "Primary,Backdrop,Thumb",
@@ -193,6 +196,71 @@ export async function getResume(session: ResolvedSession): Promise<MediaItem[]> 
   // The one row a special feature is allowed into: if you started a making-of
   // and stopped halfway, it should be waiting here like anything else.
   return filterVisible(data?.Items ?? [], session, { context: "resume" });
+}
+
+/** Cards in Continue watching. */
+const CONTINUE_WATCHING_LIMIT = 12;
+
+function lastPlayedMs(item: MediaItem): number | null {
+  const iso = item.UserData?.LastPlayedDate;
+  const ms = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Continue watching: what this viewer is part-way through, and the next
+ * episode of each show they are watching (next-up.ts), most recent first,
+ * less what they removed. `nextUp` holds the ids that are a next episode
+ * rather than a half-watched one, so the card can say so.
+ */
+export async function getContinueWatching(
+  session: ResolvedSession,
+): Promise<{ items: MediaItem[]; nextUp: Set<string> }> {
+  const [resume, all] = await Promise.all([
+    getResume(session),
+    fetchAllMoviesCached(session, { limit: 2000 })
+      .then((items) => filterVisible(items, session, { context: "show_episodes" }))
+      .catch(() => [] as MediaItem[]),
+  ]);
+
+  const showOf = getGroupedPathMap();
+  const shows = new Map<string, EpisodeState[]>();
+  const byId = new Map<string, MediaItem>();
+  for (const item of all) {
+    const show = item.Path ? showOf.get(item.Path) : undefined;
+    if (!show) continue;
+    byId.set(item.Id, item);
+    const list = shows.get(show.groupId) ?? [];
+    list.push({
+      id: item.Id,
+      sortKey: parseEpisodeInfo(item.Path!).sortKey,
+      path: item.Path!,
+      played: item.UserData?.Played === true,
+      lastPlayedMs: lastPlayedMs(item),
+    });
+    shows.set(show.groupId, list);
+  }
+  const inProgress = new Set(
+    resume.flatMap((i) => {
+      const show = i.Path ? showOf.get(i.Path) : undefined;
+      return show ? [show.groupId] : [];
+    }),
+  );
+
+  const order = continueWatchingOrder(
+    resume.map((i) => ({ id: i.Id, at: lastPlayedMs(i) ?? 0 })),
+    nextUpEpisodes(shows, inProgress, Date.now()),
+    continueRemovals(session.userId),
+    CONTINUE_WATCHING_LIMIT,
+  );
+  const resumeById = new Map(resume.map((i) => [i.Id, i]));
+  return {
+    items: order.flatMap(({ id }) => {
+      const item = resumeById.get(id) ?? byId.get(id);
+      return item ? [item] : [];
+    }),
+    nextUp: new Set(order.filter((o) => o.nextUp).map((o) => o.id)),
+  };
 }
 
 /**

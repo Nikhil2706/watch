@@ -24,6 +24,7 @@ export function Row({
   itemBadges,
   shape,
   markWatched,
+  removable,
 }: {
   title: string;
   /** Makes the heading a link to the whole list, as a pick row's is (Recently watched -> /history). */
@@ -52,6 +53,8 @@ export function Row({
   shape?: "poster" | "still";
   /** Puts "mark as watched" on each poster. For Continue watching, where it is how a card is cleared. */
   markWatched?: boolean;
+  /** Puts ✕ "remove from Continue watching" on each poster. */
+  removable?: boolean;
 }) {
   if (items.length === 0) return null;
 
@@ -82,6 +85,7 @@ export function Row({
             badge={itemBadges?.get(item.Id)}
             shape={rowShape}
             markWatched={markWatched}
+            removable={removable}
           />
         ))}
       </div>

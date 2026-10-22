@@ -13,7 +13,9 @@ type NotificationKind =
   | "new_show"
   | "new_episodes"
   | "watch_party_live"
-  | "watch_party_scheduled";
+  | "watch_party_scheduled"
+  | "watch_together_ask"
+  | "watch_together_ready";
 
 interface NotificationItem {
   id: string;
@@ -64,6 +66,18 @@ function notificationText(n: NotificationItem): ReactNode {
       return (
         <>
           Watch party scheduled: <b>{n.filmTitle}</b>
+        </>
+      );
+    case "watch_together_ask":
+      return (
+        <>
+          <b>{n.actorUsername}</b> wants to watch <b>{n.filmTitle}</b> with you — start a watch party?
+        </>
+      );
+    case "watch_together_ready":
+      return (
+        <>
+          <b>{n.actorUsername}</b> started a watch party for <b>{n.filmTitle}</b> — join in
         </>
       );
     case "thread_reply":

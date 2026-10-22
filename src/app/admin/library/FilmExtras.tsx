@@ -436,3 +436,105 @@ export function FeatureBlock({
     </>
   );
 }
+
+/**
+ * One film's release date (rollout.ts, subject "film"): hidden everywhere
+ * until then, and in Coming soon with its date meanwhile. Times are India
+ * time; the default is 8 pm.
+ */
+export function ReleaseDateBlock({ item }: { item: LibraryItem }) {
+  const { show } = useToasts();
+  const [release, setRelease] = useState<{ releaseAt: number; released: boolean } | null | undefined>(undefined);
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("20:00");
+  const [busy, setBusy] = useState(false);
+  const path = item.path;
+
+  useEffect(() => {
+    if (!path) return;
+    let live = true;
+    setRelease(undefined);
+    adminApi<{ release: { releaseAt: number; released: boolean } | null }>(
+      `/api/admin/library/film-release?path=${encodeURIComponent(path)}`,
+    )
+      .then((d) => live && setRelease(d.release))
+      .catch(() => live && setRelease(null));
+    return () => {
+      live = false;
+    };
+  }, [path]);
+
+  async function save(releaseAt: number | null) {
+    setBusy(true);
+    try {
+      const d = await adminApi<{ release: { releaseAt: number; released: boolean } | null }>("/api/admin/library/film-release", {
+        method: "POST",
+        body: { path, releaseAt },
+      });
+      setRelease(d.release);
+      show("ok", releaseAt === null ? "Released: it shows on the site now." : "Scheduled. It's hidden until then, and in Coming soon.");
+    } catch (e) {
+      show("err", e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function schedule() {
+    const at = Date.parse(`${date}T${time || "20:00"}:00+05:30`);
+    if (!date || !Number.isFinite(at)) {
+      show("err", "Pick a date.");
+      return;
+    }
+    void save(at);
+  }
+
+  if (!path) {
+    return (
+      <>
+        <h3 className="adm-section">Release date</h3>
+        <p className="hint">This item has no file, so it can't be scheduled.</p>
+      </>
+    );
+  }
+
+  const pending = release && !release.released && release.releaseAt > Date.now();
+  return (
+    <>
+      <h3 className="adm-section">Release date</h3>
+      {release === undefined ? (
+        <p className="hint">Loading…</p>
+      ) : pending ? (
+        <div className="adm-row">
+          <span className="adm-grow">
+            Hidden until{" "}
+            <b>
+              {new Date(release.releaseAt).toLocaleString("en-GB", {
+                timeZone: "Asia/Kolkata",
+                weekday: "short",
+                day: "numeric",
+                month: "short",
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+            </b>
+            , and in Coming soon meanwhile.
+          </span>
+          <button type="button" className="secondary" disabled={busy} onClick={() => void save(null)}>
+            Release now
+          </button>
+        </div>
+      ) : (
+        <p className="hint">Shown on the site. Pick a date to hide it until then and list it in Coming soon.</p>
+      )}
+      <div className="adm-row">
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+        <button type="button" disabled={busy || !date} onClick={schedule}>
+          {pending ? "Move it" : "Schedule"}
+        </button>
+      </div>
+    </>
+  );
+}
+
