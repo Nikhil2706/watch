@@ -6812,3 +6812,19 @@ html[data-in-app] .app-get {
     pointer-events: auto;
   }
 }
+
+/* A row heading that opens the whole list (Recently watched -> History). */
+.row h2 .row-title-link {
+  color: inherit;
+  text-decoration: none;
+}
+.row h2 .row-title-link span {
+  color: var(--muted);
+  margin-left: 2px;
+}
+.row h2 .row-title-link:hover,
+.row h2 .row-title-link:focus-visible {
+  text-decoration: underline;
+  text-decoration-color: var(--warm-line);
+  text-underline-offset: 4px;
+}

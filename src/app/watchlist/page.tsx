@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AppBar } from "@/components/AppBar";
@@ -49,6 +50,9 @@ export default async function WatchlistPage() {
 
       <div className="page-head">
         <h1>My list</h1>
+        <p className="hint" style={{ margin: 0 }}>
+          <Link href="/history">Everything you&apos;ve watched ›</Link>
+        </p>
       </div>
 
       {empty ? (
