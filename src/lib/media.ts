@@ -1,8 +1,7 @@
 import "server-only";
 
-import { getDamagedPathSet } from "./file-checks";
-import { getEpisodeVisibilityIndex, isUngroupedEpisode } from "./episode-visibility";
-import { hasNoMetadata } from "./has-metadata";
+import { listingFacts, readListingSources } from "./catalogue-facts";
+import { deriveCatalogueState, isListed, type ListContext } from "./catalogue-state";
 import { cache } from "react";
 
 import { cached } from "./cache";
@@ -13,26 +12,21 @@ import {
   getAllGroupSeriesPosters,
   getConfirmedPathSet,
   getAllGroupKinds,
-  getExcludedPathSet,
   getGroup,
   getGroupedPathMap,
   getGroupOverview,
   getGroupSeriesId,
   getGroupSeriesMeta,
   getGroupSeriesPoster,
-  getWhitelistedPathSet,
   partsUnitFor,
 } from "./library-curation";
 import { isRestrictedContent } from "./parental-control";
 import {
   getFeatureIdsForFilm,
-  getSpecialFeatureIdSet,
   getTargetsForFeatures,
   type SpecialFeatureTarget,
 } from "./special-features";
-import { getAlternateVersionPathSet } from "./film-versions";
 import { getRatings, type Ratings } from "./ratings";
-import { getHiddenRolloutImdbSet, getHiddenRolloutPathSet } from "./rollout";
 import { browserProfile, type PlaybackClient } from "./playback-profile";
 import { stripCredentials } from "./strip-credentials";
 import type { ResolvedSession } from "./session";
@@ -127,26 +121,19 @@ const DETAIL_FIELDS =
   "Overview,Genres,ProductionYear,CommunityRating,OfficialRating,People,MediaSources,MediaStreams,Studios,Taglines,ProviderIds,Path";
 
 /**
- * Per-request memos for the five local reads filterVisible() makes.
+ * The local reads filterVisible() makes, once per request.
  *
- * Each of these runs a fresh query and builds a fresh Set on every call, and
- * filterVisible() is called once per list — so the home page, which filters six
- * lists, was issuing about thirty identical queries and discarding thirty
- * identical Sets to render one page.
+ * Each source runs a fresh query and builds a fresh Set, and filterVisible() is
+ * called once per list — so the home page, which filters six lists, was
+ * issuing about thirty identical queries and discarding thirty identical Sets
+ * to render one page.
  *
  * React's cache() scopes the memo to the request, so a curator's edit is still
  * visible on the very next page load — the property the short TTL below exists
  * to protect. Outside a request scope React simply does not memoise, which is
  * the correct degradation rather than a stale read.
  */
-const excludedPaths = cache(getExcludedPathSet);
-const whitelistedPaths = cache(getWhitelistedPathSet);
-const rolloutHiddenPathsMemo = cache(getHiddenRolloutPathSet);
-const rolloutHiddenImdbMemo = cache(getHiddenRolloutImdbSet);
-const specialFeatureIdsMemo = cache(getSpecialFeatureIdSet);
-const alternateVersionPathsMemo = cache(getAlternateVersionPathSet);
-const damagedPathsMemo = cache(getDamagedPathSet);
-const episodeIndexMemo = cache(getEpisodeVisibilityIndex);
+const listingSources = cache(readListingSources);
 
 function creds(session: ResolvedSession) {
   return [session.jellyfinToken, session.jellyfinDeviceId] as const;
@@ -154,13 +141,16 @@ function creds(session: ResolvedSession) {
 
 
 /**
- * Drops anything the review dashboard excluded, anything with no fetched
- * metadata at all that hasn't been explicitly whitelisted (a title with no
- * overview, no TMDB/IMDb id and no poster is an open question for the review
- * dashboard, not something to hand a viewer), PLUS anything a curator has
- * scheduled for later release and hasn't reached yet (see rollout.ts and
- * DESIGN-scheduled-rollout.md). Three local SQLite reads, not a Jellyfin
- * call — cheap enough to run on every list this module returns.
+ * What a list may show: each item's catalogue state (catalogue-state.ts,
+ * docs/catalogue-state.md) says whether it is listed in this kind of list,
+ * and parental control, the one rule that depends on who is looking, comes
+ * on top. Local SQLite reads only, memoised per request.
+ *
+ * The reasons a file is kept off — hidden by the curator, damaged, no
+ * metadata, an episode in no show, a special feature, another cut, a
+ * scheduled release — and which lists each one applies to live in that one
+ * table of rules, not here. They are what they were when this was a stack of
+ * checks; catalogue-state.test.ts proves it for every combination.
  *
  * Deliberately NOT applied to getItem() below (a single item fetched by
  * id): a direct link someone already has still works even for an excluded
@@ -172,45 +162,12 @@ function creds(session: ResolvedSession) {
 function filterVisible(
   items: MediaItem[],
   session: ResolvedSession,
-  options: { requireMetadata?: boolean; includeSpecialFeatures?: boolean } = {},
+  options: { context?: ListContext } = {},
 ): MediaItem[] {
-  // `requireMetadata: false` drops ONLY the thin-metadata rule — see
-  // getCollection(), where grouping is itself the curatorial answer to the
-  // open question that rule exists to flag. Exclusions, scheduled rollout and
-  // parental control still apply; this is not a way to see hidden titles.
-  const requireMetadata = options.requireMetadata ?? true;
-  const excluded = excludedPaths();
-  const damaged = damagedPathsMemo();
-  const episodes = episodeIndexMemo();
-  const whitelisted = whitelistedPaths();
-  const rolloutHiddenPaths = rolloutHiddenPathsMemo();
-  const rolloutHiddenImdb = rolloutHiddenImdbMemo();
-  // Special features are hidden from discovery but are not hidden items: they
-  // keep their own page and stay playable, and they still belong in Continue
-  // Watching, which is why this is an option rather than a blanket rule. A
-  // half-watched making-of should carry on where you left it like anything
-  // else — it just should not be sitting in Browse next to the films.
-  const specialFeatures = options.includeSpecialFeatures ? null : specialFeatureIdsMemo();
-  // Other cuts of a film listed once (film-versions.ts): same rule as special
-  // features — out of discovery, still playable, and a half-watched director's
-  // cut still belongs in Continue Watching.
-  const alternateVersions = options.includeSpecialFeatures ? null : alternateVersionPathsMemo();
+  const context = options.context ?? "discovery";
+  const sources = listingSources();
   return items.filter((item) => {
-    if (specialFeatures?.has(item.Id)) return false;
-    if (item.Path && alternateVersions?.has(item.Path)) return false;
-    if (item.Path && excluded.has(item.Path)) return false;
-    // The file itself is broken and would stall the player part-way through
-    // (file-checks.ts). Off the listings until replaced or allowed.
-    if (item.Path && damaged.has(item.Path)) return false;
-    // An episode of a series that no group has claimed yet (OMDb or TMDB
-    // says it is one, or its filename does). Shown as a film it is one of a
-    // pile of look-alike "films" with an episode's poster; off the listings
-    // until it is grouped, which the nightly pass mostly does unasked
-    // (series-autogroup.ts), or the curator says to keep it as a film.
-    if (isUngroupedEpisode(item, episodes)) return false;
-    if (requireMetadata && hasNoMetadata(item) && !(item.Path && whitelisted.has(item.Path))) return false;
-    if (item.Path && rolloutHiddenPaths.has(item.Path)) return false;
-    if (item.ProviderIds?.Imdb && rolloutHiddenImdb.has(item.ProviderIds.Imdb)) return false;
+    if (!isListed(deriveCatalogueState(listingFacts(item, sources)), context)) return false;
     // "Stop showing R-rated or equivalent movies" — see parental-control.ts.
     if (session.parentalControl && isRestrictedContent(item)) return false;
     return true;
@@ -233,7 +190,7 @@ export async function getResume(session: ResolvedSession): Promise<MediaItem[]> 
   });
   // The one row a special feature is allowed into: if you started a making-of
   // and stopped halfway, it should be waiting here like anything else.
-  return filterVisible(data?.Items ?? [], session, { includeSpecialFeatures: true });
+  return filterVisible(data?.Items ?? [], session, { context: "resume" });
 }
 
 export async function getLatest(session: ResolvedSession): Promise<MediaItem[]> {
@@ -474,7 +431,7 @@ export async function getCollection(
 
   const pathSet = new Set(group.paths);
   const confirmedPaths = getConfirmedPathSet();
-  // requireMetadata: false — an episode whose OMDb backfill hasn't landed yet
+  // The "show_episodes" context: an episode whose OMDb backfill hasn't landed yet
   // still belongs in its own show's episode list. Grouping these paths was
   // itself the curator's answer to the "is this a real title?" question the
   // thin-metadata rule exists to raise, and library-review.ts treats a
@@ -484,7 +441,7 @@ export async function getCollection(
   // Unconfirmed names are already handled: resolveEpisodeLabel() falls back to
   // the filename's own guess rather than trusting Jellyfin's.
   const all = filterVisible(await fetchAllMoviesCached(session, { limit: 2000 }), session, {
-    requireMetadata: false,
+    context: "show_episodes",
   });
   const items: CollectionItem[] = all
     .filter((item) => item.Path && pathSet.has(item.Path))
