@@ -230,6 +230,7 @@ const BUILTINS: Array<JobInput & { id: string }> = [
   { id: "builtin-loop-conversions", kind: "loop_conversions", schedule: { cadence: "daily", hour: 0, minute: 0 } },
   { id: "builtin-loop-upload-scan", kind: "loop_upload_scan", schedule: { cadence: "daily", hour: 0, minute: 0 } },
   { id: "builtin-loop-file-check", kind: "loop_file_check", schedule: { cadence: "daily", hour: 0, minute: 0 } },
+  { id: "builtin-loop-browser-audio", kind: "loop_browser_audio", schedule: { cadence: "daily", hour: 0, minute: 0 } },
 ];
 
 export function ensureBuiltinJobs(): void {

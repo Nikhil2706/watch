@@ -2,6 +2,7 @@ import "server-only";
 
 import { fileProblems } from "./file-checks";
 import { hasNoMetadata } from "./has-metadata";
+import { playbackFix } from "./playback-fix";
 import { dirname } from "node:path";
 
 import { env } from "./env";
@@ -379,29 +380,14 @@ export async function buildGroupDetail(groupId: string): Promise<GroupDetail | n
   };
 }
 
-/**
- * Matches the DirectPlayProfiles the app advertises to browsers in
- * media.ts's getPlaybackPlan, and mirrors alreadyPlayable() in
- * scripts/media-worker.mjs — same rule, read from Jellyfin's own analysis
- * instead of running ffprobe again (this app has no ffmpeg; only the worker
- * does).
- */
-function isDirectPlayable(m: AdminMovieListItem): boolean {
-  const source = m.MediaSources?.[0];
-  const container = (source?.Container ?? "").toLowerCase();
-  const video = source?.MediaStreams?.find((s) => s.Type === "Video");
-  const width = video?.Width ?? 0;
-  return (
-    (container === "mp4" || container === "m4v") &&
-    (video?.Codec ?? "").toLowerCase() === "h264" &&
-    width > 0 &&
-    width <= 1920
-  );
-}
 
 export interface TransformCandidate extends ReviewItem {
   container: string | null;
   codec: string | null;
+  /** "convert": the video needs re-encoding. "audio": only a browser audio track is missing. */
+  fix: "convert" | "audio";
+  /** Why, in words: "MPEG-4 Part 2 (DivX/Xvid) video", "sound is only DTS". */
+  reason: string;
   /** e.g. "3840x1608 · HEVC" — why this file needs converting, for the admin to judge at a glance. */
   quality: string | null;
 }
@@ -418,16 +404,19 @@ export async function listTransformCandidates(): Promise<TransformCandidate[]> {
 
   return all
     .filter((m) => m.Path && !excluded.has(m.Path))
-    .filter((m) => !isDirectPlayable(m))
-    .map((m) => {
+    .flatMap((m) => {
       const source = m.MediaSources?.[0];
+      const need = playbackFix(source?.MediaStreams);
+      if (!need) return [];
       const video = source?.MediaStreams?.find((s) => s.Type === "Video");
       const dims = video?.Width && video?.Height ? `${video.Width}x${video.Height}` : null;
-      return {
+      return [{
         ...toReviewItem(m),
         container: source?.Container ?? null,
         codec: video?.Codec ?? null,
         quality: [dims, video?.Codec?.toUpperCase()].filter(Boolean).join(" · ") || null,
-      };
+        fix: need.fix,
+        reason: need.reason,
+      }];
     });
 }

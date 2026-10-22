@@ -4475,6 +4475,9 @@
       }
       out += '<button class="ghost" data-lw-action="damage-recheck" data-lw-target="' + esc(it.id) + '" title="After replacing the file this happens by itself">Check the file again</button>';
     }
+    // For a film whose only sound a browser can't play (DTS, TrueHD...). Safe
+    // on any film: the worker leaves one that doesn't need it alone, and says so.
+    out += '<button class="ghost" data-lw-action="browser-audio" data-lw-target="' + esc(it.id) + '" title="Adds a stereo AAC track so browsers play it without re-encoding the sound; every original track is kept">Add browser audio now</button>';
     /*
      * Marking something a special feature is a standing action on EVERY film,
      * not one that appears only when the guesser happened to flag it. The
@@ -5379,6 +5382,20 @@
             : action === "damage-disallow" ? "Off the site again until the file is replaced."
             : "It will be read through again within a few minutes, when nobody is watching.");
           return lwLoad(true);
+        })
+        .catch(function (err) { show("err", err.message); btn.disabled = false; });
+      return;
+    }
+
+    if (action === "browser-audio") {
+      // From the Library pane or the Worker tab's "Needs browser audio" list.
+      var ba = lw.items.filter(function (i) { return i.id === target; })[0] || review.itemsById[target];
+      if (!ba || !ba.path) return;
+      btn.disabled = true;
+      api("/api/admin/library/browser-audio", { method: "POST", body: { path: ba.path } })
+        .then(function () {
+          show("ok", "Queued. The worker does it within a few minutes when nothing else is queued and nobody is watching; the result shows under Health, Browser audio.");
+          btn.textContent = "Queued";
         })
         .catch(function (err) { show("err", err.message); btn.disabled = false; });
       return;
@@ -6587,8 +6604,12 @@
         year: c.year,
         path: c.path,
         quality: c.quality,
+        // "convert": the video needs re-encoding; "audio": only a browser
+        // audio track is missing (the worker adds one; nothing is converted).
+        fix: c.fix || "convert",
+        reason: c.reason || null,
         item: c,
-        status: job ? job.status : "needs",
+        status: job ? job.status : (c.fix === "audio" ? "audio" : "needs"),
         progress: job ? job.progress : null
       });
     });
@@ -6615,6 +6636,7 @@
 
   var WK_FILTERS = [
     { key: "needs", label: "Needs conversion", test: function (r) { return r.status === "needs"; } },
+    { key: "audio", label: "Needs browser audio", test: function (r) { return r.status === "audio"; } },
     { key: "running", label: "Converting", test: function (r) { return r.status === "running" || r.status === "paused"; } },
     { key: "queued", label: "Queued", test: function (r) { return r.status === "queued" || r.status === "pending"; } },
     { key: "failed", label: "Failed", test: function (r) { return r.status === "failed" || r.status === "error"; } },
@@ -6660,7 +6682,7 @@
     el.innerHTML = rows.map(function (r) {
       var sub = r.status === "running" || r.status === "paused"
         ? r.status + " " + (r.progress || 0) + "%"
-        : (r.status === "needs" ? (r.quality || "would transcode") : r.status);
+        : (r.status === "needs" || r.status === "audio" ? (r.reason || r.quality || "would transcode") : r.status);
       return '<div class="lw-rail-item' + (wk.selected === r.id ? " sel" : "") + '" data-wk-row="' + esc(r.id) + '">' +
         '<span class="lw-dot ' + wkStateDot(r) + '"></span>' +
         '<span class="lw-rail-name">' + esc(r.name) +
@@ -6679,6 +6701,10 @@
     var actions = "";
     if (r.status === "needs" && r.item) {
       actions = '<button data-action="transform" data-item-id="' + esc(r.id) + '">Queue for conversion</button>';
+    } else if (r.status === "audio" && r.item) {
+      actions = '<button data-lw-action="browser-audio" data-lw-target="' + esc(r.id) + '">Add browser audio now</button>' +
+        '<span class="muted" style="font-size:12px">The picture plays as it is; only a stereo AAC track is added, ' +
+        'keeping every original track. The worker also does these by itself, up to 20 a day.</span>';
     } else if (r.status === "running" || r.status === "paused") {
       actions = '<span class="muted" style="font-size:12px">Converting — ' + (r.progress || 0) + '% done. ' +
         'The worker reports progress as it goes.</span>';
@@ -6691,7 +6717,7 @@
     el.innerHTML = '<div class="lw-head">' +
         '<div class="lw-head-text">' +
           '<div class="lw-title">' + esc(r.name) + (r.year ? ' <span class="muted">(' + r.year + ')</span>' : "") + '</div>' +
-          '<div class="lw-sub">' + esc(r.quality ? r.quality + " · " + r.status : r.status) + '</div>' +
+          '<div class="lw-sub">' + esc([r.reason, r.quality, r.status === "audio" ? "needs browser audio" : r.status].filter(Boolean).join(" · ")) + '</div>' +
           '<div class="lw-path">' + esc(r.path || "") + '</div>' +
           '<div class="lw-acts">' + actions +
             (r.item ? folderLinkHtml(r.item) : "") +

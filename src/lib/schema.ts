@@ -50,7 +50,11 @@
  * with its session. Added by runVersionedMigrations (db.ts), which also sets
  * it for the owner's account, "mammannii".
  */
-export const SCHEMA_VERSION = 59;
+/*
+ * 60: browser_audio — files given an extra AAC track so a browser can play
+ * them without converting (scripts/browser-audio.mjs).
+ */
+export const SCHEMA_VERSION = 60;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1487,6 +1491,24 @@ CREATE TABLE IF NOT EXISTS file_checks (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_file_checks_verdict ON file_checks(verdict);
+
+-- Browser audio (v60; v59 is users.is_admin, PR #38): a stereo AAC track
+-- added to a film whose main sound track a browser cannot play
+-- (scripts/browser-audio.mjs). One row per file, so each is looked at once:
+-- status 'added', 'not_needed' (with why), 'failed' (with
+-- why; not retried until the file changes), or 'requested' by the curator
+-- ("Add browser audio now"), which the worker takes first. size/mtime_ms are
+-- the file as last seen, so a replaced file is looked at again.
+CREATE TABLE IF NOT EXISTS browser_audio (
+  path         TEXT PRIMARY KEY,   -- as the worker sees it: /media/...
+  size         INTEGER NOT NULL,
+  mtime_ms     INTEGER NOT NULL,
+  status       TEXT NOT NULL,      -- added | not_needed | failed | requested
+  detail       TEXT,
+  checked_at   INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_browser_audio_status ON browser_audio(status);
 
 -- What OMDb says an IMDb id IS (v57): a movie, a series, or an episode and of
 -- which series. Written from the same response as rating_cache, so it costs
