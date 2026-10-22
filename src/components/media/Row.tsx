@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { PosterCard } from "./PosterCard";
 import type { ListKind } from "@/lib/lists";
 import { prefersStillLayout, type MediaItem } from "@/lib/media";
@@ -11,6 +13,7 @@ import { prefersStillLayout, type MediaItem } from "@/lib/media";
  */
 export function Row({
   title,
+  titleHref,
   items,
   lists,
   itemTitles,
@@ -23,6 +26,8 @@ export function Row({
   markWatched,
 }: {
   title: string;
+  /** Makes the heading a link to the whole list, as a pick row's is (Recently watched -> /history). */
+  titleHref?: string;
   items: MediaItem[];
   /** item id -> lists it is on, so the toggles render in the right state. */
   lists?: Map<string, Set<ListKind>>;
@@ -54,7 +59,15 @@ export function Row({
 
   return (
     <section className="row" aria-label={title}>
-      <h2>{title}</h2>
+      <h2>
+        {titleHref ? (
+          <Link href={titleHref} className="row-title-link">
+            {title} <span aria-hidden="true">›</span>
+          </Link>
+        ) : (
+          title
+        )}
+      </h2>
       <div className="row-scroll">
         {items.map((item) => (
           <PosterCard

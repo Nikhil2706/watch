@@ -66,6 +66,7 @@ export function AppBar({
         <LogoutButton />
         <AppBarMore>
           <span className="appbar-more-who">Signed in as {username}</span>
+          <Link href="/history">History</Link>
           {langloisMode ? <Link href="/upload">Upload</Link> : null}
           {isAdmin ? <Link href="/admin">Curator&apos;s tools</Link> : null}
           <Link href="/remote">Use this phone as a remote</Link>

@@ -70,6 +70,8 @@ export interface MediaItem {
     PlayedPercentage?: number;
     Played?: boolean;
     IsFavorite?: boolean;
+    /** When this viewer last played it (ISO). Set by Jellyfin once anything has played. */
+    LastPlayedDate?: string;
   };
   People?: Array<{
     Name: string;
@@ -190,6 +192,35 @@ export async function getResume(session: ResolvedSession): Promise<MediaItem[]> 
   });
   // The one row a special feature is allowed into: if you started a making-of
   // and stopped halfway, it should be waiting here like anything else.
+  return filterVisible(data?.Items ?? [], session, { context: "resume" });
+}
+
+/**
+ * What this viewer has finished, most recently watched first: Jellyfin's own
+ * "played" flag (set when a film is watched to the end, or marked watched),
+ * ordered by the last time it was played. Half-watched titles are Continue
+ * watching's, not this.
+ *
+ * Listed like Continue watching (the "resume" context): a making-of or
+ * another cut someone watched belongs in their history like anything else.
+ * Hidden or since-removed titles drop out, as they do everywhere.
+ */
+export async function getRecentlyWatched(
+  session: ResolvedSession,
+  limit: number,
+): Promise<MediaItem[]> {
+  const [token, device] = creds(session);
+  const data = await userFetch<ItemsResponse>(token, device, "/Items", {
+    userId: session.jellyfinUserId,
+    recursive: true,
+    filters: "IsPlayed",
+    sortBy: "DatePlayed",
+    sortOrder: "Descending",
+    mediaTypes: "Video",
+    limit,
+    fields: LIST_FIELDS,
+    enableImageTypes: "Primary,Backdrop,Thumb",
+  });
   return filterVisible(data?.Items ?? [], session, { context: "resume" });
 }
 

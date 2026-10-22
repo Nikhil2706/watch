@@ -10,28 +10,30 @@ import { Row } from "@/components/media/Row";
 import { PickRow } from "@/components/picks/PickRow";
 import { PartyBanner } from "@/components/party/PartyBanner";
 import { currentSession } from "@/lib/current-user";
-import { parseEpisodeInfo } from "@/lib/episode-naming";
+import { episodeCards } from "@/lib/episode-cards";
 import { getActiveJobs } from "@/lib/jobs";
-import { getGroupedPathMap, getGroupSeriesPoster } from "@/lib/library-curation";
-import { episodeLine } from "@/lib/resume-labels";
 import { getMemberships } from "@/lib/lists";
 import { homePicksForViewer } from "@/lib/pick-views";
 import { listLiveParties, listUpcomingParties } from "@/lib/party";
 import { getRatings } from "@/lib/ratings";
 import { MIN_SHELF_SIZE } from "@/lib/home-shelves";
 import { todaysShelves } from "@/lib/tmdb-shelves";
-import { episodeTilesForPaths, episodeViewByPath, filmViewByPath } from "@/lib/tmdb-view";
+import { episodeViewByPath, filmViewByPath } from "@/lib/tmdb-view";
 import {
   collapseEpisodeGroups,
   getAllMovies,
   getGenres,
   getItemsByPaths,
   getLatest,
+  getRecentlyWatched,
   getResume,
   type MediaItem,
 } from "@/lib/media";
 
 export const dynamic = "force-dynamic";
+
+/** Cards in Home's Recently watched row; the rest are on /history. */
+const RECENTLY_WATCHED_ROW = 12;
 
 /**
  * Home. Rows come straight from Jellyfin's own organisation of the library —
@@ -51,8 +53,10 @@ export default async function HomePage() {
   // down. But if the latest-items call fails, Jellyfin itself is unreachable,
   // and "nothing in the library" would be the wrong thing to tell anyone.
   let libraryUnreachable = false;
-  const [resume, latest, genres, shelves, picks] = await Promise.all([
+  const [resume, recent, latest, genres, shelves, picks] = await Promise.all([
     getResume(session).catch(() => []),
+    // What they have finished, newest first. The full list is /history.
+    getRecentlyWatched(session, RECENTLY_WATCHED_ROW).catch(() => []),
     getLatest(session).catch(() => {
       libraryUnreachable = true;
       return [];
@@ -126,36 +130,21 @@ export default async function HomePage() {
   const lists = getMemberships(session.userId, [
     ...new Set([
       ...resume.map((i) => i.Id),
+      ...recent.map((i) => i.Id),
       ...collapsedLatest.items.map((i) => i.Id),
       ...genreRows.flatMap((row) => row.collapsed.items.map((i) => i.Id)),
       ...shelfRows.flatMap((row) => row.items.map((i) => i.Id)),
     ]),
   ]);
 
-  // An episode in Continue watching is headed with its show, carries the
-  // show's poster, and says which episode it is on the line beneath:
-  // "Buffy The Vampire Slayer" / "S1 E1 · Welcome to the Hellmouth". Its
-  // own name alone, over a frame from the episode, was not recognisable.
-  const showOfPath = getGroupedPathMap();
-  const resumeEpisodes = resume.filter((i) => i.Path && showOfPath.has(i.Path));
-  const episodeNames = episodeTilesForPaths(resumeEpisodes.map((i) => i.Path!));
-  const resumeTitles = new Map<string, string>();
-  const resumeLines = new Map<string, string>();
-  const resumePosters = new Map<string, string | null>();
-  for (const item of resumeEpisodes) {
-    const show = showOfPath.get(item.Path!)!;
-    const named = episodeNames.get(item.Path!);
-    const parsed = parseEpisodeInfo(item.Path!);
-    resumeTitles.set(item.Id, show.groupName);
-    const line = episodeLine(
-      named?.seasonNumber ?? parsed.season,
-      named?.episodeNumber ?? parsed.episode,
-      named?.name ?? parsed.title ?? item.Name,
-    );
-    if (line) resumeLines.set(item.Id, line);
-    const poster = getGroupSeriesPoster(show.groupId);
-    if (poster) resumePosters.set(item.Id, poster);
-  }
+  // An episode in Continue watching or Recently watched is headed with its
+  // show, with the show's poster and "S1 E1 · Title" beneath (episode-cards.ts).
+  const {
+    titles: resumeTitles,
+    lines: resumeLines,
+    posters: resumePosters,
+  } = episodeCards(resume);
+  const recentCards = episodeCards(recent);
 
   const featured: MediaItem | undefined = resume[0] ?? latest[0];
 
@@ -223,6 +212,18 @@ export default async function HomePage() {
         // the episodes' own frames, which are no longer what it shows.
         shape={resumePosters.size > 0 ? "poster" : undefined}
         markWatched
+      />
+      {/* Left alone by "Hide what I've seen", like Continue watching: it is
+          the viewer's own history, asked for by being on the page. */}
+      <Row
+        title="Recently watched"
+        titleHref="/history"
+        items={recent}
+        lists={lists}
+        itemTitles={recentCards.titles}
+        itemBadges={recentCards.lines}
+        itemPosters={recentCards.posters}
+        shape="poster"
       />
       {otherPicks.map((pick) => (
         <PickRow key={pick.id} pick={pick} />
