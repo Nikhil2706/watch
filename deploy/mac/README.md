@@ -10,10 +10,11 @@ be rebuilt from git. The restore guide that first set it up is
 
 | Here | On the Mac | What it does |
 |---|---|---|
-| `docker-compose.override.yml` | `~/watch/` | Mac settings: no tunnel container, no start-up library scan, Jellyfin `cpus: "6"` (the Mac also runs Final Cut), the override itself mounted into the worker for the backup |
+| `docker-compose.override.yml` | `~/watch/` | Mac settings: no tunnel container, no start-up library scan, Jellyfin `cpus: "6"` (the Mac also runs Final Cut), the worker `cpus: "8"` (it only runs when nobody is watching and Final Cut isn't open), the override itself mounted into the worker for the backup |
 | `host-jobs/watch-up.sh` | `~/watch-host/` | Every 2 min (launchd `com.watch.up`): starts the site once the drive is mounted, stops it if the drive vanishes, honours a deliberate disconnect, restarts OrbStack when it can't see a re-plugged drive |
+| `host-jobs/yield-to-fcp.sh` | `~/watch-host/` | Every 15 s (launchd `com.watch.yield`): freezes the worker (`docker pause`) while Final Cut Pro is open and resumes it when Final Cut quits. The worker already pauses itself while anyone is watching, so with both it can have 8 cores |
 | `host-jobs/jellyfin-gate-*.sh`, `backup-to-e.sh` | not installed | RETIRED 2026-10-14. The old backup, run by launchd `com.watch.hostjobs` every minute. The backup is now a job the worker runs (`scripts/backup.mjs`), on the schedule in the console's Health tab. Kept so the site's "host" runner still has a working example |
-| `launchd/com.watch.up.plist` | `~/Library/LaunchAgents/` | The agent above (`__HOME__` etc. filled in by `setup.sh agents`). `com.watch.hostjobs.plist` is the retired one; `setup.sh agents` removes it |
+| `launchd/com.watch.up.plist`, `launchd/com.watch.yield.plist` | `~/Library/LaunchAgents/` | The agents above (`__HOME__` etc. filled in by `setup.sh agents`). `com.watch.hostjobs.plist` is the retired one; `setup.sh agents` removes it |
 | `control/control.sh`, `control/WatchControl.applescript` | `~/watch-ops/control/`, built to `~/Desktop/Watch Control.app` with `osacompile` | The owner's app: status, disconnect drive, start, deploy latest merged code, roll back, off-hours schedule |
 | `control/schedule-*.py/.sh`, `com.watch.schedule.plist` | installed as root by the app into `/Library/Application Support/watch/` and `/Library/LaunchDaemons/` | Weekday/weekend shutdown and start-up times (`pmset schedule`, re-booked hourly), settings in `~/.config/watch/schedule.json` |
 | `ops/*.sh` | `~/watch-ops/` | `playing.sh` (who is watching), `api.sh` (admin API), `check.sh` (types + tests), `build-dev.sh`, `deploy.sh` |
@@ -40,7 +41,8 @@ schedule.
 ## Rules that matter
 
 - Deploys: Watch Control's "Deploy latest merged code" (or `control.sh deploy`)
-  checks, builds while the site runs, waits while anyone is watching, keeps
+  checks, builds while the site runs, waits while anyone is watching or a
+  conversion or scheduled job is running (a restart cuts those off), keeps
   `watch-gate:pre-<stamp>` for "Roll back", and rolls back itself if the site
   doesn't answer.
 - Merging anything under `apps/mobile/**` publishes the Android app; bump

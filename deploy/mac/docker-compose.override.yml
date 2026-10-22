@@ -19,6 +19,12 @@ services:
     environment:
       - STARTUP_LIBRARY_SCAN=false
 
+  # Conversions get 8 of the 10 cores: the worker only runs when nobody is
+  # watching (it pauses itself) and Final Cut Pro isn't open (com.watch.yield
+  # freezes it), so it only uses a Mac that is otherwise idle (2026-10-15).
+  worker:
+    cpus: "8"
+
   # The damaged-file check is ON here (it was paused on the old PC only
   # because that machine was short of memory). It reads 100 files a day, when
   # nothing is queued and nobody is watching. To pause it again:

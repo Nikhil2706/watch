@@ -11,6 +11,13 @@ mkdir -p "$(dirname "$HOLD")"
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG"; }
 notify() { osascript -e "display notification \"$2\" with title \"Watch\" subtitle \"$1\"" >/dev/null 2>&1; }
 playing() { bash "$HOME/watch-ops/playing.sh" 2>/dev/null || echo 0; }
+# Conversions and download preparation running in the worker; a deploy
+# restarts the worker and would kill them halfway.
+# Also the site's own scheduled jobs (a catch-up, a backup, a scrape): a
+# deploy restarts the site and the run is cut off ("The site restarted while
+# this was running"; seen 2026-10-14). Runs older than 6 hours are taken as
+# already dead, the same rule the scheduler uses.
+converting() { docker exec jellyfin-gate node -e 'const d=new (require("node:sqlite").DatabaseSync)("/app/data/jellyfin-gate.db",{readOnly:true});const m=d.prepare("SELECT COUNT(*) n FROM media_jobs WHERE status = ?").get("running").n;const j=d.prepare("SELECT COUNT(*) n FROM job_runs WHERE status = ? AND started_at > ?").get("running",Date.now()-6*3600e3).n;console.log(m+j)' 2>/dev/null || echo 0; }
 code() { curl -s -o /dev/null -w '%{http_code}' --max-time "${2:-5}" "$1"; }
 
 case "${1:-status}" in
@@ -85,7 +92,7 @@ deploy)
   docker tag watch-gate:latest "watch-gate:pre-$TS"; docker tag watch-worker:latest "watch-worker:pre-$TS"
   echo "$TS" > "$HOME/.config/watch/last-deploy"
   docker compose build gate worker || { notify "Deploy failed" "Build failed; the site is unchanged."; exit 1; }
-  for i in $(seq 1 180); do [ "$(playing)" = "0" ] && break; [ "$i" = 1 ] && notify "Deploy waiting" "Someone is watching; it will go live when they stop."; sleep 60; done
+  for i in $(seq 1 240); do [ "$(playing)" = "0" ] && [ "$(converting)" = "0" ] && break; [ "$i" = 1 ] && notify "Deploy waiting" "Someone is watching, or a conversion or job is running; it goes live when that's done."; sleep 60; done
   mkdir -p "$HOME/deploy-snapshots"
   docker exec jellyfin-gate node -e "new (require('node:sqlite').DatabaseSync)('/app/data/jellyfin-gate.db').exec(\"VACUUM INTO '/tmp/pre-deploy.db'\")" && docker cp jellyfin-gate:/tmp/pre-deploy.db "$HOME/deploy-snapshots/gate-$TS.db" && docker exec jellyfin-gate rm -f /tmp/pre-deploy.db
   docker compose up -d --no-build --force-recreate gate worker
@@ -94,9 +101,23 @@ deploy)
   # so restart the console to pick up the new one.
   docker restart jellyfin-gate-console >/dev/null 2>&1
   if [ "$ok" = 1 ] && [ "$(docker inspect jellyfin-gate --format '{{.Image}}')" = "$(docker image inspect watch-gate:latest --format '{{.Id}}')" ]; then
-    notify "Deployed $NEW" "The site is up on the new version."; echo "deployed $NEW"; exit 0
+    notify "Deployed $NEW" "The site is up on the new version."; echo "deployed $NEW"
+    bash "$0" tidy; exit 0
   fi
   echo "site did not come back - rolling back"; bash "$0" rollback; notify "Deploy rolled back" "The new version did not start; the previous one is back. See watch-deploy.log."; exit 1
+  ;;
+
+tidy)
+  # Keep the two most recent rollback copies of each image; older ones are
+  # ~0.9 GB a deploy on a disk Final Cut also wants. Build cache older than
+  # three days goes too (rebuilt on demand).
+  for repo in watch-gate watch-worker; do
+    docker images --format '{{.Tag}}' "$repo" | grep '^pre-' | sort -r | tail -n +3 | while read -r t; do
+      docker rmi "$repo:$t" >/dev/null 2>&1 && echo "removed $repo:$t"
+    done
+  done
+  docker builder prune -f --filter until=72h 2>/dev/null | tail -1
+  docker image prune -f >/dev/null 2>&1
   ;;
 
 rollback)
