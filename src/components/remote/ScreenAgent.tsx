@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef } from "react";
 
+import { planExplicit } from "@/lib/session-clock";
+
 /**
  * The TV half of the phone-remote feature.
  *
@@ -41,7 +43,9 @@ type Command =
   | { type: "seekBy"; deltaSeconds: number }
   | { type: "back" }
   | { type: "reload" }
-  | { type: "ping" };
+  | { type: "ping" }
+  /** Play, pause and seeks, as the clock the server keeps for this screen (remote-bus.ts). */
+  | { type: "sync"; positionSeconds: number; paused: boolean; at: number };
 
 function video(): HTMLVideoElement | null {
   return document.querySelector("video");
@@ -152,6 +156,17 @@ export function ScreenAgent({ tvMode }: { tvMode: boolean }) {
         case "seekBy":
           if (v) v.currentTime = Math.max(0, v.currentTime + command.deltaSeconds);
           break;
+        case "sync": {
+          if (!v) break;
+          // The same plan a party follower makes from an explicit play, pause
+          // or seek. The frame was stamped as it was sent, so its age is the
+          // network's few milliseconds: aim at it as it stands.
+          const plan = planExplicit({ positionSeconds: v.currentTime, paused: v.paused }, command, command.at, false);
+          if (plan.seekTo !== null) v.currentTime = plan.seekTo;
+          if (plan.setPaused === true) v.pause();
+          else if (plan.setPaused === false) void v.play().catch(() => {});
+          break;
+        }
         case "ping":
           break;
       }

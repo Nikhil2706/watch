@@ -2,6 +2,15 @@ import "server-only";
 
 import { generateId } from "./crypto";
 import { evictIdleOverflow, fanOut, sweepIdle } from "./live-hub";
+import {
+  acceptReport,
+  applyClockCommand,
+  clockSync,
+  isClockCommand,
+  type ClockSync,
+  type RoomPosition,
+  type ScreenClock,
+} from "./session-clock";
 
 /**
  * Registry of TV "screens" and the command bus a phone uses to drive them.
@@ -68,7 +77,14 @@ export interface ScreenState {
   updatedAt: number;
 }
 
-type Subscriber = (command: RemoteCommand) => void;
+/**
+ * What a screen's stream carries: the phone's command as sent, except that
+ * play, pause and seeks arrive as one stamped position on the screen's clock
+ * ("sync"; session-clock.ts, docs/playback-sessions.md step 2).
+ */
+export type ScreenCommand = RemoteCommand | ClockSync;
+
+type Subscriber = (command: ScreenCommand) => void;
 
 interface Screen {
   id: string;
@@ -81,6 +97,8 @@ interface Screen {
   codeExpiresAt: number;
   lastSeen: number;
   state: ScreenState;
+  /** Where its video is, kept on the server; null while nothing is playing. */
+  clock: ScreenClock | null;
   subscribers: Set<Subscriber>;
 }
 
@@ -203,6 +221,7 @@ export function registerScreen(input: {
     codeExpiresAt: now + CODE_TTL_MS,
     lastSeen: now,
     state: emptyState(),
+    clock: null,
     subscribers: new Set(),
   };
   state.screens.set(id, screen);
@@ -223,8 +242,12 @@ export function updateScreenState(
 ): boolean {
   const screen = bus().screens.get(screenId);
   if (!screen || screen.userId !== userId) return false;
-  screen.lastSeen = Date.now();
-  screen.state = { ...screen.state, ...patch, updatedAt: Date.now() };
+  const now = Date.now();
+  screen.lastSeen = now;
+  screen.state = { ...screen.state, ...patch, updatedAt: now };
+  const { playing, positionSeconds, paused } = screen.state;
+  screen.clock =
+    playing && positionSeconds != null ? acceptReport(screen.clock, { positionSeconds, paused }, now) : null;
   return true;
 }
 
@@ -243,6 +266,10 @@ export interface ScreenSummary {
   /** Last contact of any kind, so the UI can distinguish "never seen" from "was here a moment ago". */
   lastSeenAgoMs: number;
   state: ScreenState;
+  /** The screen's clock, for the phone to carry forward between polls; null while nothing plays. */
+  clock: RoomPosition | null;
+  /** The server's time when this was built: the phone's clock offset. */
+  serverTime: number;
 }
 
 function summarise(screen: Screen, now: number): ScreenSummary {
@@ -252,6 +279,8 @@ function summarise(screen: Screen, now: number): ScreenSummary {
     online: screen.subscribers.size > 0,
     lastSeenAgoMs: now - screen.lastSeen,
     state: screen.state,
+    clock: screen.clock ? { positionSeconds: screen.clock.positionSeconds, paused: screen.clock.paused, at: screen.clock.at } : null,
+    serverTime: now,
   };
 }
 
@@ -321,6 +350,15 @@ export function sendCommand(screenId: string, userId: string, command: RemoteCom
   const screen = bus().screens.get(screenId);
   if (!screen || screen.userId !== userId) return false;
   if (screen.subscribers.size === 0) return false;
-  fanOut(screen.subscribers, (subscriber, c: RemoteCommand) => subscriber(c), command);
+  let out: ScreenCommand = command;
+  // Play, pause and seeks move the screen's clock and go out as where it
+  // should now be. With nothing playing there is no clock: sent as they came.
+  if (screen.clock && isClockCommand(command)) {
+    const now = Date.now();
+    screen.clock = applyClockCommand(screen.clock, command, now, screen.state.durationSeconds);
+    screen.state = { ...screen.state, positionSeconds: screen.clock.positionSeconds, paused: screen.clock.paused, updatedAt: now };
+    out = clockSync(screen.clock);
+  }
+  fanOut(screen.subscribers, (subscriber, c: ScreenCommand) => subscriber(c), out);
   return true;
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { targetPosition, type RoomPosition } from "@/lib/session-clock";
 import { itemHref } from "@/lib/slugs";
 
 import { InstallNudge } from "./InstallNudge";
@@ -36,7 +37,14 @@ interface Screen {
   online: boolean;
   lastSeenAgoMs: number;
   state: ScreenState;
+  /** The screen's clock on the server (remote-bus.ts); null while nothing plays. */
+  clock: RoomPosition | null;
+  /** The server's time when the list was built. */
+  serverTime: number;
 }
+
+/** How often the bar and time move between polls while the screen plays. */
+const TICK_MS = 500;
 
 interface SearchHit {
   id: string;
@@ -82,6 +90,17 @@ export function RemoteClient() {
   const online = controllable.filter((s) => s.online);
   const screen = controllable.find((s) => s.id === screenId) ?? null;
 
+  // Server time ≈ Date.now() + offset, from the last poll. The bar is carried
+  // forward on the screen's clock between polls rather than jumping every 3 s.
+  const offsetRef = useRef(0);
+  const [, setTick] = useState(0);
+  const ticking = !!screen?.clock && !screen.clock.paused;
+  useEffect(() => {
+    if (!ticking) return;
+    const timer = setInterval(() => setTick((t) => t + 1), TICK_MS);
+    return () => clearInterval(timer);
+  }, [ticking]);
+
   const flash = useCallback((message: string) => {
     setNotice(message);
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
@@ -98,6 +117,8 @@ export function RemoteClient() {
       const response = await fetch("/api/remote/control", { cache: "no-store" });
       if (!response.ok) return;
       const data = (await response.json()) as { screens: Screen[] };
+      const serverTime = data.screens[0]?.serverTime;
+      if (typeof serverTime === "number") offsetRef.current = serverTime - Date.now();
       setScreens(data.screens);
       // Auto-select when there is exactly one screen and nothing chosen yet -
       // the common case is a household with one television, and making that
@@ -205,10 +226,12 @@ export function RemoteClient() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const progress =
-    screen?.state.durationSeconds && screen.state.positionSeconds != null
-      ? Math.min(100, (screen.state.positionSeconds / screen.state.durationSeconds) * 100)
-      : 0;
+  const duration = screen?.state.durationSeconds ?? null;
+  const position = screen?.clock
+    ? Math.min(targetPosition(screen.clock, Date.now() + offsetRef.current), duration ?? Infinity)
+    : (screen?.state.positionSeconds ?? null);
+  const paused = screen?.clock ? screen.clock.paused : (screen?.state.paused ?? true);
+  const progress = duration && position != null ? Math.min(100, (position / duration) * 100) : 0;
 
   return (
     <div className="remote">
@@ -344,14 +367,14 @@ export function RemoteClient() {
             </div>
             <div className="remote-meta">
               <p className="remote-title">{screen.state.title ?? "Nothing playing"}</p>
-              <p className="remote-sub">{screen.state.playing ? (screen.state.paused ? "Paused" : "Playing") : "Browsing"}</p>
+              <p className="remote-sub">{screen.state.playing ? (paused ? "Paused" : "Playing") : "Browsing"}</p>
               {screen.state.playing ? (
                 <>
                   <div className="remote-bar" aria-hidden="true">
                     <span style={{ width: `${progress}%` }} />
                   </div>
                   <p className="remote-times">
-                    {formatTime(screen.state.positionSeconds)} / {formatTime(screen.state.durationSeconds)}
+                    {formatTime(position)} / {formatTime(duration)}
                   </p>
                 </>
               ) : null}
@@ -369,9 +392,9 @@ export function RemoteClient() {
               type="button"
               className="remote-playpause"
               onClick={() => void send({ type: "playPause" })}
-              aria-label={screen.state.paused ? "Play" : "Pause"}
+              aria-label={paused ? "Play" : "Pause"}
             >
-              {screen.state.paused ? "▶" : "❚❚"}
+              {paused ? "▶" : "❚❚"}
             </button>
             <button type="button" onClick={() => void send({ type: "seekBy", deltaSeconds: 10 })} aria-label="Forward 10 seconds">
               +10

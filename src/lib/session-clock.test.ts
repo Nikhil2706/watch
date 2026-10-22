@@ -18,7 +18,7 @@ import {
   SEEK_LEAD_SECONDS,
   targetPosition,
   viewerIsController,
-} from "./party-sync.ts";
+} from "./session-clock.ts";
 
 /* ---- Where the leader is now ---------------------------------------- */
 

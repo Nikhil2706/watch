@@ -1,4 +1,4 @@
-import { subscribe, type RemoteCommand } from "@/lib/remote-bus";
+import { subscribe, type ScreenCommand } from "@/lib/remote-bus";
 import { getSessionFromRequest } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -46,7 +46,7 @@ export async function GET(request: Request): Promise<Response> {
         }
       };
 
-      unsubscribe = subscribe(screenId, session.userId, (command: RemoteCommand) => {
+      unsubscribe = subscribe(screenId, session.userId, (command: ScreenCommand) => {
         send(`event: command\ndata: ${JSON.stringify(command)}\n\n`);
       });
 
