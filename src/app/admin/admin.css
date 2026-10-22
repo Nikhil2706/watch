@@ -621,3 +621,119 @@
     bottom: 76px;
   }
 }
+
+/* ---- Library sub-views (Films & shows / Franchises / History) ---- */
+.adm-subtabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.adm-subtab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--muted);
+  padding: 8px 12px;
+  font-weight: 600;
+}
+.adm-subtab.on {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.adm-subtab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.adm-grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.adm-rows > .adm-row,
+.adm-row-block > .adm-row {
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.adm-manage {
+  padding: 8px 0 14px 12px;
+  border-left: 2px solid var(--border);
+  margin: 4px 0 8px;
+}
+.adm-sub-head {
+  margin: 12px 0 6px;
+  font-size: 0.85rem;
+}
+
+/* ---- special features, franchise membership ---- */
+.adm-sf {
+  margin-bottom: 10px;
+}
+.adm-sf-targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+.adm-sf-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+.adm-sf-target.inherited {
+  border-style: dashed;
+}
+.adm-sf-kind {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.adm-sf-x {
+  padding: 0 7px;
+  min-height: 0;
+  line-height: 1.6;
+}
+.adm-sf-conf {
+  color: var(--warm);
+}
+.adm-sf-onfilm {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.adm-sf-name {
+  font-weight: 600;
+}
+
+/* ---- match from folders ---- */
+.adm-matches {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--warm-line);
+  border-radius: var(--radius);
+}
+.adm-match {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.adm-match img,
+.adm-match-noimg {
+  width: 46px;
+  height: 69px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--surface);
+  flex: 0 0 auto;
+}
+.adm-ok {
+  color: #5fd38b;
+}

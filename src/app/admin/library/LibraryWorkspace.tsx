@@ -34,6 +34,7 @@ import {
 import { useToasts } from "../Toasts";
 import { FilmPane, ShowPane } from "./Panes";
 import { FoldersPanel, type ScanState } from "./FoldersPanel";
+import { FolderMatches, FranchisesView, HistoryView, type FolderMatchesHandle } from "./LibraryViews";
 import { Thumb } from "./Thumb";
 
 /**
@@ -53,6 +54,8 @@ export interface LibraryContext {
   patch: (id: string, changes: Partial<LibraryItem>) => void;
   select: (id: string) => void;
   setFeatures: (list: SpecialFeature[]) => void;
+  /** "Not a special feature": drops the suggestion for this visit only. */
+  dismissGuess: (id: string) => void;
 }
 
 const NARROW = "(max-width: 700px)";
@@ -77,6 +80,9 @@ export function LibraryWorkspace() {
   const [guessing, setGuessing] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [addTo, setAddTo] = useState<string | null>(null);
+  const [subview, setSubview] = useState<"films" | "franchises" | "history">("films");
+  const [matching, setMatching] = useState(false);
+  const matches = useRef<FolderMatchesHandle>(null);
   const loading = useRef(false);
   const splitRef = useRef<HTMLDivElement>(null);
 
@@ -166,7 +172,15 @@ export function LibraryWorkspace() {
     setItems((list) => patchItems(list, id, changes));
   }, []);
 
-  const ctx: LibraryContext = { items, rows, features, reload, patch, select, setFeatures };
+  const dismissGuess = useCallback((id: string) => {
+    setGuesses((g) => {
+      const next = { ...g };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
+  const ctx: LibraryContext = { items, rows, features, reload, patch, select, setFeatures, dismissGuess };
 
   /* ---- toolbar ---------------------------------------------------- */
 
@@ -299,14 +313,50 @@ export function LibraryWorkspace() {
       if (!now) return;
       const needing = buildRows(now, features, guesses).filter((r) => r.needsDecision).length;
       show(how.ok ? "ok" : "err", how.prefix + scanReport(now.length - before, needing));
+      // New files: see whether their folders already say what they are.
+      if (now.length > before) await matches.current?.run(true);
     },
     [reload, features, guesses, show],
   );
 
   /* ---- render ----------------------------------------------------- */
 
+  const reloadQuietly = useCallback(() => void reload(), [reload]);
+
+  const subtabs = (
+    <div className="adm-subtabs" role="tablist" aria-label="Library views">
+      {(
+        [
+          ["films", "Films & shows"],
+          ["franchises", "Franchises"],
+          ["history", "History"],
+        ] as const
+      ).map(([key, label]) => (
+        <button key={key} type="button" role="tab" aria-selected={subview === key} className={`adm-subtab${subview === key ? " on" : ""}`} onClick={() => setSubview(key)}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (subview === "franchises")
+    return (
+      <section className="adm-lib">
+        {subtabs}
+        <FranchisesView />
+      </section>
+    );
+  if (subview === "history")
+    return (
+      <section className="adm-lib">
+        {subtabs}
+        <HistoryView onChanged={reloadQuietly} />
+      </section>
+    );
+
   return (
     <section className="adm-lib">
+      {subtabs}
       <div className="adm-chips" role="toolbar" aria-label="Filter">
         {chips.map((c) => (
           <button
@@ -369,6 +419,15 @@ export function LibraryWorkspace() {
         >
           Folders…
         </button>
+        <button
+          type="button"
+          className="secondary"
+          disabled={matching}
+          title="Read the folders of every unidentified file for what it is"
+          onClick={() => void matches.current?.run(false)}
+        >
+          {matching ? "Reading folders…" : "Match from folders"}
+        </button>
         <button type="button" className="secondary" disabled={guessing} onClick={suggestFeatures}>
           {guessing ? "Looking…" : "Suggest special features"}
         </button>
@@ -419,6 +478,8 @@ export function LibraryWorkspace() {
           </button>
         </div>
       ) : null}
+
+      <FolderMatches ref={matches} onApplied={reloadQuietly} onBusy={setMatching} />
 
       <FoldersPanel
         open={foldersOpen}

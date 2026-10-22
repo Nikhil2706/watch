@@ -18,6 +18,8 @@ import {
 } from "@/lib/admin/library-rows";
 
 import { useToasts } from "../Toasts";
+import { FeatureBlock, FranchiseBlock } from "./FilmExtras";
+import { GroupSettings } from "./GroupSettings";
 import { IdentifyPanel, ManualPanel, PosterPanel } from "./ItemPanels";
 import type { LibraryContext } from "./LibraryWorkspace";
 import { Thumb } from "./Thumb";
@@ -25,9 +27,8 @@ import { Thumb } from "./Thumb";
 /**
  * The right-hand pane: everything there is to do to the selected film or
  * show. Ported from curator.html (lwRenderFilmPane, lwRenderShowPane and
- * their actions). Coming in the next step, still in the old console for now:
- * Show settings (episode order, rename, synopsis, rollout), franchise
- * membership, the special-feature mappings block, Franchises and History.
+ * their actions); franchise membership and special-feature mappings are in
+ * FilmExtras.tsx, Show settings in GroupSettings.tsx.
  */
 
 function message(e: unknown): string {
@@ -309,25 +310,8 @@ export function FilmPane({
       {panel === "manual" ? <ManualPanel item={it} onDone={done} onClose={() => setPanel(null)} /> : null}
       {panel === "poster" ? <PosterPanel item={it} onDone={done} onClose={() => setPanel(null)} /> : null}
 
-      {feature ? (
-        <>
-          <h3 className="adm-section">Special feature</h3>
-          <p className="hint">
-            {feature.targets.length
-              ? `Appears on: ${feature.targets.map((t) => t.targetLabel || t.targetId).join(", ")}.`
-              : "Hidden from the library, but it does not appear anywhere yet."}{" "}
-            Mapping it to films, franchises or people moves here in the next step; until then, that is in the old console.
-          </p>
-        </>
-      ) : row.featureGuess ? (
-        <>
-          <h3 className="adm-section">Special feature?</h3>
-          <p className="hint">
-            Looks like one — {row.featureGuess.reasons.join(" · ")} ({row.featureGuess.confidence}% sure). “Mark as special feature” hides
-            it; mapping it moves here in the next step.
-          </p>
-        </>
-      ) : null}
+      <FeatureBlock item={it} name={row.name} feature={feature} guess={row.featureGuess ?? undefined} ctx={ctx} />
+      <FranchiseBlock item={it} name={row.name} />
 
       {it.version ? (
         <>
@@ -415,6 +399,7 @@ export function ShowPane({ row, ctx }: { row: ShowRow; ctx: LibraryContext }) {
   const [applying, setApplying] = useState<"idle" | "busy" | "done">("idle");
   const [failures, setFailures] = useState<Array<{ path: string; message: string }>>([]);
   const [dissolving, setDissolving] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   async function findSubs() {
     setPlanning(true);
@@ -491,13 +476,17 @@ export function ShowPane({ row, ctx }: { row: ShowRow; ctx: LibraryContext }) {
             <a className="btn ghost" href={`/collection/${row.groupId}`} target="_blank" rel="noopener">
               View on site
             </a>
+            <button type="button" className="secondary" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((o) => !o)}>
+              Show settings
+            </button>
             <button type="button" className="adm-danger" disabled={dissolving} onClick={dissolve}>
               Dissolve this show
             </button>
           </div>
-          <p className="hint">Show settings (episode order, rename, synopsis, release schedule) move here in the next step.</p>
         </div>
       </div>
+
+      {settingsOpen ? <GroupSettings groupId={row.groupId} onChanged={() => void ctx.reload()} /> : null}
 
       <h3 className="adm-section">Subtitles for every episode</h3>
       <p className="hint">
