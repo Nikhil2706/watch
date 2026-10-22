@@ -116,7 +116,7 @@ export default async function BrowsePage({
 
   return (
     <>
-      <AppBar username={session.username} langloisMode={session.langloisMode} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
 
       <div className="browse-shell">
         {/* Phones only: the whole sidebar collapses behind this one line, which

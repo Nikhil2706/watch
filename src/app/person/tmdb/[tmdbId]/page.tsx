@@ -115,7 +115,7 @@ export default async function TmdbPersonPage({
 
   return (
     <>
-      <AppBar username={session.username} langloisMode={session.langloisMode} />
+      <AppBar username={session.username} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
 
       <section className="person-head">
         <div className="person-photo">
