@@ -301,6 +301,7 @@ export default async function HomePage() {
       />
       <Row
         title="Friends lately"
+        titleHref="/friends"
         items={friendsRecent.map((t) => t.item)}
         lists={lists}
         itemTitles={latelyTitles}

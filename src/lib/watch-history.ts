@@ -32,10 +32,15 @@ function playedAt(item: Watched): number | null {
 
 /** Sections in the order given (newest first), undated ones last under "Earlier". */
 export function groupByMonth<T extends Watched>(items: readonly T[]): HistoryMonth<T>[] {
+  return groupByMonthOf(items, playedAt);
+}
+
+/** The same, for anything with a time of its own (a friend's diary entries). */
+export function groupByMonthOf<T>(items: readonly T[], timeOf: (item: T) => number | null): HistoryMonth<T>[] {
   const months: HistoryMonth<T>[] = [];
   const undated: T[] = [];
   for (const item of items) {
-    const at = playedAt(item);
+    const at = timeOf(item);
     if (at === null) {
       undated.push(item);
       continue;
@@ -47,6 +52,11 @@ export function groupByMonth<T extends Watched>(items: readonly T[]): HistoryMon
   }
   if (undated.length) months.push({ label: "Earlier", items: undated });
   return months;
+}
+
+/** "22 Oct" for a time in ms. */
+export function dayOf(ms: number): string {
+  return dayFormat.format(ms);
 }
 
 /** "22 Oct", or null when there is no date. */
