@@ -191,7 +191,8 @@ const KINDS: JobKind[] = [
       const added = await runTmdbBackfillTick(60);
       await syncTmdbFranchises(20).catch((error) => console.error("[jobs] franchise sync failed:", error));
       const stills = await applyEpisodeStills({ budget: 100 });
-      return `${refreshed} refreshed, new titles: ${JSON.stringify(added).slice(0, 120)}, stills: ${JSON.stringify(stills).slice(0, 120)}`;
+      const { tmdbRefreshSummary } = await import("./job-summaries");
+      return tmdbRefreshSummary(refreshed, added, stills);
     },
   },
   {
