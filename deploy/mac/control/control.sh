@@ -64,7 +64,8 @@ start)
   # After an eject and re-plug OrbStack cannot see the drive until restarted.
   docker run --rm -v "$DRIVE/Da Moveesh":/m:ro alpine true >/dev/null 2>&1 || { log "restarting OrbStack to see the drive"; orbctl stop >> "$LOG" 2>&1; orbctl start >> "$LOG" 2>&1; }
   (cd "$REPO" && docker compose up -d --no-build) >> "$LOG" 2>&1
-  docker start jellyfin-gate-console >> "$LOG" 2>&1
+  # The old console, while it is still installed (README: Retiring the console).
+  docker inspect jellyfin-gate-console >/dev/null 2>&1 && docker start jellyfin-gate-console >> "$LOG" 2>&1
   for i in $(seq 1 40); do [ "$(code http://127.0.0.1:3000/login)" = 200 ] && { echo "UP"; exit 0; }; sleep 3; done
   echo "NOT_UP"; exit 1
   ;;
@@ -97,9 +98,9 @@ deploy)
   docker exec jellyfin-gate node -e "new (require('node:sqlite').DatabaseSync)('/app/data/jellyfin-gate.db').exec(\"VACUUM INTO '/tmp/pre-deploy.db'\")" && docker cp jellyfin-gate:/tmp/pre-deploy.db "$HOME/deploy-snapshots/gate-$TS.db" && docker exec jellyfin-gate rm -f /tmp/pre-deploy.db
   docker compose up -d --no-build --force-recreate gate worker
   ok=0; for i in $(seq 1 40); do [ "$(code http://127.0.0.1:3000/login)" = 200 ] && { ok=1; break; }; sleep 3; done
-  # The console's page is a file mounted from the repo; a checkout replaces it,
-  # so restart the console to pick up the new one.
-  docker restart jellyfin-gate-console >/dev/null 2>&1
+  # The old console's page is a file mounted from the repo; a checkout replaces
+  # it, so restart the console (while it is still installed) to pick it up.
+  docker inspect jellyfin-gate-console >/dev/null 2>&1 && docker restart jellyfin-gate-console >/dev/null 2>&1
   if [ "$ok" = 1 ] && [ "$(docker inspect jellyfin-gate --format '{{.Image}}')" = "$(docker image inspect watch-gate:latest --format '{{.Id}}')" ]; then
     notify "Deployed $NEW" "The site is up on the new version."; echo "deployed $NEW"
     bash "$0" tidy; exit 0
