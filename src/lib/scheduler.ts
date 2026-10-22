@@ -2,7 +2,7 @@ import "server-only";
 
 import { generateId } from "./crypto";
 import { asRow, asRows, getDb } from "./db";
-import { cleanParams, getJobKind, missingParam } from "./job-kinds";
+import { cleanParams, getJobKind, listJobKinds, missingParam } from "./job-kinds";
 import { nextRunAt, scheduleProblem, type Cadence, type Schedule } from "./job-schedule";
 
 /**
@@ -32,11 +32,21 @@ export interface ScheduledJob {
   skip_if_playing: number;
   /** Came with the site; can be rescheduled and paused but not deleted. */
   builtin: number;
-  runner: "gate" | "host";
+  /**
+   * Where it runs: "gate", this process; "worker", the worker container,
+   * which collects it (scripts/worker-jobs.mjs); "loop", the worker's own
+   * continuous work, listed so its runs show here, never started from here;
+   * "host", a script on the computer itself (unused since the backup moved
+   * into the worker, kept working).
+   */
+  runner: "gate" | "worker" | "loop" | "host";
   next_run_at: number;
   /** Set while a due run is being held back because someone is watching. */
   waiting_since: number | null;
-  /** Host jobs only: "Run now" was pressed and the host has not collected it yet. */
+  /**
+   * Host and worker jobs: waiting to be collected. 1 = "Run now" was
+   * pressed; 2 (worker jobs) = its scheduled time came.
+   */
   run_requested: number;
   created_at: number;
   updated_at: number;
@@ -133,6 +143,7 @@ function insertJob(input: JobInput & { id?: string; builtin?: boolean }): Schedu
 }
 
 export function createJob(input: JobInput): ScheduledJob {
+  if (getJobKind(input.kind)?.runner === "loop") throw new JobError("That runs on its own in the worker; it cannot be scheduled.");
   return insertJob(input);
 }
 
@@ -209,11 +220,28 @@ const BUILTINS: Array<JobInput & { id: string }> = [
   // The only thing that removes films from the drive. See folder-removals.ts.
   { id: "builtin-folder-removals", kind: "folder_removals", schedule: { cadence: "daily", hour: 3, minute: 30 }, skipIfPlaying: true },
   { id: "builtin-folder-match", kind: "folder_match", schedule: { cadence: "daily", hour: 4, minute: 20 }, skipIfPlaying: true },
+  // Jellyfin's own 12-hourly scan is switched off at boot
+  // (jellyfin-scan-trigger.ts); this replaces it, and checks the film drive
+  // is there first. Before the night's removals and matching, which read
+  // what Jellyfin knows.
+  { id: "builtin-library-scan", kind: "library_scan", schedule: { cadence: "daily", hour: 2, minute: 30 }, skipIfPlaying: true },
+  // The worker's continuous work. Not scheduled (the schedule fields are
+  // placeholders); here so each run is recorded beside everything else.
+  { id: "builtin-loop-conversions", kind: "loop_conversions", schedule: { cadence: "daily", hour: 0, minute: 0 } },
+  { id: "builtin-loop-upload-scan", kind: "loop_upload_scan", schedule: { cadence: "daily", hour: 0, minute: 0 } },
+  { id: "builtin-loop-file-check", kind: "loop_file_check", schedule: { cadence: "daily", hour: 0, minute: 0 } },
 ];
 
 export function ensureBuiltinJobs(): void {
   for (const builtin of BUILTINS) {
     if (!getJob(builtin.id)) insertJob({ ...builtin, builtin: true });
+  }
+  // Where a kind runs is the kind's, not the row's: the backup moved from a
+  // script on the computer into the worker, and its row has to follow.
+  for (const kind of listJobKinds()) {
+    getDb()
+      .prepare("UPDATE scheduled_jobs SET runner = ?, run_requested = 0, updated_at = ? WHERE kind = ? AND runner <> ?")
+      .run(kind.runner, Date.now(), kind.kind, kind.runner);
   }
 }
 
@@ -304,7 +332,7 @@ async function someoneIsWatching(): Promise<boolean> {
 
 export type StartResult =
   | { started: true; runId: string }
-  | { started: false; reason: "running" | "host" | "waiting" | "missing" };
+  | { started: false; reason: "running" | "host" | "worker" | "loop" | "waiting" | "missing" };
 
 /**
  * Starts a site job and returns at once; the work carries on in the
@@ -320,6 +348,8 @@ export async function startJob(id: string, trigger: JobRun["trigger"]): Promise<
   if (!job) return { started: false, reason: "missing" };
   const kind = getJobKind(job.kind);
 
+  if (job.runner === "loop") return { started: false, reason: "loop" };
+  if (job.runner === "worker") return queueForWorker(job, trigger);
   if (job.runner === "host" || !kind?.run) {
     if (trigger === "manual") {
       getDb().prepare("UPDATE scheduled_jobs SET run_requested = 1 WHERE id = ?").run(id);
@@ -353,12 +383,41 @@ export async function startJob(id: string, trigger: JobRun["trigger"]): Promise<
   return { started: true, runId };
 }
 
-/** Once a minute, from the boot loop: start every site job whose time has come. */
+/**
+ * A worker job is not run here: it is marked for the worker, which looks
+ * every cycle (scripts/worker-jobs.mjs) and records the run itself. Its
+ * time and "wait while someone is watching" are still decided here, like
+ * any site job's, so the console has one set of rules.
+ */
+async function queueForWorker(job: ScheduledJob, trigger: JobRun["trigger"]): Promise<StartResult> {
+  if (runningRun(job.id)) return { started: false, reason: "running" };
+  if (trigger === "manual") {
+    getDb().prepare("UPDATE scheduled_jobs SET run_requested = 1 WHERE id = ?").run(job.id);
+    return { started: false, reason: "worker" };
+  }
+  if (job.skip_if_playing === 1 && (await someoneIsWatching())) {
+    getDb()
+      .prepare("UPDATE scheduled_jobs SET next_run_at = ?, waiting_since = COALESCE(waiting_since, ?) WHERE id = ?")
+      .run(Date.now() + PLAYBACK_RETRY_MS, Date.now(), job.id);
+    return { started: false, reason: "waiting" };
+  }
+  // A pending "Run now" (1) is left as it is.
+  getDb()
+    .prepare(
+      `UPDATE scheduled_jobs SET next_run_at = ?, waiting_since = NULL,
+              run_requested = CASE WHEN run_requested = 1 THEN 1 ELSE 2 END
+        WHERE id = ?`,
+    )
+    .run(nextRunAt(scheduleOf(job), Date.now()), job.id);
+  return { started: false, reason: "worker" };
+}
+
+/** Once a minute, from the boot loop: start every site job whose time has come, and queue the worker's. */
 export async function runSchedulerTick(): Promise<number> {
   failStaleRuns();
   const due = asRows<{ id: string }>(
     getDb()
-      .prepare("SELECT id FROM scheduled_jobs WHERE enabled = 1 AND runner = 'gate' AND next_run_at <= ?")
+      .prepare("SELECT id FROM scheduled_jobs WHERE enabled = 1 AND runner IN ('gate', 'worker') AND next_run_at <= ?")
       .all(Date.now()),
   );
   let started = 0;

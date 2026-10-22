@@ -584,6 +584,17 @@ function sweep(): void {
   }
 }
 
+/**
+ * Started at boot (instrumentation.ts), so a party left open across a
+ * restart still ends itself once nobody has come back for fifteen minutes.
+ * It used to start on the first join after a restart, and until someone
+ * joined some party, every room stayed "live" however long it sat empty.
+ * Joining calls it too; it starts once.
+ */
+export function startPartySweep(): void {
+  ensureSweep();
+}
+
 function ensureSweep(): void {
   const state = bus();
   if (state.sweepTimer) return;

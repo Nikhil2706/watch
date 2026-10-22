@@ -73,8 +73,8 @@ export async function DELETE(
  * POST /api/admin/schedule/{id} — run it now, whatever its schedule says.
  *
  * A site job starts at once and carries on in the background. A job that
- * runs on the computer itself is picked up by the host's runner within a
- * minute.
+ * runs in the worker is picked up on its next cycle; one that runs on the
+ * computer itself, by the host's runner within a minute.
  */
 export async function POST(
   request: Request,
@@ -87,6 +87,18 @@ export async function POST(
   const result = await startJob(id, "manual");
   if (result.started) return Response.json({ ok: true, started: true }, { status: 202, headers: NO_STORE });
   if (result.reason === "missing") return notFound();
+  if (result.reason === "worker") {
+    return Response.json(
+      { ok: true, started: false, message: "Queued. The worker starts it within a minute or two (after a conversion in progress)." },
+      { status: 202, headers: NO_STORE },
+    );
+  }
+  if (result.reason === "loop") {
+    return Response.json(
+      { error: "invalid_request", message: "This runs on its own in the worker whenever there is something to do." },
+      { status: 400, headers: NO_STORE },
+    );
+  }
   if (result.reason === "host") {
     return Response.json(
       { ok: true, started: false, message: "Queued. It starts on this computer within a minute." },

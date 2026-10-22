@@ -48,6 +48,8 @@ import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path
 
 import { countErrors, isStale, isStillArriving, judge } from "./file-check.mjs";
 import { clamavScanner, scanWaitingUploads, writeHeartbeat } from "./upload-scan.mjs";
+import { backupStamp, runBackup, snapshotDatabase } from "./backup.mjs";
+import { failInterruptedWorkerRuns, recordLoopRun, runWorkerJobs } from "./worker-jobs.mjs";
 
 /* ------------------------------------------------------------------ *
  * Config
@@ -246,6 +248,11 @@ async function waitForSchema() {
 
 await waitForSchema();
 
+{
+  const cut = failInterruptedWorkerRuns(db);
+  if (cut > 0) log(`${cut} job run(s) were cut off when the worker last stopped`);
+}
+
 /* ------------------------------------------------------------------ *
  * Reading files through for damage
  * ------------------------------------------------------------------ */
@@ -330,14 +337,17 @@ async function checkFile(file, size, mtimeMs) {
   return verdict;
 }
 
-/** Checks files for up to the time budget. Returns how many it got through. */
+/**
+ * Checks files for up to the time budget. Returns a line for the Health tab,
+ * or null when it read nothing.
+ */
 async function checkFilesForAWhile() {
-  if (!FILE_CHECK || !fileChecksReady()) return 0;
+  if (!FILE_CHECK || !fileChecksReady()) return null;
   const mark = db.prepare("SELECT mtime_ms FROM file_checks WHERE path = ?").get(WALK_MARK);
   // mtime_ms on the marker row is when the library is next worth walking:
   // set ahead when there was nothing left to do, or the day's allowance was
   // used, so an idle worker is not listing 1,800 files every half minute.
-  if (mark && Date.now() < Number(mark.mtime_ms)) return 0;
+  if (mark && Date.now() < Number(mark.mtime_ms)) return null;
 
   const known = new Map(db.prepare("SELECT path, size, mtime_ms FROM file_checks").all().map((r) => [r.path, r]));
   const todo = [];
@@ -368,6 +378,7 @@ async function checkFilesForAWhile() {
   const started = Date.now();
   let done = 0;
   let damaged = 0;
+  const damagedNames = [];
   let waiting = 0;
   for (const next of todo) {
     if (stopping || Date.now() - started > FILE_CHECK_BUDGET_MS) break;
@@ -384,6 +395,7 @@ async function checkFilesForAWhile() {
     done += 1;
     if (verdict === "damaged") {
       damaged += 1;
+      damagedNames.push(basename(next.file));
       log(`file check: DAMAGED ${next.file}`);
     }
   }
@@ -395,10 +407,12 @@ async function checkFilesForAWhile() {
     `INSERT INTO file_checks (path, size, mtime_ms, checked_at, verdict) VALUES (?, ?, ?, ?, 'ok')
      ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime_ms = excluded.mtime_ms, checked_at = excluded.checked_at`,
   ).run(WALK_MARK, left, rest, Date.now());
-  if (done > 0) {
-    log(`file check: ${done} read through, ${damaged} damaged, ${left} still to do` + (allowance <= 0 ? ` (today's ${FILE_CHECK_PER_DAY} done)` : ""));
-  }
-  return done;
+  if (done === 0) return null;
+  const line =
+    `${done} read through, ${damaged} damaged${damagedNames.length ? ` (${damagedNames.slice(0, 5).join(", ")})` : ""}, ${left} still to do` +
+    (allowance <= 0 ? ` (today's ${FILE_CHECK_PER_DAY} done)` : "");
+  log(`file check: ${line}`);
+  return line;
 }
 
 /* ------------------------------------------------------------------ *
@@ -678,36 +692,34 @@ const insertUploadEvent = db.prepare(
    VALUES (?, 'upload', ?, 'upload_scan', ?, ?, NULL, NULL, ?)`,
 );
 
+/** Returns a line for the Health tab, or null when there was nothing to scan. Throws on failure. */
 async function scanUploads() {
-  if (!UPLOAD_SCAN || stopping) return;
-  try {
-    const r = await scanWaitingUploads(db, {
-      scanner: uploadScanner,
-      isBusy: someoneIsWatching,
-      heartbeat: (info) => {
-        try {
-          writeHeartbeat(QUARANTINE, info);
-        } catch (err) {
-          log("upload scan: heartbeat not written:", err.message);
-        }
-      },
-      logEvent: ({ severity, message, detail }) => {
-        try {
-          insertUploadEvent.run(randomUUID(), severity, message.slice(0, 2000), JSON.stringify(detail ?? {}).slice(0, 4000), Date.now());
-        } catch (err) {
-          log("event log write failed:", err.message);
-        }
-      },
-      fileExists: existsSync,
-      now: Date.now,
-      log,
-    });
-    if (r.scanned || r.recovered) {
-      log(`upload scan: ${r.scanned} scanned (${r.clean} clean, ${r.infected} infected, ${r.failed} failed)` + (r.recovered ? `, ${r.recovered} interrupted before` : ""));
-    }
-  } catch (err) {
-    log("upload scan failed:", err.message);
-  }
+  if (!UPLOAD_SCAN || stopping) return null;
+  const r = await scanWaitingUploads(db, {
+    scanner: uploadScanner,
+    isBusy: someoneIsWatching,
+    heartbeat: (info) => {
+      try {
+        writeHeartbeat(QUARANTINE, info);
+      } catch (err) {
+        log("upload scan: heartbeat not written:", err.message);
+      }
+    },
+    logEvent: ({ severity, message, detail }) => {
+      try {
+        insertUploadEvent.run(randomUUID(), severity, message.slice(0, 2000), JSON.stringify(detail ?? {}).slice(0, 4000), Date.now());
+      } catch (err) {
+        log("event log write failed:", err.message);
+      }
+    },
+    fileExists: existsSync,
+    now: Date.now,
+    log,
+  });
+  if (!r.scanned && !r.recovered) return null;
+  const line = `${r.scanned} scanned (${r.clean} clean, ${r.infected} infected, ${r.failed} failed)` + (r.recovered ? `, ${r.recovered} interrupted before` : "");
+  log(`upload scan: ${line}`);
+  return line;
 }
 
 /**
@@ -1458,6 +1470,69 @@ async function processDownloadJob() {
 }
 
 /* ------------------------------------------------------------------ *
+ * The site's scheduled jobs that run here, and the record of each pass
+ * (worker-jobs.mjs). The Health tab lists them with everything else.
+ * ------------------------------------------------------------------ */
+
+// The backup folder on the drive, Jellyfin's config (read-only) and the
+// stack's .env and compose files (read-only), as docker-compose.yml mounts them.
+const BACKUP_DIR = abs(process.env.BACKUP_DIR, "/backups");
+const BACKUP_JELLYFIN_CONFIG = abs(process.env.BACKUP_JELLYFIN_CONFIG, "/jellyfin-config");
+const BACKUP_STACK_DIR = abs(process.env.BACKUP_STACK_DIR, "/stack");
+
+/** What each "worker" job kind means here. Nothing else is ever run for a kind. */
+const WORKER_JOBS = {
+  backup: ({ forced }) =>
+    runBackup({
+      root: BACKUP_DIR,
+      stamp: backupStamp(Date.now()),
+      forced,
+      // Beside the database, in the same volume, and removed once compressed.
+      snapshot: (destGz) =>
+        snapshotDatabase({ db, DatabaseSync, snapshotPath: join(dirname(DB_PATH), ".backup-snapshot.db"), destGz }),
+      jellyfinConfig: BACKUP_JELLYFIN_CONFIG,
+      stackDir: BACKUP_STACK_DIR,
+      log,
+    }),
+};
+
+async function scheduledJobs() {
+  if (stopping) return;
+  try {
+    await runWorkerJobs(db, WORKER_JOBS, { log });
+  } catch (err) {
+    log("scheduled jobs failed:", err.message);
+  }
+}
+
+/** The rows the worker's own passes are recorded under (scheduler.ts BUILTINS). */
+const LOOP = {
+  conversions: "builtin-loop-conversions",
+  uploadScan: "builtin-loop-upload-scan",
+  fileCheck: "builtin-loop-file-check",
+};
+
+function names(rows) {
+  const shown = rows.slice(0, 4).map((r) => r.title);
+  return shown.join(", ") + (rows.length > 4 ? ` and ${rows.length - 4} more` : "");
+}
+
+/** What the conversion and download queues did since `since`, or null for nothing. */
+function describeQueueWork(since) {
+  const jobs = db.prepare("SELECT status, title FROM media_jobs WHERE finished_at >= ? ORDER BY finished_at").all(since);
+  const downloads = db.prepare("SELECT status, title FROM download_jobs WHERE finished_at >= ? ORDER BY finished_at").all(since);
+  if (jobs.length === 0 && downloads.length === 0) return null;
+  const parts = [];
+  const of = (rows, status) => rows.filter((r) => r.status === status);
+  if (of(jobs, "done").length) parts.push(`converted ${names(of(jobs, "done"))}`);
+  if (of(jobs, "skipped").length) parts.push(`already playable ${names(of(jobs, "skipped"))}`);
+  if (of(jobs, "failed").length) parts.push(`FAILED ${names(of(jobs, "failed"))}`);
+  if (of(downloads, "done").length) parts.push(`${of(downloads, "done").length} download(s) prepared`);
+  if (of(downloads, "failed").length) parts.push(`${of(downloads, "failed").length} download(s) failed`);
+  return parts.join("; ") || `${jobs.length + downloads.length} finished`;
+}
+
+/* ------------------------------------------------------------------ *
  * Main loop
  * ------------------------------------------------------------------ */
 
@@ -1479,6 +1554,7 @@ if (WORKER_MODE === "watch") {
   log(`library    ${LIBRARY} (scan ${LIBRARY_SCAN ? "on" : "off"}, every ${LIBRARY_SCAN_INTERVAL_MS / 60000}m)`);
 
   while (!stopping) {
+    await scheduledJobs();
     scanIncoming();
     await scanLibrary();
 
@@ -1491,21 +1567,25 @@ if (WORKER_MODE === "watch") {
     // Strictly one conversion at a time. Two parallel ffmpeg jobs on a
     // four-thread box make both of them slower than running them in sequence,
     // and starve the transcoder serving anyone actually watching.
-    let worked = await processOne();
-    while (worked && !stopping) {
-      await flushLibraryChanges(false);
-      worked = await processOne();
-    }
-    // One report for the whole batch, now that the queue is empty.
-    await flushLibraryChanges(true);
-    let workedDownload = await processDownloadJob();
-    while (workedDownload && !stopping) {
-      workedDownload = await processDownloadJob();
-    }
+    await recordLoopRun(db, LOOP.conversions, async () => {
+      const since = Date.now();
+      let worked = await processOne();
+      while (worked && !stopping) {
+        await flushLibraryChanges(false);
+        worked = await processOne();
+      }
+      // One report for the whole batch, now that the queue is empty.
+      await flushLibraryChanges(true);
+      let workedDownload = await processDownloadJob();
+      while (workedDownload && !stopping) {
+        workedDownload = await processDownloadJob();
+      }
+      return describeQueueWork(since);
+    }, { log });
     // Uploads waiting for their virus scan, then, last and only with nothing
     // else to do, the library's damage check.
-    await scanUploads();
-    if (!stopping) await checkFilesForAWhile();
+    await recordLoopRun(db, LOOP.uploadScan, scanUploads, { log });
+    if (!stopping) await recordLoopRun(db, LOOP.fileCheck, checkFilesForAWhile, { log });
 
     if (stopping) break;
     await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
@@ -1519,39 +1599,49 @@ if (WORKER_MODE === "watch") {
   // folder watching, no library-wide auto-discovery — this is what "the
   // worker never runs on its own" means in practice, short of never
   // starting the container at all.
+  // The site's scheduled jobs that run here (the backup) first: they come
+  // due once a day at most, and a conversion queue can take hours.
+  await scheduledJobs();
+
   let queued = nextPending.get() !== undefined || nextPendingDownload.get() !== undefined;
   if (!queued) {
     log("nothing queued — exiting");
   }
 
-  let worked = await processOne();
-  while (worked && !stopping) {
-    if (await someoneIsWatching()) {
-      log("someone is watching — deferring conversions");
-      await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
-      continue;
-    }
-    await flushLibraryChanges(false);
-    worked = await processOne();
-  }
-  await flushLibraryChanges(true);
+  if (queued) {
+    await recordLoopRun(db, LOOP.conversions, async () => {
+      const since = Date.now();
+      let worked = await processOne();
+      while (worked && !stopping) {
+        if (await someoneIsWatching()) {
+          log("someone is watching — deferring conversions");
+          await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
+          continue;
+        }
+        await flushLibraryChanges(false);
+        worked = await processOne();
+      }
+      await flushLibraryChanges(true);
 
-  let workedDownload = await processDownloadJob();
-  while (workedDownload && !stopping) {
-    if (await someoneIsWatching()) {
-      log("someone is watching — deferring download prep");
-      await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
-      continue;
-    }
-    workedDownload = await processDownloadJob();
+      let workedDownload = await processDownloadJob();
+      while (workedDownload && !stopping) {
+        if (await someoneIsWatching()) {
+          log("someone is watching — deferring download prep");
+          await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
+          continue;
+        }
+        workedDownload = await processDownloadJob();
+      }
+      return describeQueueWork(since);
+    }, { log });
   }
 
   // Last, and only with nothing else to do: read a few library files through
   // for damage. This process then exits and is started again shortly, so the
   // library is worked through a few minutes at a time.
   // Uploads waiting for their virus scan (it checks for viewers itself).
-  await scanUploads();
-  if (!stopping && !queued && !(await someoneIsWatching())) await checkFilesForAWhile();
+  await recordLoopRun(db, LOOP.uploadScan, scanUploads, { log });
+  if (!stopping && !queued && !(await someoneIsWatching())) await recordLoopRun(db, LOOP.fileCheck, checkFilesForAWhile, { log });
 
   db.close();
   log(stopping ? "stopped" : "queue drained — exiting");
