@@ -11,7 +11,7 @@ import { usePathname } from "next/navigation";
 export const ADMIN_TABS: ReadonlyArray<{ key: string; label: string; ported: boolean }> = [
   { key: "library", label: "Library", ported: true },
   { key: "health", label: "Health", ported: true },
-  { key: "invites", label: "Invites", ported: false },
+  { key: "invites", label: "Invites", ported: true },
   { key: "uploads", label: "Uploads", ported: false },
   { key: "dupes", label: "Duplicates", ported: false },
   { key: "worker", label: "Worker", ported: false },
