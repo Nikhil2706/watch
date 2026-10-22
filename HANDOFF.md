@@ -69,6 +69,10 @@ site's TV mode in a browser, keys as the remote): one OK is one action.
 
 ## Open
 
+- **#65, waiting for the owner to merge:** Recently watched on Home (under
+  Continue watching, heading links to History) and `/history`, everything
+  watched to the end by month. Check signed in after deploy: the Jellyfin
+  query (played, sorted by date played) hasn't been run for real yet.
 - **#63, waiting for the owner to merge:** an Admin tab in the phone tab bar
   (app and browser) for admin accounts, the links renamed "Admin", and an
   Admin column in Invites → Users to give or remove the site's admin access
@@ -90,6 +94,14 @@ site's TV mode in a browser, keys as the remote): one OK is one action.
   probably two copies of the file (the Library tab lists 15 duplicate titles).
 
 ## Next pieces of work
+
+- **A day on Browse: its order, and personalising it.** Owner, 2026-10-22:
+  films a viewer has already seen should sink in Browse, but **not now**:
+  it gets a separate day of its own, with the rest of Browse's ordering and
+  personalisation. Don't fold it into other work. Starting points: Browse
+  reads `getAllMovies` (`media.ts`) and each item's `UserData.Played`; the
+  viewer's own "Hide what I've seen" switch (`users.hide_watched`) already
+  hides them on Home, which is a different thing from ordering them.
 
 - **Live sessions step 3** (`docs/playback-sessions.md`): the remote as a
   two-member session. Do it after #60 has been checked on the real TV.
