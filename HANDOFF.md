@@ -1,258 +1,175 @@
-# Session handoff — jellyfin-gate
+# Session handoff: the Watch site
 
-Written 2026-09-05, end of a long session of user-led testing: the user
-exercised the site and the curator console feature by feature, reported what
-was wrong, and the fixes were batched and deployed together. Paste this whole
-file into a new chat to resume. The durable lessons are also saved as
-persistent memory (auto-loads in a new chat regardless) — this file covers
-exact in-flight state.
-
----
-
-## READ THIS FIRST — three things that matter immediately
-
-1. **The boot SSD is failing, and it got worse today.** Bugcheck `0x154`
-   UNEXPECTED_STORE_EXCEPTION — a failed read from Windows' memory-compression
-   store. Previously one crash every few days (30 Aug, 2 Sep); **three on
-   5 Sep** (07:35, 09:41, 13:12). The 13:12 one happened while a Docker image
-   rebuild ran *and* the console was in use at the same time.
-   - Never rebuild while the site or console is being used. That combination
-     is what crashed it.
-   - `Get-PhysicalDisk` still says "Healthy" — worthless here. The reliability
-     counter shows 3 read errors, 5,646 power-on hours.
-   - No `chkdsk /r`, no vhdx compact, until the drive is imaged.
-   - Every crash so far has left the SQLite database intact
-     (`PRAGMA integrity_check` = ok). That is luck, not design.
-
-2. **A crash mid-deploy leaves a half-created container.** Symptom: site 502,
-   `docker ps -a` shows `<hash>_jellyfin-gate` as *Created* and the real one
-   *Exited (255)*. Recovery:
-   ```
-   docker rm -f <hash>_jellyfin-gate
-   docker compose --env-file .env --env-file .env.wsl-paths up -d --no-deps gate
-   ```
-
-3. **curator.html needs no deploy.** It is a local `file://` page, not in the
-   image, not served by Next.js. Console-only changes = save the file and
-   reload the browser tab. Check `git diff --name-only` before rebuilding; if
-   nothing under `src/`, `next.config.ts`, `package.json`, `Dockerfile` or
-   `middleware.ts` changed, do not rebuild. This matters because rebuilds are
-   the heaviest write load on a dying drive.
+Written 2026-10-22, at the end of a session that merged and deployed everything
+open, then carried on with the work the 2026-10-14 session left unfinished.
+Paste this file into a new chat to resume. The previous handoff (2026-09-05,
+from the Windows PC) is in git history; `HANDOFF-2026-09-06.md` and
+`HOST-SETUP.md` describe the older hosts.
 
 ---
 
-## How this is deployed
+## Read this first
 
-Docker CE **inside the Ubuntu WSL distro** (not Docker Desktop, which still
-has a 31.9 GB disk on C: doing nothing — see "Open items").
-
-```
-cd /mnt/c/Users/Dell/Downloads/jellyfin-gate
-docker compose --env-file .env --env-file .env.wsl-paths build gate
-docker compose --env-file .env --env-file .env.wsl-paths up -d --no-deps gate
-```
-
-`--no-deps` is deliberate: Jellyfin takes minutes to load its database, and
-restarting it is what turned a WSL restart into a long outage this morning.
-
-Boot is handled by `jellyfin-gate.service` → `/usr/local/bin/jellyfin-gate-up.sh`,
-which waits for the USB media disk before bringing things up. **That script had
-been failing silently for eight days** — it named the retired `party` service,
-so compose exited 1 and started nothing (the containers only came up because
-of `restart: unless-stopped`). Fixed 5 Sep; backup at `.bak-20260905`.
-
-### Verifying without deploying
-
-Everything below runs against the existing image — no rebuild, no writes:
-
-```
-# TypeScript
-docker run --rm --user 0 --entrypoint node \
-  -v /mnt/c/Users/Dell/Downloads/jellyfin-gate:/src -w /src jellyfin-gate-gate \
-  node_modules/typescript/bin/tsc --noEmit --incremental false
-
-# Tests (35 of them)
-docker run --rm --user 0 --entrypoint node ... jellyfin-gate-gate \
-  --test --experimental-strip-types src/lib/*.test.ts
-```
-
-Two console checks live in `scripts/checks/` — both caught real bugs this
-session, and neither needs a rebuild:
-
-```
-bash scripts/checks/check-console-syntax.sh   # parses every inline <script>
-python scripts/checks/check-console-ids.py    # every $("id") exists in the markup
-```
-
-The second one matters more than it sounds: deleting a card leaves the handler
-that referenced it behind, and `$("gone").addEventListener` throws at load,
-taking the **entire** dashboard down rather than just that feature. It found
-two of those after the Library rewrite.
-
-And the technique that found the rest: copy curator.html to `/tmp`, append a
-harness that stubs `window.fetch` with canned data, serve **that copy only**
-(never the repo directory — `.env` lives there), and drive it in a browser. No
-admin key is ever typed into a field.
+1. **The site runs on a Mac mini** (M4, macOS 26, OrbStack), since 2026-10-14.
+   What runs where is in [deploy/mac/README.md](deploy/mac/README.md). Films
+   are on the external drive at `/Volumes/Elements/Da Moveesh`; the public
+   address is `watch.abhigyanverma.com` through a cloudflared launch daemon.
+2. **The owner's rules** (all still in force):
+   - No image build, container restart, test-copy start or deploy without the
+     owner's word, and never while anyone is watching
+     (`~/watch-ops/playing.sh` prints how many are).
+   - Never "rebuild the library" in Jellyfin, or scan while the drive is away.
+   - Never permanently delete their files: move to the Trash and say so.
+   - Never prune scraped data, never skip Jellyfin artwork in backups.
+   - Reports short and plain: done, checked how, not done.
+3. **How changes go live:** a PR against `platform-additions`, merged by the
+   owner on GitHub, then Watch Control's **Deploy latest** (or
+   `~/watch-ops/control/control.sh deploy`). Deploy type-checks and tests,
+   builds while the site runs, waits for viewers and running jobs, snapshots
+   the database to `~/deploy-snapshots/`, and rolls itself back if the site
+   doesn't answer. **Claude's permission mode refuses merging PRs and pushing
+   to `platform-additions`**: open PRs and let the owner merge.
+4. **Never edit `~/watch`**: it is the live checkout (the old console serves
+   `curator.html` from it, and Deploy fast-forwards it). Work in a worktree
+   under `~/watch-work/`. The one untracked file there that is edited by hand
+   is `~/watch/docker-compose.override.yml` (see "Backups" below).
 
 ---
 
-## What shipped today (13 commits, all deployed)
+## What is live (`86295f4`, schema 61)
 
-**Bugs the user found by using it:**
+Deployed 2026-10-22 in two goes, both through Deploy:
 
-- **Watch-party chat and guest-link rows were unusable** — one global rule,
-  `form button[type="submit"] { width: 100% }`, made the button eat the row.
-- **Every PATCH the console makes was blocked** before leaving the browser:
-  `Access-Control-Allow-Methods` omitted PATCH. That is why neither Langlois
-  mode nor parental control could be toggled for anyone — and why accolade
-  trivia edits and builder renames had silently never worked.
-- **Library posters could never have loaded in the console.** `/jf/` images
-  authenticate on a session cookie and the console is a `file://` page, so
-  cookies are never sent. Now served from a signed thumbnail route.
-- **Admin search took 10–20 seconds** to return a few hundred bytes: it asked
-  Jellyfin for `MediaSources` (every subtitle track of every film) on each
-  keystroke. 4.1 MB/13 s with it, 0.9 MB/0.4 s without. Now 2.5 s cold,
-  0.03 s warm.
-- **Two episode-naming shapes matched nothing**: `03x02` (43 of E.R.'s files)
-  and `s01e01e02` doubles. Neither could be identified in bulk at all.
-- **"Changes that didn't take"** — they had taken; the cache added earlier the
-  same day was serving the old listing. Three routes changed Jellyfin state
-  without invalidating.
+- **All 20 PRs that were open** (#17, #38–#56) plus #34–#37, which had been
+  merged on the 14th but never deployed: the /admin port (every tab), browser
+  audio for AC-3 films (#44), cacheable posters (#42), the worker running the
+  backup and Jellyfin's own scan schedule removed (#41), Final Cut pause and
+  an 8-core worker (#47), catalogue step 2 (#40), live sessions step 1 (#55).
+  Two merge conflicts were resolved by keeping both sides: #41/#47 in
+  `deploy/mac/`, and #38/#44 both bumping the schema (it ends at 60).
+- **#57** one `worker:` entry in the Mac override (the merge had left two).
+- **#58** /admin Health fits a phone (a raw JSON job result made it 717 px wide).
+- **#59** the old console's banner pointing to /admin, and how to retire it.
+- **#60** live sessions step 2: `session-clock.ts`; the phone remote runs on a
+  server-kept clock per TV, so two "+10"s make +20 and a TV report can't undo
+  a seek. **Not yet checked on the real TV and phone.**
+- **#61** catalogue step 3: `POST /api/admin/catalogue/{path}/decide`, the
+  `catalogue_decisions` log and the `catalogue_items` summary (schema 61).
+  Checked on the test copy with live data.
 
-**Redesigns:**
+Tested live after the first deploy, signed in as the owner: every /admin tab
+loads with real data, playback resumes and direct-plays, posters come back
+`public, immutable`, Health is green. TV behaviour was tested by proxy (the
+site's TV mode in a browser, keys as the remote): one OK is one action.
 
-- **Library tab** rebuilt as one workspace: rail to find, pane to do, chips
-  that carry counts. Replaced five stacked cards, three of which needed their
-  own button pressed. Shows are one row; duplicates compare side by side with
-  resolution/size/subtitle count.
-- **Accolades tab** rebuilt the same way. The finding that shaped it: nine
-  sources had scraped 3,324 articles into 187,799 trivia candidates across 330
-  films, and **zero had ever been chosen** — because the tab opened on a search
-  box. Candidates are now ranked by readability and capped, with a "Surprise
-  me" entry point.
-- **Worker** got the same shape. **Uploads** and **People** deliberately kept
-  their tables (every column is read *across* rows) and gained counted chips.
-  **Health** and **Notify** were left alone on purpose.
+## Merged, not yet deployed
 
-**Features:** episodes-vs-parts wording from OMDb's `Type` (with a curator
-override), revoke-a-person's-access (suspend + sign out everywhere), curator
-notes on picks shown on the film page and a new "Picked for you" section,
-person-bio expansion, missing-episode markers, pop-out watch-party chat with a
-phone QR.
+- **#62** the Duplicates tab dropped from /admin (owner's choice).
+  `dupefinder/` is kept, marked dormant in its README, to revive later.
 
-**Config:** `PUBLIC_URL` moved from `watch2.` to `watch.abhigyanverma.com`.
-The watchdog outside the repo had the old host hardcoded — that one mattered,
-because it decides whether the machine is having an outage and its recovery
-ladder ends at a reboot.
+## Open
 
----
+- **#65, waiting for the owner to merge:** Recently watched on Home (under
+  Continue watching, heading links to History) and `/history`, everything
+  watched to the end by month. Check signed in after deploy: the Jellyfin
+  query (played, sorted by date played) hasn't been run for real yet.
+- **#66, stacked on #65 (merge #65 first):** Continue watching gets the
+  next episode of each show (the site's shows are its own groups, so
+  Jellyfin's next-up never saw them; Nathan For You), an ✕ to remove a card
+  without marking it watched (`continue_removed`, schema 62), and "Mark
+  unwatched" (the tick on Recently watched / History, and the film page's
+  button). Check the real Nathan For You row after deploy.
+- **#67:** TV left/right held scrubs, faster the longer it's held, one seek
+  on release. Check on the real TV that held keys arrive as repeats.
+- **#63, waiting for the owner to merge:** an Admin tab in the phone tab bar
+  (app and browser) for admin accounts, the links renamed "Admin", and an
+  Admin column in Invites → Users to give or remove the site's admin access
+  (`users.is_admin`). Until it ships, nothing in the site can make someone an
+  admin. Rules: the owner's account always keeps it; nobody removes their own.
+  Then Deploy (it ships #62 too), and check the tab on a phone.
+- **The real TV.** adb to the Hisense (192.168.1.8:5555) was refused on
+  2026-10-22: network debugging needs switching back on in its Developer
+  options. Then test #60 (phone play/pause/±10 s, two quick +10s, the bar
+  moving smoothly, the TV not jumping back) and the party changes from #34
+  (film centred on the TV) and #37 (control handed on when the starter leaves).
+- **Cloudflare Cache Rule for #42,** in the dashboard (only the owner can):
+  cache `/jf/Items/*/Images/*`, `/api/tmdb-image*`, `/api/person-photo/*`,
+  edge TTL from the origin's header. Today every poster is `cf-cache-status:
+  DYNAMIC`. Details in #42.
+- **Retiring the old console** (`jellyfin-gate-console`, :3200) is now only
+  the owner's call; steps in `deploy/mac/README.md`.
+- **The Whip and the Body shows twice in Continue Watching.** Not looked into;
+  probably two copies of the file (the Library tab lists 15 duplicate titles).
 
-## The repo and production are ALIGNED (deployed 2026-09-06)
+## Next pieces of work
 
-This section used to say the repo was ahead of what was running. It no longer
-is. Gate and worker were rebuilt from the merged tree and recreated on
-2026-09-06 — the worker had been eight days stale and shares `src/lib`, so it
-needed it as much as the gate did.
+- **A day on Browse: its order, and personalising it.** Owner, 2026-10-22:
+  films a viewer has already seen should sink in Browse, but **not now**:
+  it gets a separate day of its own, with the rest of Browse's ordering and
+  personalisation. Don't fold it into other work. Starting points: Browse
+  reads `getAllMovies` (`media.ts`) and each item's `UserData.Played`; the
+  viewer's own "Hide what I've seen" switch (`users.hide_watched`) already
+  hides them on Home, which is a different thing from ordering them.
 
-The migration collision the merge reconciled came out as predicted. Both lines
-had used `SCHEMA_VERSION = 38`: this one for the group-kind column (then 39 for
-user suspension, 40 for curator notes), the other for re-keying
-`subtitle_availability_cache` on `(imdb_id, language)`. The merged file is
-**41**, both sets kept, each guarded by a live `columnExists`/`tableExists`
-check rather than by its number. Verified after the deploy:
+- **Live sessions step 3** (`docs/playback-sessions.md`): the remote as a
+  two-member session. Do it after #60 has been checked on the real TV.
+  Step 4: one `session-control.ts`. Step 5 (watch a screening together)
+  needs the owner's decision first.
+- **Catalogue step 4** (`docs/catalogue-state.md`): the inbox, built on #61's
+  `catalogue_items` and decide endpoint; the old chips and badges go in the
+  same PR. Then 5 (the site's status component), 6 (removing the old
+  endpoints once nothing calls them; they all log decisions now), 7 (the
+  behaviour changes in section 9, each its own decision).
 
-```
-PRAGMA user_version;                             -- 40 before, 41 after
-PRAGMA table_info(subtitle_availability_cache);  -- gained its `language` column
-PRAGMA integrity_check;                          -- ok
-```
+## Backups (changed today)
 
-**Parental control on downloads and subtitle fetches (`fdfbc3b`) is live**, and
-was the item in that batch worth shipping promptly.
+- The backup is a job the **worker** runs (`scripts/backup.mjs`, #41), every
+  day at midnight, keeping only the newest. Its folder must be on the drive.
+- This Mac's `.env` predates #41 and has **no `BACKUP_PATH`**, so the worker
+  had fallen back to `~/watch/backups` on the Mac's own disk (which the backup
+  refuses). The live, untracked `~/watch/docker-compose.override.yml` now
+  mounts `/Volumes/Elements/jellyfin-gate-backups` at `/backups` for the
+  worker; verified after the `86295f4` deploy. A fresh install writes
+  `BACKUP_PATH` itself (`setup.sh env`).
+- The old launchd agent `com.watch.hostjobs` was removed (its plist is in the
+  Trash). Only `com.watch.up` and `com.watch.yield` remain.
 
-There is no image-level rollback for that deploy: the previous gate and worker
-images were superseded during the build rather than retagged, so going back
-means rebuilding from `669544b`.
+## Things that bit today
 
----
+- **The test copy shares the real Jellyfin.** Starting it with #41's code
+  removed Jellyfin's own library-scan schedule on the live server before the
+  deploy did (intended, but early). Anything the site does to Jellyfin at boot
+  happens from the test copy too.
+- **The test copy's worker can't write films** (the drive is mounted
+  read-only there), so jobs like browser audio fail there with "Read-only
+  file system". Stop it (`docker stop jellyfin-gate-worker-dev`) when testing
+  the gate.
+- **Signing in to the test copy needs the owner.** Claude may not reuse a
+  stored Jellyfin token to make a test login. The live site's cookie, imported
+  into the browser pane, works for testing the live site; it doesn't reach
+  `localhost:3100`. Admin API calls to either work through
+  `~/watch-ops/api.sh dev|prod`.
+- **The listing's catalogue facts are deliberately thin.** `listingFacts`
+  leaves out show membership and allowed damage, because neither changes a
+  listing. Anything that counts or decides (the summary, the inbox) must add
+  them, as `catalogue-decisions.ts` does, or it overcounts (314 instead of 54)
+  and "take off" loses track of allowed damage.
+- **`npm test` can't load `server-only` modules,** and no test opens the
+  database. Keep rules pure (as `catalogue-decide.ts`, `admin-grants.ts`,
+  `session-clock.ts` are) and test those; check the rest on the test copy.
+- **`src/lib/cache.ts` holds a byte that makes grep call it binary.** Use
+  `grep -a` or awk to search it.
 
-## This branch is shared — expect divergence
+## Where things are
 
-`platform-additions` is worked on from more than one place. A push on
-2026-09-05 was **rejected** because eight commits had landed on it from another
-session while this one was going.
-
-- **Never force-push it.** Fetch, look at what is actually there, merge, and
-  re-run the checks on the merged tree. `git log --oneline HEAD..origin/<branch>`
-  before anything else.
-- **Migration numbers are the thing that collides.** Two lines of work each
-  picked `SCHEMA_VERSION = 38` for unrelated changes. Before choosing a number,
-  check both sides:
-  ```
-  grep -oE 'SCHEMA_VERSION = [0-9]+' src/lib/schema.ts
-  git show origin/platform-additions:src/lib/schema.ts | grep -oE 'SCHEMA_VERSION = [0-9]+'
-  ```
-  Keeping both sets of migrations is safe — each is guarded by a live
-  `columnExists`/`tableExists` check, so order does not matter — but the number
-  must end up **higher than any database already records**, or the set never
-  replays and the other side's work silently never runs.
-- **Merging can produce code that compiles in your head and not in the file.**
-  The conflict resolution here left a stray closing brace that tsc caught
-  immediately. Always run the typecheck, the tests and `check-curator.sh` on
-  the *merged* tree, not just on your own commits.
-
----
-
-## Before pushing: audit for secrets
-
-The repo is connected to a public GitHub PR, and a copy of `.env` was very
-nearly committed once (see Traps). Check the actual values, not just filenames:
-
-```
-bash scripts/checks/secret-audit.sh [branch]
-```
-
-It prints only whether each was found, never the value. Two things it taught:
-short keys (OMDb's is 8 characters) fall below a naive length threshold, so
-test them explicitly; and `git log --name-only` alone is not enough, because a
-secret can arrive inside a file whose name looks innocent.
-
----
-
-## Open items
-
-- **Test the backdrop question.** Does re-mapping a film via Search leave the
-  *previous* film's backdrop on its page? `backdropUrl()` reads
-  `BackdropImageTags` before the poster, and this was observed for real on the
-  episode-fetch path. A defensive `clearItemBackdrop()` now runs after
-  apply-match either way. See memory note `jellyfin-gate-backdrop-remap-check`.
-- **E.R. re-fetch.** 44 files that previously could not parse now can. Open the
-  show's settings and run "Fetch all from OMDb" — it skips the 260 already
-  done. Watch for OMDb numbering drift on a 15-season show.
-- **Viewing metrics are parked**, not cancelled — pending the user talking to
-  the friends who use the library, on privacy grounds. Full plan artifact
-  linked in memory.
-- **~33 GB reclaimable**: Docker Desktop's `docker_data.vhdx` (31.9 GB, dead
-  since the 2026-08-27 migration) and the retired `jellyfin-gate-party` image.
-  Planned, **not** done — image the drive first.
-- ~~The undeployed parental-control fix~~ — **deployed 2026-09-06**. `fdfbc3b`
-  (stop downloads and subtitle fetches bypassing parental control) is live.
-- **Console latency is fine.** All 15 admin endpoints measured ≤0.4 s warm.
-  Two apparent outliers were first-hit route compilation, not real.
-
----
-
-## Traps hit this session (all now in memory)
-
-- A literal backtick in a **SQL comment** inside `schema.ts`'s big template
-  string truncates it. Caught by tsc.
-- Writing JS into curator.html through a shell heredoc silently ate one level
-  of backslash, turning `\n` inside a `confirm()` string into a real newline
-  and breaking the whole script block.
-- `.env` is gitignored; **`.env.bak-*` was not.** A backup made before editing
-  was swept into a commit by `git add -A`. Caught before any push; the file is
-  now at `C:\Users\Dell\jellyfin-gate-backups\` and `.gitignore` covers the
-  pattern. Keep secret backups outside the repo in the first place.
-- `applyRestrictedPolicy()` hardcoded `IsDisabled: false`, so any policy write
-  would have silently un-suspended a revoked account. It now takes `suspended`
-  as a **required** argument — forgetting it is a compile error.
+- Live checkout `~/watch` (branch `platform-additions`); worktrees
+  `~/watch-work/*`; test copy `~/dev-stack` on :3100, built with
+  `~/watch-ops/build-dev.sh <worktree>` (needs `COMPOSE_FILE=docker-compose.yml`
+  for compose commands there).
+- Ops scripts `~/watch-ops/` (`check.sh` type-check + tests in a container,
+  `playing.sh`, `api.sh`, `deploy.sh`); host jobs `~/watch-host/`; logs in
+  `~/Library/Logs/` (`watch-deploy.log`, `watch-control.log`).
+- Restore kit and the PC-era notes on the drive:
+  `/Volumes/Elements/watch-mac-restore/` (`RESTORE-ON-MAC.md`,
+  `payload/notes/`).
+- Design docs: `docs/playback-sessions.md`, `docs/catalogue-state.md`.
