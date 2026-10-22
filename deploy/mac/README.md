@@ -60,9 +60,11 @@ The curator's console (`curator.html`, container `jellyfin-gate-console` on
 :3200 behind a secret link) has moved into the site at `/admin`, behind the
 normal sign-in for accounts with `users.is_admin`. Its page now says so.
 
-**Not yet:** `/admin` has every tab except **Duplicates**, which talks to the
-`dupefinder` sidecar directly with its own key. Keep the console while that is
-wanted, or start the sidecar and use it from there.
+`/admin` has every tab the curator uses. The console's **Duplicates** tab
+(the `dupefinder` sidecar, matching files by their frames) was dropped rather
+than ported (owner's choice, 2026-10-22): it never ran on this Mac, and
+same-title copies are the Library tab's Duplicates filter. Its code stays in
+`dupefinder/` to revive later; see that README.
 
 When the owner decides to retire it:
 
