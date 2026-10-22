@@ -76,6 +76,8 @@ export default async function HistoryPage() {
                   title={cards.titles.get(item.Id)}
                   posterSrc={cards.posters.get(item.Id)}
                   badge={[line, day].filter(Boolean).join(" · ") || undefined}
+                  // On here: pressing it marks the title unwatched again.
+                  markWatched
                 />
               );
             })}

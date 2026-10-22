@@ -13,6 +13,7 @@ import {
 import { itemHref } from "@/lib/slugs";
 
 import { ListButtons } from "./ListButtons";
+import { RemoveFromContinueButton } from "./RemoveFromContinueButton";
 import { WatchedButton } from "./WatchedButton";
 
 /**
@@ -35,6 +36,7 @@ export function PosterCard({
   title,
   shape = "poster",
   markWatched = false,
+  removable = false,
 }: {
   item: MediaItem;
   /** Which lists this item is already on, for the toggle initial state. */
@@ -59,6 +61,8 @@ export function PosterCard({
   shape?: "poster" | "still";
   /** Offers "mark as watched" on the poster itself. */
   markWatched?: boolean;
+  /** Offers ✕ "remove from Continue watching" (it isn't marked watched). */
+  removable?: boolean;
 }) {
   const still = shape === "still";
   const src =
@@ -107,6 +111,10 @@ export function PosterCard({
 
           {markWatched && partsCount === undefined ? (
             <WatchedButton itemId={item.Id} initialWatched={watched} variant="overlay" />
+          ) : null}
+
+          {removable && partsCount === undefined ? (
+            <RemoveFromContinueButton itemId={item.Id} title={title ?? item.Name} />
           ) : null}
 
           {progress > 0 && !watched ? (

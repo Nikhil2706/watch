@@ -6828,3 +6828,18 @@ html[data-in-app] .app-get {
   text-decoration-color: var(--warm-line);
   text-underline-offset: 4px;
 }
+
+/* ✕ on a Continue watching card: under the watched tick, top right. */
+.continue-remove.list-overlay {
+  left: auto;
+  right: 6px;
+  top: 40px;
+}
+/* The one way to take a card out of the row, so on a touchscreen (where the
+   other poster controls hide until switched on) it stays, quietly. */
+@media (hover: none) {
+  .continue-remove.list-overlay {
+    opacity: 0.75;
+    pointer-events: auto;
+  }
+}

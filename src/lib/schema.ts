@@ -59,7 +59,11 @@
  * and 3.3): a rebuildable summary of every file's state, and the log of who
  * decided what. Both CREATE ... IF NOT EXISTS; nothing existing changes.
  */
-export const SCHEMA_VERSION = 61;
+/*
+ * 62: continue_removed — "Remove from Continue watching", per viewer
+ * (next-up.ts). CREATE ... IF NOT EXISTS; nothing existing changes.
+ */
+export const SCHEMA_VERSION = 62;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1595,4 +1599,15 @@ CREATE TABLE IF NOT EXISTS catalogue_decisions (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_catalogue_decisions_path ON catalogue_decisions(path, decided_at);
+
+-- Cards a viewer took out of Continue watching (v62; next-up.ts). Not a
+-- watched mark: the title stays half-watched in Jellyfin. A row only hides
+-- the card until there is something newer (it is played again, or a later
+-- episode of its show is watched), so it never needs clearing.
+CREATE TABLE IF NOT EXISTS continue_removed (
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  item_id    TEXT NOT NULL,
+  removed_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, item_id)
+) STRICT;
 `;
