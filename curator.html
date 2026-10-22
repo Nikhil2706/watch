@@ -248,6 +248,14 @@
     font-family: ui-serif, Georgia, "Times New Roman", serif;
   }
   .top .sub { margin: 2px 0 0; color: var(--muted); font-size: 0.82rem; }
+  /* Points to /admin, where every tab but Duplicates now lives. */
+  .moved {
+    max-width: 1080px; margin: 0 auto 16px; padding: 12px 16px;
+    border: 1px solid var(--accent); border-radius: 10px;
+    background: rgba(91, 141, 239, 0.1); font-size: 0.9rem; line-height: 1.45;
+  }
+  .moved a { color: var(--text); font-weight: 600; }
+  .moved .note { margin-top: 4px; }
 
   /* --- Tabs ------------------------------------------------------------ */
   .tabs {
@@ -899,6 +907,13 @@
 </div>
 
 <div class="wrap">
+
+  <div class="moved" role="note">
+    This console has moved into the site:
+    <a href="https://watch.abhigyanverma.com/admin">watch.abhigyanverma.com/admin</a>.
+    Sign in as an admin and it works from anywhere, phone included, with no secret link or home Wi-Fi.
+    <div class="note">Everything here is there too, except Duplicates, which only this page has for now. This page keeps working until it is retired.</div>
+  </div>
 
   <div id="msg" class="msg"></div>
 

@@ -23,7 +23,7 @@ be rebuilt from git. The restore guide that first set it up is
 
 ## What runs when
 
-Everything on a schedule is in the console's Health tab (Scheduled jobs),
+Everything on a schedule is in /admin's Health tab (Scheduled jobs),
 with its last runs: the site's own jobs, the backup (run by the worker), the
 library scan, and the worker's conversions, upload virus scan and
 damaged-file check. The only things still scheduled on the Mac itself are
@@ -52,3 +52,26 @@ schedule.
   library": the item ids key everything in the site's database.
 - The tunnel is a cloudflared launch daemon on the Mac
   (`cloudflared service install <token>`), pointing at `http://localhost:3000`.
+
+
+## Retiring the console
+
+The curator's console (`curator.html`, container `jellyfin-gate-console` on
+:3200 behind a secret link) has moved into the site at `/admin`, behind the
+normal sign-in for accounts with `users.is_admin`. Its page now says so.
+
+**Not yet:** `/admin` has every tab except **Duplicates**, which talks to the
+`dupefinder` sidecar directly with its own key. Keep the console while that is
+wanted, or start the sidecar and use it from there.
+
+When the owner decides to retire it:
+
+1. `docker stop jellyfin-gate-console && docker rm jellyfin-gate-console`
+2. Move `~/console-server/` to the Trash (it holds the secret link and the
+   admin key the console used).
+3. Nothing else: Watch Control's Start and Deploy only touch the console while
+   the container exists, and `setup.sh console` is then not needed on a
+   restore.
+
+`ADMIN_API_KEY` stays in `.env`: scripts such as `~/watch-ops/api.sh` still
+use it with `X-Admin-Key`.
