@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ActivityVisibility } from "@/components/ActivityVisibility";
@@ -45,6 +46,9 @@ export default async function HistoryPage() {
           </p>
         ) : null}
         <ActivityVisibility initial={activityVisibility(session.userId)} />
+        <p className="hint" style={{ margin: 0 }}>
+          <Link href="/friends">Friends&apos; diaries ›</Link>
+        </p>
       </div>
 
       {watched === null ? (
