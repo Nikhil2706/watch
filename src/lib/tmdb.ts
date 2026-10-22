@@ -87,6 +87,37 @@ export async function findTmdbMovieByImdbId(imdbId: string): Promise<number | nu
   return data.movie_results[0]?.id ?? null;
 }
 
+interface FindAnyResponse {
+  movie_results: Array<{ id: number; title: string; release_date?: string; overview?: string; poster_path?: string | null }>;
+  tv_results: Array<{ id: number; name: string; first_air_date?: string; overview?: string; poster_path?: string | null }>;
+}
+
+/** A film or a show, from its IMDb id, for announcing it in Coming soon before it is in the library. */
+export interface TmdbTitle {
+  kind: "film" | "show";
+  tmdbId: number;
+  title: string;
+  year: number | null;
+  overview: string | null;
+  /** TMDB's own path ("/abc.jpg"), served through /api/tmdb-image. */
+  posterPath: string | null;
+}
+
+export async function findTmdbTitleByImdbId(imdbId: string): Promise<TmdbTitle | null> {
+  const id = imdbId.startsWith("tt") ? imdbId : `tt${imdbId}`;
+  const data = await tmdbFetch<FindAnyResponse>(`/find/${id}?external_source=imdb_id`);
+  const year = (date?: string) => (date && /^\d{4}/.test(date) ? Number(date.slice(0, 4)) : null);
+  const movie = data.movie_results[0];
+  if (movie) {
+    return { kind: "film", tmdbId: movie.id, title: movie.title, year: year(movie.release_date), overview: movie.overview || null, posterPath: movie.poster_path ?? null };
+  }
+  const tv = data.tv_results[0];
+  if (tv) {
+    return { kind: "show", tmdbId: tv.id, title: tv.name, year: year(tv.first_air_date), overview: tv.overview || null, posterPath: tv.poster_path ?? null };
+  }
+  return null;
+}
+
 interface ImagesResponse {
   posters: Array<{
     file_path: string;

@@ -6894,3 +6894,75 @@ html[data-in-app] .app-get {
   flex-wrap: wrap;
   margin-top: 16px;
 }
+
+/* Coming soon: the date on the poster, and the full list on /coming-soon. */
+.coming-when {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(6, 7, 10, 0.82);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.coming-list {
+  list-style: none;
+  margin: 0 auto;
+  padding: 0 16px 48px;
+  max-width: 820px;
+  display: grid;
+  gap: 22px;
+}
+.coming-item {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 16px;
+  align-items: start;
+  scroll-margin-top: 80px;
+}
+.coming-item img,
+.coming-noart {
+  width: 110px;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--surface);
+}
+.coming-item h2 {
+  margin: 2px 0 4px;
+  font-size: 1.15rem;
+}
+.coming-year {
+  color: var(--muted);
+  font-weight: 400;
+}
+.coming-when-line {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.coming-note {
+  margin: 6px 0;
+  font-style: italic;
+}
+.coming-overview {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+@media (max-width: 520px) {
+  .coming-item {
+    grid-template-columns: 80px 1fr;
+    gap: 12px;
+  }
+  .coming-item img,
+  .coming-noart {
+    width: 80px;
+  }
+}

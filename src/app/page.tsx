@@ -9,9 +9,11 @@ import { ProcessingRow } from "@/components/media/ProcessingRow";
 import { PosterCard } from "@/components/media/PosterCard";
 import { Row } from "@/components/media/Row";
 import { AskToWatchTogether } from "@/components/AskToWatchTogether";
+import { ComingSoonRow } from "@/components/media/ComingSoonRow";
 import { PickRow } from "@/components/picks/PickRow";
 import { PartyBanner } from "@/components/party/PartyBanner";
 import { currentSession } from "@/lib/current-user";
+import { comingSoonFor } from "@/lib/coming-soon";
 import { episodeCards } from "@/lib/episode-cards";
 import { friendsLately, friendsWatchingNow } from "@/lib/friends-activity";
 import { reviewSnippet, takesLine } from "@/lib/friends-feed";
@@ -66,7 +68,7 @@ export default async function HomePage() {
   // down. But if the latest-items call fails, Jellyfin itself is unreachable,
   // and "nothing in the library" would be the wrong thing to tell anyone.
   let libraryUnreachable = false;
-  const [continuing, recent, latest, genres, shelves, picks, friendsNow, friendsRecent] = await Promise.all([
+  const [continuing, recent, latest, genres, shelves, picks, friendsNow, friendsRecent, coming] = await Promise.all([
     // Half-watched titles and the next episode of each show (next-up.ts).
     getContinueWatching(session).catch(() => ({ items: [] as MediaItem[], nextUp: new Set<string>() })),
     // What they have finished, newest first. The full list is /history.
@@ -83,6 +85,8 @@ export default async function HomePage() {
     // Friends' activity (friends-activity.ts): playing right now, and lately.
     friendsWatchingNow(session).catch(() => []),
     friendsLately(session).catch(() => []),
+    // Announced titles and scheduled releases (coming-soon.ts).
+    comingSoonFor(session).catch(() => []),
   ]);
 
   const resume = continuing.items;
@@ -305,6 +309,7 @@ export default async function HomePage() {
         itemBadges={latelyLines}
         shape="poster"
       />
+      <ComingSoonRow entries={coming.slice(0, 12)} now={Date.now()} />
       {otherPicks.map((pick) => (
         <PickRow key={pick.id} pick={pick} />
       ))}
