@@ -267,6 +267,64 @@ export function clampTime(t: number, duration: number): number {
   return Math.min(Math.max(0, t), end);
 }
 
+/* ------------------------------------------------------------------ *
+ * TV: holding left/right scrubs, faster the longer it is held.
+ *
+ * Each repeat of a held key used to seek 10 s on from the player's current
+ * time, which the player only updates once a seek has landed, so a held key
+ * kept seeking to nearly the same place and barely moved (owner, 2026-10-22).
+ * Now a held key moves a target that runs ahead on screen, faster the longer
+ * it is held, and the player seeks once, to the target, when the key is let
+ * go. A single press still jumps 10 s at once.
+ * ------------------------------------------------------------------ */
+
+/** A single press, and the first step of a hold. */
+export const TV_SEEK_STEP_SECONDS = 10;
+/** No repeat for this long and the hold is over: the seek is made. */
+export const HOLD_COMMIT_MS = 350;
+/** A jump made this recently counts from where it was aimed, not from a player that hasn't caught up. */
+export const RECENT_SEEK_MS = 1500;
+
+/** Seconds of film per second of holding: 30 s, then 1 min, 3 min, 10 min. */
+export function holdSpeed(heldMs: number): number {
+  if (heldMs < 1500) return 30;
+  if (heldMs < 3000) return 60;
+  if (heldMs < 6000) return 180;
+  return 600;
+}
+
+export interface HoldSeek {
+  dir: 1 | -1;
+  startedAt: number;
+  lastAt: number;
+  /** Where the seek will go. */
+  target: number;
+}
+
+/**
+ * The hold after one more keydown. A first press (or a change of direction)
+ * starts one 10 s from `from`; a repeat moves the target on by the hold's
+ * speed for the time since the last repeat, so it runs at the same pace
+ * however fast the remote repeats (capped, so a stall doesn't leap).
+ */
+export function advanceHold(
+  hold: HoldSeek | null,
+  dir: 1 | -1,
+  now: number,
+  from: number,
+  duration: number,
+): HoldSeek {
+  if (!hold || hold.dir !== dir) {
+    return { dir, startedAt: now, lastAt: now, target: clampTime(from + dir * TV_SEEK_STEP_SECONDS, duration) };
+  }
+  const dtMs = Math.min(Math.max(0, now - hold.lastAt), 250);
+  // The speed at the middle of the gap, so a slow-repeating remote crossing
+  // into the next speed doesn't get it for its whole longer step.
+  const speed = holdSpeed(now - dtMs / 2 - hold.startedAt);
+  const target = clampTime(hold.target + (dir * speed * dtMs) / 1000, duration);
+  return { ...hold, lastAt: now, target: Math.round(target * 10) / 10 };
+}
+
 export const SPEEDS_MIN = 0.25;
 export const SPEEDS_MAX = 3;
 

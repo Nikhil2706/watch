@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  advanceHold,
   clampTime,
   createOkPressGuard,
+  holdSpeed,
   nextSpeed,
   OK_ECHO_MS,
   PLAYER_SHORTCUTS,
@@ -165,4 +167,52 @@ test("the next real press, after the echo window, acts again (pause, then play, 
     if (!guard.shouldSwallow("pointerup", undefined, at + 80)) actions += 1;
   }
   assert.equal(actions, 3);
+});
+
+/* ---- TV hold to scrub ---- */
+
+
+test("a single press jumps 10 s from where it is", () => {
+  assert.deepEqual(advanceHold(null, 1, 0, 100, 3600), { dir: 1, startedAt: 0, lastAt: 0, target: 110 });
+  assert.equal(advanceHold(null, -1, 0, 5, 3600).target, 0);
+});
+
+test("held, it speeds up the longer it is held", () => {
+  assert.ok(holdSpeed(0) < holdSpeed(2000) && holdSpeed(2000) < holdSpeed(4000) && holdSpeed(4000) < holdSpeed(7000));
+  // Hold for 8 s, a repeat every 50 ms.
+  let hold = advanceHold(null, 1, 0, 0, 100_000);
+  const at: Record<number, number> = {};
+  for (let t = 50; t <= 8000; t += 50) {
+    hold = advanceHold(hold, 1, t, 0, 100_000);
+    at[t] = hold.target;
+  }
+  const gained = (a: number, b: number) => at[b]! - at[a]!;
+  // Each second of holding covers more film than the one before.
+  assert.ok(gained(500, 1000) < gained(2000, 2500));
+  assert.ok(gained(2000, 2500) < gained(4000, 4500));
+  assert.ok(gained(4000, 4500) < gained(7000, 7500));
+});
+
+test("the pace doesn't depend on how fast the remote repeats", () => {
+  const run = (every: number) => {
+    let hold = advanceHold(null, 1, 0, 0, 100_000);
+    for (let t = every; t <= 2000; t += every) hold = advanceHold(hold, 1, t, 0, 100_000);
+    return hold.target;
+  };
+  assert.ok(Math.abs(run(50) - run(100)) < 1);
+});
+
+test("held back, it stops at the start; held on, at the end", () => {
+  let hold = advanceHold(null, -1, 0, 20, 3600);
+  for (let t = 50; t <= 3000; t += 50) hold = advanceHold(hold, -1, t, 20, 3600);
+  assert.equal(hold.target, 0);
+  hold = advanceHold(null, 1, 0, 3590, 3600);
+  for (let t = 50; t <= 3000; t += 50) hold = advanceHold(hold, 1, t, 3590, 3600);
+  assert.equal(hold.target, 3600);
+});
+
+test("changing direction starts a new 10 s jump from the target", () => {
+  let hold = advanceHold(null, 1, 0, 100, 3600);
+  hold = advanceHold(hold, -1, 100, hold.target, 3600);
+  assert.deepEqual(hold, { dir: -1, startedAt: 100, lastAt: 100, target: 100 });
 });
