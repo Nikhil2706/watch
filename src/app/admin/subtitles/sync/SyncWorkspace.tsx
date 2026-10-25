@@ -180,7 +180,9 @@ export function SyncWorkspace({
     void load();
   }, [load]);
 
-  // The clock the overlay follows: smooth while playing.
+  // The clock the overlay follows: smooth while playing. The video's own
+  // events (onTimeUpdate, onSeeked below) keep it right where frames don't
+  // run, such as a tab in the background.
   useEffect(() => {
     let raf = 0;
     const tick = () => {
@@ -384,7 +386,14 @@ export function SyncWorkspace({
         <div className="adm-sync-stage">
           {playback ? (
             // eslint-disable-next-line jsx-a11y/media-has-caption -- the captions are drawn below, on purpose
-            <video ref={video} controls playsInline preload="metadata" />
+            <video
+              ref={video}
+              controls
+              playsInline
+              preload="metadata"
+              onTimeUpdate={(e) => setNowMs(e.currentTarget.currentTime * 1000)}
+              onSeeked={(e) => setNowMs(e.currentTarget.currentTime * 1000)}
+            />
           ) : (
             <p className="hint">This film can&apos;t be played here.</p>
           )}
@@ -434,6 +443,14 @@ export function SyncWorkspace({
               </b>{" "}
               Ticked: the files named like this one. Each moves by this much from where it is now; its first version is kept as .orig.
             </p>
+            <div className="adm-acts">
+              <button type="button" className="secondary" onClick={() => setShiftPicks(Object.fromEntries(Object.keys(shiftPicks).map((k) => [k, true])))}>
+                Tick all
+              </button>
+              <button type="button" className="secondary" onClick={() => setShiftPicks(Object.fromEntries(Object.keys(shiftPicks).map((k) => [k, false])))}>
+                None
+              </button>
+            </div>
             <div className="adm-list-box">
               {showInfo.episodes
                 .filter((e) => e.files.length)
