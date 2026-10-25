@@ -31,10 +31,14 @@ test("nothing after the last episode", () => {
 });
 
 test("a show part-way through an episode is left to that episode's card", () => {
-  const shows = new Map([["s", [ep(1, true, NOW - DAY), ep(2, false)]]]);
+  const shows = new Map([["s", [ep(1, true, NOW - DAY), ep(2, false, NOW - DAY / 2), ep(3, false)]]]);
   assert.deepEqual(nextUpEpisodes(shows, new Set(["s"]), NOW), []);
-  // And the most recent one stopped part-way (played false, but has a date) offers nothing either.
-  assert.deepEqual(nextUpEpisodes(new Map([["s", [ep(1, true, NOW - 2 * DAY), ep(2, false, NOW - DAY), ep(3, false)]]]), new Set(), NOW), []);
+});
+
+test("an episode opened but not started (no resume point) is still next up", () => {
+  // Nathan For You, 2026-10-25: E1 finished, E2 opened for a moment, never got a position.
+  const shows = new Map([["nfy", [ep(1, true, NOW - 4 * DAY), ep(2, false, NOW - DAY), ep(3, false)]]]);
+  assert.deepEqual(nextUpEpisodes(shows, new Set(), NOW), [{ id: "e2", groupId: "nfy", at: NOW - DAY }]);
 });
 
 test("a show never started, or left too long ago, is not offered", () => {
