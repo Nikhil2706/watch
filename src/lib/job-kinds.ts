@@ -315,6 +315,14 @@ const KINDS: JobKind[] = [
     runner: "loop",
     politeByDefault: false,
   },
+  {
+    kind: "loop_subtitle_sync",
+    label: "Sync subtitles automatically",
+    description:
+      "Lines a subtitle file up with its film's sound (alass), when \"Sync automatically\" is pressed on the sync screen. Only what was asked for, one at a time, when nobody is watching; the file's first version is kept as .orig.",
+    runner: "loop",
+    politeByDefault: false,
+  },
 ];
 
 export function listJobKinds(): JobKind[] {

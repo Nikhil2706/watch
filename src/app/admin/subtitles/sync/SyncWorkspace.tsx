@@ -86,6 +86,8 @@ export function SyncWorkspace({
   const [savedShift, setSavedShift] = useState<{ timing: Timing; file: string } | null>(null);
   const [shiftPicks, setShiftPicks] = useState<Record<string, boolean>>({});
   const [shifting, setShifting] = useState(false);
+  /** "Sync automatically": the worker's alass run on this file, if one was asked for. */
+  const [autosync, setAutosync] = useState<Autosync | null>(null);
 
   // The film: direct, or HLS through hls.js where the browser can't play it itself.
   useEffect(() => {
@@ -295,6 +297,60 @@ export function SyncWorkspace({
     }
   }
 
+  // The automatic sync of this file: read when the file changes, then
+  // followed every few seconds while the worker has it.
+  const autosyncWaiting = autosync?.status === "requested" || autosync?.status === "running";
+  useEffect(() => {
+    if (!file || tryId !== null) {
+      setAutosync(null);
+      return;
+    }
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let last: string | null = null;
+    const url = `/api/admin/subtitles/autosync?itemId=${encodeURIComponent(itemId)}&name=${encodeURIComponent(file)}`;
+    const check = async () => {
+      try {
+        const r = await adminApi<{ autosync: Autosync | null }>(url);
+        if (stopped) return;
+        setAutosync(r.autosync);
+        const status = r.autosync?.status ?? null;
+        if (last && (last === "requested" || last === "running") && status === "done") {
+          show("ok", `Synced automatically: ${r.autosync?.detail ?? "done"}.`);
+          await load();
+        } else if (last && (last === "requested" || last === "running") && status === "failed") {
+          show("err", `Automatic sync didn't work: ${r.autosync?.detail ?? "no reason given"}.`);
+        }
+        last = status;
+        if (status === "requested" || status === "running") timer = setTimeout(() => void check(), 4000);
+      } catch {
+        if (!stopped) timer = setTimeout(() => void check(), 10_000);
+      }
+    };
+    void check();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+    // autosyncWaiting restarts the polling after a new ask.
+  }, [file, tryId, itemId, autosyncWaiting, load, show]);
+
+  async function startAutosync() {
+    if (!file) return;
+    if (changed && !confirm("Your unsaved shift will be dropped. Sync automatically instead?")) return;
+    setBusy(true);
+    try {
+      const r = await adminApi<{ autosync: Autosync }>("/api/admin/subtitles/autosync", { method: "POST", body: { itemId, name: file } });
+      setAutosync(r.autosync);
+      setTiming(NO_CHANGE);
+      show("ok", "Asked for. The worker does it when nobody is watching, usually within a minute.");
+    } catch (e) {
+      show("err", message(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function restore() {
     if (!file || !confirm(`Put back the first version of ${file}?`)) return;
     setBusy(true);
@@ -429,7 +485,13 @@ export function SyncWorkspace({
               Put back the first version
             </button>
           ) : null}
+          {tryId === null && file ? (
+            <button type="button" className="secondary" disabled={busy || autosyncWaiting} onClick={() => void startAutosync()}>
+              {autosyncWaiting ? "Syncing…" : "Sync automatically"}
+            </button>
+          ) : null}
         </div>
+        {autosync && tryId === null ? <p className="hint adm-sync-auto">{describeAutosync(autosync)}</p> : null}
         <p className="hint">
           Subtitles early? Move them later (+). Late? Earlier (−). Keys: <b>[ ]</b> ±0.1 s, <b>{"{ }"}</b> ±0.5 s, space plays,
           ← → skip 2 s. Quicker: when you hear a line, press <b>Said now</b> beside it. If it drifts (fine at the start, off by
@@ -514,4 +576,29 @@ export function SyncWorkspace({
       </section>
     </div>
   );
+}
+
+interface Autosync {
+  status: "requested" | "running" | "done" | "failed";
+  detail: string | null;
+  requestedAt: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+}
+
+function when(ms: number): string {
+  return new Date(ms).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function describeAutosync(a: Autosync): string {
+  switch (a.status) {
+    case "requested":
+      return "Sync automatically: waiting for the worker (it runs when nobody is watching).";
+    case "running":
+      return "Sync automatically: alass is listening to the film's sound (about half a minute).";
+    case "done":
+      return `Synced automatically ${a.finishedAt ? when(a.finishedAt) : ""}: ${a.detail ?? "done"}. Check a few lines; Put back undoes it.`;
+    case "failed":
+      return `Automatic sync didn't work${a.finishedAt ? ` (${when(a.finishedAt)})` : ""}: ${a.detail ?? "no reason given"}.`;
+  }
 }
