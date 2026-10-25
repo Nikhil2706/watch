@@ -64,6 +64,24 @@ export function ingestCredits(
  * the sweep below wants one transaction across the whole library rather than
  * 400 — which on this host's disk is the difference worth caring about.
  */
+/** A show's payload with every stored season's episode crew added to its own crew. */
+function withEpisodeCrew(db: DatabaseSync, tmdbId: number, payload: unknown): unknown {
+  const show = (payload ?? {}) as { credits?: { cast?: unknown[]; crew?: unknown[] } };
+  const crew = [...(show.credits?.crew ?? [])];
+  const seasons = asRows<{ payload: string }>(
+    db.prepare("SELECT payload FROM tmdb_cache WHERE kind = 'season' AND tmdb_id = ?").all(tmdbId),
+  );
+  for (const s of seasons) {
+    try {
+      const parsed = JSON.parse(s.payload) as { episodes?: Array<{ crew?: unknown[] }> };
+      for (const e of parsed.episodes ?? []) crew.push(...(e.crew ?? []));
+    } catch {
+      /* a season that won't parse adds nothing */
+    }
+  }
+  return { ...show, credits: { ...show.credits, cast: show.credits?.cast ?? [], crew } };
+}
+
 function applyCredits(
   db: DatabaseSync,
   subjectType: "path" | "group",
@@ -181,10 +199,10 @@ function upsertSeasonPeople(db: DatabaseSync): number {
  * stale crew gets corrected.
  */
 export function ingestAllFromCache(): IngestResult {
-  const rows = asRows<{ subject_type: "path" | "group"; subject_id: string; payload: string }>(
+  const rows = asRows<{ subject_type: "path" | "group"; subject_id: string; tmdb_kind: string; tmdb_id: number; payload: string }>(
     getDb()
       .prepare(
-        `SELECT l.subject_type, l.subject_id, c.payload
+        `SELECT l.subject_type, l.subject_id, l.tmdb_kind, l.tmdb_id, c.payload
            FROM tmdb_links l
            JOIN tmdb_cache c
              ON c.kind = l.tmdb_kind
@@ -214,6 +232,10 @@ export function ingestAllFromCache(): IngestResult {
         skippedNoPayload += 1;
         continue;
       }
+      // A mini-series kept as one file (series-in-one-file.ts): its director and
+      // writers are credited per episode, not on the show, so the file's
+      // credits take its episodes' crew too (Tobe Hooper, Salem's Lot 1979).
+      if (row.subject_type === "path" && row.tmdb_kind === "tv") payload = withEpisodeCrew(db, row.tmdb_id, payload);
       credits += applyCredits(db, row.subject_type, row.subject_id, payload);
       subjects += 1;
     }
