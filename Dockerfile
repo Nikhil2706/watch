@@ -76,6 +76,15 @@ CMD ["node", "server.js"]
 #
 # Build with:  docker compose build worker
 # ---------------------------------------------------------------------------
+# alass, for "Sync automatically" on the subtitle sync screen
+# (scripts/subtitle-autosync.mjs). It has no ready-made build for Linux on
+# ARM (this Mac), so it is compiled here and only the binary is kept; the
+# Rust toolchain stays in this stage. --locked builds the exact versions it
+# was released with.
+FROM rust:1.82-alpine AS alass
+RUN apk add --no-cache musl-dev build-base
+RUN cargo install alass-cli --version 2.0.0 --locked --root /out
+
 FROM node:22-alpine AS worker
 
 WORKDIR /app
@@ -100,6 +109,9 @@ ENV NODE_OPTIONS=--disable-warning=ExperimentalWarning
 # the actual GPU generation before reinstalling either package.
 RUN apk add --no-cache ffmpeg
 
+# alass reads the film's sound through the ffmpeg above.
+COPY --from=alass /out/bin/alass-cli /usr/local/bin/alass
+
 # ClamAV for the virus scan of uploads (scripts/upload-scan.mjs): clamscan,
 # run on demand, and freshclam to fetch signatures into /var/lib/clamav (a
 # volume, so the ~300 MB download survives a rebuild). No clamd: a resident
@@ -122,6 +134,7 @@ COPY --chown=node:node scripts/browser-audio.mjs ./scripts/browser-audio.mjs
 COPY --chown=node:node scripts/upload-scan.mjs ./scripts/upload-scan.mjs
 COPY --chown=node:node scripts/backup.mjs ./scripts/backup.mjs
 COPY --chown=node:node scripts/worker-jobs.mjs ./scripts/worker-jobs.mjs
+COPY --chown=node:node scripts/subtitle-autosync.mjs ./scripts/subtitle-autosync.mjs
 
 RUN mkdir -p /app/data && chown -R node:node /app
 USER node

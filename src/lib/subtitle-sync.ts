@@ -33,7 +33,7 @@ export interface SyncTarget {
   show: { groupId: string; name: string; unit: "episodes" | "parts"; episodes: EpisodeFiles[] } | null;
 }
 
-async function videoOf(itemId: string): Promise<{ title: string; path: string }> {
+export async function videoOf(itemId: string): Promise<{ title: string; path: string }> {
   const item = await getFullItem(itemId);
   const path = typeof item.Path === "string" ? item.Path : null;
   if (!path) throw new SyncError("This item has no file.");
@@ -108,7 +108,7 @@ export async function shiftShowFiles(
 }
 
 /** A subtitle file of this item, by name: only one listed next to its video. */
-async function fileOf(itemId: string, name: string): Promise<string> {
+export async function fileOf(itemId: string, name: string): Promise<string> {
   const v = await videoOf(itemId);
   if (name !== basename(name) || !srtFilesNextTo(v.path).includes(name)) {
     throw new SyncError("That isn't one of this video's subtitle files.");

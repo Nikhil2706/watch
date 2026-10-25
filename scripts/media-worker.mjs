@@ -44,6 +44,7 @@ import {
   copyFileSync,
   unlinkSync,
   utimesSync,
+  writeFileSync,
 } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 
@@ -52,6 +53,7 @@ import { mp4SubtitlesBlock, needsBrowserAudio, remuxArgs, verifyRemux } from "./
 import { clamavScanner, scanWaitingUploads, writeHeartbeat } from "./upload-scan.mjs";
 import { backupStamp, runBackup, snapshotDatabase } from "./backup.mjs";
 import { failInterruptedWorkerRuns, recordLoopRun, runWorkerJobs } from "./worker-jobs.mjs";
+import { alassArgs, judgeResult } from "./subtitle-autosync.mjs";
 
 /* ------------------------------------------------------------------ *
  * Config
@@ -625,6 +627,109 @@ async function addBrowserAudioForAWhile() {
   await flushLibraryChanges(true);
   const line = lines.slice(0, 6).join("; ") + (lines.length > 6 ? `; and ${lines.length - 6} more` : "");
   log(`browser audio: ${line}`);
+  return line;
+}
+
+/* ------------------------------------------------------------------ *
+ * Sync automatically (scripts/subtitle-autosync.mjs for the rules)
+ * ------------------------------------------------------------------ *
+ * Subtitle files the curator asked to have lined up with their video, from
+ * the sync screen (subtitle_autosync). Only what was asked for, one at a
+ * time, and only while nobody is watching: alass reads the film's whole
+ * soundtrack (about 20 s of CPU for a 99-minute film on this Mac). The file's first version is kept as
+ * "<name>.orig", as a save on the sync screen does.
+ */
+const ALASS = process.env.ALASS ?? "alass";
+const ALASS_TIMEOUT_MS = 30 * 60 * 1000;
+
+function autosyncReady() {
+  return Boolean(db.prepare("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='subtitle_autosync'").get());
+}
+
+/** run(), at low priority and with a time limit. */
+function runNiceWithTimeout(command, args, timeoutMs) {
+  return new Promise((resolveRun) => {
+    const child = spawn("nice", ["-n", "15", command, ...args], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+    child.stdout.on("data", (d) => (stdout = (stdout + d).slice(-20_000)));
+    child.stderr.on("data", (d) => (stderr = (stderr + d).slice(-20_000)));
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolveRun({ code: -1, stdout, stderr: String(err) });
+    });
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      resolveRun({ code: signal === "SIGKILL" ? -2 : code, stdout, stderr });
+    });
+  });
+}
+
+function finishAutosync(path, status, detail) {
+  db.prepare("UPDATE subtitle_autosync SET status = ?, detail = ?, finished_at = ? WHERE path = ?").run(status, detail, Date.now(), path);
+}
+
+/** Lines one subtitle file up with its video. Returns { status, detail }. */
+async function autosyncOne(subtitle, video) {
+  if (!existsSync(subtitle)) return { status: "failed", detail: "the subtitle file is gone" };
+  if (!existsSync(video)) return { status: "failed", detail: "the video is gone (is the drive connected?)" };
+  const temp = join(dirname(subtitle), `.${basename(subtitle, ".srt")}.alass.srt`);
+  const cleanUp = () => {
+    try {
+      if (existsSync(temp)) unlinkSync(temp);
+    } catch { /* best effort */ }
+  };
+  log(`sync automatically: ${basename(subtitle)}`);
+  const result = await runNiceWithTimeout(ALASS, alassArgs(video, subtitle, temp), ALASS_TIMEOUT_MS);
+  if (result.code !== 0) {
+    cleanUp();
+    if (result.code === -2) return { status: "failed", detail: "alass took over 30 minutes and was stopped" };
+    const why = `${result.stderr}\n${result.stdout}`.trim().split("\n").filter(Boolean).slice(-1)[0] || `alass exited ${result.code}`;
+    return { status: "failed", detail: `alass: ${why.slice(0, 300)}` };
+  }
+  let before;
+  let after;
+  try {
+    before = readFileSync(subtitle, "utf8");
+    after = readFileSync(temp, "utf8");
+  } catch (error) {
+    cleanUp();
+    return { status: "failed", detail: `could not read the result: ${error.message}` };
+  }
+  const judged = judgeResult(before, after);
+  if (!judged.ok || !judged.moved) {
+    cleanUp();
+    return { status: judged.ok ? "done" : "failed", detail: judged.detail };
+  }
+  try {
+    if (!existsSync(`${subtitle}.orig`)) copyFileSync(subtitle, `${subtitle}.orig`);
+    writeFileSync(subtitle, after, "utf8");
+  } catch (error) {
+    cleanUp();
+    return { status: "failed", detail: `could not write it: ${error.message}` };
+  }
+  cleanUp();
+  return { status: "done", detail: judged.detail };
+}
+
+async function autosyncRequested() {
+  if (!autosyncReady()) return null;
+  // A run the worker was stopped in the middle of is asked for again.
+  db.prepare("UPDATE subtitle_autosync SET status = 'requested', started_at = NULL WHERE status = 'running'").run();
+  const lines = [];
+  for (const { path, video_path: video } of db
+    .prepare("SELECT path, video_path FROM subtitle_autosync WHERE status = 'requested' ORDER BY requested_at")
+    .all()) {
+    if (stopping || (await someoneIsWatching())) break;
+    db.prepare("UPDATE subtitle_autosync SET status = 'running', started_at = ?, detail = NULL WHERE path = ?").run(Date.now(), path);
+    const outcome = await autosyncOne(path, video);
+    finishAutosync(path, outcome.status, outcome.detail);
+    lines.push(`${basename(path)}: ${outcome.detail}`);
+  }
+  if (!lines.length) return null;
+  const line = lines.join("; ");
+  log(`sync automatically: ${line}`);
   return line;
 }
 
@@ -1724,6 +1829,7 @@ const LOOP = {
   uploadScan: "builtin-loop-upload-scan",
   fileCheck: "builtin-loop-file-check",
   browserAudio: "builtin-loop-browser-audio",
+  subtitleSync: "builtin-loop-subtitle-sync",
 };
 
 function names(rows) {
@@ -1800,6 +1906,8 @@ if (WORKER_MODE === "watch") {
     // else to do, the library's damage check.
     await recordLoopRun(db, LOOP.uploadScan, scanUploads, { log });
     if (!stopping) await recordLoopRun(db, LOOP.fileCheck, checkFilesForAWhile, { log });
+    // Subtitles the curator asked to have synced: before browser audio, since someone is waiting on them.
+    if (!stopping && !(await someoneIsWatching())) await recordLoopRun(db, LOOP.subtitleSync, autosyncRequested, { log });
     if (!stopping && !(await someoneIsWatching())) await recordLoopRun(db, LOOP.browserAudio, addBrowserAudioForAWhile, { log });
 
     if (stopping) break;
@@ -1856,6 +1964,8 @@ if (WORKER_MODE === "watch") {
   // library is worked through a few minutes at a time.
   // Uploads waiting for their virus scan (it checks for viewers itself).
   await recordLoopRun(db, LOOP.uploadScan, scanUploads, { log });
+  // Subtitles the curator asked to have synced: someone is waiting on them, so even with a queue.
+  if (!stopping && !(await someoneIsWatching())) await recordLoopRun(db, LOOP.subtitleSync, autosyncRequested, { log });
   if (!stopping && !queued && !(await someoneIsWatching())) await recordLoopRun(db, LOOP.fileCheck, checkFilesForAWhile, { log });
   if (!stopping && !queued && !(await someoneIsWatching())) await recordLoopRun(db, LOOP.browserAudio, addBrowserAudioForAWhile, { log });
 

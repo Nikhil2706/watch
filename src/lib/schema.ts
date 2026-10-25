@@ -75,7 +75,12 @@
  * 65: coming_soon — titles announced before they are in the library
  * (coming-soon.ts). CREATE ... IF NOT EXISTS; nothing existing changes.
  */
-export const SCHEMA_VERSION = 65;
+/*
+ * 66: subtitle_autosync — "Sync automatically" on the sync screen: the site
+ * asks, the worker runs alass (subtitle-autosync.ts, scripts/subtitle-autosync.mjs).
+ * CREATE ... IF NOT EXISTS; nothing existing changes.
+ */
+export const SCHEMA_VERSION = 66;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -1686,5 +1691,21 @@ CREATE TABLE IF NOT EXISTS coming_soon (
   expected_at INTEGER,           -- when it is expected, optional
   created_at  INTEGER NOT NULL,
   removed_at  INTEGER
+) STRICT;
+
+-- "Sync automatically" (v66): the curator asks for one subtitle file to be
+-- lined up with its video; the worker runs alass on it when nobody is
+-- watching, keeps the file's first version as "<name>.orig" (as a save on
+-- the sync screen does) and writes how far the lines moved. One row per
+-- subtitle file; asking again replaces it.
+CREATE TABLE IF NOT EXISTS subtitle_autosync (
+  path          TEXT PRIMARY KEY,  -- the .srt file
+  item_id       TEXT NOT NULL,
+  video_path    TEXT NOT NULL,
+  status        TEXT NOT NULL,     -- requested | running | done | failed
+  detail        TEXT,
+  requested_at  INTEGER NOT NULL,
+  started_at    INTEGER,
+  finished_at   INTEGER
 ) STRICT;
 `;
