@@ -110,6 +110,19 @@ export function SubtitleChooser({ item, onClose, onAdded }: { item: LibraryItem;
             Best guess first: synced to this exact file, then made for the same release as the file name, then trusted, rated and
             downloaded most. A new one is added beside any already there.
           </p>
+          {[...choices.existingFiles, ...added].some((f) => f.toLowerCase().endsWith(".srt")) ? (
+            <p className="hint">
+              Off by a second or two? Sync one by eye:{" "}
+              {[...choices.existingFiles, ...added]
+                .filter((f) => f.toLowerCase().endsWith(".srt"))
+                .map((f, i) => (
+                  <span key={f}>
+                    {i ? " · " : ""}
+                    <a href={`/admin/subtitles/sync?itemId=${encodeURIComponent(item.id)}&name=${encodeURIComponent(f)}`}>Sync {f}</a>
+                  </span>
+                ))}
+            </p>
+          ) : null}
           {!choices.candidates.length ? <p className="hint">OpenSubtitles has no English subtitles for this.</p> : null}
           <div className="adm-list-box">
             {list.map((c, i) => (
