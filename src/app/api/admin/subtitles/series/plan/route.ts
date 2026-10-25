@@ -17,12 +17,14 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
 export async function POST(request: Request): Promise<Response> {
   const denied = requireAdmin(request);
   if (denied) return denied;
-  const body = (await request.json().catch(() => ({}))) as { groupId?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { groupId?: unknown; referencePath?: unknown };
   if (typeof body.groupId !== "string" || !body.groupId) {
     return Response.json({ error: "bad_request", message: "groupId is required." }, { status: 400, headers: NO_STORE });
   }
   try {
-    const plan = await planSeriesSubtitles(body.groupId);
+    // An episode to learn from, when the curator picked one ("match the rest of the show to this").
+    const referencePath = typeof body.referencePath === "string" && body.referencePath ? body.referencePath : null;
+    const plan = await planSeriesSubtitles(body.groupId, referencePath);
     return Response.json({ ok: true, plan }, { headers: NO_STORE });
   } catch (error) {
     return Response.json(

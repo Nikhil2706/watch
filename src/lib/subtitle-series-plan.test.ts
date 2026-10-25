@@ -101,6 +101,15 @@ test("reference: an external .srt wins over built-in tracks", () => {
   assert.equal(ref.kind === "external" && ref.episode.episode, 2);
 });
 
+test("reference: the curator's chosen episode wins, when it has something to learn from", () => {
+  const eps = [ep(1, 1, { externalFile: "/m/S01E01.srt" }), ep(1, 2, { externalFile: "/m/S01E02.srt" }), ep(1, 3)];
+  const chosen = chooseReference(eps, eps[1]!.path);
+  assert.equal(chosen.kind === "external" && chosen.episode.episode, 2);
+  // A chosen episode with nothing usable falls back to the usual choice.
+  const fallback = chooseReference(eps, eps[2]!.path);
+  assert.equal(fallback.kind === "external" && fallback.episode.episode, 1);
+});
+
 test("reference: a built-in text track when no episode has an external file", () => {
   const eps = [ep(1, 1, builtIn()), ep(1, 2, builtIn()), ep(1, 7)];
   const ref = chooseReference(eps);

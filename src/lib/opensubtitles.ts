@@ -393,3 +393,42 @@ export async function searchEpisodeSubtitles(input: {
       votes: row.attributes.votes ?? null,
     }));
 }
+
+/**
+ * Every English subtitle for one film, for the curator to choose from (the
+ * film pane's Subtitles list), rather than pickBestMatch's single guess.
+ * With the file's moviehash, OpenSubtitles marks the ones timed against this
+ * exact video (hashMatch). Search only: nothing here spends a download.
+ */
+export async function searchMovieSubtitles(input: {
+  imdbId: string;
+  languages: string;
+  moviehash?: string | null;
+}): Promise<SubtitleCandidate[]> {
+  const params = new URLSearchParams({
+    imdb_id: input.imdbId.replace(/^tt0*/, ""),
+    languages: input.languages,
+    machine_translated: "exclude",
+    order_by: "download_count",
+    type: "movie",
+  });
+  if (input.moviehash) params.set("moviehash", input.moviehash);
+  params.sort();
+  const data = await osFetch<RawEpisodeSearchResponse>(`/subtitles?${params.toString()}`);
+  return data.data
+    .filter((row) => !row.attributes.machine_translated && !row.attributes.ai_translated && row.attributes.files[0])
+    .map((row) => ({
+      fileId: row.attributes.files[0]!.file_id,
+      fileName: row.attributes.files[0]!.file_name ?? null,
+      release: row.attributes.release,
+      uploader: row.attributes.uploader?.name ?? null,
+      hearingImpaired: row.attributes.hearing_impaired,
+      fps: row.attributes.fps || null,
+      downloadCount: row.attributes.download_count,
+      hashMatch: row.attributes.moviehash_match === true,
+      fromTrusted: row.attributes.from_trusted === true,
+      rating: row.attributes.ratings ?? null,
+      votes: row.attributes.votes ?? null,
+    }));
+}
+

@@ -49,7 +49,7 @@ export function moviehash(path: string): string {
   }
 }
 
-function safeMoviehash(path: string): string | null {
+export function safeMoviehash(path: string): string | null {
   try {
     return existsSync(path) ? moviehash(path) : null;
   } catch {
@@ -58,7 +58,7 @@ function safeMoviehash(path: string): string | null {
 }
 
 /** A subtitle file sitting next to the video, if there is one ("x.srt", "x.eng.srt"...). */
-function externalSubtitle(videoPath: string): string | null {
+export function externalSubtitle(videoPath: string): string | null {
   const dir = dirname(videoPath);
   const stem = basename(videoPath, extname(videoPath));
   try {
@@ -71,7 +71,7 @@ function externalSubtitle(videoPath: string): string | null {
   }
 }
 
-function showIds(groupId: string): { imdbId: string | null; tmdbId: number | null } {
+export function showIds(groupId: string): { imdbId: string | null; tmdbId: number | null } {
   const link = getLink("group", groupId);
   if (!link || link.tmdbKind !== "tv" || link.tmdbId <= 0) return { imdbId: null, tmdbId: null };
   const show = getCached<{ external_ids?: { imdb_id?: string } }>("tv", link.tmdbId);
@@ -83,7 +83,7 @@ function showIds(groupId: string): { imdbId: string | null; tmdbId: number | nul
  * with these numbers — Jellyfin matches episode files as films, often wrongly.
  * The TMDB episode id comes from the season already cached (no call).
  */
-function episodeIds(
+export function episodeIds(
   item: AdminMovieListItem | undefined,
   show: { imdbId: string | null; tmdbId: number | null },
   season: number,
@@ -159,7 +159,7 @@ export interface SeriesSubtitlePlan extends BuiltPlan {
  * track, or none), and for every episode with no subtitle at all, what would
  * be downloaded and which method chose it.
  */
-export async function planSeriesSubtitles(groupId: string): Promise<SeriesSubtitlePlan> {
+export async function planSeriesSubtitles(groupId: string, referencePath?: string | null): Promise<SeriesSubtitlePlan> {
   if (!isOpenSubtitlesConfigured()) {
     throw new Error("OpenSubtitles isn't set up: put OPENSUBTITLES_API_KEY in .env and restart the gate.");
   }
@@ -212,7 +212,7 @@ export async function planSeriesSubtitles(groupId: string): Promise<SeriesSubtit
 
   const byPath = (p: string) => items.get(p);
   const plan = await buildSeriesPlan(
-    { episodes, unparsed, show },
+    { episodes, unparsed, show, referencePath: referencePath ?? null },
     {
       search: (input) => searchEpisodeSubtitles({ ...input, languages: LANG }),
       download: (fileId) => downloadSubtitle(fileId),
