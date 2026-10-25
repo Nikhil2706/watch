@@ -56,11 +56,20 @@ export function nextUpEpisodes(
       if (at !== null && (last === -1 || at > ordered[last]!.lastPlayedMs!)) last = i;
     }
     if (last === -1) continue;
-    const watched = ordered[last]!;
-    // Stopped part-way through it: that is Continue watching's own card.
-    if (!watched.played || watched.lastPlayedMs! < oldest) continue;
+    const latest = ordered[last]!;
+    if (latest.lastPlayedMs! < oldest) continue;
+    // Opened but not finished. Part-way through, it would be on Continue
+    // watching already, and its show would be in inProgress (skipped above);
+    // so here it was opened without getting a resume point (Jellyfin keeps
+    // none for the first minutes), and it is still the one to watch next.
+    // Before 2026-10-25 this case offered nothing at all: Nathan For You
+    // S1E02, opened for a moment, left the show with no card.
+    if (!latest.played) {
+      out.push({ id: latest.id, groupId, at: latest.lastPlayedMs! });
+      continue;
+    }
     const next = ordered.slice(last + 1).find((e) => !e.played);
-    if (next) out.push({ id: next.id, groupId, at: watched.lastPlayedMs! });
+    if (next) out.push({ id: next.id, groupId, at: latest.lastPlayedMs! });
   }
   return out.sort((a, b) => b.at - a.at);
 }
