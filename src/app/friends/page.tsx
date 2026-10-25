@@ -8,11 +8,16 @@ import { dayOf } from "@/lib/watch-history";
 
 export const dynamic = "force-dynamic";
 
-/** Friends who share what they watch, each opening their diary (friends-diary.ts). */
+/**
+ * Friends who share what they watch, each opening their diary
+ * (friends-diary.ts). Only people who have watched something: an account
+ * with an empty diary (a test login, someone invited who never pressed play)
+ * is just noise in the list.
+ */
 export default async function FriendsPage() {
   const session = await currentSession();
   if (!session) redirect("/login");
-  const friends = friendsOverview(session.userId);
+  const friends = friendsOverview(session.userId).filter((f) => f.finished > 0);
 
   return (
     <>
@@ -25,7 +30,7 @@ export default async function FriendsPage() {
       </div>
       {!friends.length ? (
         <div className="empty">
-          <p>No friends are sharing what they watch yet.</p>
+          <p>None of your friends has watched anything yet.</p>
         </div>
       ) : (
         <ul className="friends-list">
@@ -34,7 +39,7 @@ export default async function FriendsPage() {
               <Link href={`/friends/${encodeURIComponent(friend.username)}`}>
                 <span className="friends-name">{friend.username}</span>
                 <span className="hint">
-                  {finished ? `${finished} watched` : "Nothing watched yet"}
+                  {finished} watched
                   {lastTitle && lastAt ? ` · last: ${lastTitle}, ${dayOf(lastAt)}` : null}
                 </span>
               </Link>
