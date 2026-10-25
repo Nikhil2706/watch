@@ -1555,3 +1555,65 @@
   font-size: 0.78rem;
   white-space: nowrap;
 }
+
+/* Sync subtitles (/admin/subtitles/sync): the film with our own caption over it. */
+.adm-sync-stage {
+  position: relative;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 10px 0;
+}
+.adm-sync-stage video {
+  display: block;
+  width: 100%;
+  max-height: 62vh;
+}
+.adm-sync-cue {
+  position: absolute;
+  left: 50%;
+  bottom: 56px;
+  transform: translateX(-50%);
+  max-width: 86%;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: clamp(0.95rem, 2.2vw, 1.35rem);
+  line-height: 1.35;
+  text-align: center;
+  white-space: pre-line;
+  pointer-events: none;
+}
+.adm-sync-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.adm-sync-now {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  min-width: 70px;
+}
+.adm-sync-shift {
+  min-width: 180px;
+}
+.adm-sync-lines {
+  max-height: 46vh;
+  overflow: auto;
+}
+.adm-sync-lines .adm-ep.is-on {
+  background: rgba(91, 141, 239, 0.14);
+}
+.adm-sync-lines .adm-ep.is-picked .adm-ep-t {
+  font-weight: 600;
+}
+.adm-sync-time {
+  font-variant-numeric: tabular-nums;
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0 4px;
+}
