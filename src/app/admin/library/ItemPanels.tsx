@@ -96,7 +96,91 @@ export function IdentifyPanel({ item, onDone, onClose }: { item: LibraryItem; on
             </button>
           ))
         : null}
+      <MiniseriesInOneFile item={item} defaultQuery={name} onDone={onDone} />
     </form>
+  );
+}
+
+/**
+ * For a TV mini-series the library keeps as one file (Salem's Lot, 1979):
+ * film search can't find it, because TMDB lists it only as a show. Pick the
+ * show, and the file is linked to it and named after it
+ * (/api/admin/library/series-in-one-file).
+ */
+function MiniseriesInOneFile({ item, defaultQuery, onDone }: { item: LibraryItem; defaultQuery: string; onDone: (msg: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(defaultQuery);
+  const [shows, setShows] = useState<Array<{ tmdbId: number; name: string; year: number | null }> | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function find() {
+    setBusy(true);
+    setNote(null);
+    try {
+      const r = await adminApi<{ shows: Array<{ tmdbId: number; name: string; year: number | null }> }>(
+        `/api/admin/library/series-in-one-file?q=${encodeURIComponent(query.trim())}`,
+      );
+      setShows(r.shows);
+      if (!r.shows.length) setNote("TMDB has no show by that name.");
+    } catch (err) {
+      setNote(message(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function use(tmdbId: number) {
+    if (!item.path) return;
+    setBusy(true);
+    setNote("Linking it and renaming it after the show…");
+    try {
+      const r = await adminApi<{ name: string; year: number | null; episodes: number | null }>("/api/admin/library/series-in-one-file", {
+        method: "POST",
+        body: { itemId: item.id, path: item.path, tmdbId },
+      });
+      onDone(`Now “${r.name}”${r.year ? ` (${r.year})` : ""}, a ${r.episodes ?? "multi"}-part mini-series in one file.`);
+    } catch (err) {
+      setNote(message(err));
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <p className="hint">
+        A TV mini-series kept as one file (two or three parts in one video)?{" "}
+        <button type="button" className="linklike" onClick={() => setOpen(true)}>
+          Find it among TV shows
+        </button>
+      </p>
+    );
+  }
+  return (
+    <div className="adm-plan">
+      <p className="hint">
+        TMDB lists a mini-series only as a show, so film search can&apos;t find it. Pick the show: this file is linked to it, named after
+        it, and given its summary and poster. It stays one film here. Its IMDb id is kept, for ratings.
+      </p>
+      <div className="adm-row">
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Show name" />
+        <button type="button" disabled={busy || !query.trim()} onClick={() => void find()}>
+          Search TV shows
+        </button>
+      </div>
+      {note ? <p className="hint">{note}</p> : null}
+      {shows?.map((s) => (
+        <button key={s.tmdbId} type="button" className="adm-candidate" disabled={busy} onClick={() => void use(s.tmdbId)}>
+          <span className="adm-candidate-noimg" />
+          <span>
+            <span className="adm-candidate-name">
+              {s.name}
+              {s.year ? ` (${s.year})` : ""}
+            </span>
+          </span>
+        </button>
+      ))}
+    </div>
   );
 }
 
