@@ -7,7 +7,7 @@ import { getAdminMovies } from "./admin-library-cache";
 import { asRows, getDb } from "./db";
 import { parseEpisodeInfo } from "./episode-naming";
 import { getFullItem, refreshItem } from "./jellyfin";
-import { getGroupedPathMap } from "./library-curation";
+import { getGroupedPathMap, getGroupKind, partsUnitFor } from "./library-curation";
 import { formatSrt, parseSrt, retime, type Timing } from "./srt-timing";
 import type { EpisodeFiles } from "./subtitle-show-shift";
 
@@ -30,7 +30,7 @@ export interface SyncTarget {
   /** The .srt files next to the video, by name. */
   files: string[];
   /** For an episode: its show's other episodes and their .srt files ("shift every episode"). */
-  show: { groupId: string; name: string; episodes: EpisodeFiles[] } | null;
+  show: { groupId: string; name: string; unit: "episodes" | "parts"; episodes: EpisodeFiles[] } | null;
 }
 
 async function videoOf(itemId: string): Promise<{ title: string; path: string }> {
@@ -74,7 +74,7 @@ async function showOf(videoPath: string): Promise<SyncTarget["show"]> {
       label: info.episode !== null ? `S${info.season ?? 1} E${info.episode}` : basename(p),
       files: srtFilesNextTo(p),
     }));
-  return { groupId: group.groupId, name: group.groupName, episodes };
+  return { groupId: group.groupId, name: group.groupName, unit: partsUnitFor(getGroupKind(group.groupId)), episodes };
 }
 
 /**

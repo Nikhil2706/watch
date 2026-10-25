@@ -66,7 +66,7 @@ export function SyncWorkspace({
   initialTry?: number | null;
   videoPath: string;
   /** For an episode: the show's other episodes, for "shift every episode by this much". */
-  show?: { groupId: string; name: string; episodes: EpisodeFiles[] } | null;
+  show?: { groupId: string; name: string; unit: "episodes" | "parts"; episodes: EpisodeFiles[] } | null;
   playback: { mode: "direct" | "hls"; src: string } | null;
 }) {
   const { show } = useToasts();
@@ -430,7 +430,7 @@ export function SyncWorkspace({
           <div className="adm-plan">
             <p className="adm-note">
               <b>
-                Shift other episodes of {showInfo.name} by the same {describeTiming(savedShift.timing)}?
+                Shift the other {showInfo.unit} of {showInfo.name} by the same {describeTiming(savedShift.timing)}?
               </b>{" "}
               Ticked: the files named like this one. Each moves by this much from where it is now; its first version is kept as .orig.
             </p>

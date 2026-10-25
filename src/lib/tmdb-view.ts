@@ -442,11 +442,41 @@ export function projectShow(payload: unknown, tmdbId: number): ShowView | null {
   };
 }
 
+/** A film, as the group page for a film kept in several files shows it. */
+function showViewOfFilm(f: FilmView): ShowView {
+  return {
+    tmdbId: f.tmdbId,
+    name: f.title,
+    tagline: f.tagline,
+    overview: f.overview,
+    years: f.releaseDate ? f.releaseDate.slice(0, 4) : null,
+    status: null,
+    seasonCount: null,
+    episodeCount: null,
+    networks: [],
+    creators: [],
+    genres: f.genres,
+    cast: f.cast,
+    crew: f.crew,
+    logoUrl: f.logoUrl,
+    backdropUrl: f.backdropUrl,
+    voteAverage: f.voteAverage,
+  };
+}
+
 /** By library group id, which is how a show is keyed everywhere else here. */
 export function showViewByGroup(groupId: string | null | undefined): ShowView | null {
   if (!groupId) return null;
   const link = getLink("group", groupId);
-  if (!link || link.tmdbKind !== "tv" || link.tmdbId <= 0) return null;
+  if (!link || link.tmdbId <= 0) return null;
+  // A film kept in parts (Out 1: one 743-minute film in eight files): the
+  // group is linked to the TMDB film, shown on the group's page as a show
+  // with no seasons.
+  if (link.tmdbKind === "movie") {
+    const film = filmViewByTmdbId(link.tmdbId);
+    return film ? showViewOfFilm(film) : null;
+  }
+  if (link.tmdbKind !== "tv") return null;
   const cached = getCached("tv", link.tmdbId);
   return cached ? projectShow(cached.payload, link.tmdbId) : null;
 }

@@ -391,6 +391,7 @@ export async function searchEpisodeSubtitles(input: {
       fromTrusted: row.attributes.from_trusted === true,
       rating: row.attributes.ratings ?? null,
       votes: row.attributes.votes ?? null,
+      files: row.attributes.files.map((f) => ({ fileId: f.file_id, fileName: f.file_name ?? null })),
     }));
 }
 
@@ -429,6 +430,7 @@ export async function searchMovieSubtitles(input: {
       fromTrusted: row.attributes.from_trusted === true,
       rating: row.attributes.ratings ?? null,
       votes: row.attributes.votes ?? null,
+      files: row.attributes.files.map((f) => ({ fileId: f.file_id, fileName: f.file_name ?? null })),
     }));
 }
 

@@ -23,7 +23,7 @@ import { GroupSettings } from "./GroupSettings";
 import { IdentifyPanel, ManualPanel, PosterPanel } from "./ItemPanels";
 import type { LibraryContext } from "./LibraryWorkspace";
 import { Thumb } from "./Thumb";
-import { SeriesSubtitlePlan, SubtitleChooser } from "./SubtitlePanels";
+import { GroupSubtitles, SubtitleChooser } from "./SubtitlePanels";
 
 /**
  * The right-hand pane: everything there is to do to the selected film or
@@ -411,14 +411,7 @@ export function ShowPane({ row, ctx }: { row: ShowRow; ctx: LibraryContext }) {
 
       {settingsOpen ? <GroupSettings groupId={row.groupId} onChanged={() => void ctx.reload()} /> : null}
 
-      <h3 className="adm-section">Subtitles for every episode</h3>
-      <p className="hint">
-        Finds a subtitle for each episode that has none — built-in or file. If one episode has a subtitle file (or, failing that, a
-        built-in track), it works out which OpenSubtitles upload that is and picks the same uploader’s files; otherwise the one synced to
-        each video, else the best-rated. You see every pick before anything is downloaded. To choose which episode it learns from,
-        open that episode, pick its subtitle under Subtitles, then “Match the rest of the show to this”.
-      </p>
-      <SeriesSubtitlePlan groupId={row.groupId} />
+      <GroupSubtitles groupId={row.groupId} />
 
       <h3 className="adm-section">Files</h3>
       <div className="adm-list-box">

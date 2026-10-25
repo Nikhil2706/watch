@@ -4,6 +4,7 @@ import { getAdminMovies } from "./admin-library-cache";
 import { asRows, getDb } from "./db";
 import { parseEpisodeInfo } from "./episode-naming";
 import { getAdminMovie } from "./jellyfin";
+import { getGroupKind, getGroupSeriesId } from "./library-curation";
 import {
   fetchMovie,
   fetchSeason,
@@ -172,6 +173,14 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
      covered by roughly thirty calls rather than 628. */
   for (const group of libraryGroups()) {
     if (spent()) return result;
+
+    // A film kept in parts (Out 1, eight files): linked to the TMDB *film*
+    // from its IMDb id, never searched for as a show (Out 1 is also a TV
+    // entry on TMDB, which would put the wrong cast and artwork on it).
+    if (getGroupKind(group.group_id) === "movie") {
+      await linkFilmInParts(group.group_id, result, spend, spent);
+      continue;
+    }
 
     const fileCount = groupPaths(group.group_id).length;
 
@@ -427,3 +436,57 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
   if (result.done) result.note = "Everything with an IMDb id is cached.";
   return result;
 }
+
+/**
+ * A film in parts: its group's IMDb id (library_group_series) resolved to the
+ * TMDB film, linked once, and the film fetched so the group page has its
+ * summary, artwork, cast and crew. A link already made (or set by hand) is
+ * kept; one that says "tv" is left alone too, as someone chose it.
+ */
+async function linkFilmInParts(
+  groupId: string,
+  result: TmdbBackfillResult,
+  spend: () => void,
+  spent: () => boolean,
+): Promise<void> {
+  let link = getLink("group", groupId);
+  if (link && link.tmdbKind !== "movie") return;
+  if (!link) {
+    const imdbId = getGroupSeriesId(groupId);
+    if (!imdbId || spent()) return;
+    try {
+      // findByImdbId prefers TMDB's film over its show when an id is both.
+      const found = await findByImdbId(imdbId);
+      const movieId = found?.kind === "movie" ? found.id : null;
+      spend();
+      if (!movieId) {
+        result.unmatched.push({ group: groupId, files: groupPaths(groupId).length });
+        return;
+      }
+      link = {
+        subjectType: "group",
+        subjectId: groupId,
+        tmdbKind: "movie",
+        tmdbId: movieId,
+        season: null,
+        episode: null,
+        resolvedBy: "imdb-parts",
+      };
+      putLink(link);
+      result.showsLinked += 1;
+    } catch {
+      result.failures += 1;
+      return;
+    }
+  }
+  if (!getCached("movie", link.tmdbId) && !spent()) {
+    try {
+      await fetchMovie(link.tmdbId);
+      spend();
+      result.moviesFetched += 1;
+    } catch {
+      result.failures += 1;
+    }
+  }
+}
+
