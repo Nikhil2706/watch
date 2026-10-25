@@ -24,7 +24,17 @@ import { useToasts } from "../../Toasts";
  * moves by buttons, keys, or by marking a line as being said now. Two lines
  * marked far apart fix a drift (another frame rate). Nothing is written until
  * Save; the first version of the file is kept as .orig.
+ *
+ * "Try" mode plays an OpenSubtitles candidate that isn't saved yet
+ * (subtitle-try.ts): step through them best guess first, nudge the one that
+ * fits, and Keep it, shift included. Each candidate's first try spends one of
+ * the day's downloads; the site holds it for a day after.
  */
+
+interface Candidate {
+  candidate: { fileId: number; release: string | null; fileName: string | null; uploader: string | null };
+  tags: string[];
+}
 
 const STEPS = [-1000, -500, -100, 100, 500, 1000];
 
@@ -41,17 +51,22 @@ export function SyncWorkspace({
   title,
   files,
   initialFile,
+  initialTry = null,
   playback,
 }: {
   itemId: string;
   title: string;
   files: string[];
   initialFile: string | null;
+  /** Start by trying this OpenSubtitles file (its fileId), not a saved one. */
+  initialTry?: number | null;
   playback: { mode: "direct" | "hls"; src: string } | null;
 }) {
   const { show } = useToasts();
   const video = useRef<HTMLVideoElement>(null);
   const [file, setFile] = useState(initialFile);
+  const [tryId, setTryId] = useState<number | null>(initialTry);
+  const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [cues, setCues] = useState<Cue[]>([]);
   const [hasOriginal, setHasOriginal] = useState(false);
   const [timing, setTiming] = useState<Timing>(NO_CHANGE);
@@ -85,19 +100,70 @@ export function SyncWorkspace({
   }, [playback]);
 
   const load = useCallback(async () => {
-    if (!file) return;
     try {
-      const r = await adminApi<{ text: string; hasOriginal: boolean }>(
-        `/api/admin/subtitles/sync?itemId=${encodeURIComponent(itemId)}&name=${encodeURIComponent(file)}`,
-      );
-      setCues(parseSrt(r.text));
-      setHasOriginal(r.hasOriginal);
+      if (tryId === -1) {
+        // Try mode, nothing chosen yet: the best guess is tried once the list is in.
+        setCues([]);
+        return;
+      }
+      if (tryId !== null) {
+        const r = await adminApi<{ text: string; spent: boolean; downloadsLeft: number | null }>(
+          `/api/admin/subtitles/try?fileId=${tryId}`,
+        );
+        setCues(parseSrt(r.text));
+        setHasOriginal(false);
+        if (r.spent) show("ok", `Trying it (one download${r.downloadsLeft !== null ? `, ${r.downloadsLeft} left today` : ""}).`);
+      } else {
+        if (!file) return;
+        const r = await adminApi<{ text: string; hasOriginal: boolean }>(
+          `/api/admin/subtitles/sync?itemId=${encodeURIComponent(itemId)}&name=${encodeURIComponent(file)}`,
+        );
+        setCues(parseSrt(r.text));
+        setHasOriginal(r.hasOriginal);
+      }
       setTiming(NO_CHANGE);
       setMark(null);
     } catch (e) {
       show("err", message(e));
     }
-  }, [file, itemId, show]);
+  }, [file, tryId, itemId, show]);
+
+  // The candidates to try, best guess first: a search, so it spends nothing.
+  useEffect(() => {
+    if (tryId === null || candidates !== null) return;
+    adminApi<{ candidates: Candidate[] }>(`/api/admin/subtitles/choices?itemId=${encodeURIComponent(itemId)}`)
+      .then((r) => {
+        setCandidates(r.candidates);
+        if (tryId === -1 && r.candidates[0]) setTryId(r.candidates[0].candidate.fileId);
+      })
+      .catch((e) => show("err", message(e)));
+  }, [tryId, candidates, itemId, show]);
+
+  const tryIndex = candidates && tryId !== null ? candidates.findIndex((c) => c.candidate.fileId === tryId) : -1;
+  const trying = tryIndex >= 0 ? candidates![tryIndex]! : null;
+
+  function tryNext(step: 1 | -1) {
+    if (!candidates?.length) return;
+    const next = candidates[(Math.max(0, tryIndex) + step + candidates.length) % candidates.length]!;
+    setTryId(next.candidate.fileId);
+  }
+
+  async function keep() {
+    if (tryId === null) return;
+    setBusy(true);
+    try {
+      const r = await adminApi<{ fileName: string }>("/api/admin/subtitles/try", {
+        method: "POST",
+        body: { itemId, fileId: tryId, scale: timing.scale, offsetMs: timing.offsetMs },
+      });
+      show("ok", `Kept as ${r.fileName}${timing.offsetMs || timing.scale !== 1 ? ` (${describeTiming(timing)})` : ""}.`);
+      // Now a saved file: carry on here with it.
+      window.location.href = `/admin/subtitles/sync?itemId=${encodeURIComponent(itemId)}&name=${encodeURIComponent(r.fileName)}`;
+    } catch (e) {
+      show("err", message(e));
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -202,11 +268,14 @@ export function SyncWorkspace({
     ? cues.filter((c) => clean(c.text).toLowerCase().includes(filter.trim().toLowerCase()))
     : cues;
 
-  if (!files.length) {
+  if (!files.length && tryId === null) {
     return (
       <section className="adm-card">
         <h2 className="adm-card-title">{title}</h2>
-        <p className="hint">This video has no .srt subtitle file next to it. Download one from its Subtitles list first.</p>
+        <p className="hint">This video has no .srt subtitle file next to it yet.</p>
+        <button type="button" onClick={() => setTryId(-1)}>
+          Try subtitles from OpenSubtitles
+        </button>
       </section>
     );
   }
@@ -215,15 +284,58 @@ export function SyncWorkspace({
     <div className="adm-sync">
       <section className="adm-card">
         <div className="adm-row">
-          <h2 className="adm-card-title adm-grow">Sync subtitles · {title}</h2>
-          <select value={file ?? ""} onChange={(e) => setFile(e.target.value)} aria-label="Subtitle file">
-            {files.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </select>
+          <h2 className="adm-card-title adm-grow">
+            {tryId !== null ? "Try subtitles" : "Sync subtitles"} · {title}
+          </h2>
+          {tryId === null ? (
+            <>
+              <select value={file ?? ""} onChange={(e) => setFile(e.target.value)} aria-label="Subtitle file">
+                {files.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="secondary" onClick={() => setTryId(-1)}>
+                Try others from OpenSubtitles
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="secondary" disabled={!candidates?.length} onClick={() => tryNext(-1)}>
+                ‹ Previous
+              </button>
+              <select
+                value={tryId}
+                onChange={(e) => setTryId(Number(e.target.value))}
+                aria-label="Subtitle to try"
+                disabled={!candidates?.length}
+              >
+                {tryIndex < 0 ? <option value={tryId}>{candidates ? "Choose one to try…" : "Loading the list…"}</option> : null}
+                {(candidates ?? []).map((c, i) => (
+                  <option key={c.candidate.fileId} value={c.candidate.fileId}>
+                    {i === 0 ? "Best guess: " : `${i + 1}. `}
+                    {(c.candidate.release || c.candidate.fileName || "subtitle").slice(0, 70)}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="secondary" disabled={!candidates?.length} onClick={() => tryNext(1)}>
+                Next ›
+              </button>
+              {files.length ? (
+                <button type="button" className="secondary" onClick={() => setTryId(null)}>
+                  Back to saved
+                </button>
+              ) : null}
+            </>
+          )}
         </div>
+        {trying ? (
+          <p className="hint">
+            Trying <b>{trying.candidate.release || trying.candidate.fileName}</b> · {trying.candidate.uploader || "unknown uploader"} ·{" "}
+            {trying.tags.join(" · ")}. Not saved: <b>Keep this one</b> saves it, with any shift you set.
+          </p>
+        ) : null}
 
         <div className="adm-sync-stage">
           {playback ? (
@@ -250,10 +362,16 @@ export function SyncWorkspace({
           <button type="button" className="secondary" disabled={!changed} onClick={() => setTiming(NO_CHANGE)}>
             Reset
           </button>
-          <button type="button" disabled={!changed || busy} onClick={() => void save()}>
-            Save
-          </button>
-          {hasOriginal ? (
+          {tryId !== null ? (
+            <button type="button" disabled={busy || !trying} onClick={() => void keep()}>
+              Keep this one
+            </button>
+          ) : (
+            <button type="button" disabled={!changed || busy} onClick={() => void save()}>
+              Save
+            </button>
+          )}
+          {hasOriginal && tryId === null ? (
             <button type="button" className="secondary" disabled={busy} onClick={() => void restore()}>
               Put back the first version
             </button>

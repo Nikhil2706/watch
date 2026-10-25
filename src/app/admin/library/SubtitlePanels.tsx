@@ -108,7 +108,8 @@ export function SubtitleChooser({ item, onClose, onAdded }: { item: LibraryItem;
                 ? `Already has ${choices.builtIn} built-in subtitle track${choices.builtIn === 1 ? "" : "s"}. `
                 : "No subtitles yet. "}
             Best guess first: synced to this exact file, then made for the same release as the file name, then trusted, rated and
-            downloaded most. A new one is added beside any already there.
+            downloaded most. <b>Try it</b> plays one over the film so you can see it fits (and nudge it) before keeping it.
+            A new one is added beside any already there.
           </p>
           {[...choices.existingFiles, ...added].some((f) => f.toLowerCase().endsWith(".srt")) ? (
             <p className="hint">
@@ -135,7 +136,14 @@ export function SubtitleChooser({ item, onClose, onAdded }: { item: LibraryItem;
                     · {c.candidate.uploader || "unknown uploader"} · {c.tags.join(" · ")}
                   </span>
                 </span>
-                <button type="button" className={i === 0 ? undefined : "secondary"} disabled={busy !== null} onClick={() => void download(c)}>
+                <a
+                  className={i === 0 ? "btn" : "btn ghost"}
+                  href={`/admin/subtitles/sync?itemId=${encodeURIComponent(item.id)}&fileId=${c.candidate.fileId}`}
+                  title="Play it over the film before keeping it (uses one download, the first time)"
+                >
+                  Try it
+                </a>
+                <button type="button" className="secondary" disabled={busy !== null} onClick={() => void download(c)}>
                   {busy === c.candidate.fileId ? "Downloading…" : "Download"}
                 </button>
               </div>
