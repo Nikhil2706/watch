@@ -1,7 +1,7 @@
 import "server-only";
 
 import { parseEpisodeInfo } from "./episode-naming";
-import { getGroupedPathMap, getGroupSeriesPoster } from "./library-curation";
+import { getGroupedPathMap, getGroupKind, getGroupSeriesPoster } from "./library-curation";
 import type { MediaItem } from "./media";
 import { episodeLine } from "./resume-labels";
 import { episodeTilesForPaths } from "./tmdb-view";
@@ -35,6 +35,7 @@ export function episodeCards(items: readonly MediaItem[]): EpisodeCards {
       named?.seasonNumber ?? parsed.season,
       named?.episodeNumber ?? parsed.episode,
       named?.name ?? parsed.title ?? item.Name,
+      getGroupKind(show.groupId) === "movie" ? { showName: show.groupName } : undefined,
     );
     if (line) cards.lines.set(item.Id, line);
     const poster = getGroupSeriesPoster(show.groupId);

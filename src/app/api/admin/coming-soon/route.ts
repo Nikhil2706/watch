@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
+import { getAdminMovies } from "@/lib/admin-library-cache";
 import {
   announce,
   ComingSoonError,
@@ -44,14 +45,19 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ error: "upstream_error", message: "TMDB didn't answer; try again." }, { status: 502, headers: NO_STORE });
     }
   }
-  const scheduled = listUpcomingReleases().map((u) => ({
+  const upcoming = listUpcomingReleases();
+  // A film is listed by its title and year, not its file name.
+  const films = upcoming.some((u) => u.subjectType === "film")
+    ? new Map((await getAdminMovies({ withMediaSources: false })).map((m) => [m.Path, m.ProductionYear ? `${m.Name} (${m.ProductionYear})` : m.Name]))
+    : new Map<string | undefined, string | undefined>();
+  const scheduled = upcoming.map((u) => ({
     ...u,
     name:
       u.subjectType === "group"
         ? (getGroup(u.subjectId)?.groupName ?? u.subjectId)
         : u.subjectType === "series"
           ? (getSeriesById(u.subjectId)?.seriesName ?? u.subjectId)
-          : (u.subjectId.split("/").pop() ?? u.subjectId),
+          : (films.get(u.subjectId) ?? u.subjectId.split("/").pop() ?? u.subjectId),
   }));
   return Response.json({ announcements: listAnnouncements(), scheduled }, { headers: NO_STORE });
 }
