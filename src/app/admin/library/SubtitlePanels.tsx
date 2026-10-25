@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { adminApi } from "@/lib/admin/client-api";
 import { episodeCode, type LibraryItem } from "@/lib/admin/library-rows";
+import { orderUploadFiles, uploadKind } from "@/lib/subtitle-parts";
 
 import { useToasts } from "../Toasts";
 
@@ -349,3 +350,190 @@ export function SeriesSubtitlePlan({
     </>
   );
 }
+
+/* ------------------------------------------------------------------ *
+ * A show's pane: the per-episode plan, or for a film kept in parts,
+ * the whole film's subtitles cut across its parts
+ * ------------------------------------------------------------------ */
+
+export function GroupSubtitles({ groupId }: { groupId: string }) {
+  const [filmInParts, setFilmInParts] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    adminApi<{ filmInParts: boolean }>(`/api/admin/subtitles/parts?groupId=${encodeURIComponent(groupId)}&peek=1`)
+      .then((r) => live && setFilmInParts(r.filmInParts))
+      .catch(() => live && setFilmInParts(false));
+    return () => {
+      live = false;
+    };
+  }, [groupId]);
+
+  if (filmInParts === null) return null;
+  if (filmInParts) return <FilmPartsSubtitles groupId={groupId} />;
+  return (
+    <>
+      <h3 className="adm-section">Subtitles for every episode</h3>
+      <p className="hint">
+        Finds a subtitle for each episode that has none — built-in or file. If one episode has a subtitle file (or, failing that, a
+        built-in track), it works out which OpenSubtitles upload that is and picks the same uploader’s files; otherwise the one synced to
+        each video, else the best-rated. You see every pick before anything is downloaded. To choose which episode it learns from,
+        open that episode, pick its subtitle under Subtitles, then “Match the rest of the show to this”.
+      </p>
+      <SeriesSubtitlePlan groupId={groupId} />
+    </>
+  );
+}
+
+interface PartsChoices {
+  parts: Array<{ itemId: string; path: string; label: string; durationMs: number }>;
+  candidates: Array<Choice & { candidate: Choice["candidate"] & { files?: Array<{ fileId: number; fileName: string | null }> } }>;
+}
+
+function clock(ms: number): string {
+  const s = Math.round(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
+}
+
+/**
+ * A film kept in parts (Out 1, eight files): the whole film's subtitles, best
+ * guess first. One made for the whole film is cut at the parts' lengths; an
+ * upload already split one file per part is used file by file. "Try on part
+ * 1" plays it over part 1 first (it starts at 0 there). After, any part can
+ * be synced by eye, and "shift every part" moves the rest the same.
+ */
+function FilmPartsSubtitles({ groupId }: { groupId: string }) {
+  const { show } = useToasts();
+  const [data, setData] = useState<PartsChoices | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [results, setResults] = useState<Array<{ label: string; ok: boolean; message: string }> | null>(null);
+  const [all, setAll] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      setData(await adminApi<PartsChoices>(`/api/admin/subtitles/parts?groupId=${encodeURIComponent(groupId)}`));
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function use(c: PartsChoices["candidates"][number]) {
+    if (!data) return;
+    const files = orderUploadFiles(c.candidate.files ?? []);
+    const split = uploadKind(c.candidate, data.parts.length).kind === "split";
+    const fileIds = split ? files.map((f) => f.fileId) : [c.candidate.fileId];
+    if (!confirm(`Put this subtitle on all ${data.parts.length} parts? ${split ? `${files.length} downloads` : "One download"}, unless already tried.`)) return;
+    setBusy(c.candidate.fileId);
+    try {
+      const r = await adminApi<{ results: Array<{ label: string; ok: boolean; message: string }> }>("/api/admin/subtitles/parts", {
+        method: "POST",
+        body: { groupId, fileIds },
+      });
+      setResults(r.results);
+      const ok = r.results.filter((x) => x.ok).length;
+      show(ok === r.results.length ? "ok" : "err", `Added to ${ok} of ${r.results.length} parts.`);
+    } catch (e) {
+      show("err", message(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const first = data?.parts[0];
+  const list = data ? (all ? data.candidates : data.candidates.slice(0, FIRST_FEW)) : [];
+  return (
+    <>
+      <h3 className="adm-section">Subtitles for the whole film</h3>
+      <p className="hint">
+        This is one film kept in several files. A subtitle made for the whole film is cut across the parts at their lengths; an
+        upload that already comes one file per part is used file by file. <b>Try on part 1</b> plays it over part 1 first. If a
+        part is then a little off (releases cut in slightly different places), sync that part by eye: it offers to shift every
+        part the same.
+      </p>
+      {!data ? (
+        <div className="adm-acts">
+          <button type="button" disabled={loading} onClick={() => void load()}>
+            {loading ? "Searching…" : "Find subtitles for the whole film"}
+          </button>
+        </div>
+      ) : null}
+      {error ? <div className="error">{error}</div> : null}
+      {data ? (
+        <>
+          <p className="hint">
+            {data.parts.length} parts: {data.parts.map((p) => `${p.label} ${clock(p.durationMs)}`).join(" · ")} (
+            {clock(data.parts.reduce((s, p) => s + p.durationMs, 0))} in all).
+          </p>
+          {!data.candidates.length ? <p className="hint">OpenSubtitles has no English subtitles for this film.</p> : null}
+          <div className="adm-list-box">
+            {list.map((c, i) => {
+              const files = c.candidate.files ?? [];
+              const what = uploadKind(c.candidate, data.parts.length);
+              const split = what.kind === "split";
+              const onePart = what.kind === "onePart" ? data.parts[(what.part ?? 1) - 1] : undefined;
+              const unusable = what.kind === "mismatch" || what.kind === "onePart";
+              return (
+                <div key={c.candidate.fileId} className="adm-ep">
+                  <span className="adm-ep-n">{i === 0 ? <b className="adm-best">Best guess</b> : `${i + 1}.`}</span>
+                  <span className="adm-ep-t">
+                    {c.candidate.release || c.candidate.fileName || "subtitle"}
+                    <span className="hint">
+                      {" "}
+                      ·{" "}
+                      {split
+                        ? `one file per part (${files.length})`
+                        : what.kind === "onePart"
+                          ? `only part ${what.part}`
+                          : what.kind === "mismatch"
+                            ? `${files.length} files, but ${data.parts.length} parts`
+                            : "whole film"}{" "}
+                      ·{" "}
+                      {c.tags.join(" · ")}
+                    </span>
+                  </span>
+                  {onePart ? (
+                    <a className="btn ghost" href={`/admin/subtitles/sync?itemId=${encodeURIComponent(onePart.itemId)}&fileId=${c.candidate.fileId}`}>
+                      Try on part {what.part}
+                    </a>
+                  ) : first && !split && what.kind === "whole" ? (
+                    <a className="btn ghost" href={`/admin/subtitles/sync?itemId=${encodeURIComponent(first.itemId)}&fileId=${c.candidate.fileId}`}>
+                      Try on part 1
+                    </a>
+                  ) : null}
+                  <button type="button" className={i === 0 ? undefined : "secondary"} disabled={busy !== null || unusable} onClick={() => void use(c)}>
+                    {busy === c.candidate.fileId ? "Adding…" : `Use for all ${data.parts.length} parts`}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {data.candidates.length > FIRST_FEW && !all ? (
+            <button type="button" className="secondary" onClick={() => setAll(true)}>
+              Show all {data.candidates.length}
+            </button>
+          ) : null}
+          {results ? (
+            <p className="adm-note">
+              {results.map((r) => (
+                <span key={r.label}>
+                  {r.label}: {r.ok ? `added ${r.message}` : r.message}
+                  <br />
+                </span>
+              ))}
+              Open any part to sync it by eye; saving there offers to shift every part the same.
+            </p>
+          ) : null}
+        </>
+      ) : null}
+    </>
+  );
+}
+

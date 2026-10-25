@@ -28,6 +28,8 @@ export interface SubtitleCandidate {
   /** OpenSubtitles' 0-10 rating, and how many votes it rests on. */
   rating?: number | null;
   votes?: number | null;
+  /** Every file of the upload, when it comes in several ("CD1", "CD2"...): one per part of a film kept in parts. */
+  files?: Array<{ fileId: number; fileName: string | null }>;
 }
 
 /** The family signature of the approved episode's subtitle. */
