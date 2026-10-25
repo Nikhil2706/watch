@@ -1548,3 +1548,10 @@
   border-radius: 4px;
   flex: none;
 }
+
+/* Subtitles list: the top candidate. */
+.adm-best {
+  color: var(--accent);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}

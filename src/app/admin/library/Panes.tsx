@@ -23,6 +23,7 @@ import { GroupSettings } from "./GroupSettings";
 import { IdentifyPanel, ManualPanel, PosterPanel } from "./ItemPanels";
 import type { LibraryContext } from "./LibraryWorkspace";
 import { Thumb } from "./Thumb";
+import { SeriesSubtitlePlan, SubtitleChooser } from "./SubtitlePanels";
 
 /**
  * The right-hand pane: everything there is to do to the selected film or
@@ -35,7 +36,7 @@ function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-type Panel = "identify" | "manual" | "poster" | null;
+type Panel = "identify" | "manual" | "poster" | "subtitles" | null;
 
 export function FilmPane({
   row,
@@ -92,17 +93,6 @@ export function FilmPane({
       });
     });
 
-  const fetchSubs = () =>
-    act("subs", async () => {
-      const r = await adminApi<{ status: string; message?: string }>("/api/admin/library/fetch-subtitles", {
-        method: "POST",
-        body: { itemId: it.id },
-      });
-      if (r.status === "found") {
-        show("ok", r.message || "Subtitle added.");
-        void ctx.reload();
-      } else show("err", r.message || "No match found.");
-    });
 
   const damage = (action: "allow" | "disallow" | "recheck") =>
     act(`damage-${action}`, async () => {
@@ -247,8 +237,8 @@ export function FilmPane({
             <button type="button" className="secondary" onClick={() => setPanel(panel === "poster" ? null : "poster")}>
               Poster
             </button>
-            <button type="button" className="secondary" disabled={busy === "subs"} onClick={fetchSubs}>
-              {busy === "subs" ? "Searching…" : "Subtitles"}
+            <button type="button" className="secondary" onClick={() => setPanel(panel === "subtitles" ? null : "subtitles")}>
+              Subtitles
             </button>
             {it.isThinMetadata && !it.isWhitelisted ? (
               <button type="button" className="secondary" disabled={busy === "whitelist"} onClick={whitelist}>
@@ -309,6 +299,7 @@ export function FilmPane({
       {panel === "identify" ? <IdentifyPanel item={it} onDone={done} onClose={() => setPanel(null)} /> : null}
       {panel === "manual" ? <ManualPanel item={it} onDone={done} onClose={() => setPanel(null)} /> : null}
       {panel === "poster" ? <PosterPanel item={it} onDone={done} onClose={() => setPanel(null)} /> : null}
+      {panel === "subtitles" ? <SubtitleChooser item={it} onClose={() => setPanel(null)} onAdded={() => void ctx.reload()} /> : null}
 
       <FeatureBlock item={it} name={row.name} feature={feature} guess={row.featureGuess ?? undefined} ctx={ctx} />
       <FranchiseBlock item={it} name={row.name} />
@@ -375,77 +366,10 @@ export function FilmPane({
   );
 }
 
-interface SubsPlan {
-  groupId: string;
-  headline: string;
-  reference: { kind: string; season: number | null; episode: number | null; source: string | null; note: string };
-  episodes: Array<{
-    path: string;
-    season: number;
-    episode: number;
-    status: string;
-    note?: string;
-    pick?: { fileId: number; release: string | null; fileName: string | null; uploader: string | null; methodLabel: string; why: string[] };
-  }>;
-  downloadsUsed: number;
-  downloadsLeft: number | null;
-}
-
 export function ShowPane({ row, ctx }: { row: ShowRow; ctx: LibraryContext }) {
   const { show } = useToasts();
-  const [plan, setPlan] = useState<SubsPlan | null>(null);
-  const [planError, setPlanError] = useState<string | null>(null);
-  const [planning, setPlanning] = useState(false);
-  const [ticked, setTicked] = useState<Record<number, boolean>>({});
-  const [applying, setApplying] = useState<"idle" | "busy" | "done">("idle");
-  const [failures, setFailures] = useState<Array<{ path: string; message: string }>>([]);
   const [dissolving, setDissolving] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-
-  async function findSubs() {
-    setPlanning(true);
-    setPlanError(null);
-    setPlan(null);
-    try {
-      const r = await adminApi<{ plan: SubsPlan }>("/api/admin/subtitles/series/plan", { method: "POST", body: { groupId: row.groupId } });
-      setPlan(r.plan);
-      setTicked(Object.fromEntries(r.plan.episodes.map((e, i) => [i, e.status === "planned"])));
-      setApplying("idle");
-      setFailures([]);
-    } catch (e) {
-      setPlanError(message(e));
-    } finally {
-      setPlanning(false);
-    }
-  }
-
-  async function applySubs() {
-    if (!plan) return;
-    const picks = plan.episodes
-      .map((e, i) => (ticked[i] && e.pick ? { path: e.path, fileId: e.pick.fileId } : null))
-      .filter((p): p is { path: string; fileId: number } => p !== null);
-    if (!picks.length) {
-      show("err", "Tick at least one episode.");
-      return;
-    }
-    setApplying("busy");
-    try {
-      const r = await adminApi<{ results: Array<{ path: string; ok: boolean; message: string }>; downloadsLeft: number | null }>(
-        "/api/admin/subtitles/series/apply",
-        { method: "POST", body: { groupId: row.groupId, picks } },
-      );
-      const ok = r.results.filter((x) => x.ok).length;
-      show(
-        ok === r.results.length ? "ok" : "err",
-        `Added ${ok} of ${r.results.length} subtitles${r.downloadsLeft != null ? ` — ${r.downloadsLeft} downloads left today.` : "."}`,
-      );
-      setFailures(r.results.filter((x) => !x.ok));
-      setApplying("done");
-    } catch (e) {
-      show("err", message(e));
-      setApplying("idle");
-    }
-  }
 
   async function dissolve() {
     // In the old console this button did nothing (no handler); here it works.
@@ -461,8 +385,6 @@ export function ShowPane({ row, ctx }: { row: ShowRow; ctx: LibraryContext }) {
     }
   }
 
-  const planned = plan ? plan.episodes.filter((e) => e.status === "planned").length : 0;
-  const ref = plan?.reference;
 
   return (
     <div>
@@ -493,83 +415,10 @@ export function ShowPane({ row, ctx }: { row: ShowRow; ctx: LibraryContext }) {
       <p className="hint">
         Finds a subtitle for each episode that has none — built-in or file. If one episode has a subtitle file (or, failing that, a
         built-in track), it works out which OpenSubtitles upload that is and picks the same uploader’s files; otherwise the one synced to
-        each video, else the best-rated. You see every pick before anything is downloaded.
+        each video, else the best-rated. You see every pick before anything is downloaded. To choose which episode it learns from,
+        open that episode, pick its subtitle under Subtitles, then “Match the rest of the show to this”.
       </p>
-      <div className="adm-acts">
-        <button type="button" disabled={planning} onClick={findSubs}>
-          Find matching subtitles
-        </button>
-      </div>
-      {planning ? <p className="hint">Searching OpenSubtitles for each episode without subtitles — about a second each…</p> : null}
-      {planError ? <div className="error">{planError}</div> : null}
-      {plan && ref ? (
-        <div className="adm-plan">
-          <p className="adm-note">
-            <b>{plan.headline}</b>
-            <br />
-            {ref.kind === "external" ? (
-              <>
-                Learned from the subtitle file next to <b>{episodeCode({ season: ref.season ?? 0, episode: ref.episode ?? 0 })}</b> ({ref.source}).{" "}
-              </>
-            ) : ref.kind === "embedded" ? (
-              <>
-                No episode has a subtitle file, so it learned from <b>{episodeCode({ season: ref.season ?? 0, episode: ref.episode ?? 0 })}</b>’s{" "}
-                {ref.source}.{" "}
-              </>
-            ) : null}
-            {ref.note}
-            {plan.downloadsUsed
-              ? ` Identifying it used ${plan.downloadsUsed} download${plan.downloadsUsed === 1 ? "" : "s"}${plan.downloadsLeft != null ? ` (${plan.downloadsLeft} left today)` : ""}.`
-              : ""}
-          </p>
-          {plan.episodes.length ? (
-            <div className="adm-list-box">
-              {plan.episodes.map((e, i) => (
-                <div key={e.path} className="adm-ep">
-                  <span className="adm-ep-n">{episodeCode(e)}</span>
-                  <span className="adm-ep-t">
-                    {e.status === "planned" && e.pick ? (
-                      <label className="adm-check">
-                        <input type="checkbox" checked={Boolean(ticked[i])} onChange={(ev) => setTicked({ ...ticked, [i]: ev.target.checked })} />
-                        <span>
-                          {e.pick.release || e.pick.fileName || "subtitle"}{" "}
-                          <span className="hint">
-                            · <b>{e.pick.methodLabel}</b> · {e.pick.uploader || "unknown uploader"}
-                            {e.pick.why.length ? ` · ${e.pick.why.join(", ")}` : ""}
-                          </span>
-                        </span>
-                      </label>
-                    ) : (
-                      <>
-                        <span className="adm-warn">{e.status === "error" ? "search failed" : "no match"}</span>{" "}
-                        <span className="hint">{e.note ?? ""}</span>
-                      </>
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {planned ? (
-            <div className="adm-acts">
-              <button type="button" disabled={applying !== "idle"} onClick={applySubs}>
-                {applying === "busy" ? `Downloading ${Object.values(ticked).filter(Boolean).length}…` : applying === "done" ? "Done" : "Download ticked subtitles"}
-              </button>
-              <span className="hint">{planned} planned · one download each</span>
-            </div>
-          ) : null}
-          {failures.length ? (
-            <p className="adm-note">
-              {failures.map((f) => (
-                <span key={f.path}>
-                  {f.path.split("/").pop()}: {f.message}
-                  <br />
-                </span>
-              ))}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+      <SeriesSubtitlePlan groupId={row.groupId} />
 
       <h3 className="adm-section">Files</h3>
       <div className="adm-list-box">

@@ -80,7 +80,14 @@ export type Reference =
  * from the season with the most episodes to fill, since an uploader times a
  * season against one release; then the earliest.
  */
-export function chooseReference(episodes: readonly SeriesEpisode[]): Reference {
+export function chooseReference(episodes: readonly SeriesEpisode[], preferredPath: string | null = null): Reference {
+  // The curator's own choice ("match the rest of the show to this"), when that
+  // episode has something to learn from: its file, else its text track.
+  const preferred = preferredPath ? episodes.find((e) => e.path === preferredPath) : undefined;
+  if (preferred?.externalFile) return { kind: "external", episode: preferred, file: preferred.externalFile };
+  const preferredTrack = preferred?.embedded.find((t) => isTextSubtitleCodec(t.codec) && englishOrUnknown(t) > 0);
+  if (preferred && preferredTrack) return { kind: "embedded", episode: preferred, track: preferredTrack };
+
   const wanted = new Map<number, number>();
   for (const e of episodes) if (needsSubtitle(e)) wanted.set(e.season, (wanted.get(e.season) ?? 0) + 1);
   const order = (a: SeriesEpisode, b: SeriesEpisode) =>
@@ -342,6 +349,8 @@ export async function buildSeriesPlan(
     episodes: readonly SeriesEpisode[];
     unparsed: number;
     show: { imdbId: string | null; tmdbId: number | null };
+    /** An episode the curator chose to learn from, instead of chooseReference's own pick. */
+    referencePath?: string | null;
   },
   deps: PlanDeps,
 ): Promise<BuiltPlan> {
@@ -364,7 +373,7 @@ export async function buildSeriesPlan(
   const canSearch = (e: SeriesEpisode) => !!(show.imdbId || show.tmdbId || e.episodeImdbId || e.episodeTmdbId);
 
   // Learn from the reference, if there is one worth learning from.
-  const ref = chooseReference(episodes);
+  const ref = chooseReference(episodes, input.referencePath ?? null);
   let family: SubtitleFamily | null = null;
   if (ref.kind === "none") {
     out.reference.note =
