@@ -16,6 +16,7 @@ import {
 } from "./tmdb-store";
 import { ingestAllFromCache } from "./tmdb-people";
 import { normaliseShowName, pickBestShowMatch } from "./tmdb-match";
+import { fetchMiniseries, MAX_MINISERIES_EPISODES } from "./series-in-one-file";
 
 /**
  * Fills the TMDB store, a bounded batch at a time.
@@ -303,6 +304,8 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
 
     const existingLink = movie.Path ? getLink("path", movie.Path) : null;
     if (existingLink && existingLink.tmdbId === NO_MATCH) continue;
+    // A mini-series in one file (series-in-one-file.ts): linked to its show, which the refresh keeps fresh.
+    if (existingLink && existingLink.tmdbKind === "tv") continue;
     if (existingLink && getCached("movie", existingLink.tmdbId)) continue;
 
     remaining += 1;
@@ -335,6 +338,28 @@ export async function runTmdbBackfillTick(budget = DEFAULT_BUDGET): Promise<Tmdb
       if (!Number.isFinite(tmdbId) || tmdbId <= 0) {
         const found = await findByImdbId(providerIds?.Imdb ?? imdb);
         spend();
+        // An IMDb id that is a show, on one file with no episode number in its
+        // name: a mini-series kept whole (Salem's Lot, 1979). Linked to the
+        // show, so its page has a summary, cast and poster; renaming it in
+        // Jellyfin is left to the curator (Identify -> mini-series).
+        if (found?.kind === "tv" && movie.Path && parseEpisodeInfo(movie.Path).episode === null && !spent()) {
+          const show = await fetchMiniseries(found.id).catch(() => null);
+          spend();
+          if (show && (show.number_of_episodes ?? Infinity) <= MAX_MINISERIES_EPISODES) {
+            putLink({
+              subjectType: "path",
+              subjectId: movie.Path,
+              tmdbKind: "tv",
+              tmdbId: found.id,
+              season: null,
+              episode: null,
+              resolvedBy: "imdb-miniseries",
+            });
+            result.moviesFetched += 1;
+            remaining -= 1;
+            continue;
+          }
+        }
         if (!found || found.kind !== "movie") {
           if (movie.Path) {
             putLink({

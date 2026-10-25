@@ -284,8 +284,70 @@ export function filmViewByTmdbId(tmdbId: number): FilmView | null {
 export function filmViewByPath(path: string | null | undefined): FilmView | null {
   if (!path) return null;
   const link = getLink("path", path);
-  if (!link || link.tmdbKind !== "movie" || link.tmdbId <= 0) return null;
+  if (!link || link.tmdbId <= 0) return null;
+  if (link.tmdbKind === "tv") return filmViewOfShow(link.tmdbId);
   return filmViewByTmdbId(link.tmdbId);
+}
+
+/**
+ * A TV mini-series kept as one file (Salem's Lot, 1979: two 90-minute parts
+ * in one 183-minute file), shown as the film it is here. TMDB has it only as
+ * a show, so the show's payload stands in: its name, summary, genres, cast,
+ * logo and backdrop; its running time is its episodes' added together; and
+ * its director and writers, which a mini-series credits per episode rather
+ * than on the show, are read from its seasons' episodes.
+ */
+export function filmViewOfShow(tmdbId: number): FilmView | null {
+  const cached = getCached("tv", tmdbId);
+  const show = cached ? projectShow(cached.payload, tmdbId) : null;
+  if (!cached || !show) return null;
+  const raw = cached.payload as RawShow & {
+    external_ids?: { imdb_id?: string };
+    original_name?: string;
+    original_language?: string;
+    keywords?: { results?: Array<{ name: string }> };
+  };
+
+  const episodes: Array<{ runtime?: number | null; crew?: RawPerson[] }> = [];
+  for (let n = 1; n <= Math.min(show.seasonCount ?? 1, 5); n++) {
+    const season = getCached<{ episodes?: Array<{ runtime?: number | null; crew?: RawPerson[] }> }>("season", tmdbId, n);
+    episodes.push(...(season?.payload.episodes ?? []));
+  }
+  const runtime = episodes.reduce((sum, e) => sum + (e.runtime ?? 0), 0);
+  // The show's own crew, and every episode's, once each.
+  const seen = new Set<string>();
+  const crew = [...(raw.credits?.crew ?? raw.aggregate_credits?.crew ?? []), ...episodes.flatMap((e) => e.crew ?? [])].filter((p) => {
+    const key = `${p.id}:${p.job ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return {
+    tmdbId,
+    imdbId: raw.external_ids?.imdb_id ?? cached.imdbId ?? null,
+    title: show.name,
+    originalTitle: raw.original_name && raw.original_name !== show.name ? raw.original_name : null,
+    originalLanguage: raw.original_language ?? null,
+    tagline: show.tagline,
+    overview: show.overview,
+    runtimeMinutes: runtime || null,
+    releaseDate: raw.first_air_date ?? null,
+    genres: show.genres,
+    keywords: (raw.keywords?.results ?? []).map((k) => k.name),
+    cast: show.cast,
+    crew: bucketCrew(crew),
+    recommendations: [],
+    similar: [],
+    collection: null,
+    trailerUrl: null,
+    logoUrl: show.logoUrl,
+    backdropUrl: show.backdropUrl,
+    budget: null,
+    revenue: null,
+    voteAverage: show.voteAverage,
+    alternativeTitles: [],
+  };
 }
 
 /* ------------------------------------------------------------------ *
