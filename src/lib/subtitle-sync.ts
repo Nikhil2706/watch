@@ -3,8 +3,13 @@ import "server-only";
 import { copyFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 
+import { getAdminMovies } from "./admin-library-cache";
+import { asRows, getDb } from "./db";
+import { parseEpisodeInfo } from "./episode-naming";
 import { getFullItem, refreshItem } from "./jellyfin";
+import { getGroupedPathMap } from "./library-curation";
 import { formatSrt, parseSrt, retime, type Timing } from "./srt-timing";
+import type { EpisodeFiles } from "./subtitle-show-shift";
 
 /**
  * The sync screen (/admin/subtitles/sync): read one of a video's subtitle
@@ -24,6 +29,8 @@ export interface SyncTarget {
   videoPath: string;
   /** The .srt files next to the video, by name. */
   files: string[];
+  /** For an episode: its show's other episodes and their .srt files ("shift every episode"). */
+  show: { groupId: string; name: string; episodes: EpisodeFiles[] } | null;
 }
 
 async function videoOf(itemId: string): Promise<{ title: string; path: string }> {
@@ -46,7 +53,58 @@ function srtFilesNextTo(videoPath: string): string[] {
 
 export async function syncTarget(itemId: string): Promise<SyncTarget> {
   const v = await videoOf(itemId);
-  return { itemId, title: v.title, videoPath: v.path, files: srtFilesNextTo(v.path) };
+  return { itemId, title: v.title, videoPath: v.path, files: srtFilesNextTo(v.path), show: await showOf(v.path) };
+}
+
+/** The other episodes of the show a video is in, in order, with their .srt files. */
+async function showOf(videoPath: string): Promise<SyncTarget["show"]> {
+  const group = getGroupedPathMap().get(videoPath);
+  if (!group) return null;
+  const paths = asRows<{ path: string }>(
+    getDb().prepare("SELECT path FROM library_groups WHERE group_id = ?").all(group.groupId),
+  ).map((r) => r.path);
+  const idOf = new Map((await getAdminMovies({ withMediaSources: false })).map((m) => [m.Path, m.Id]));
+  const episodes = paths
+    .filter((p) => p !== videoPath && idOf.has(p))
+    .map((p) => ({ p, info: parseEpisodeInfo(p) }))
+    .sort((a, b) => a.info.sortKey - b.info.sortKey || a.p.localeCompare(b.p))
+    .map(({ p, info }) => ({
+      itemId: idOf.get(p)!,
+      path: p,
+      label: info.episode !== null ? `S${info.season ?? 1} E${info.episode}` : basename(p),
+      files: srtFilesNextTo(p),
+    }));
+  return { groupId: group.groupId, name: group.groupName, episodes };
+}
+
+/**
+ * The same timing for other episodes' files ("shift every episode by this
+ * much"): each file moves by it from where it is now, its first version kept
+ * as .orig like any save. Files not of this show are refused.
+ */
+export async function shiftShowFiles(
+  fromItemId: string,
+  timing: Timing,
+  files: ReadonlyArray<{ itemId: string; name: string }>,
+): Promise<Array<{ itemId: string; name: string; ok: boolean; message: string }>> {
+  const v = await videoOf(fromItemId);
+  const show = await showOf(v.path);
+  if (!show) throw new SyncError("This video isn't an episode of a show.");
+  const allowed = new Set(show.episodes.flatMap((e) => e.files.map((f) => `${e.itemId}\n${f}`)));
+  const out = [];
+  for (const f of files) {
+    if (!allowed.has(`${f.itemId}\n${f.name}`)) {
+      out.push({ ...f, ok: false, message: "Not a subtitle of this show's episodes." });
+      continue;
+    }
+    try {
+      const r = await saveTiming(f.itemId, f.name, timing);
+      out.push({ ...f, ok: true, message: `${r.cues} lines` });
+    } catch (error) {
+      out.push({ ...f, ok: false, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return out;
 }
 
 /** A subtitle file of this item, by name: only one listed next to its video. */

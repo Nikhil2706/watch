@@ -16,6 +16,8 @@ import {
   type Timing,
 } from "@/lib/srt-timing";
 
+import { defaultShiftPicks, type EpisodeFiles } from "@/lib/subtitle-show-shift";
+
 import { useToasts } from "../../Toasts";
 
 /**
@@ -52,6 +54,8 @@ export function SyncWorkspace({
   files,
   initialFile,
   initialTry = null,
+  videoPath,
+  show: showInfo = null,
   playback,
 }: {
   itemId: string;
@@ -60,6 +64,9 @@ export function SyncWorkspace({
   initialFile: string | null;
   /** Start by trying this OpenSubtitles file (its fileId), not a saved one. */
   initialTry?: number | null;
+  videoPath: string;
+  /** For an episode: the show's other episodes, for "shift every episode by this much". */
+  show?: { groupId: string; name: string; episodes: EpisodeFiles[] } | null;
   playback: { mode: "direct" | "hls"; src: string } | null;
 }) {
   const { show } = useToasts();
@@ -75,6 +82,10 @@ export function SyncWorkspace({
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
+  /** The shift just saved on this episode, offered for the show's others. */
+  const [savedShift, setSavedShift] = useState<{ timing: Timing; file: string } | null>(null);
+  const [shiftPicks, setShiftPicks] = useState<Record<string, boolean>>({});
+  const [shifting, setShifting] = useState(false);
 
   // The film: direct, or HLS through hls.js where the browser can't play it itself.
   useEffect(() => {
@@ -241,11 +252,44 @@ export function SyncWorkspace({
         body: { itemId, name: file, scale: timing.scale, offsetMs: timing.offsetMs },
       });
       show("ok", `Saved ${r.cues} lines (${describeTiming(timing)}). The first version is kept as ${file}.orig.`);
+      if (showInfo?.episodes.some((e) => e.files.length)) {
+        setSavedShift({ timing, file });
+        setShiftPicks(defaultShiftPicks({ videoPath, name: file }, showInfo.episodes));
+      }
       await load();
     } catch (e) {
       show("err", message(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function shiftOthers() {
+    if (!savedShift) return;
+    const files = Object.entries(shiftPicks)
+      .filter(([, on]) => on)
+      .map(([key]) => {
+        const [id, name] = key.split("\n");
+        return { itemId: id!, name: name! };
+      });
+    if (!files.length) {
+      show("err", "Tick at least one file.");
+      return;
+    }
+    setShifting(true);
+    try {
+      const r = await adminApi<{ results: Array<{ name: string; ok: boolean; message: string }> }>("/api/admin/subtitles/sync", {
+        method: "POST",
+        body: { itemId, scale: savedShift.timing.scale, offsetMs: savedShift.timing.offsetMs, alsoFiles: files },
+      });
+      const ok = r.results.filter((x) => x.ok).length;
+      const failed = r.results.filter((x) => !x.ok);
+      show(ok === r.results.length ? "ok" : "err", `Shifted ${ok} of ${r.results.length} files${failed.length ? `; ${failed.map((f) => `${f.name}: ${f.message}`).join("; ")}` : "."}`);
+      setSavedShift(null);
+    } catch (e) {
+      show("err", message(e));
+    } finally {
+      setShifting(false);
     }
   }
 
@@ -382,6 +426,48 @@ export function SyncWorkspace({
           ← → skip 2 s. Quicker: when you hear a line, press <b>Said now</b> beside it. If it drifts (fine at the start, off by
           the end), do that once near the start and once near the end. Nothing is saved until <b>Save</b>.
         </p>
+        {savedShift && showInfo ? (
+          <div className="adm-plan">
+            <p className="adm-note">
+              <b>
+                Shift other episodes of {showInfo.name} by the same {describeTiming(savedShift.timing)}?
+              </b>{" "}
+              Ticked: the files named like this one. Each moves by this much from where it is now; its first version is kept as .orig.
+            </p>
+            <div className="adm-list-box">
+              {showInfo.episodes
+                .filter((e) => e.files.length)
+                .map((e) => (
+                  <div key={e.itemId} className="adm-ep">
+                    <span className="adm-ep-n">{e.label}</span>
+                    <span className="adm-ep-t">
+                      {e.files.map((f) => {
+                        const key = `${e.itemId}\n${f}`;
+                        return (
+                          <label key={f} className="adm-check">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(shiftPicks[key])}
+                              onChange={(ev) => setShiftPicks({ ...shiftPicks, [key]: ev.target.checked })}
+                            />
+                            <span>{f}</span>
+                          </label>
+                        );
+                      })}
+                    </span>
+                  </div>
+                ))}
+            </div>
+            <div className="adm-acts">
+              <button type="button" disabled={shifting} onClick={() => void shiftOthers()}>
+                {shifting ? "Shifting…" : `Shift ${Object.values(shiftPicks).filter(Boolean).length} files`}
+              </button>
+              <button type="button" className="secondary" onClick={() => setSavedShift(null)}>
+                Not now
+              </button>
+            </div>
+          </div>
+        ) : null}
         {mark ? (
           <p className="adm-note">
             Placed on “{clean(mark.cue.text).slice(0, 60)}”. Mark a second line a minute or more away to fix drift too.
