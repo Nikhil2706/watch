@@ -16,10 +16,10 @@ export const dynamic = "force-dynamic";
  * /admin layout already limits this to admins. Playback here reports nothing
  * to Jellyfin, so syncing a film doesn't mark it watched.
  */
-export default async function SyncPage({ searchParams }: { searchParams: Promise<{ itemId?: string; name?: string }> }) {
+export default async function SyncPage({ searchParams }: { searchParams: Promise<{ itemId?: string; name?: string; fileId?: string }> }) {
   const session = await currentSession();
   if (!session) redirect("/login");
-  const { itemId, name } = await searchParams;
+  const { itemId, name, fileId } = await searchParams;
   if (!itemId) return <p className="hint">Open this from a film's Subtitles list.</p>;
 
   let target;
@@ -36,6 +36,7 @@ export default async function SyncPage({ searchParams }: { searchParams: Promise
       title={target.title}
       files={target.files}
       initialFile={name && target.files.includes(name) ? name : (target.files[0] ?? null)}
+      initialTry={fileId && /^\d+$/.test(fileId) ? Number(fileId) : null}
       playback={plan ? { mode: plan.mode, src: plan.src } : null}
     />
   );
