@@ -1,8 +1,9 @@
 # Session handoff: the Watch site
 
-Written 2026-10-25, at the end of a session (begun 2026-10-22) that merged and
-deployed everything open, finished the 2026-10-14 session's leftovers, then
-built the watch-history, friends, coming-soon and subtitle work below.
+Written 2026-10-25 (updated after the `4042aa3` deploy), at the end of a
+session (begun 2026-10-22) that merged and deployed everything open, finished
+the 2026-10-14 session's leftovers, then built the watch-history, friends,
+coming-soon and subtitle work below.
 Paste this file into a new chat to resume. The previous handoff (2026-09-05,
 from the Windows PC) is in git history; `HANDOFF-2026-09-06.md` and
 `HOST-SETUP.md` describe the older hosts.
@@ -24,8 +25,6 @@ from the Windows PC) is in git history; `HANDOFF-2026-09-06.md` and
    - Never prune scraped data, never skip Jellyfin artwork in backups.
    - Reports short and plain: done, checked how, not done.
    - Never print the console's secret address (`~/console-server/console-url.txt`).
-   - The automatic subtitle sync (alass) is not to be added to the worker
-     image without the owner's OK.
 3. **How changes go live:** a PR against `platform-additions`, merged by the
    owner on GitHub, then Watch Control's **Deploy latest** (or
    `~/watch-ops/control/control.sh deploy`). Deploy type-checks and tests,
@@ -42,7 +41,7 @@ from the Windows PC) is in git history; `HANDOFF-2026-09-06.md` and
 
 ---
 
-## What is live (`b911395`, schema 65)
+## What is live (`4042aa3`, schema 66)
 
 Everything up to the 2026-10-22 handoff (`86295f4`, schema 61), plus, all
 deployed through Deploy:
@@ -86,6 +85,18 @@ deployed through Deploy:
   group links to the TMDB film (group→movie, by IMDb id), and "Subtitles for
   the whole film" cuts one whole-film subtitle across the parts at their
   lengths, or uses an upload that comes one file per part.
+- **#81** a mini-series in one file takes its episodes' crew (TMDB lists the
+  director per episode): Salem's Lot now shows Tobe Hooper and Paul Monash.
+- **#82** the sync screen's clock also follows the video's own events (the
+  line didn't show in a background tab); "shift every episode" treats `.srt`
+  and `.eng.srt` alike, with Tick all / None.
+- **#84** Continue watching says "Next: Part 7" for a film in parts (was
+  "Episode 7 · Out 1"); Admin → Coming soon lists scheduled films by title.
+- **#85** **Sync automatically** on the sync screen: the worker runs alass
+  (compiled in its own Docker stage, `rust:1.82-alpine`, no ARM build exists)
+  on that one file when nobody is watching, keeps `.orig`, and says how far
+  the lines moved (`subtitle_autosync`, schema 66; shown on Health as "Sync
+  subtitles automatically"). alass also fixes speed drift, not just a shift.
 
 Tested live on 2026-10-25 after the `b911395` deploy, as the owner:
 - Out 1's page has TMDB backdrop, cast and Rivette; Salem's Lot has its
@@ -100,16 +111,28 @@ Tested live on 2026-10-25 after the `b911395` deploy, as the owner:
   tracks and a Subs folder.
 - Friends hides empty profiles.
 
+And after the later deploys (`18c6900`, `4042aa3`):
+- Salem's Lot's page lists Tobe Hooper (the credits were rebuilt from cache
+  with `POST /api/admin/people`, no TMDB calls).
+- Sync screen: the line shows over the video; shift-all ticked 23/23 Nathan
+  For You files (nothing was shifted; S1E01 put back).
+- Home, History, Friends, a friend's diary, Coming soon (and Admin's
+  look-up, nothing announced), the phone Admin tab, ✕ on a Continue
+  watching card (Sinister's put back by hand), and TV hold-to-scrub by proxy
+  (TV cookie `watch_tv=1`, synthetic held ArrowRight: tap +10 s, held
+  ~24 s then ~50 s per 0.8 s, one seek on release).
+- **Sync automatically on The Others' `.srt`: 36 s from the button to done.**
+  It ran 0.1% fast (1.1 s late at the start, 4.8 s early by the end), which
+  is why no nudge or download ever fitted. **Left synced** for the owner to
+  check by watching; `.srt.orig` is the old one.
+- Not tested: Watch together (needs a friend watching at the time), "Mark
+  unwatched" (it loses the date watched), My Undesirable Friends (not in the
+  library yet).
+
 ## Open
 
-- **#81, waiting for the owner to merge:** Salem's Lot's director. The
-  mini-series' credits now take its episodes' crew (TMDB lists the director
-  per episode, not on the show). Then Deploy and check the Salem's Lot page.
-- **#82, waiting for the owner to merge:** the sync screen's subtitle didn't
-  show in the browser pane (clock on animation frames only; now also the
-  video's events), and shift-all ticked 0 files (`.srt` vs `.eng.srt`; now
-  alike, plus Tick all / None). Then Deploy, and redo the Nathan shift-all
-  check (S1E01 was put back to its original; nothing else was shifted).
+- **The Others' synced subtitle:** the owner to watch it (near the end is
+  the test) and Put back if wrong.
 - **The real TV.** adb to the Hisense (192.168.1.8:5555) is refused: network
   debugging needs switching back on in its Developer options. Then test #67
   (held scrub), #60 (phone remote clock) and the party changes from #34/#37.
@@ -120,8 +143,9 @@ Tested live on 2026-10-25 after the `b911395` deploy, as the owner:
   call; steps in `deploy/mac/README.md`.
 - **The Whip and the Body shows twice in Continue watching.** Not looked into;
   probably two copies of the file.
-- **Automatic subtitle sync (alass)** in the worker: proposed, waiting for the
-  owner's OK before it goes in the image. Syncing by eye (#76) covers it until then.
+- **Sync automatically for a whole show** isn't there: it is one file at a
+  time. alass can also take another subtitle as the reference instead of the
+  film's sound; neither is built.
 - **OpenSubtitles quota:** 100 downloads a day (80 were left on 2026-10-25).
   Searches are free; Try and Keep each cost one download at most.
 
@@ -171,6 +195,16 @@ Tested live on 2026-10-25 after the `b911395` deploy, as the owner:
   poster were fixed from the test copy before #79 was deployed.
 - **The test copy's worker can't write films** (read-only mount). Stop it
   (`docker stop jellyfin-gate-worker-dev`) when testing the gate.
+- **A paused player keeps counting as watching.** Jellyfin lists a paused
+  session until it times out, so `playing.sh` said 1 for a long while after a
+  test left Halloween: Resurrection paused. To see who and what:
+  `/Sessions` (UserName, NowPlayingItem, PlayState.IsPaused, LastActivityDate).
+- **The worker image copies each script by name.** A new `scripts/*.mjs` the
+  worker imports needs its own `COPY` line in the Dockerfile's worker stage,
+  or the worker dies at start; #85 nearly shipped without one. Build the
+  worker target and import `media-worker.mjs` in it before opening the PR.
+- **A first Rust build is slow on GitHub:** #85's check took ~5 minutes and
+  "merge blocked" meant only "check still running".
 - **OpenSubtitles and TMDB drop connections** (ECONNRESET, "fetch failed")
   now and then; the site retries 5 times and can still fail, which through
   Cloudflare shows as a 502. Trying again a minute later works.
@@ -204,4 +238,6 @@ Tested live on 2026-10-25 after the `b911395` deploy, as the owner:
 - Subtitle code: `subtitle-choices.ts` (ranking), `subtitle-chooser.ts`,
   `subtitle-try.ts`, `srt-timing.ts` + `subtitle-sync.ts` (the sync screen),
   `subtitle-show-shift.ts`, `subtitle-parts.ts` + `subtitle-parts-apply.ts`
-  (films in parts); panels in `src/app/admin/library/SubtitlePanels.tsx`.
+  (films in parts), `subtitle-autosync.ts` + `scripts/subtitle-autosync.mjs`
+  (Sync automatically; the worker's part is in `media-worker.mjs`); panels in
+  `src/app/admin/library/SubtitlePanels.tsx`.
