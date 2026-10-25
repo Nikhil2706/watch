@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { readSubtitle, restoreOriginal, saveTiming, SyncError } from "@/lib/subtitle-sync";
+import { readSubtitle, restoreOriginal, saveTiming, shiftShowFiles, SyncError } from "@/lib/subtitle-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +12,8 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
  *   GET  ?itemId=&name=                        -> { text, hasOriginal }
  *   POST { itemId, name, scale, offsetMs }     -> rewrite with that timing (first version kept as .orig)
  *   POST { itemId, name, restore: true }       -> put the first version back
+ *   POST { itemId, scale, offsetMs, alsoFiles: [{ itemId, name }] }
+ *                                              -> the same shift for other episodes' files
  */
 function fail(error: unknown, what: string): Response {
   const known = error instanceof SyncError;
@@ -39,7 +41,28 @@ export async function GET(request: Request): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   const denied = requireAdmin(request);
   if (denied) return denied;
-  const b = (await request.json().catch(() => ({}))) as { itemId?: unknown; name?: unknown; scale?: unknown; offsetMs?: unknown; restore?: unknown };
+  const b = (await request.json().catch(() => ({}))) as {
+    itemId?: unknown;
+    name?: unknown;
+    scale?: unknown;
+    offsetMs?: unknown;
+    restore?: unknown;
+    alsoFiles?: unknown;
+  };
+  if (typeof b.itemId === "string" && Array.isArray(b.alsoFiles)) {
+    if (typeof b.scale !== "number" || typeof b.offsetMs !== "number") {
+      return Response.json({ error: "invalid_request", message: "scale and offsetMs are required." }, { status: 400, headers: NO_STORE });
+    }
+    const files = b.alsoFiles.filter(
+      (f): f is { itemId: string; name: string } => !!f && typeof f.itemId === "string" && typeof f.name === "string",
+    );
+    try {
+      const results = await shiftShowFiles(b.itemId, { scale: b.scale, offsetMs: b.offsetMs }, files);
+      return Response.json({ ok: true, results }, { headers: NO_STORE });
+    } catch (error) {
+      return fail(error, "shift the other episodes");
+    }
+  }
   if (typeof b.itemId !== "string" || typeof b.name !== "string") {
     return Response.json({ error: "invalid_request", message: "itemId and name are required." }, { status: 400, headers: NO_STORE });
   }

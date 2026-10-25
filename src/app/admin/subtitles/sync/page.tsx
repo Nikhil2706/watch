@@ -37,6 +37,8 @@ export default async function SyncPage({ searchParams }: { searchParams: Promise
       files={target.files}
       initialFile={name && target.files.includes(name) ? name : (target.files[0] ?? null)}
       initialTry={fileId && /^\d+$/.test(fileId) ? Number(fileId) : null}
+      videoPath={target.videoPath}
+      show={target.show}
       playback={plan ? { mode: plan.mode, src: plan.src } : null}
     />
   );
