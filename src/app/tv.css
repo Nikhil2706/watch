@@ -341,6 +341,34 @@ html[data-tv="true"] .player-stage video {
   max-height: calc(100dvh - 72px);
 }
 
+/* "Next episode" on a TV: read from the sofa, and plainly the focused thing
+   (it takes focus as it appears, so OK plays the next one). */
+html[data-tv="true"] .up-next {
+  bottom: 120px;
+  padding: 18px 26px 18px 30px;
+  gap: 18px;
+}
+
+html[data-tv="true"] .up-next-label {
+  font-size: 1.6rem;
+}
+
+html[data-tv="true"] .up-next-title {
+  font-size: 1.15rem;
+}
+
+html[data-tv="true"] .up-next svg {
+  width: 36px;
+  height: 36px;
+}
+
+html[data-tv="true"] .up-next:focus,
+html[data-tv="true"] .up-next:focus-visible {
+  outline: 5px solid var(--accent);
+  outline-offset: 4px;
+  transform: scale(1.04);
+}
+
 /* On the film's own player page (not a watch party, whose bar sits above a
    grid) the "‹ Back / title" bar lies over the top of the video and comes
    and goes with the control bar: it used to stay up for the whole film

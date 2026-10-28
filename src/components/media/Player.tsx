@@ -49,6 +49,7 @@ import {
   type PlayerAction,
   type TvFocusZone,
 } from "@/lib/player-keys";
+import { showUpNext, upNextFrom } from "@/lib/up-next";
 
 /**
  * What sits beside the player in a watch party room (PartyRoomClient): the
@@ -225,8 +226,12 @@ interface PlayerProps {
   subtitles: PlayerSubtitle[];
   defaultSubtitleIndex: number | null;
   party?: PlayerPartySync;
-  /** The next episode's watch URL, for Shift+N. */
+  /** The next episode's watch URL, for Shift+N and the "Next episode" button. */
   nextHref?: string | null;
+  /** What the "Next episode" button names, e.g. "S1 E3 · Witch". */
+  nextLabel?: string | null;
+  /** Where the credits start, from Jellyfin's Outro segment; null when it has none (up-next.ts). */
+  creditsStart?: number | null;
 }
 
 export function Player({
@@ -244,6 +249,8 @@ export function Player({
   defaultSubtitleIndex,
   party,
   nextHref = null,
+  nextLabel = null,
+  creditsStart = null,
 }: PlayerProps) {
   const player = useRef<MediaPlayerInstance>(null);
   const seeded = useRef(false);
@@ -418,6 +425,72 @@ export function Player({
     stageRef.current?.querySelector<HTMLElement>(".vds-player")?.focus();
   }
 
+  /* ---- "Next episode", from the credits on (up-next.ts) ----
+     Shown from where the credits start, and kept once the episode has ended
+     and the screen is black. On a TV it takes focus as it appears, so OK is
+     all it takes; up/down/Back step back to the credits, and it returns,
+     focused, when they end. Not in a watch party: the room decides what is
+     on, together. */
+  const [upNext, setUpNext] = useState(false);
+  const upNextButton = useRef<HTMLButtonElement>(null);
+  const upNextEnded = useRef(false);
+  const upNextDismissed = useRef(false);
+
+  function dismissUpNext() {
+    upNextDismissed.current = true;
+    if (!upNextEnded.current) setUpNext(false);
+    focusVideo();
+  }
+  const dismissUpNextRef = useRef(dismissUpNext);
+  dismissUpNextRef.current = dismissUpNext;
+
+  useEffect(() => {
+    const instance = player.current;
+    if (!instance || !nextHref) return;
+    const update = () => {
+      if (partyRef.current) {
+        setUpNext(false);
+        return;
+      }
+      const t = instance.currentTime;
+      const duration = instance.duration;
+      // Back out of the credits (or the end), it starts over: a fresh offer next time round.
+      if (t < duration - 1) upNextEnded.current = false;
+      const from = upNextFrom(duration, creditsStart);
+      if (from !== null && t < from) upNextDismissed.current = false;
+      const show = showUpNext({
+        currentTime: t,
+        duration,
+        creditsStart,
+        ended: upNextEnded.current,
+        dismissed: upNextDismissed.current,
+      });
+      // Focus on a button about to go would otherwise drop to the page.
+      if (!show && document.activeElement === upNextButton.current) focusVideo();
+      setUpNext(show);
+    };
+    const onEnded = () => {
+      upNextEnded.current = true;
+      update();
+      // Black screen, one thing to do: focused for OK/Enter, on any device.
+      requestAnimationFrame(() => upNextButton.current?.focus());
+    };
+    instance.addEventListener("time-update", update);
+    instance.addEventListener("seeked", update);
+    instance.addEventListener("ended", onEnded);
+    return () => {
+      instance.removeEventListener("time-update", update);
+      instance.removeEventListener("seeked", update);
+      instance.removeEventListener("ended", onEnded);
+    };
+  }, [nextHref, creditsStart]);
+
+  // On a TV it takes focus as it appears; elsewhere a keyboard is not taken
+  // from the viewer mid-credits (Shift+N and a click both work).
+  useEffect(() => {
+    if (upNext && tvModeRef.current) upNextButton.current?.focus();
+  }, [upNext]);
+
   /**
    * TV: the bar stays up while focus is in it. Left to its idle timer
    * (~2 s) it hid mid-choice and sent focus back to the video, so an OK on
@@ -431,6 +504,7 @@ export function Player({
 
   /** TV remote: on the "‹ Back" bar above the video, on the video, or in the control bar. */
   function tvZone(target: HTMLElement | null): TvFocusZone {
+    if (target?.closest?.(".up-next")) return "upnext";
     if (target?.closest?.(PLAYER_TOP_BAR)) return "topbar";
     if (!target?.closest?.(".plyr__controls")) return "video";
     return target.getAttribute("role") === "slider" ? "slider" : "controls";
@@ -499,6 +573,9 @@ export function Player({
         holdControls();
         return;
       }
+      case "dismissUpNext":
+        dismissUpNextRef.current();
+        return;
       default:
         runActionRef.current(action);
     }
@@ -854,6 +931,11 @@ export function Player({
       const menu = stage?.querySelector(".plyr__menu__container") ?? menuButton;
       menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: false }));
       menuButton.focus();
+      return true;
+    }
+    // Off "Next episode", back to the credits (it returns when they end).
+    if (document.activeElement?.closest(".up-next")) {
+      dismissUpNextRef.current();
       return true;
     }
     if (document.activeElement?.closest(`.plyr__controls, ${PLAYER_SIDE_PANEL}, ${PLAYER_TOP_BAR}`)) {
@@ -1448,6 +1530,24 @@ export function Player({
           <button ref={tapButtonRef} type="button" className="party-tap-to-join" onClick={joinByTap}>
             <PlayIcon />
             <span>Tap to join the film</span>
+          </button>
+        ) : null}
+
+        {upNext && nextHref ? (
+          <button
+            ref={upNextButton}
+            type="button"
+            className="up-next"
+            onClick={(event) => {
+              event.stopPropagation();
+              runActionRef.current({ kind: "next" });
+            }}
+          >
+            <span className="up-next-text">
+              <span className="up-next-label">Next episode</span>
+              {nextLabel ? <span className="up-next-title">{nextLabel}</span> : null}
+            </span>
+            <PlayIcon />
           </button>
         ) : null}
 

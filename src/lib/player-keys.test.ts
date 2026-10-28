@@ -216,3 +216,13 @@ test("changing direction starts a new 10 s jump from the target", () => {
   hold = advanceHold(hold, -1, 100, hold.target, 3600);
   assert.deepEqual(hold, { dir: -1, startedAt: 100, lastAt: 100, target: 100 });
 });
+
+test("TV remote on Next episode: OK plays it, left/right still seek, up/down put it away", () => {
+  assert.deepEqual(resolveTvRemoteKey("Enter", "upnext"), { kind: "next" });
+  assert.deepEqual(resolveTvRemoteKey("ArrowLeft", "upnext"), { kind: "seek", by: -10 });
+  assert.deepEqual(resolveTvRemoteKey("ArrowRight", "upnext"), { kind: "seek", by: 10 });
+  assert.deepEqual(resolveTvRemoteKey("ArrowUp", "upnext"), { kind: "dismissUpNext" });
+  assert.deepEqual(resolveTvRemoteKey("ArrowDown", "upnext"), { kind: "dismissUpNext" });
+  // Transport keys mean the same everywhere.
+  assert.deepEqual(resolveTvRemoteKey("MediaTrackNext", "upnext"), { kind: "next" });
+});

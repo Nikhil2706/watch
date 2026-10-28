@@ -45,9 +45,10 @@ const MEDIA_KEYS: Record<string, PlayerAction> = {
 
 /**
  * Where focus is when a TV remote key arrives in the player: on the video
- * itself, on a button in the control bar, or on one of its sliders.
+ * itself, on a button in the control bar, or on one of its sliders — or on
+ * the "Next episode" button shown from the credits on (up-next.ts).
  */
-export type TvFocusZone = "video" | "controls" | "slider" | "topbar";
+export type TvFocusZone = "video" | "controls" | "slider" | "topbar" | "upnext";
 
 export type TvRemoteAction =
   | PlayerAction
@@ -60,7 +61,9 @@ export type TvRemoteAction =
   /** Move along the control bar. */
   | { kind: "moveControl"; direction: 1 | -1 }
   /** Move along the bar above the video ("‹ Back", and a watch party's "Chat"). */
-  | { kind: "moveTopBar"; direction: 1 | -1 };
+  | { kind: "moveTopBar"; direction: 1 | -1 }
+  /** Off the "Next episode" button, back to the credits: it stays away until the episode ends. */
+  | { kind: "dismissUpNext" };
 
 /**
  * A TV remote has arrows, OK, Back and (sometimes) transport keys — no
@@ -71,8 +74,10 @@ export type TvRemoteAction =
  * bar: left/right move between controls (a slider keeps left/right for
  * itself), up returns to the video. On the bar above ("‹ Back", and in a
  * watch party "Chat"): left/right move along it, down returns to the video,
- * OK presses what is focused. Returns null to leave the key alone (OK on a button
- * or link presses it).
+ * OK presses what is focused. On "Next episode", which takes focus when it
+ * appears: OK plays the next episode, left/right still jump 10 s through the
+ * credits, up/down step back to the video and put it away until the end.
+ * Returns null to leave the key alone (OK on a button or link presses it).
  */
 /**
  * One OK press, one action.
@@ -146,6 +151,20 @@ export function resolveTvRemoteKey(key: string, zone: TvFocusZone): TvRemoteActi
         return { kind: "focusTopBar" };
       case "ArrowDown":
         return { kind: "showControls" };
+    }
+    return null;
+  }
+  if (zone === "upnext") {
+    switch (key) {
+      case "Enter":
+        return { kind: "next" };
+      case "ArrowLeft":
+        return { kind: "seek", by: -10 };
+      case "ArrowRight":
+        return { kind: "seek", by: 10 };
+      case "ArrowUp":
+      case "ArrowDown":
+        return { kind: "dismissUpNext" };
     }
     return null;
   }

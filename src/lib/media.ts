@@ -1105,6 +1105,25 @@ export function resumeSeconds(item: MediaItem): number {
   return ticks > 0 ? Math.floor(ticks / TICKS_PER_MS / 1000) : 0;
 }
 
+/**
+ * Where an episode's credits start, from Jellyfin's Outro media segment, or
+ * null. As of 2026-10-29 that is null for every file here: none has chapters
+ * and no segment provider (an intro/credits detector plugin) is installed, so
+ * the player falls back to the last 45 s (up-next.ts). Asked anyway, so a
+ * provider added later is picked up without a code change.
+ */
+export async function getCreditsStart(session: ResolvedSession, itemId: string): Promise<number | null> {
+  const [token, device] = creds(session);
+  const data = await userFetch<{ Items?: Array<{ Type?: string; StartTicks?: number }> }>(
+    token,
+    device,
+    `/MediaSegments/${encodeURIComponent(itemId)}`,
+    { includeSegmentTypes: "Outro" },
+  );
+  const outro = data?.Items?.find((s) => s.Type === "Outro");
+  return outro?.StartTicks && outro.StartTicks > 0 ? outro.StartTicks / TICKS_PER_MS / 1000 : null;
+}
+
 /** Best-effort quality label from the media streams, e.g. "4K · HEVC". */
 export function qualityLabel(item: MediaItem): string | null {
   const video = item.MediaSources?.[0]?.MediaStreams?.find((s) => s.Type === "Video");
