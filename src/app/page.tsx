@@ -18,6 +18,8 @@ import { episodeCards } from "@/lib/episode-cards";
 import { friendsLately, friendsWatchingNow } from "@/lib/friends-activity";
 import { reviewSnippet, takesLine } from "@/lib/friends-feed";
 import { getActiveJobs } from "@/lib/jobs";
+import { latestPerShow } from "@/lib/latest-per-show";
+import { getGroupedPathMap } from "@/lib/library-curation";
 import { getMemberships } from "@/lib/lists";
 import { homePicksForViewer } from "@/lib/pick-views";
 import { listLiveParties, listUpcomingParties } from "@/lib/party";
@@ -68,11 +70,13 @@ export default async function HomePage() {
   // down. But if the latest-items call fails, Jellyfin itself is unreachable,
   // and "nothing in the library" would be the wrong thing to tell anyone.
   let libraryUnreachable = false;
-  const [continuing, recent, latest, genres, shelves, picks, friendsNow, friendsRecent, coming] = await Promise.all([
+  const [continuing, played, latest, genres, shelves, picks, friendsNow, friendsRecent, coming] = await Promise.all([
     // Half-watched titles and the next episode of each show (next-up.ts).
     getContinueWatching(session).catch(() => ({ items: [] as MediaItem[], nextUp: new Set<string>() })),
     // What they have finished, newest first. The full list is /history.
-    getRecentlyWatched(session, RECENTLY_WATCHED_ROW).catch(() => []),
+    // Read well past the row's length: it is cut to one card per show below,
+    // and a run of one series would otherwise leave the row near empty.
+    getRecentlyWatched(session, RECENTLY_WATCHED_ROW * 6).catch(() => []),
     getLatest(session).catch(() => {
       libraryUnreachable = true;
       return [];
@@ -90,6 +94,11 @@ export default async function HomePage() {
   ]);
 
   const resume = continuing.items;
+
+  // One card per show, on the episode watched last (latest-per-show.ts): a
+  // week of one series otherwise fills the whole row. /history keeps them all.
+  const showOfPath = getGroupedPathMap();
+  const recent = latestPerShow(played, (i) => (i.Path ? showOfPath.get(i.Path)?.groupId : undefined), RECENTLY_WATCHED_ROW);
 
   // Local, not from Jellyfin: these titles have been dropped into the watch
   // folder but are still being converted, so Jellyfin does not know about them.
@@ -190,12 +199,17 @@ export default async function HomePage() {
   const latelyPosters = new Map<string, string | null>();
   const latelyHrefs = new Map<string, string>();
   const latelyLines = new Map<string, string>();
+  // A show's card is on the episode a friend watched last; its line says which.
+  const latelyEpisodes = episodeCards(friendsRecent.filter((t) => t.latestEpisode).map((t) => t.item)).lines;
   for (const t of friendsRecent) {
     if (t.showName) latelyTitles.set(t.item.Id, t.showName);
     if (t.posterSrc !== undefined) latelyPosters.set(t.item.Id, t.posterSrc);
     if (t.href) latelyHrefs.set(t.item.Id, t.href);
     const review = t.card.takes.find((x) => x.review)?.review;
-    latelyLines.set(t.item.Id, [takesLine(t.card.takes), review ? reviewSnippet(review, 60) : null].filter(Boolean).join(" · "));
+    latelyLines.set(
+      t.item.Id,
+      [takesLine(t.card.takes), latelyEpisodes.get(t.item.Id), review ? reviewSnippet(review, 60) : null].filter(Boolean).join(" · "),
+    );
   }
 
   const featured: MediaItem | undefined = resume[0] ?? latest[0];
