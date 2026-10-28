@@ -1210,6 +1210,12 @@ export function Player({
         // reach. Modest values matter on a slow box.
         maxBufferLength: 30,
         maxMaxBufferLength: 60,
+        // Start loading at the resume point. The transcode playlist always runs
+        // from 0 (PlaybackInfo is asked without a start offset), so without
+        // this hls.js fetches segment 0, Jellyfin starts transcoding from the
+        // top, and the seek in onCanPlay restarts it. Not in a party: there the
+        // room's position wins, and is applied in onCanPlay.
+        ...(startSeconds > 0 && !partyRef.current ? { startPosition: startSeconds } : {}),
       };
     }
   }
@@ -1228,9 +1234,12 @@ export function Player({
     }
     if (seeded.current || startSeconds <= 0) return;
     seeded.current = true;
-    // For HLS the transcode already starts at the requested offset, so seeking
-    // again would double-apply it.
-    if (mode === "direct" && player.current) {
+    // Both modes. This used to skip HLS on the belief that the transcode
+    // already began at the offset, but nothing passes Jellyfin one: its
+    // playlist starts at 0, so every transcoded title resumed from the top.
+    // hls.js's startPosition (onProviderChange) normally lands it there
+    // already; the tolerance keeps that from costing a second, needless seek.
+    if (player.current && Math.abs(player.current.currentTime - startSeconds) > 3) {
       player.current.currentTime = startSeconds;
     }
   }
