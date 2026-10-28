@@ -129,3 +129,15 @@ test("years, resolutions and ranges inside words are not parts", () => {
 test("a (2) duplicate-file suffix stays unparsed on purpose", () => {
   assert.equal(findEpisodeMarker("L'età di Cosimo de Medici (2)").episode, null);
 });
+
+test("reads a spelled-out Season N Episode NN", () => {
+  const m = findEpisodeMarker("Friday Night Lights Season 2 Episode 01 - Last Days of Summer");
+  assert.equal(m.season, 2);
+  assert.equal(m.episode, 1);
+  assert.equal(m.endIndex, "Friday Night Lights Season 2 Episode 01".length);
+});
+
+test("a spelled-out season is not lost to the bare Episode form", () => {
+  assert.equal(findEpisodeMarker("Friday Night Lights Season 5 Episode 13 - Always").season, 5);
+  assert.equal(findEpisodeMarker("Show.Season.3.Episode.07.Title").season, 3);
+});
