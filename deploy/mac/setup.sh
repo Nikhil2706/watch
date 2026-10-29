@@ -90,21 +90,23 @@ console)
   ;;
 
 agents)
-  mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" "$HOME/.config/watch" "$HOME/watch-host"
-  cp "$PKG/mac/watch-up.sh" "$PKG/mac/host-jobs/yield-to-fcp.sh" "$HOME/watch-host/" && chmod 755 "$HOME/watch-host/"*.sh
+  mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs/watch-health" "$HOME/.config/watch" "$HOME/watch-host"
+  cp "$PKG/mac/host-jobs/watch-up.sh" "$PKG/mac/host-jobs/yield-to-fcp.sh" \
+    "$PKG/mac/host-jobs/watch-health.sh" "$PKG/mac/host-jobs/watch-health-checks.mjs" "$HOME/watch-host/" &&
+    chmod 755 "$HOME/watch-host/"*.sh
   BREW=$(brew --prefix 2>/dev/null || echo /opt/homebrew)
   DOCKERBIN=$(dirname "$(command -v docker)")
   # The backup runs in the worker now, on the site's schedule: the host-jobs
   # agent that used to run it every minute is taken out if it is there.
   launchctl bootout "gui/$(id -u)/com.watch.hostjobs" 2>/dev/null && echo "removed com.watch.hostjobs"
   rm -f "$HOME/Library/LaunchAgents/com.watch.hostjobs.plist"
-  for name in com.watch.up com.watch.yield; do
+  for name in com.watch.up com.watch.yield com.watch.health; do
     sed -e "s#__HOME__#$HOME#g" -e "s#__DRIVE__#$DRIVE#g" -e "s#__BREW__#$BREW#g" -e "s#__DOCKERBIN__#$DOCKERBIN#g" \
       "$PKG/mac/launchd/$name.plist" > "$HOME/Library/LaunchAgents/$name.plist"
     launchctl bootout "gui/$(id -u)/$name" 2>/dev/null
     launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/$name.plist" && echo "loaded $name"
   done
-  echo "log: ~/Library/Logs/watch-up.log"
+  echo "log: ~/Library/Logs/watch-up.log; nightly report: ~/Library/Logs/watch-health/latest.txt"
   ;;
 
 ops)
