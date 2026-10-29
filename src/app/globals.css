@@ -6644,6 +6644,20 @@ html[data-in-app] .app-get {
   }
 }
 
+/* The same arrows on every Row (RowRail), level with the middle of its cards. */
+.row-rail {
+  position: relative;
+}
+
+@media (hover: hover) {
+  .row-arrow {
+    top: calc(50% - 23px);
+  }
+  .row:hover .row-arrow {
+    opacity: 1;
+  }
+}
+
 /* A phone has no hover: pressing and holding a tile lifts it into this card. */
 .pk-held {
   position: fixed;
