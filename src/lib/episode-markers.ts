@@ -28,11 +28,16 @@ export interface EpisodeMarker {
  *    a double episode is filed under the earlier number everywhere.
  *  - "03x02" is tried before the bare "E7" form, since a bare-episode match
  *    could otherwise pick a number out of an unrelated part of the name.
+ *  - "Season 2 Episode 01" (Friday Night Lights, all 75 files) is tried before
+ *    the bare form too, which would otherwise read "Episode 01" and drop the
+ *    season, filing all five seasons' episode 1s on top of each other.
  */
 const DOUBLE_EPISODE = /\bS(\d{1,2})E(\d{1,3})E\d{1,3}\b/i;
 const SEASON_EPISODE = /\bS(\d{1,2})E(\d{1,3})\b/i;
 /** "3x07", "03x02" — season and episode either side of an x, no S or E at all. */
 const CROSS_EPISODE = /\b(\d{1,2})x(\d{1,3})\b/i;
+/** "Season 2 Episode 01", spelled out, with spaces, dots or dashes between. */
+const WORDED_SEASON_EPISODE = /\bSeason[\s._-]*(\d{1,2})[\s._-]*Episode[\s._-]*(\d{1,3})\b/i;
 const BARE_EPISODE = /\bE(?:p(?:isode)?)?\.?\s*(\d{1,3})\b/i;
 
 /*
@@ -92,6 +97,15 @@ export function findEpisodeMarker(stem: string): EpisodeMarker {
       season: Number.parseInt(cross[1] ?? "0", 10),
       episode: Number.parseInt(cross[2] ?? "0", 10),
       endIndex: cross.index + cross[0].length,
+    };
+  }
+
+  const worded = WORDED_SEASON_EPISODE.exec(stem);
+  if (worded) {
+    return {
+      season: Number.parseInt(worded[1] ?? "0", 10),
+      episode: Number.parseInt(worded[2] ?? "0", 10),
+      endIndex: worded.index + worded[0].length,
     };
   }
 
