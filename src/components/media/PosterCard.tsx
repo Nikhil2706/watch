@@ -37,6 +37,7 @@ export function PosterCard({
   shape = "poster",
   markWatched = false,
   removable = false,
+  marker,
 }: {
   item: MediaItem;
   /** Which lists this item is already on, for the toggle initial state. */
@@ -63,6 +64,12 @@ export function PosterCard({
   markWatched?: boolean;
   /** Offers ✕ "remove from Continue watching" (it isn't marked watched). */
   removable?: boolean;
+  /**
+   * A heading over this card that starts a stretch of the row, e.g. "Season 2"
+   * on a season's first episode, so a run of every episode does not read as
+   * "Episode 12, Episode 1". Drawn above the card, with a rule before it.
+   */
+  marker?: string;
 }) {
   const still = shape === "still";
   const src =
@@ -74,7 +81,10 @@ export function PosterCard({
   const leaving = leavingDaysForItem(item);
 
   return (
-    <div className={still ? "poster poster--still" : "poster"}>
+    <div className={["poster", still ? "poster--still" : "", marker ? "poster--marked" : ""].filter(Boolean).join(" ")}>
+      {marker ? (
+        <span className="poster-marker">{marker}</span>
+      ) : null}
       <Link href={href ?? itemHref(item.Id, item.Name, item.ProductionYear)} className="poster-link">
         <div className="poster-art">
           {src ? (

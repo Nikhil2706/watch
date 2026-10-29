@@ -119,6 +119,18 @@ export default async function ItemPage({
   const nextEpisodeId = episodeContext?.future[0]?.item.Id ?? null;
   const episodeBadges = new Map<string, string>([[id, "This episode"]]);
   if (nextEpisodeId) episodeBadges.set(nextEpisodeId, "Next");
+  // "Season 2" over each season's first episode, once the row spans more than
+  // one: the cards only say "Episode 1", which after S1's last read as a step
+  // back. Anything with no season (an extra) is headed "Extras".
+  const episodeMarkers = new Map<string, string>();
+  const allEpisodes = episodeContext?.all ?? [];
+  if (new Set(allEpisodes.map((f) => f.season)).size > 1) {
+    let previous: number | null | undefined;
+    for (const f of allEpisodes) {
+      if (f.season !== previous) episodeMarkers.set(f.item.Id, f.season === null ? "Extras" : `Season ${f.season}`);
+      previous = f.season;
+    }
+  }
   // Synchronous local-DB reads, not network fetches — no Promise.all needed.
   // The public read path only ever touches resolve.ts (blurb/accolade) and
   // trivia.ts's resolveTriviaForFilm: both return short display strings,
@@ -519,6 +531,7 @@ export default async function ItemPage({
             lists={allLists}
             itemTitles={episodeTitles}
             itemBadges={episodeBadges}
+            itemMarkers={episodeMarkers}
           />
           {/* The last episode has no next: the row opens on this one instead. */}
           <RowStartAt rowTitle="Episodes" itemId={nextEpisodeId ?? id} />

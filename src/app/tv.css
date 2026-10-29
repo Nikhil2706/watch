@@ -1300,5 +1300,14 @@ html[data-tv="true"] .end-reading-qr svg {
 }
 
 html[data-tv="true"] .end-reading-title {
+
+/* Season headings in the episode page's row, read from the sofa. */
+html[data-tv="true"] .row-scroll--marked {
+  padding-top: 46px;
+}
+
+html[data-tv="true"] .poster-marker {
+  bottom: calc(100% + 10px);
+  padding: 5px 14px;
   font-size: 0.95rem;
 }

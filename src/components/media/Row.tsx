@@ -25,6 +25,7 @@ export function Row({
   shape,
   markWatched,
   removable,
+  itemMarkers,
 }: {
   title: string;
   /** Makes the heading a link to the whole list, as a pick row's is (Recently watched -> /history). */
@@ -55,6 +56,8 @@ export function Row({
   markWatched?: boolean;
   /** Puts ✕ "remove from Continue watching" on each poster. */
   removable?: boolean;
+  /** item id -> a heading over that card, starting a stretch of the row: "Season 2" on a season's first episode. */
+  itemMarkers?: Map<string, string>;
 }) {
   if (items.length === 0) return null;
 
@@ -71,7 +74,7 @@ export function Row({
           title
         )}
       </h2>
-      <div className="row-scroll">
+      <div className={itemMarkers && itemMarkers.size > 0 ? "row-scroll row-scroll--marked" : "row-scroll"}>
         {items.map((item) => (
           <PosterCard
             key={item.Id}
@@ -86,6 +89,7 @@ export function Row({
             shape={rowShape}
             markWatched={markWatched}
             removable={removable}
+            marker={itemMarkers?.get(item.Id)}
           />
         ))}
       </div>

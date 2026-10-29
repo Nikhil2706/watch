@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { defaultAudio, mp4SubtitlesBlock, needsBrowserAudio, remuxArgs, verifyRemux } from "./browser-audio.mjs";
+import { defaultAudio, mp4SubtitlesBlock, needsBrowserAudio, remuxArgs, remuxReadsAsWell, verifyRemux } from "./browser-audio.mjs";
 
 const v = { codec_type: "video", codec_name: "h264", pix_fmt: "yuv420p" };
 const a = (codec_name, extra = {}) => ({ codec_type: "audio", codec_name, ...extra });
@@ -98,4 +98,28 @@ test("MP4s with non-mov_text subtitles are not remuxed", () => {
   assert.equal(mp4SubtitlesBlock([v, a("ac3"), s("subrip")], ".mp4"), true);
   assert.equal(mp4SubtitlesBlock([v, a("ac3"), s("mov_text")], ".mp4"), false);
   assert.equal(mp4SubtitlesBlock([v, a("ac3"), s("subrip")], ".mkv"), false);
+});
+
+test("a remux that reads as cleanly as the original is swapped in", () => {
+  assert.equal(remuxReadsAsWell({ audioErrors: 0, videoErrors: 0 }, { audioErrors: 0, videoErrors: 0 }).ok, true);
+  // A frame short at the very end is not damage.
+  assert.equal(remuxReadsAsWell({ audioErrors: 0, videoErrors: 0 }, { audioErrors: 1, videoErrors: 2 }).ok, true);
+});
+
+test("The World: a picture broken by the remux is never swapped in", () => {
+  const verdict = remuxReadsAsWell({ audioErrors: 0, videoErrors: 0 }, { audioErrors: 6009, videoErrors: 116646 });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.reason, /picture reads worse \(116,646 broken pieces, the original 0\)/);
+});
+
+test("damage the original already had does not block the remux", () => {
+  assert.equal(remuxReadsAsWell({ audioErrors: 1, videoErrors: 92 }, { audioErrors: 1, videoErrors: 92 }).ok, true);
+  assert.equal(remuxReadsAsWell({ audioErrors: 0, videoErrors: 92 }, { audioErrors: 9, videoErrors: 92 }).ok, false);
+});
+
+test("a remux that cannot be opened is refused", () => {
+  assert.deepEqual(remuxReadsAsWell({ audioErrors: 0, videoErrors: 0 }, { audioErrors: 3, videoErrors: 3, unreadable: true }), {
+    ok: false,
+    reason: "the new file cannot be opened",
+  });
 });
