@@ -242,7 +242,38 @@ interface PlayerProps {
   ratePrompt?: RatePrompt | null;
   /** The critics' writing about this film or episode, offered once it has ended (EndReading). */
   reading?: ReadingItem[];
+  /** Tuned to a channel (channels.ts): live only, no pausing or skipping, up/down change channel. */
+  live?: LiveProgramme | null;
 }
+
+/** A channel's programme as the player gets it (the /live/[id] page). */
+export interface LiveProgramme {
+  channelId: string;
+  channelName: string;
+  /** When this programme started on the channel's clock (ms since 1970): where "live" is. */
+  startedAtMs: number;
+  endsAtMs: number;
+  /** The channels either side on the guide, for a remote's up/down. */
+  previousHref: string | null;
+  nextHref: string | null;
+}
+
+/** What a channel can't do: it is live (channels.ts). */
+const LIVE_BLOCKED = new Set<PlayerAction["kind"]>([
+  "toggle",
+  "pause",
+  "seek",
+  "seekPercent",
+  "seekTo",
+  "frame",
+  "speed",
+  "speedReset",
+  "next",
+]);
+
+/** Keys that change channel while tuned in: up/down on a remote, PageUp/PageDown on a keyboard. */
+const CHANNEL_UP = new Set(["ArrowUp", "ChannelUp", "PageUp"]);
+const CHANNEL_DOWN = new Set(["ArrowDown", "ChannelDown", "PageDown"]);
 
 export function Player({
   itemId,
@@ -263,8 +294,47 @@ export function Player({
   creditsStart = null,
   ratePrompt = null,
   reading = NO_READING,
+  live = null,
 }: PlayerProps) {
   const player = useRef<MediaPlayerInstance>(null);
+  const liveRef = useRef(live);
+  liveRef.current = live;
+
+  /* ---- Live: a channel (channels.ts) ----
+     Started at the channel's point by the page, and kept there: after a
+     stall, a backgrounded tab or anything that paused it, it goes back to
+     where the channel is now (more than 8 s off). When the programme ends,
+     or the clock says it has, the page is asked again for what is on next.
+     Nothing to pause or skip: see LIVE_BLOCKED and the hidden controls. */
+  useEffect(() => {
+    const instance = player.current;
+    if (!instance || !live) return;
+    const retune = () => window.location.replace(`/live/${encodeURIComponent(live.channelId)}`);
+    const keepLive = () => {
+      if (Date.now() >= live.endsAtMs - 1000) return retune();
+      const expected = (Date.now() - live.startedAtMs) / 1000;
+      if (Math.abs(instance.currentTime - expected) > 8) instance.currentTime = expected;
+    };
+    const onPause = () => {
+      // Nothing on a channel pauses it; whatever did (the OS, a headset), it plays on, at the live point.
+      if (!instance.state.ended) void instance.play().catch(() => {});
+    };
+    instance.addEventListener("playing", keepLive);
+    instance.addEventListener("pause", onPause);
+    instance.addEventListener("ended", retune);
+    const timer = setInterval(keepLive, 15_000);
+    return () => {
+      instance.removeEventListener("playing", keepLive);
+      instance.removeEventListener("pause", onPause);
+      instance.removeEventListener("ended", retune);
+      clearInterval(timer);
+    };
+  }, [live]);
+
+  function changeChannel(direction: "up" | "down") {
+    const target = direction === "up" ? liveRef.current?.previousHref : liveRef.current?.nextHref;
+    if (target) window.location.replace(target);
+  }
 
   /* ---- "How was it?" when a film ends (EndPrompt.tsx) ----
      Opened by the end of the film, not by its credits: a film's credits are
@@ -324,6 +394,12 @@ export function Player({
   function runAction(action: PlayerAction) {
     const p = player.current;
     if (!p) return;
+    if (liveRef.current && LIVE_BLOCKED.has(action.kind)) {
+      // On a channel, a remote's "next" is the next channel; nothing else here applies.
+      if (action.kind === "next") changeChannel("down");
+      else flashOsd("Live: no pausing or skipping");
+      return;
+    }
     const tracks = p.textTracks
       .toArray()
       .filter((t) => t.kind === "subtitles" || t.kind === "captions");
@@ -756,6 +832,13 @@ export function Player({
       if (target?.closest?.(".party-tap-to-join")) return;
       // "How was it?" moves the remote through itself (EndPrompt).
       if (target?.closest?.(".end-prompt")) return;
+      // On a channel, up/down on the video changes channel, as on any TV.
+      if (liveRef.current && !target?.closest?.(".plyr__controls, [role='menu']") && (CHANNEL_UP.has(event.key) || CHANNEL_DOWN.has(event.key))) {
+        event.preventDefault();
+        event.stopPropagation();
+        changeChannel(CHANNEL_UP.has(event.key) ? "up" : "down");
+        return;
+      }
       // An open settings menu keeps up/down/OK (Vidstack moves through it).
       // Left/right mean nothing there, but left unhandled the WebView's own
       // D-pad navigation jumped focus out of the menu (onto fullscreen).
@@ -820,6 +903,12 @@ export function Player({
       if (tvModeRef.current) return;
       // Its stars and buttons keep their keys (EndPrompt moves focus itself).
       if (target?.closest?.(".end-prompt")) return;
+      // On a channel, PageUp/PageDown change channel (the arrows stay volume here).
+      if (liveRef.current && (event.key === "PageUp" || event.key === "PageDown" || event.key === "ChannelUp" || event.key === "ChannelDown")) {
+        event.preventDefault();
+        changeChannel(event.key === "PageUp" || event.key === "ChannelUp" ? "up" : "down");
+        return;
+      }
       // A focused control keeps its own keys: Space presses a button, arrows
       // move a slider — the keyboard-accessibility contract.
       const role = target?.getAttribute?.("role");
@@ -1523,7 +1612,7 @@ export function Player({
       : null;
 
   return (
-    <div className="player-stage" ref={stageRef}>
+    <div className={live ? "player-stage player-live" : "player-stage"} ref={stageRef}>
       <MediaPlayer
         ref={player}
         className="vds-player"
@@ -1642,6 +1731,14 @@ export function Player({
           </button>
         ) : null}
 
+        {live ? (
+          <div className="live-badge" aria-label={`Live on ${live.channelName}`}>
+            <span className="live-dot" aria-hidden="true" />
+            LIVE · {live.channelName}
+            {tvMode && (live.previousHref || live.nextHref) ? <span className="live-hint"> · ↑ ↓ channels</span> : null}
+          </div>
+        ) : null}
+
         {osd ? (
           <div className="player-osd" role="status" aria-live="polite">
             {osd}
@@ -1682,7 +1779,7 @@ export function Player({
           physical tap; the control bar's own fullscreen button and F are
           unaffected.
         */}
-        <PlyrLayout icons={plyrLayoutIcons} clickToPlay={finePointer && !tvMode} clickToFullscreen={false} />
+        <PlyrLayout icons={plyrLayoutIcons} clickToPlay={finePointer && !tvMode && !live} clickToFullscreen={false} />
       </MediaPlayer>
 
       {transcodeNote ? <p className="player-note">{transcodeNote}</p> : null}

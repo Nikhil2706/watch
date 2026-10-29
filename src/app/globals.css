@@ -7356,3 +7356,174 @@ html[data-in-app] .app-get {
   line-height: 1.5;
   white-space: pre-line;
 }
+
+/* ---------------------------------------------------------------- *
+ * Channels: live (channels.ts, the player's live mode)
+ * ---------------------------------------------------------------- */
+
+/* Nothing to pause or skip on a channel: the play button, the seek bar and
+   the jump buttons are hidden; volume, subtitles and fullscreen stay. */
+.player-live .plyr__controls [data-plyr="play"],
+.player-live .plyr__controls [data-plyr="rewind"],
+.player-live .plyr__controls [data-plyr="fast-forward"],
+.player-live .plyr__controls [data-plyr="restart"],
+.player-live .plyr__progress__container,
+.player-live .plyr__control--overlaid {
+  display: none !important;
+}
+
+.live-badge {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff4d4f;
+  box-shadow: 0 0 0 3px rgba(255, 77, 79, 0.3);
+}
+
+.live-hint {
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+/* Live TV guide (/live): one card per channel, what's on now and how far in. */
+.live-guide {
+  display: grid;
+  gap: 12px;
+  max-width: 960px;
+  margin: 0 auto 30px;
+  padding: 0 20px;
+  list-style: none;
+}
+
+.live-channel {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.live-channel:hover,
+.live-channel:focus-visible {
+  border-color: var(--accent);
+}
+
+.live-channel-art {
+  flex: none;
+  width: 192px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #1b1e26;
+}
+
+.live-channel-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.live-channel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.live-channel-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.live-channel-now {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.live-progress {
+  width: min(320px, 100%);
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.live-progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* Home's "On now" row. */
+.on-now-tile {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 4px;
+  width: 260px;
+  color: inherit;
+  text-decoration: none;
+  scroll-snap-align: start;
+}
+
+.on-now-art {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #1b1e26;
+}
+
+.on-now-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.on-now-live {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.65);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.on-now-title {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.on-now-tile:focus-visible .on-now-art,
+.on-now-tile:hover .on-now-art {
+  outline: 3px solid var(--accent);
+}

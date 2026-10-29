@@ -10,11 +10,14 @@ import { PosterCard } from "@/components/media/PosterCard";
 import { Row } from "@/components/media/Row";
 import { AskToWatchTogether } from "@/components/AskToWatchTogether";
 import { ComingSoonRow } from "@/components/media/ComingSoonRow";
+import { OnNowRow } from "@/components/media/OnNowRow";
 import { PickRow } from "@/components/picks/PickRow";
 import { PartyBanner } from "@/components/party/PartyBanner";
 import { currentSession } from "@/lib/current-user";
 import { comingSoonFor } from "@/lib/coming-soon";
 import { episodeCards } from "@/lib/episode-cards";
+import { liveGuide } from "@/lib/live-guide";
+import { resolveTvModeFromRequest } from "@/lib/tv/detect";
 import { friendsLately, friendsWatchingNow } from "@/lib/friends-activity";
 import { reviewSnippet, takesLine } from "@/lib/friends-feed";
 import { getActiveJobs } from "@/lib/jobs";
@@ -94,6 +97,11 @@ export default async function HomePage() {
   ]);
 
   const resume = continuing.items;
+
+  // Channels (channels.ts): what each is showing, from its clock. On a TV the
+  // row leads the page, where flipping channels is what the remote is for;
+  // elsewhere it follows Continue watching.
+  const [onNow, tvFront] = await Promise.all([liveGuide(session).catch(() => []), resolveTvModeFromRequest().catch(() => false)]);
 
   // One card per show, on the episode watched last (latest-per-show.ts): a
   // week of one series otherwise fills the whole row. /history keeps them all.
@@ -255,6 +263,7 @@ export default async function HomePage() {
       <AppBar username={session.username} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
       <GetAppPrompt variant="banner" />
       <PartyBanner live={liveParties} upcoming={upcomingParties} />
+      {tvFront ? <OnNowRow channels={onNow} /> : null}
       <Hero
         item={featured}
         imdb={featuredRatings?.imdb}
@@ -280,6 +289,7 @@ export default async function HomePage() {
         markWatched
         removable
       />
+      {tvFront ? null : <OnNowRow channels={onNow} />}
       {friendsNow.length ? (
         <section className="row friends-now" aria-label="Friends watching now">
           <h2>Friends watching now</h2>
