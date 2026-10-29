@@ -29,6 +29,8 @@ export interface FriendsTile {
   showName?: string;
   posterSrc?: string | null;
   href?: string;
+  /** Set when `item` is the show's episode a friend watched last, so its line can say which. */
+  latestEpisode?: boolean;
 }
 
 /** A film's key across watches, ratings and reviews: a show's episodes and its series id meet on the show. */
@@ -66,12 +68,17 @@ export async function friendsLately(session: ResolvedSession): Promise<FriendsTi
   const db = getDb();
 
   const events: ActivityEvent[] = [];
+  // Each show's episode watched last by any of these friends, for its card.
+  const latestEpisode = new Map<string, { itemId: string; at: number }>();
   for (const r of asRows<{ user_id: string; item_id: string; path: string | null; watched_at: number }>(
     db
       .prepare(`SELECT user_id, item_id, path, watched_at FROM watch_log WHERE watched_at >= ? AND user_id IN (${placeholders(ids.length)})`)
       .all(since, ...ids),
   )) {
-    events.push({ kind: "watched", userId: r.user_id, username: names.get(r.user_id)!, filmKey: k.forWatch(r.item_id, r.path), at: r.watched_at });
+    const filmKey = k.forWatch(r.item_id, r.path);
+    events.push({ kind: "watched", userId: r.user_id, username: names.get(r.user_id)!, filmKey, at: r.watched_at });
+    const seen = latestEpisode.get(filmKey);
+    if (filmKey.startsWith("group:") && (!seen || r.watched_at > seen.at)) latestEpisode.set(filmKey, { itemId: r.item_id, at: r.watched_at });
   }
   for (const r of asRows<{ user_id: string; imdb_id: string; score: number; updated_at: number }>(
     db
@@ -110,10 +117,20 @@ export async function friendsLately(session: ResolvedSession): Promise<FriendsTi
   for (const card of cards) {
     const [kind, id] = [card.filmKey.slice(0, card.filmKey.indexOf(":")), card.filmKey.slice(card.filmKey.indexOf(":") + 1)];
     if (kind === "group") {
-      const item = firstOfShow.get(id);
+      // The episode last watched, when the viewer can open it; the show's
+      // first otherwise (a show only rated or reviewed has no episode).
+      const watched = byId.get(latestEpisode.get(card.filmKey)?.itemId ?? "");
+      const item = watched ?? firstOfShow.get(id);
       if (!item) continue;
       const show = k.showOfPath.get(item.Path!)!;
-      tiles.push({ item, card, showName: show.groupName, posterSrc: getGroupSeriesPoster(id), href: `/collection/${id}` });
+      tiles.push({
+        item,
+        card,
+        showName: show.groupName,
+        posterSrc: getGroupSeriesPoster(id),
+        href: `/collection/${id}`,
+        ...(watched ? { latestEpisode: true } : {}),
+      });
     } else {
       const item = kind === "item" ? byId.get(id) : byImdb.get(id);
       if (item) tiles.push({ item, card });
