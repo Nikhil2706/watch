@@ -445,6 +445,19 @@ export function Player({
   const tvMode = useTvMode();
   const tvModeRef = useRef(tvMode);
   tvModeRef.current = tvMode;
+
+  // A real mouse (a computer, not a phone or a TV): a click on the video
+  // plays and pauses it, as on YouTube. Decided after mount, since the
+  // server cannot know what is pointing, and followed if that changes (a
+  // tablet with a trackpad attached).
+  const [finePointer, setFinePointer] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const update = () => setFinePointer(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
   const stageRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -1656,16 +1669,20 @@ export function Player({
         ) : null}
 
         {/*
-          clickToPlay off: Plyr's default gesture toggles play/pause on any
-          pointerup over the whole video area, which on a phone means a tap
-          meant to reveal the controls bar (or just a stray touch) pauses
-          the film — the mobile tap zones above replace it with a
-          reveal-then-confirm interaction instead. clickToFullscreen off too:
-          its double-tap-anywhere gesture would otherwise fire alongside the
-          left/right double-tap-to-seek zones above on the same physical
-          tap; the control bar's own fullscreen button is unaffected.
+          clickToPlay only with a mouse. Plyr's gesture toggles play/pause on
+          any pointerup over the whole video area, which on a phone means a
+          tap meant to reveal the controls bar (or just a stray touch) pauses
+          the film — the mobile tap zones above replace it there with a
+          reveal-then-confirm interaction. On a computer there are no tap
+          zones, and with it off a click on the video did nothing at all
+          (2026-10-29: "I have to drag the mouse to pause"). Not on a TV,
+          whose remote has OK for that.
+          clickToFullscreen off: its double-tap-anywhere gesture would fire
+          alongside the left/right double-tap-to-seek zones above on the same
+          physical tap; the control bar's own fullscreen button and F are
+          unaffected.
         */}
-        <PlyrLayout icons={plyrLayoutIcons} clickToPlay={false} clickToFullscreen={false} />
+        <PlyrLayout icons={plyrLayoutIcons} clickToPlay={finePointer && !tvMode} clickToFullscreen={false} />
       </MediaPlayer>
 
       {transcodeNote ? <p className="player-note">{transcodeNote}</p> : null}
