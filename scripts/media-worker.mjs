@@ -540,7 +540,7 @@ async function addBrowserAudio(file) {
     cleanUp();
     return { status: "failed", detail: `could not put it in place: ${error.message}` };
   }
-  noteLibraryChange(file);
+  noteLibraryChange(file, { reprobe: true });
   return { status: "added", detail: `stereo AAC added (it had ${need.reason})` };
 }
 
@@ -1447,9 +1447,24 @@ const LIBRARY_REFRESH_AFTER_MS = 10 * 60 * 1000;
 const pendingLibraryPaths = new Set();
 let pendingLibrarySince = 0;
 
-function noteLibraryChange(path) {
+/*
+ * Files rewritten in place, which Jellyfin must read again from scratch.
+ *
+ * A browser audio track is swapped in with the file's old modified time put
+ * back (utimesSync above), and Jellyfin decides whether to re-read a file by
+ * that time. The folder refresh alone left it serving the stream list from
+ * before: subtitle stream 2 was now the AC3 track, and the player got no
+ * subtitles, on all 249 files done this way by 2026-10-29. Each one gets a
+ * FullRefresh of its own, which probes the file whatever its date;
+ * ReplaceAllMetadata=false keeps its titles, ImageRefreshMode=None its
+ * artwork (TMDB stills included).
+ */
+const pendingReprobePaths = new Set();
+
+function noteLibraryChange(path, { reprobe = false } = {}) {
   if (pendingLibraryPaths.size === 0) pendingLibrarySince = Date.now();
   pendingLibraryPaths.add(path);
+  if (reprobe) pendingReprobePaths.add(path);
 }
 
 async function flushLibraryChanges(force) {
@@ -1458,6 +1473,37 @@ async function flushLibraryChanges(force) {
   const paths = [...pendingLibraryPaths];
   pendingLibraryPaths.clear();
   await refreshJellyfin(paths);
+  const reprobe = [...pendingReprobePaths];
+  pendingReprobePaths.clear();
+  if (reprobe.length > 0) await reprobeJellyfin(reprobe);
+}
+
+async function reprobeJellyfin(paths) {
+  if (!JELLYFIN_API_KEY) return;
+  const headers = { Authorization: `MediaBrowser Token="${JELLYFIN_API_KEY}"` };
+  try {
+    const response = await fetch(`${JELLYFIN_URL}/Items?Recursive=true&IncludeItemTypes=Movie&Fields=Path&Limit=10000`, {
+      headers,
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) throw new Error(`item list -> ${response.status}`);
+    const idByPath = new Map(((await response.json()).Items ?? []).filter((i) => i.Path).map((i) => [i.Path, i.Id]));
+    const query = "MetadataRefreshMode=FullRefresh&ImageRefreshMode=None&ReplaceAllMetadata=false&ReplaceAllImages=false";
+    let asked = 0;
+    for (const path of paths) {
+      const id = idByPath.get(path);
+      if (!id) continue;
+      const refreshed = await fetch(`${JELLYFIN_URL}/Items/${id}/Refresh?${query}`, {
+        method: "POST",
+        headers,
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (refreshed.ok) asked += 1;
+    }
+    log(`re-read by Jellyfin -> ${asked} of ${paths.length} rewritten file(s)`);
+  } catch (error) {
+    log("re-read request failed:", error.message);
+  }
 }
 
 /**
