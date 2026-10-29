@@ -24,8 +24,8 @@ export interface ReadingItem {
  * a QR code to scan with a phone, captioned with its title and source; none
  * of it takes focus, so the remote stays on the buttons around it.
  *
- * An uploaded book has no address to open or scan: it shows the passage the
- * site already picks from it about this film, under the book's title.
+ * An uploaded book has no address to open or scan: it shows the excerpt
+ * chosen from it for this film in the console, under the book's title.
  */
 export function EndReading({ reading, heading }: { reading: ReadingItem[]; heading: string }) {
   const tvMode = useTvMode();
@@ -40,7 +40,7 @@ export function EndReading({ reading, heading }: { reading: ReadingItem[]; headi
           {books.map((r) => (
             <li key={r.title}>
               <blockquote>{r.passage}</blockquote>
-              <span className="end-reading-source">{r.title}</span>
+              <span className="end-reading-source">From {r.title}</span>
             </li>
           ))}
         </ul>

@@ -521,7 +521,7 @@ export interface ReadingLink {
   /** Null for an uploaded book: it has no address anyone could open. */
   url: string | null;
   source: string;
-  /** A book's passage about this film or episode; null for an article, which is opened instead. */
+  /** The excerpt chosen from a book about this film (book_excerpts); null for an article, which is opened instead. */
   passage: string | null;
 }
 
@@ -534,10 +534,10 @@ export interface ReadingLink {
  * An article is offered to be opened, so it must be about the film: a
  * round-up naming more than three is left out. A book is the other way
  * round. It covers many films by nature and has no address to open, so it
- * comes with the passage about this one, the same windowed passage the film
- * page may show as its blurb (article_blurb_candidates), which is all of a
- * book that is ever shown; one with no such passage is left out. Pieces about
- * it alone come first, then books, then the newest.
+ * comes with the excerpt the curator chose from it for this film in the
+ * console's Reader (book_excerpts), which is all of a book that is ever shown
+ * here; a book with none chosen is left out. Pieces about it alone come
+ * first, then books, then the newest.
  *
  * The Ringer's TV writing is in, unlike on the film pages (HIDDEN_FROM_PAGES):
  * looked up by an episode's own key, a recap is about that episode, which is
@@ -553,7 +553,7 @@ export function readingFor(key: string, limit = 4): ReadingLink[] {
                   CASE WHEN s.source_type = 'web' THEN a.url END AS url,
                   CASE WHEN s.source_type = 'pdf_upload' THEN 'Book' ELSE s.name END AS source,
                   CASE WHEN s.source_type = 'pdf_upload' THEN
-                    (SELECT bc.passage_text FROM article_blurb_candidates bc WHERE bc.link_id = l.id ORDER BY bc.position LIMIT 1)
+                    (SELECT e.text FROM book_excerpts e WHERE e.imdb_id = l.imdb_id AND e.article_id = a.id)
                   END AS passage,
                   s.source_type AS type,
                   (SELECT COUNT(*) FROM article_film_links m WHERE m.article_id = a.id) AS mentions,
