@@ -581,8 +581,10 @@ export interface EpisodeContext {
   groupName: string;
   /** Every other episode's Jellyfin item id — for filtering this episode out of its own "More like this" row, which otherwise fills up with its siblings once they all share Genres/People from the same OMDb fetch. */
   siblingIds: Set<string>;
-  /** Episodes after this one, in air order, for a "Future episodes" row. */
+  /** Episodes after this one, in air order (the next episode is the first). */
   future: CollectionItem[];
+  /** Every episode, this one included, in air order, for the page's "Episodes" row. */
+  all: CollectionItem[];
 }
 
 /**
@@ -611,6 +613,7 @@ export async function getEpisodeContext(
     groupName: collection.Name,
     siblingIds,
     future: index === -1 ? [] : collection.items.slice(index + 1),
+    all: collection.items,
   };
 }
 

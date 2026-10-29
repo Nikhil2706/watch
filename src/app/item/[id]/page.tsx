@@ -33,6 +33,7 @@ import { resolveAccolade, resolveBlurb } from "@/lib/scraping/resolve";
 import { resolveTriviaForFilm } from "@/lib/scraping/trivia";
 import { languageName, listSubtitles } from "@/lib/subtitles";
 import { Row } from "@/components/media/Row";
+import { RowStartAt } from "@/components/media/RowStartAt";
 import { SeriesRow } from "@/components/media/SeriesRow";
 import { currentSession } from "@/lib/current-user";
 import {
@@ -107,11 +108,17 @@ export default async function ItemPage({
   // this one — those were already filtered above) collapses to one "N parts"
   // tile for that show, same as Search and Browse already do.
   const collapsedSimilar = collapseEpisodeGroups(similarOthers);
-  const futureTitles = new Map(
-    (episodeContext?.future ?? [])
+  // Every episode of the show, this one included, opened on the next one
+  // (RowStartAt): left for earlier episodes, right for later ones, on a TV
+  // remote as with a mouse.
+  const episodeTitles = new Map(
+    (episodeContext?.all ?? [])
       .filter((f) => f.label)
       .map((f) => [f.item.Id, f.label as string]),
   );
+  const nextEpisodeId = episodeContext?.future[0]?.item.Id ?? null;
+  const episodeBadges = new Map<string, string>([[id, "This episode"]]);
+  if (nextEpisodeId) episodeBadges.set(nextEpisodeId, "Next");
   // Synchronous local-DB reads, not network fetches — no Promise.all needed.
   // The public read path only ever touches resolve.ts (blurb/accolade) and
   // trivia.ts's resolveTriviaForFilm: both return short display strings,
@@ -147,9 +154,9 @@ export default async function ItemPage({
   );
 
   const subtitles = listSubtitles(item);
-  const futureIds = (episodeContext?.future ?? []).map((f) => f.item.Id);
+  const episodeIds = (episodeContext?.all ?? []).map((f) => f.item.Id);
   const seriesItemIds = Array.from(seriesItems.values(), (i) => i.Id);
-  const allLists = getMemberships(session.userId, [id, ...futureIds, ...seriesItemIds]);
+  const allLists = getMemberships(session.userId, [id, ...episodeIds, ...seriesItemIds]);
   const lists = allLists.get(id);
   const backdrop = backdropUrl(item, 1600);
   const runtime = formatRuntime(item.RunTimeTicks);
@@ -504,14 +511,17 @@ export default async function ItemPage({
       <CreditsRow people={cast} heading="Cast" />
       <CreditsRow people={crew} heading="Crew" limit={14} />
 
-      {episodeContext && episodeContext.future.length > 0 ? (
+      {episodeContext && episodeContext.all.length > 1 ? (
         <div style={{ marginTop: 28 }}>
           <Row
-            title="Future episodes"
-            items={episodeContext.future.map((f) => f.item)}
+            title="Episodes"
+            items={episodeContext.all.map((f) => f.item)}
             lists={allLists}
-            itemTitles={futureTitles}
+            itemTitles={episodeTitles}
+            itemBadges={episodeBadges}
           />
+          {/* The last episode has no next: the row opens on this one instead. */}
+          <RowStartAt rowTitle="Episodes" itemId={nextEpisodeId ?? id} />
         </div>
       ) : null}
 
