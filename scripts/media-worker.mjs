@@ -49,7 +49,7 @@ import {
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 
 import { countErrors, isStale, isStillArriving, judge } from "./file-check.mjs";
-import { mp4SubtitlesBlock, needsBrowserAudio, remuxArgs, verifyRemux } from "./browser-audio.mjs";
+import { mp4SubtitlesBlock, needsBrowserAudio, remuxArgs, remuxReadsAsWell, verifyRemux } from "./browser-audio.mjs";
 import { clamavScanner, scanWaitingUploads, writeHeartbeat } from "./upload-scan.mjs";
 import { backupStamp, runBackup, snapshotDatabase } from "./backup.mjs";
 import { failInterruptedWorkerRuns, recordLoopRun, runWorkerJobs } from "./worker-jobs.mjs";
@@ -315,20 +315,31 @@ function runQuietly(command, args, timeoutMs) {
   });
 }
 
-async function checkFile(file, size, mtimeMs) {
+/**
+ * Reads a file through and counts what ffmpeg could not read: the file
+ * check's reading, also used on a browser-audio remux before it is swapped in.
+ * Null when it took too long, which is not the same as broken.
+ */
+async function readThrough(file) {
   // Sound: decoded in full. Picture: every packet read, none decoded.
   const audio = await runQuietly(FFMPEG, ["-v", "error", "-i", file, "-map", "0:a:0?", "-f", "null", "-"], FILE_CHECK_TIMEOUT_MS);
   const video = await runQuietly(FFMPEG, ["-v", "error", "-i", file, "-map", "0:v:0", "-c", "copy", "-f", "null", "-"], FILE_CHECK_TIMEOUT_MS);
-  // Too slow to finish is not the same as broken: leave it for another round.
   if (audio.timedOut || video.timedOut) return null;
-  const audioErrors = countErrors(audio.stderr);
-  const videoErrors = countErrors(video.stderr);
-  // ffmpeg could not open it at all (and said so, which is what tells this
-  // from a file with no picture track).
-  const unreadable =
-    video.code !== 0 &&
-    audio.code !== 0 &&
-    /Error opening input|moov atom not found/i.test(video.stderr.slice(0, 2000));
+  return {
+    audioErrors: countErrors(audio.stderr),
+    videoErrors: countErrors(video.stderr),
+    // ffmpeg could not open it at all (and said so, which is what tells this
+    // from a file with no picture track).
+    unreadable:
+      video.code !== 0 && audio.code !== 0 && /Error opening input|moov atom not found/i.test(video.stderr.slice(0, 2000)),
+  };
+}
+
+async function checkFile(file, size, mtimeMs) {
+  const read = await readThrough(file);
+  // Too slow to finish is not the same as broken: leave it for another round.
+  if (!read) return null;
+  const { audioErrors, videoErrors, unreadable } = read;
   const { verdict, detail } = judge({ audioErrors, videoErrors, unreadable });
   db.prepare(
     `INSERT INTO file_checks (path, size, mtime_ms, checked_at, audio_errors, video_errors, verdict, detail, allowed)
@@ -527,6 +538,37 @@ async function addBrowserAudio(file) {
   if (!check.ok) {
     cleanUp();
     return { status: "failed", detail: `not swapped in: ${check.reason}` };
+  }
+  // The right streams are not the same as a file that plays: read the new
+  // file through, and the original too unless the file check has a reading
+  // of it as it is now (remuxReadsAsWell has why).
+  const afterRead = await readThrough(temp);
+  if (!afterRead) {
+    cleanUp();
+    log(`browser audio: reading ${basename(file)}'s new copy took too long, trying again later`);
+    return null;
+  }
+  const known = fileChecksReady()
+    ? db.prepare("SELECT size, mtime_ms, audio_errors, video_errors FROM file_checks WHERE path = ?").get(file)
+    : null;
+  const current =
+    known &&
+    known.audio_errors !== null &&
+    known.video_errors !== null &&
+    !isStale(known, original.size, original.mtimeMs);
+  const beforeRead = current
+    ? { audioErrors: Number(known.audio_errors), videoErrors: Number(known.video_errors) }
+    : await readThrough(file);
+  if (!beforeRead) {
+    cleanUp();
+    log(`browser audio: reading ${basename(file)} took too long, trying again later`);
+    return null;
+  }
+  const reads = remuxReadsAsWell(beforeRead, afterRead);
+  if (!reads.ok) {
+    cleanUp();
+    log(`browser audio: NOT swapping in ${basename(file)}'s new copy: ${reads.reason}`);
+    return { status: "failed", detail: `not swapped in: ${reads.reason}` };
   }
   if (await isBeingPlayed(file)) {
     cleanUp();

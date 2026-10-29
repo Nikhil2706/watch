@@ -135,6 +135,38 @@ export function verifyRemux(before, after) {
   return { ok: true, reason: "ok" };
 }
 
+/**
+ * Error lines the remuxed file may have beyond the original's: one or two is
+ * a file cut a frame short at the very end (file-check.mjs), not damage.
+ */
+export const REMUX_ERROR_SLACK = 2;
+
+/**
+ * Whether the remuxed file reads as cleanly as the original, both read the
+ * way the file check reads a file (sound decoded, every picture packet read).
+ *
+ * verifyRemux looks at the streams and the length only. The World
+ * (2026-10-28) passed it with its picture broken from the first second:
+ * 116,646 bad pieces where the original had none, and the original was gone
+ * once the new file took its name. A file that reads worse than it did is
+ * never swapped in; the original stays as it is.
+ *
+ * @param {{ audioErrors: number, videoErrors: number, unreadable?: boolean }} before the original
+ * @param {{ audioErrors: number, videoErrors: number, unreadable?: boolean }} after the remuxed file
+ * @returns {{ ok: boolean, reason: string }}
+ */
+export function remuxReadsAsWell(before, after) {
+  if (after.unreadable) return { ok: false, reason: "the new file cannot be opened" };
+  const n = (count) => count.toLocaleString("en-GB");
+  if (after.videoErrors > before.videoErrors + REMUX_ERROR_SLACK) {
+    return { ok: false, reason: `its picture reads worse (${n(after.videoErrors)} broken pieces, the original ${n(before.videoErrors)})` };
+  }
+  if (after.audioErrors > before.audioErrors + REMUX_ERROR_SLACK) {
+    return { ok: false, reason: `its sound reads worse (${n(after.audioErrors)} unreadable stretches, the original ${n(before.audioErrors)})` };
+  }
+  return { ok: true, reason: "ok" };
+}
+
 /** True while an MP4 has subtitles that would not survive a copy into MP4. */
 export function mp4SubtitlesBlock(streams, ext) {
   if (String(ext).toLowerCase() === ".mkv") return false;
