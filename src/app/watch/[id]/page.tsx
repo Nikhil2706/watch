@@ -4,7 +4,8 @@ import { notFound, redirect } from "next/navigation";
 import { PlayerMount } from "@/components/media/PlayerMount";
 import { currentSession } from "@/lib/current-user";
 import { logEvent } from "@/lib/events";
-import { getEpisodeContext, getItem, getPlaybackPlan, posterUrl, resumeSeconds } from "@/lib/media";
+import { episodeCards } from "@/lib/episode-cards";
+import { getCreditsStart, getEpisodeContext, getItem, getPlaybackPlan, posterUrl, resumeSeconds } from "@/lib/media";
 import { extractJellyfinId, itemHref, watchHref } from "@/lib/slugs";
 import { defaultTrack, listSubtitles } from "@/lib/subtitles";
 import { resolvePlaybackClientFromRequest } from "@/lib/tv/detect";
@@ -56,11 +57,14 @@ export default async function WatchPage({
   // (which omits it) genuinely starts over.
   const startSeconds = t !== undefined ? Number(t) || 0 : resumeSeconds(item);
 
-  // Shift+N in the player. Null for anything that isn't an episode with a
-  // next one; a lookup failure just means no shortcut, never a broken page.
+  // Shift+N in the player, and its "Next episode" button from the credits on.
+  // Null for anything that isn't an episode with a next one; a lookup failure
+  // just means no button, never a broken page.
   const episodes = await getEpisodeContext(session, item).catch(() => null);
   const next = episodes?.future[0]?.item ?? null;
   const nextHref = next ? watchHref(next.Id, next.Name, next.ProductionYear) : null;
+  const nextLabel = next ? (episodeCards([next]).lines.get(next.Id) ?? next.Name) : null;
+  const creditsStart = next ? await getCreditsStart(session, item.Id).catch(() => null) : null;
 
   return (
     <div className="player-page">
@@ -91,6 +95,8 @@ export default async function WatchPage({
           }))}
           defaultSubtitleIndex={preferred?.index ?? null}
           nextHref={nextHref}
+          nextLabel={nextLabel}
+          creditsStart={creditsStart}
         />
       ) : (
         <div className="player-stage">

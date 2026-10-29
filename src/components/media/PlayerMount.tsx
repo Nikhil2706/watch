@@ -44,8 +44,10 @@ export interface PlayerMountProps {
   subtitles: PlayerSubtitle[];
   defaultSubtitleIndex: number | null;
   party?: PlayerPartySync;
-  /** The next episode's watch URL, for Shift+N. */
+  /** The next episode's watch URL, for Shift+N and the "Next episode" button. */
   nextHref?: string | null;
+  nextLabel?: string | null;
+  creditsStart?: number | null;
 }
 
 export function PlayerMount(props: PlayerMountProps) {
