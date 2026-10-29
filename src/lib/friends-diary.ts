@@ -54,19 +54,30 @@ export interface FriendDiary {
 export async function friendDiary(session: ResolvedSession, username: string): Promise<FriendDiary | null> {
   const friend = friendsSharingWith(session.userId).find((f) => f.username.toLowerCase() === username.toLowerCase());
   if (!friend) return null;
+  return { friend, ...(await userDiary(session, friend.id)) };
+}
+
+export type UserDiary = Omit<FriendDiary, "friend">;
+
+/**
+ * Anyone's diary, seen through `session`'s own listing: a friend's (above),
+ * or the viewer's own, which History shows in its Diary view. Whose it is
+ * must already be allowed by the caller.
+ */
+export async function userDiary(session: ResolvedSession, userId: string): Promise<UserDiary> {
   const db = getDb();
 
   const rows = asRows<{ item_id: string; imdb_id: string | null; path: string | null; watched_at: number }>(
     db
       .prepare("SELECT item_id, imdb_id, path, watched_at FROM watch_log WHERE user_id = ? ORDER BY watched_at DESC LIMIT ?")
-      .all(friend.id, DIARY_LIMIT + 1),
+      .all(userId, DIARY_LIMIT + 1),
   );
   const truncated = rows.length > DIARY_LIMIT;
   const log = rows.slice(0, DIARY_LIMIT);
 
   const ratings = new Map(
     asRows<{ imdb_id: string; score: number }>(
-      db.prepare("SELECT imdb_id, score FROM user_ratings WHERE user_id = ?").all(friend.id),
+      db.prepare("SELECT imdb_id, score FROM user_ratings WHERE user_id = ?").all(userId),
     ).map((r) => [r.imdb_id, r.score]),
   );
   // The latest review of each title: rows come oldest first, so later ones win.
@@ -77,7 +88,7 @@ export async function friendDiary(session: ResolvedSession, username: string): P
           `SELECT imdb_id, body FROM film_comments
            WHERE user_id = ? AND parent_id IS NULL AND deleted_at IS NULL ORDER BY created_at`,
         )
-        .all(friend.id),
+        .all(userId),
     ).map((r) => [r.imdb_id, r.body]),
   );
 
@@ -101,12 +112,12 @@ export async function friendDiary(session: ResolvedSession, username: string): P
   );
 
   const byId = new Map((await getAllMovies(session, { limit: 2000 })).map((i) => [i.Id, i]));
-  const shown: FriendDiary["entries"] = [];
+  const shown: UserDiary["entries"] = [];
   let notShown = 0;
   for (const entry of entries) {
     const item = byId.get(entry.itemId);
     if (item) shown.push({ entry, item });
     else notShown += 1;
   }
-  return { friend, entries: shown, notShown, truncated };
+  return { entries: shown, notShown, truncated };
 }

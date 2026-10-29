@@ -7052,6 +7052,29 @@ html[data-in-app] .app-get {
 .friends-name {
   font-weight: 600;
 }
+/* History's Grid | Diary switch: two pills, the current one filled. */
+.view-switch {
+  display: inline-flex;
+  gap: 4px;
+  margin: 2px 0 6px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.view-switch a {
+  padding: 4px 14px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.view-switch a[aria-current="page"] {
+  background: var(--accent);
+  color: #fff;
+}
+
 .diary-month {
   max-width: 820px;
   margin: 0 auto 24px;

@@ -3,10 +3,12 @@ import { redirect } from "next/navigation";
 
 import { ActivityVisibility } from "@/components/ActivityVisibility";
 import { AppBar } from "@/components/AppBar";
+import { DiaryList } from "@/components/media/DiaryList";
 import { PosterCard } from "@/components/media/PosterCard";
 import { currentSession } from "@/lib/current-user";
 import { episodeCards } from "@/lib/episode-cards";
 import { activityVisibility } from "@/lib/friends";
+import { DIARY_LIMIT, userDiary } from "@/lib/friends-diary";
 import { getMemberships } from "@/lib/lists";
 import { getRecentlyWatched } from "@/lib/media";
 import { groupByMonth, watchedOn } from "@/lib/watch-history";
@@ -25,9 +27,54 @@ export const dynamic = "force-dynamic";
 /** Far more than anyone here has watched; the page says so if it is ever reached. */
 const HISTORY_LIMIT = 2000;
 
-export default async function HistoryPage() {
+export default async function HistoryPage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
   const session = await currentSession();
   if (!session) redirect("/login");
+
+  // Diary: the same Letterboxd-style list a friend's page has (DiaryList),
+  // for the viewer's own finishes, each with the day, their stars, a rewatch
+  // mark and their review. Read from the site's own watch log, so it counts
+  // every finish (a rewatch too) since that began, where the grid below is
+  // Jellyfin's played flag, one card per title.
+  const { view } = await searchParams;
+  if (view === "diary") {
+    const diary = await userDiary(session, session.userId).catch(() => null);
+    return (
+      <>
+        <AppBar username={session.username} langloisMode={session.langloisMode} isAdmin={session.isAdmin} />
+        <div className="page-head">
+          <h1>History</h1>
+          <HistoryViews current="diary" />
+          {diary ? (
+            <p className="hint" style={{ margin: 0 }}>
+              {diary.entries.length} {diary.entries.length === 1 ? "entry" : "entries"}
+              {diary.notShown ? ` · ${diary.notShown} more no longer in the library` : null} ·{" "}
+              <Link href="/friends">Friends&apos; diaries ›</Link>
+            </p>
+          ) : null}
+        </div>
+        {diary === null ? (
+          <div className="empty">
+            <p>The library is not answering right now.</p>
+          </div>
+        ) : diary.entries.length === 0 ? (
+          <div className="empty">
+            <p>Your diary is empty.</p>
+            <p className="hint" style={{ margin: 0 }}>
+              Everything you watch to the end goes in it, with the day, your rating and what you wrote about it.
+            </p>
+          </div>
+        ) : (
+          <DiaryList entries={diary.entries} />
+        )}
+        {diary?.truncated ? (
+          <p className="hint" style={{ textAlign: "center" }}>
+            Showing the most recent {DIARY_LIMIT}.
+          </p>
+        ) : null}
+      </>
+    );
+  }
 
   const watched = await getRecentlyWatched(session, HISTORY_LIMIT).catch(() => null);
   const months = watched ? groupByMonth(watched) : [];
@@ -40,6 +87,7 @@ export default async function HistoryPage() {
 
       <div className="page-head">
         <h1>History</h1>
+        <HistoryViews current="grid" />
         {watched && watched.length > 0 ? (
           <p className="hint" style={{ margin: 0 }}>
             {watched.length} {watched.length === 1 ? "title" : "titles"} watched to the end
@@ -98,5 +146,19 @@ export default async function HistoryPage() {
         </p>
       ) : null}
     </>
+  );
+}
+
+/** Grid (one card per title) or Diary (every finish, with stars and reviews). */
+function HistoryViews({ current }: { current: "grid" | "diary" }) {
+  return (
+    <nav className="view-switch" aria-label="History view">
+      <Link href="/history" aria-current={current === "grid" ? "page" : undefined}>
+        Grid
+      </Link>
+      <Link href="/history?view=diary" aria-current={current === "diary" ? "page" : undefined}>
+        Diary
+      </Link>
+    </nav>
   );
 }
