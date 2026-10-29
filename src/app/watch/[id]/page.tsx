@@ -101,7 +101,7 @@ export default async function WatchPage({
   const reading = await Promise.all(
     (readingKey ? readingFor(readingKey) : []).map(async (r) => ({
       ...r,
-      qrSvg: await QRCode.toString(r.url, { type: "svg", margin: 1, width: 140 }).catch(() => null),
+      qrSvg: r.url ? await QRCode.toString(r.url, { type: "svg", margin: 1, width: 140 }).catch(() => null) : null,
     })),
   );
 

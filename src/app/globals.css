@@ -4415,6 +4415,20 @@ html[data-tv="true"] .appbar-more {
   opacity: 0.7;
 }
 
+.end-reading-books {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.end-reading-books blockquote {
+  margin: 0 0 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--accent);
+  font-style: italic;
+  line-height: 1.4;
+}
+
 .end-reading-qrs {
   display: flex;
   gap: 18px;

@@ -5,8 +5,11 @@ import { useTvMode } from "@/components/tv/TvProvider";
 /** A piece of writing to offer when something ends (readingFor in articles.ts), with its QR code for a TV. */
 export interface ReadingItem {
   title: string;
-  url: string;
+  /** Null for an uploaded book, which has no address: it shows its passage instead. */
+  url: string | null;
   source: string;
+  /** A book's passage about this film or episode. */
+  passage: string | null;
   /** An SVG QR code of the article's address. */
   qrSvg: string | null;
 }
@@ -20,16 +23,31 @@ export interface ReadingItem {
  * TV has no business opening a magazine with a remote, so there each piece is
  * a QR code to scan with a phone, captioned with its title and source; none
  * of it takes focus, so the remote stays on the buttons around it.
+ *
+ * An uploaded book has no address to open or scan: it shows the passage the
+ * site already picks from it about this film, under the book's title.
  */
 export function EndReading({ reading, heading }: { reading: ReadingItem[]; heading: string }) {
   const tvMode = useTvMode();
   if (reading.length === 0) return null;
+  const books = reading.filter((r) => !r.url && r.passage);
+  const articles = reading.filter((r) => r.url);
   return (
     <section className="end-reading" aria-label={heading}>
       <h3>{heading}</h3>
-      {tvMode ? (
+      {books.length > 0 ? (
+        <ul className="end-reading-books">
+          {books.map((r) => (
+            <li key={r.title}>
+              <blockquote>{r.passage}</blockquote>
+              <span className="end-reading-source">{r.title}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {articles.length === 0 ? null : tvMode ? (
         <ul className="end-reading-qrs">
-          {reading
+          {articles
             .filter((r) => r.qrSvg)
             .map((r) => (
               <li key={r.url}>
@@ -41,9 +59,9 @@ export function EndReading({ reading, heading }: { reading: ReadingItem[]; headi
         </ul>
       ) : (
         <ul className="end-reading-links">
-          {reading.map((r) => (
+          {articles.map((r) => (
             <li key={r.url}>
-              <a href={r.url} target="_blank" rel="noopener noreferrer">
+              <a href={r.url!} target="_blank" rel="noopener noreferrer">
                 {r.title}
               </a>
               <span className="end-reading-source"> · {r.source}</span>
