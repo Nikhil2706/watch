@@ -6,6 +6,7 @@ import { useTvMode } from "@/components/tv/TvProvider";
 import { scoreToStars, starsToScore } from "@/lib/stars";
 import { findNextFocusable } from "@/lib/tv/spatial-nav";
 
+import { EndReading, type ReadingItem } from "./EndReading";
 import { StarPicker } from "./StarPicker";
 
 /** What the player needs to ask about a film when it ends (watch page, films only). */
@@ -33,7 +34,7 @@ const MAX_COMMENT_CHARS = 2000;
  * with a remote is miserable, so a TV also shows a QR code that opens the
  * film's comment box on a phone.
  */
-export function EndPrompt({ prompt, onClose }: { prompt: RatePrompt; onClose: () => void }) {
+export function EndPrompt({ prompt, reading = [], onClose }: { prompt: RatePrompt; reading?: ReadingItem[]; onClose: () => void }) {
   const tvMode = useTvMode();
   const [stars, setStars] = useState<number | null>(prompt.yourScore !== null ? scoreToStars(prompt.yourScore) : null);
   const [text, setText] = useState("");
@@ -107,6 +108,7 @@ export function EndPrompt({ prompt, onClose }: { prompt: RatePrompt; onClose: ()
               Close
             </button>
           </div>
+          <EndReading reading={reading} heading="Read more" />
         </>
       ) : (
         <>
@@ -139,6 +141,7 @@ export function EndPrompt({ prompt, onClose }: { prompt: RatePrompt; onClose: ()
               </figure>
             ) : null}
           </div>
+          <EndReading reading={reading} heading="Read more" />
         </>
       )}
     </div>

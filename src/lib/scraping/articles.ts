@@ -514,3 +514,44 @@ export async function relinkUnmatchedAccoladeEntries(): Promise<number> {
   }
   return relinked;
 }
+
+/** A piece of writing to offer when a film or an episode ends. */
+export interface ReadingLink {
+  title: string;
+  url: string;
+  source: string;
+}
+
+/**
+ * Writing about one film (its IMDb id) or one episode (its episode key), to
+ * read once it has ended: whole articles from the critics' sources, not
+ * Wikipedia or year-end lists (kind 'accolade'), not an uploaded book (no
+ * address to open), not a ranking that only names it, and not a round-up of
+ * many films (more than three mentioned). Pieces about it alone come first,
+ * then the newest.
+ *
+ * The Ringer's TV writing is in, unlike on the film pages (HIDDEN_FROM_PAGES):
+ * looked up by an episode's own key, a recap is about that episode, which is
+ * exactly what that exclusion was waiting for. A show's series id is never
+ * asked here, so nothing about a whole series lands on each of its episodes.
+ */
+export function readingFor(key: string, limit = 4): ReadingLink[] {
+  return asRows<ReadingLink>(
+    getDb()
+      .prepare(
+        `SELECT a.title AS title, a.url AS url, s.name AS source
+           FROM article_film_links l
+           JOIN scraped_articles a ON a.id = l.article_id
+           JOIN scrape_sources s ON s.id = a.source_id
+          WHERE l.imdb_id = ?
+            AND s.kind = 'review' AND s.source_type = 'web'
+            AND a.article_type = 'review' AND a.url LIKE 'http%'
+            AND l.accolade_rank IS NULL AND l.accolade_label IS NULL
+            AND (SELECT COUNT(*) FROM article_film_links m WHERE m.article_id = a.id) <= 3
+          GROUP BY a.id
+          ORDER BY (SELECT COUNT(*) FROM article_film_links m WHERE m.article_id = a.id), a.published_at DESC
+          LIMIT ?`,
+      )
+      .all(key, limit),
+  );
+}

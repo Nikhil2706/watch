@@ -4378,6 +4378,86 @@ html[data-tv="true"] .appbar-more {
   opacity: 0.8;
 }
 
+/* "Read more" at the end of a film or an episode (EndReading.tsx): the
+   critics' writing about it, as links, or on a TV as QR codes to scan. */
+.end-reading {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.end-reading h3 {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.end-reading-links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.end-reading-links li {
+  margin: 0 0 6px;
+}
+
+.end-reading-links a {
+  color: #fff;
+  font-weight: 600;
+}
+
+.end-reading-source {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.end-reading-qrs {
+  display: flex;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.end-reading-qrs li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 130px;
+}
+
+.end-reading-qr svg {
+  display: block;
+  width: 110px;
+  height: 110px;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.end-reading-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+/* An episode's, on its own over the black screen; "Next episode" is at the
+   bottom right, so this sits top left. */
+.end-reading-panel {
+  position: absolute;
+  top: 6%;
+  left: 4%;
+  z-index: 20;
+  max-width: min(640px, 70%);
+  padding: 4px 20px 16px;
+  border-radius: 14px;
+  background: rgba(18, 18, 22, 0.9);
+  color: #fff;
+}
+
 /* How far someone's film is from the room's, beside their name. */
 .party-drift {
   color: var(--warm);

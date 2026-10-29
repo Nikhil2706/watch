@@ -52,6 +52,10 @@ import {
 import { showUpNext, upNextFrom } from "@/lib/up-next";
 
 import { EndPrompt, type RatePrompt } from "./EndPrompt";
+import { EndReading, type ReadingItem } from "./EndReading";
+
+/** One empty list for every render, so the end-of-film effect is not re-bound each time. */
+const NO_READING: ReadingItem[] = [];
 
 /**
  * What sits beside the player in a watch party room (PartyRoomClient): the
@@ -236,6 +240,8 @@ interface PlayerProps {
   creditsStart?: number | null;
   /** A film: ask for a rating and a comment when it ends (EndPrompt). Not set for episodes. */
   ratePrompt?: RatePrompt | null;
+  /** The critics' writing about this film or episode, offered once it has ended (EndReading). */
+  reading?: ReadingItem[];
 }
 
 export function Player({
@@ -256,6 +262,7 @@ export function Player({
   nextLabel = null,
   creditsStart = null,
   ratePrompt = null,
+  reading = NO_READING,
 }: PlayerProps) {
   const player = useRef<MediaPlayerInstance>(null);
 
@@ -264,14 +271,22 @@ export function Player({
      often worth sitting through. Not in a watch party, where everyone would
      be asked at once over a shared screen. Seeking back closes it. */
   const [promptOpen, setPromptOpen] = useState(false);
+  // An episode's "Read about this episode", over the black screen beside
+  // "Next episode" (a film's is inside its prompt).
+  const [ended, setEnded] = useState(false);
   useEffect(() => {
     const instance = player.current;
-    if (!instance || !ratePrompt) return;
+    if (!instance || (!ratePrompt && reading.length === 0)) return;
     const onEnded = () => {
-      if (!partyRef.current) setPromptOpen(true);
+      if (partyRef.current) return;
+      setEnded(true);
+      if (ratePrompt) setPromptOpen(true);
     };
     const onSeeked = () => {
-      if (instance.currentTime < instance.duration - 1) setPromptOpen(false);
+      if (instance.currentTime < instance.duration - 1) {
+        setPromptOpen(false);
+        setEnded(false);
+      }
     };
     instance.addEventListener("ended", onEnded);
     instance.addEventListener("seeked", onSeeked);
@@ -279,7 +294,7 @@ export function Player({
       instance.removeEventListener("ended", onEnded);
       instance.removeEventListener("seeked", onSeeked);
     };
-  }, [ratePrompt]);
+  }, [ratePrompt, reading]);
   const seeded = useRef(false);
 
   /* ---- Keyboard: YouTube's keys, VLC's jump sizes (lib/player-keys.ts) ----
@@ -1582,11 +1597,18 @@ export function Player({
         {promptOpen && ratePrompt ? (
           <EndPrompt
             prompt={ratePrompt}
+            reading={reading}
             onClose={() => {
               setPromptOpen(false);
               focusVideo();
             }}
           />
+        ) : null}
+
+        {ended && !ratePrompt && reading.length > 0 ? (
+          <div className="end-reading-panel">
+            <EndReading reading={reading} heading="Read about this episode" />
+          </div>
         ) : null}
 
         {upNext && nextHref ? (

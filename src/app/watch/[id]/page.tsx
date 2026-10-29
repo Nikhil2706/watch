@@ -9,7 +9,9 @@ import { currentSession } from "@/lib/current-user";
 import { logEvent } from "@/lib/events";
 import { env } from "@/lib/env";
 import { episodeCards } from "@/lib/episode-cards";
+import { episodeKey } from "@/lib/episode-key";
 import { getGroupKind } from "@/lib/library-curation";
+import { readingFor } from "@/lib/scraping/articles";
 import { getCreditsStart, getEpisodeContext, getItem, getPlaybackPlan, posterUrl, resumeSeconds } from "@/lib/media";
 import { extractJellyfinId, itemHref, watchHref } from "@/lib/slugs";
 import { defaultTrack, listSubtitles } from "@/lib/subtitles";
@@ -91,6 +93,18 @@ export default async function WatchPage({
         }
       : null;
 
+  // The critics' writing about it, for once it has ended (readingFor): a
+  // film's by its IMDb id, an episode's by its own key, never by its show's.
+  // Each with a QR code of its address, which is how a TV offers it.
+  // A film kept in parts gets it after its last part, with its prompt.
+  const readingKey = isEpisode ? (item.Path ? episodeKey(item.Path) : null) : !next ? (imdbId ?? null) : null;
+  const reading = await Promise.all(
+    (readingKey ? readingFor(readingKey) : []).map(async (r) => ({
+      ...r,
+      qrSvg: await QRCode.toString(r.url, { type: "svg", margin: 1, width: 140 }).catch(() => null),
+    })),
+  );
+
   return (
     <div className="player-page">
       <div className="player-bar">
@@ -123,6 +137,7 @@ export default async function WatchPage({
           nextLabel={nextLabel}
           creditsStart={creditsStart}
           ratePrompt={ratePrompt}
+          reading={reading}
         />
       ) : (
         <div className="player-stage">
