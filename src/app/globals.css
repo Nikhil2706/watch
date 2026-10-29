@@ -715,6 +715,46 @@ button.job-control:hover:not(:disabled) {
   display: block;
 }
 
+/* Season headings in a row of every episode (the episode page's "Episodes").
+   The row makes room above its cards; each season's first card carries its
+   heading there, and a rule down its left edge keeps the break between
+   seasons visible mid-scroll, where "Episode 12, Episode 1" was all there was. */
+.row-scroll--marked {
+  padding-top: 36px;
+}
+
+.poster--marked:not(:first-child) {
+  margin-left: 16px;
+}
+
+.poster--marked:not(:first-child)::before {
+  content: "";
+  position: absolute;
+  top: -32px;
+  bottom: 6px;
+  left: -15px;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(to bottom, var(--accent), rgba(255, 255, 255, 0));
+}
+
+.poster-marker {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  padding: 4px 11px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .list-overlay {
   position: absolute;
   top: 6px;
