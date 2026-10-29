@@ -5,6 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import { adminApi } from "@/lib/admin/client-api";
 import { paragraphs } from "@/lib/admin/accolades-view";
 
+/** As BOOK_EXCERPT_MAX in book-excerpts.ts (server-only, so restated): an excerpt, not a chapter. */
+const BOOK_EXCERPT_MAX = 1500;
+
 import { useToasts } from "../Toasts";
 import { LibrarySearch } from "./LibrarySearch";
 
@@ -33,6 +36,10 @@ interface Link {
  * One article's full text. Select a passage and add it to a blurb or to
  * trivia for the film chosen in Films; every film the article mentions is
  * listed above it to confirm, link or discard.
+ *
+ * An uploaded book can also give the film an excerpt for "Read more" when it
+ * ends (book_excerpts): a book has no address to link to, so the excerpt
+ * chosen here is what is shown of it.
  */
 export function Reader({
   articleId,
@@ -49,6 +56,7 @@ export function Reader({
   const [data, setData] = useState<{ article: Article; links: Link[] } | null>(null);
   const [blurb, setBlurb] = useState<string[]>([]);
   const [trivia, setTrivia] = useState<string[]>([]);
+  const [excerpt, setExcerpt] = useState<string[]>([]);
   const [pending, setPending] = useState<{ text: string; top: number; left: number } | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -65,6 +73,7 @@ export function Reader({
     setData(null);
     setBlurb([]);
     setTrivia([]);
+    setExcerpt([]);
     setPending(null);
     void load();
     rootRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -88,9 +97,9 @@ export function Reader({
     setPending({ text, top: Math.max(8, rect.top - 44), left: Math.max(8, rect.left) });
   };
 
-  const add = (kind: "blurb" | "trivia") => {
+  const add = (kind: "blurb" | "trivia" | "excerpt") => {
     if (!pending) return;
-    (kind === "blurb" ? setBlurb : setTrivia)((list) => [...list, pending.text]);
+    ({ blurb: setBlurb, trivia: setTrivia, excerpt: setExcerpt })[kind]((list) => [...list, pending.text]);
     setPending(null);
     window.getSelection()?.removeAllRanges();
   };
@@ -119,6 +128,25 @@ export function Reader({
     try {
       for (const text of trivia) await adminApi(`${filmPath}/trivia`, { method: "POST", body: { text } });
       show("ok", `Trivia facts saved for ${film.name}.`);
+      onSaved();
+      onClose();
+    } catch (e) {
+      show("err", message(e));
+    }
+  };
+
+  const isBook = data?.article.source_id === "uploaded-books";
+  const excerptText = excerpt.join("\n\n");
+
+  const saveExcerpt = async () => {
+    if (!film) return show("err", "Select a film in Films first.");
+    if (!excerpt.length) return show("err", "Select at least one passage first.");
+    if (excerptText.length > BOOK_EXCERPT_MAX) {
+      return show("err", `Up to ${BOOK_EXCERPT_MAX} characters; this is ${excerptText.length}.`);
+    }
+    try {
+      await adminApi(`${filmPath}/book-excerpt`, { method: "POST", body: { article_id: articleId, text: excerptText } });
+      show("ok", `Excerpt saved: it shows when ${film.name} ends.`);
       onSaved();
       onClose();
     } catch (e) {
@@ -212,6 +240,14 @@ export function Reader({
         </div>
         <Collected title="Your blurb" lines={blurb} quote onRemove={(i) => setBlurb(blurb.filter((_, j) => j !== i))} />
         <Collected title="Your trivia facts" lines={trivia} onRemove={(i) => setTrivia(trivia.filter((_, j) => j !== i))} />
+        {isBook ? (
+          <Collected
+            title={`End-of-film excerpt (${excerptText.length} / ${BOOK_EXCERPT_MAX})`}
+            lines={excerpt}
+            quote
+            onRemove={(i) => setExcerpt(excerpt.filter((_, j) => j !== i))}
+          />
+        ) : null}
       </div>
 
       <div ref={bodyRef} className="adm-ac-body" onMouseUp={onMouseUp}>
@@ -227,6 +263,16 @@ export function Reader({
         <button type="button" className="secondary" disabled={!film || !trivia.length} onClick={() => void saveTrivia()}>
           Save trivia facts
         </button>
+        {isBook ? (
+          <button
+            type="button"
+            className="secondary"
+            disabled={!film || !excerpt.length || excerptText.length > BOOK_EXCERPT_MAX}
+            onClick={() => void saveExcerpt()}
+          >
+            Save end-of-film excerpt
+          </button>
+        ) : null}
       </div>
 
       {pending ? (
@@ -237,6 +283,11 @@ export function Reader({
           <button type="button" onClick={() => add("trivia")}>
             Add to trivia
           </button>
+          {isBook ? (
+            <button type="button" onClick={() => add("excerpt")}>
+              Add to end-of-film excerpt
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

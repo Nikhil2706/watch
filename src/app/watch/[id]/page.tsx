@@ -1,10 +1,17 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import QRCode from "qrcode";
+
 import { PlayerMount } from "@/components/media/PlayerMount";
+import { getUserRating } from "@/lib/community";
 import { currentSession } from "@/lib/current-user";
 import { logEvent } from "@/lib/events";
+import { env } from "@/lib/env";
 import { episodeCards } from "@/lib/episode-cards";
+import { episodeKey } from "@/lib/episode-key";
+import { getGroupKind } from "@/lib/library-curation";
+import { readingFor } from "@/lib/scraping/articles";
 import { getCreditsStart, getEpisodeContext, getItem, getPlaybackPlan, posterUrl, resumeSeconds } from "@/lib/media";
 import { extractJellyfinId, itemHref, watchHref } from "@/lib/slugs";
 import { defaultTrack, listSubtitles } from "@/lib/subtitles";
@@ -66,6 +73,38 @@ export default async function WatchPage({
   const nextLabel = next ? (episodeCards([next]).lines.get(next.Id) ?? next.Name) : null;
   const creditsStart = next ? await getCreditsStart(session, item.Id).catch(() => null) : null;
 
+  // A film is asked "How was it?" when it ends. A TV episode is not: its
+  // rating would be the whole show's (episodes carry the series' IMDb id).
+  // A film kept in parts is a film. The QR code takes a TV viewer to the
+  // film's comment box on their phone.
+  const isEpisode = episodes ? getGroupKind(episodes.groupId) !== "movie" : false;
+  const imdbId = item.ProviderIds?.Imdb;
+  const filmHref = itemHref(item.Id, item.Name, item.ProductionYear);
+  const ratePrompt =
+    imdbId && !isEpisode && !next
+      ? {
+          imdbId,
+          title: item.Name,
+          href: filmHref,
+          yourScore: getUserRating(imdbId, session.userId),
+          qrSvg: await QRCode.toString(`${env.publicUrl}${filmHref}#comment`, { type: "svg", margin: 1, width: 180 }).catch(
+            () => null,
+          ),
+        }
+      : null;
+
+  // The critics' writing about it, for once it has ended (readingFor): a
+  // film's by its IMDb id, an episode's by its own key, never by its show's.
+  // Each with a QR code of its address, which is how a TV offers it.
+  // A film kept in parts gets it after its last part, with its prompt.
+  const readingKey = isEpisode ? (item.Path ? episodeKey(item.Path) : null) : !next ? (imdbId ?? null) : null;
+  const reading = await Promise.all(
+    (readingKey ? readingFor(readingKey) : []).map(async (r) => ({
+      ...r,
+      qrSvg: r.url ? await QRCode.toString(r.url, { type: "svg", margin: 1, width: 140 }).catch(() => null) : null,
+    })),
+  );
+
   return (
     <div className="player-page">
       <div className="player-bar">
@@ -97,6 +136,8 @@ export default async function WatchPage({
           nextHref={nextHref}
           nextLabel={nextLabel}
           creditsStart={creditsStart}
+          ratePrompt={ratePrompt}
+          reading={reading}
         />
       ) : (
         <div className="player-stage">

@@ -514,3 +514,64 @@ export async function relinkUnmatchedAccoladeEntries(): Promise<number> {
   }
   return relinked;
 }
+
+/** A piece of writing to offer when a film or an episode ends. */
+export interface ReadingLink {
+  title: string;
+  /** Null for an uploaded book: it has no address anyone could open. */
+  url: string | null;
+  source: string;
+  /** The excerpt chosen from a book about this film (book_excerpts); null for an article, which is opened instead. */
+  passage: string | null;
+}
+
+/**
+ * Writing about one film (its IMDb id) or one episode (its episode key), to
+ * read once it has ended, from the critics' sources and uploaded books — not
+ * Wikipedia or year-end lists (kind 'accolade'), and not a ranking that only
+ * names it.
+ *
+ * An article is offered to be opened, so it must be about the film: a
+ * round-up naming more than three is left out. A book is the other way
+ * round. It covers many films by nature and has no address to open, so it
+ * comes with the excerpt the curator chose from it for this film in the
+ * console's Reader (book_excerpts), which is all of a book that is ever shown
+ * here; a book with none chosen is left out. Pieces about it alone come
+ * first, then books, then the newest.
+ *
+ * The Ringer's TV writing is in, unlike on the film pages (HIDDEN_FROM_PAGES):
+ * looked up by an episode's own key, a recap is about that episode, which is
+ * exactly what that exclusion was waiting for. A show's series id is never
+ * asked here, so nothing about a whole series lands on each of its episodes.
+ */
+export function readingFor(key: string, limit = 4): ReadingLink[] {
+  return asRows<ReadingLink>(
+    getDb()
+      .prepare(
+        `SELECT title, url, source, passage FROM (
+           SELECT a.title AS title,
+                  CASE WHEN s.source_type = 'web' THEN a.url END AS url,
+                  CASE WHEN s.source_type = 'pdf_upload' THEN 'Book' ELSE s.name END AS source,
+                  CASE WHEN s.source_type = 'pdf_upload' THEN
+                    (SELECT e.text FROM book_excerpts e WHERE e.imdb_id = l.imdb_id AND e.article_id = a.id)
+                  END AS passage,
+                  s.source_type AS type,
+                  (SELECT COUNT(*) FROM article_film_links m WHERE m.article_id = a.id) AS mentions,
+                  a.published_at AS published_at
+             FROM article_film_links l
+             JOIN scraped_articles a ON a.id = l.article_id
+             JOIN scrape_sources s ON s.id = a.source_id
+            WHERE l.imdb_id = ?
+              AND s.kind = 'review' AND a.article_type = 'review'
+              AND l.accolade_rank IS NULL AND l.accolade_label IS NULL
+            GROUP BY a.id
+         )
+         WHERE (type = 'web' AND url LIKE 'http%' AND mentions <= 3)
+            OR (type = 'pdf_upload' AND passage IS NOT NULL)
+         ORDER BY CASE WHEN type = 'web' AND mentions = 1 THEN 0 WHEN type = 'pdf_upload' THEN 1 ELSE 2 END,
+                  mentions, published_at DESC
+         LIMIT ?`,
+      )
+      .all(key, limit),
+  );
+}

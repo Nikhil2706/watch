@@ -1266,6 +1266,41 @@ html[data-tv="true"] .blurb-link {
   }
 }
 
+/* "How was it?" on a TV: larger, and room for the phone QR code beside it. */
+html[data-tv="true"] .end-prompt {
+  width: min(820px, 90%);
+  padding: 30px 34px;
+}
+
+html[data-tv="true"] .end-prompt h2 {
+  font-size: 1.8rem;
+}
+
+html[data-tv="true"] .end-prompt .star-picker {
+  --star-size: 44px !important;
+}
+
+html[data-tv="true"] .end-prompt-qr svg {
+  width: 210px;
+  height: 210px;
+}
+
+html[data-tv="true"] .end-prompt-qr figcaption {
+  font-size: 1rem;
+}
+
+/* "Read more" QR codes on a TV, large enough to scan from the sofa. */
+html[data-tv="true"] .end-reading-qrs li {
+  width: 170px;
+}
+
+html[data-tv="true"] .end-reading-qr svg {
+  width: 150px;
+  height: 150px;
+}
+
+html[data-tv="true"] .end-reading-title {
+
 /* Season headings in the episode page's row, read from the sofa. */
 html[data-tv="true"] .row-scroll--marked {
   padding-top: 46px;

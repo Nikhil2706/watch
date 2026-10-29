@@ -80,7 +80,7 @@
  * asks, the worker runs alass (subtitle-autosync.ts, scripts/subtitle-autosync.mjs).
  * CREATE ... IF NOT EXISTS; nothing existing changes.
  */
-export const SCHEMA_VERSION = 66;
+export const SCHEMA_VERSION = 67;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -755,6 +755,20 @@ CREATE INDEX IF NOT EXISTS idx_film_series_entries_unmatched ON film_series_entr
 -- a manually-entered blurb (copy-pasted from a site not worth building a
 -- scraper for) still deserves the same "who said this, and a link to read
 -- more" treatment a scraped blurb gets for free from its article row.
+-- The excerpt the curator chose from an uploaded book about one film, shown
+-- under "Read more" when the film ends (readingFor in articles.ts). Chosen by
+-- hand in the console's Reader, because a book has no address to link to and
+-- a passage picked by a script is not what anyone would choose. Capped at
+-- BOOK_EXCERPT_MAX characters (book-excerpts.ts): an excerpt, not a chapter.
+-- One per book and film; a new choice replaces the last.
+CREATE TABLE IF NOT EXISTS book_excerpts (
+  imdb_id    TEXT NOT NULL,
+  article_id TEXT NOT NULL REFERENCES scraped_articles(id) ON DELETE CASCADE,
+  text       TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (imdb_id, article_id)
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS film_curation_locks (
   imdb_id                    TEXT PRIMARY KEY,
   locked_blurb_candidate_id  TEXT REFERENCES article_blurb_candidates(id) ON DELETE SET NULL,
