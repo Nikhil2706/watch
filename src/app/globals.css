@@ -4300,6 +4300,84 @@ html[data-tv="true"] .appbar-more {
   outline-offset: 3px;
 }
 
+/* "How was it?" over the black screen when a film ends (EndPrompt.tsx).
+   Centred in the player, so it shows in fullscreen too; the stars and the
+   comment box are the film page's own (StarPicker, .composer-input). */
+.end-prompt {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  z-index: 25;
+  width: min(560px, 92%);
+  padding: 22px 24px;
+  border-radius: 16px;
+  background: rgba(18, 18, 22, 0.94);
+  color: #fff;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+}
+
+.end-prompt h2 {
+  margin: 0 0 14px;
+  font-size: 1.25rem;
+}
+
+.end-prompt-body {
+  display: flex;
+  gap: 22px;
+  align-items: flex-start;
+}
+
+.end-prompt-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.end-prompt .composer-input {
+  width: 100%;
+}
+
+.end-prompt-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.end-prompt-actions .btn {
+  width: auto;
+}
+
+.end-prompt-hint a {
+  color: var(--accent);
+}
+
+.end-prompt-error {
+  margin: 0;
+  color: #ff8a80;
+  font-size: 0.85rem;
+}
+
+.end-prompt-qr {
+  margin: 0;
+  flex: none;
+  text-align: center;
+}
+
+.end-prompt-qr svg {
+  display: block;
+  width: 150px;
+  height: 150px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.end-prompt-qr figcaption {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
 /* How far someone's film is from the room's, beside their name. */
 .party-drift {
   color: var(--warm);

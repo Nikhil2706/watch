@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { CommentNode } from "@/lib/community";
-import { STAR_PATH, scoreToStars, starStates, starsToScore } from "@/lib/stars";
+import { scoreToStars, starsToScore } from "@/lib/stars";
 
+import { StarPicker } from "./StarPicker";
 import { Stars } from "./Stars";
 
 /**
@@ -25,45 +26,6 @@ import { Stars } from "./Stars";
  */
 
 const MAX_COMMENT_CHARS = 2000;
-
-/**
- * Half-star picker: five stars, each split into a left half (sets N-0.5)
- * and a right half (sets N) via two invisible overlaid buttons — the
- * standard way to get half-star precision out of five icons without a
- * drag/slider interaction.
- */
-function StarPicker({ value, onRate }: { value: number | null; onRate: (stars: number) => void }) {
-  const states = starStates(value);
-  return (
-    <span className="stars star-picker" style={{ "--star-size": "24px" } as React.CSSProperties}>
-      {states.map((state, i) => {
-        const pos = i + 1;
-        return (
-          <span className={`star star-${state}`} key={pos}>
-            <svg viewBox="0 0 24 24" className="star-outline" aria-hidden="true">
-              <path d={STAR_PATH} />
-            </svg>
-            <svg viewBox="0 0 24 24" className="star-fill" aria-hidden="true">
-              <path d={STAR_PATH} />
-            </svg>
-            <button
-              type="button"
-              className="star-hit star-hit-left"
-              aria-label={`Rate ${pos - 0.5} stars`}
-              onClick={() => onRate(pos - 0.5)}
-            />
-            <button
-              type="button"
-              className="star-hit star-hit-right"
-              aria-label={`Rate ${pos} stars`}
-              onClick={() => onRate(pos)}
-            />
-          </span>
-        );
-      })}
-    </span>
-  );
-}
 
 function initials(name: string): string {
   const parts = name.trim().split(/[\s._-]+/).filter(Boolean);
@@ -174,6 +136,14 @@ export function CommunityClient({
   // Decided after mount: the server cannot know what keyboard this is.
   const [enterSends, setEnterSends] = useState(false);
   useEffect(() => setEnterSends(window.matchMedia("(hover: hover) and (pointer: fine)").matches), []);
+  // Opened at #comment (the QR code a TV shows when a film ends, scanned on
+  // a phone): straight to the comment box, ready to type in.
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (window.location.hash !== "#comment") return;
+    composerRef.current?.scrollIntoView({ block: "center" });
+    composerRef.current?.focus({ preventScroll: true });
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -500,10 +470,11 @@ export function CommunityClient({
         ) : null}
       </div>
 
-      <div className="composer">
+      <div className="composer" id="comment">
         <Avatar name={currentUsername} />
         <div style={{ flex: 1 }}>
           <textarea
+            ref={composerRef}
             className="composer-input"
             placeholder="Share what you thought…"
             value={composerText}

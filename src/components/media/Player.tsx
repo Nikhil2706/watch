@@ -51,6 +51,8 @@ import {
 } from "@/lib/player-keys";
 import { showUpNext, upNextFrom } from "@/lib/up-next";
 
+import { EndPrompt, type RatePrompt } from "./EndPrompt";
+
 /**
  * What sits beside the player in a watch party room (PartyRoomClient): the
  * chat / guest links / End panel, or, once chat has moved to a phone, the
@@ -232,6 +234,8 @@ interface PlayerProps {
   nextLabel?: string | null;
   /** Where the credits start, from Jellyfin's Outro segment; null when it has none (up-next.ts). */
   creditsStart?: number | null;
+  /** A film: ask for a rating and a comment when it ends (EndPrompt). Not set for episodes. */
+  ratePrompt?: RatePrompt | null;
 }
 
 export function Player({
@@ -251,8 +255,31 @@ export function Player({
   nextHref = null,
   nextLabel = null,
   creditsStart = null,
+  ratePrompt = null,
 }: PlayerProps) {
   const player = useRef<MediaPlayerInstance>(null);
+
+  /* ---- "How was it?" when a film ends (EndPrompt.tsx) ----
+     Opened by the end of the film, not by its credits: a film's credits are
+     often worth sitting through. Not in a watch party, where everyone would
+     be asked at once over a shared screen. Seeking back closes it. */
+  const [promptOpen, setPromptOpen] = useState(false);
+  useEffect(() => {
+    const instance = player.current;
+    if (!instance || !ratePrompt) return;
+    const onEnded = () => {
+      if (!partyRef.current) setPromptOpen(true);
+    };
+    const onSeeked = () => {
+      if (instance.currentTime < instance.duration - 1) setPromptOpen(false);
+    };
+    instance.addEventListener("ended", onEnded);
+    instance.addEventListener("seeked", onSeeked);
+    return () => {
+      instance.removeEventListener("ended", onEnded);
+      instance.removeEventListener("seeked", onSeeked);
+    };
+  }, [ratePrompt]);
   const seeded = useRef(false);
 
   /* ---- Keyboard: YouTube's keys, VLC's jump sizes (lib/player-keys.ts) ----
@@ -699,6 +726,8 @@ export function Player({
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
       // "Tap to join the film" is a real button: OK presses it.
       if (target?.closest?.(".party-tap-to-join")) return;
+      // "How was it?" moves the remote through itself (EndPrompt).
+      if (target?.closest?.(".end-prompt")) return;
       // An open settings menu keeps up/down/OK (Vidstack moves through it).
       // Left/right mean nothing there, but left unhandled the WebView's own
       // D-pad navigation jumped focus out of the menu (onto fullscreen).
@@ -761,6 +790,8 @@ export function Player({
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
       // TV mode: onTvKey above owns the remote.
       if (tvModeRef.current) return;
+      // Its stars and buttons keep their keys (EndPrompt moves focus itself).
+      if (target?.closest?.(".end-prompt")) return;
       // A focused control keeps its own keys: Space presses a button, arrows
       // move a slider — the keyboard-accessibility contract.
       const role = target?.getAttribute?.("role");
@@ -931,6 +962,12 @@ export function Player({
       const menu = stage?.querySelector(".plyr__menu__container") ?? menuButton;
       menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: false }));
       menuButton.focus();
+      return true;
+    }
+    // "How was it?" closes first; Back again leaves the film.
+    if (document.activeElement?.closest(".end-prompt")) {
+      setPromptOpen(false);
+      focusVideo();
       return true;
     }
     // Off "Next episode", back to the credits (it returns when they end).
@@ -1540,6 +1577,16 @@ export function Player({
             <PlayIcon />
             <span>Tap to join the film</span>
           </button>
+        ) : null}
+
+        {promptOpen && ratePrompt ? (
+          <EndPrompt
+            prompt={ratePrompt}
+            onClose={() => {
+              setPromptOpen(false);
+              focusVideo();
+            }}
+          />
         ) : null}
 
         {upNext && nextHref ? (

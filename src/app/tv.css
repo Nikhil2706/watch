@@ -1265,3 +1265,26 @@ html[data-tv="true"] .blurb-link {
     transition: none;
   }
 }
+
+/* "How was it?" on a TV: larger, and room for the phone QR code beside it. */
+html[data-tv="true"] .end-prompt {
+  width: min(820px, 90%);
+  padding: 30px 34px;
+}
+
+html[data-tv="true"] .end-prompt h2 {
+  font-size: 1.8rem;
+}
+
+html[data-tv="true"] .end-prompt .star-picker {
+  --star-size: 44px !important;
+}
+
+html[data-tv="true"] .end-prompt-qr svg {
+  width: 210px;
+  height: 210px;
+}
+
+html[data-tv="true"] .end-prompt-qr figcaption {
+  font-size: 1rem;
+}

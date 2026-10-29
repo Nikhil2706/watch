@@ -30,6 +30,8 @@ const Player = dynamic(() => importOrReload(() => import("./Player")).then((m) =
   ),
 });
 
+import type { RatePrompt } from "./EndPrompt";
+
 export interface PlayerMountProps {
   itemId: string;
   mediaSourceId: string;
@@ -48,6 +50,7 @@ export interface PlayerMountProps {
   nextHref?: string | null;
   nextLabel?: string | null;
   creditsStart?: number | null;
+  ratePrompt?: RatePrompt | null;
 }
 
 export function PlayerMount(props: PlayerMountProps) {
