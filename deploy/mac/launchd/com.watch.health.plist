@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.watch.health</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>__HOME__/watch-host/watch-health.sh</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>__HOME__/.orbstack/bin:__DOCKERBIN__:__BREW__/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>WATCH_DRIVE</key><string>__DRIVE__</string>
+  </dict>
+  <!-- Nightly at 04:30, after the night's backup and with nobody watching.
+       Read-only; a missed run (the Mac asleep or off) runs at next wake. -->
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>4</integer><key>Minute</key><integer>30</integer></dict>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/watch-health/run.log</string>
+</dict>
+</plist>
