@@ -1311,3 +1311,20 @@ html[data-tv="true"] .poster-marker {
   padding: 5px 14px;
   font-size: 0.95rem;
 }
+
+/* Live TV on a TV: bigger cards, and channels are the first thing on Home. */
+html[data-tv="true"] .live-channel-art {
+  width: 280px;
+}
+
+html[data-tv="true"] .live-channel-name {
+  font-size: 1.5rem;
+}
+
+html[data-tv="true"] .on-now-tile {
+  width: 340px;
+}
+
+html[data-tv="true"] .live-badge {
+  font-size: 1.05rem;
+}

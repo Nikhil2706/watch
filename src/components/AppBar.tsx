@@ -41,6 +41,7 @@ export function AppBar({
         </Link>
         <nav>
           <Link href="/">Home</Link>
+          <Link href="/live">Live TV</Link>
           <Link href="/browse">Browse</Link>
           <Link href="/watchlist">My list</Link>
           <Link href="/picks">Picks</Link>

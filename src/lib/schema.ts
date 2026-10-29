@@ -80,7 +80,7 @@
  * asks, the worker runs alass (subtitle-autosync.ts, scripts/subtitle-autosync.mjs).
  * CREATE ... IF NOT EXISTS; nothing existing changes.
  */
-export const SCHEMA_VERSION = 67;
+export const SCHEMA_VERSION = 68;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -761,6 +761,52 @@ CREATE INDEX IF NOT EXISTS idx_film_series_entries_unmatched ON film_series_entr
 -- a passage picked by a script is not what anyone would choose. Capped at
 -- BOOK_EXCERPT_MAX characters (book-excerpts.ts): an excerpt, not a chapter.
 -- One per book and film; a new choice replaces the last.
+-- Channels: always-on lineups anyone can tune into, Pluto TV style
+-- (channels.ts, channel-schedule.ts). Not streams: what is on is worked out
+-- from epoch_ms and the lineup's running times when somebody looks, so
+-- nothing is played or read while nobody is watching.
+--
+-- order_mode: 'in_order' plays the lineup as listed; 'shuffle' in a seeded
+-- order, the same for everyone, that changes when the lineup is rebuilt.
+CREATE TABLE IF NOT EXISTS channels (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  order_mode TEXT NOT NULL DEFAULT 'in_order',
+  position   INTEGER NOT NULL DEFAULT 0, -- order on the guide
+  epoch_ms   INTEGER NOT NULL,           -- when the lineup's first programme started
+  built_at   INTEGER,                    -- when channel_slots was last worked out
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+) STRICT;
+
+-- What the curator put on a channel, in order. kind:
+--   item   ref = a file path: one film or one episode
+--   group  ref = a library_groups group_id: every episode of a show, in air order
+--   genre  ref = a Jellyfin genre name: every film in it (a rule; refilled on rebuild)
+CREATE TABLE IF NOT EXISTS channel_entries (
+  id         TEXT PRIMARY KEY,
+  channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  position   INTEGER NOT NULL,
+  kind       TEXT NOT NULL,
+  ref        TEXT NOT NULL,
+  label      TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_channel_entries_channel ON channel_entries(channel_id, position);
+
+-- The lineup worked out into programmes with running times: what the clock
+-- runs over. Rebuilt from channel_entries when the channel is saved or
+-- "Rebuild" is pressed, never per viewer.
+CREATE TABLE IF NOT EXISTS channel_slots (
+  channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  idx        INTEGER NOT NULL,
+  item_id    TEXT NOT NULL,
+  path       TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  runtime_ms INTEGER NOT NULL,
+  PRIMARY KEY (channel_id, idx)
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS book_excerpts (
   imdb_id    TEXT NOT NULL,
   article_id TEXT NOT NULL REFERENCES scraped_articles(id) ON DELETE CASCADE,
