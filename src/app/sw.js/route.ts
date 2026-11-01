@@ -122,6 +122,15 @@ self.addEventListener("fetch", (event) => {
   }
 
   async function fallback() {
+    // Offline, any page opens Downloads: the films kept on the device are
+    // all that plays with no connection. Before, the app opened on a saved
+    // copy of Home whose Play buttons need the network, and Downloads had
+    // to be found in the bottom bar (2026-11-01, at an airport). A redirect,
+    // not the page served under another address, so the address is
+    // /downloads and that page is the one that runs.
+    if (request.mode === "navigate" && url.pathname !== "/downloads" && (await caches.match("/downloads"))) {
+      return Response.redirect(new URL("/downloads", self.location.origin).href, 302);
+    }
     const cached = await caches.match(request);
     if (cached) return cached;
     // Offline and nothing cached for this exact URL. A navigation should
