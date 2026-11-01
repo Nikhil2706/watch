@@ -134,6 +134,35 @@ if (tableExists("browser_audio")) {
   const waiting = db.prepare("SELECT COUNT(*) AS n FROM browser_audio WHERE status = 'requested'").get().n;
   const added = db.prepare("SELECT COUNT(*) AS n FROM browser_audio WHERE status = 'added' AND checked_at > ?").get(since).n;
   say(`  last day: ${added} added, ${failed.length} failed; ${waiting} queued`);
+  // Originals the worker kept when a rewrite took their place, rewrites put
+  // aside because they read damaged (both hidden beside the file), and the
+  // broken copies kept from the 2026-11-01 repairs. Never deleted by the
+  // site: this says what they cost, and clearing them is the owner's call.
+  const kept = { original: [0, 0], broken: [0, 0] };
+  const look = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) look(full);
+      else if (/^\.(?!_).+\.before-browser-audio\./.test(entry.name)) (kept.original[0]++, (kept.original[1] += statSync(full).size));
+      else if (/^\.(?!_).+\.(browser-audio-broken|broken-\d{4}-\d{2}-\d{2})\./.test(entry.name)) {
+        kept.broken[0]++;
+        kept.broken[1] += statSync(full).size;
+      }
+    }
+  };
+  try {
+    look(LIBRARY);
+    const gb = (n) => (n / 1e9).toFixed(1);
+    say(`  originals kept from rewrites: ${kept.original[0]} (${gb(kept.original[1])} GB); broken copies kept: ${kept.broken[0]} (${gb(kept.broken[1])} GB)`);
+  } catch (error) {
+    say(`  could not count kept files: ${error.message}`);
+  }
+  const restored = db.prepare("SELECT path FROM browser_audio WHERE detail LIKE 'original restored%' AND checked_at > ?").all(since);
+  if (restored.length) {
+    problems += 1;
+    say(`  ! ${restored.length} rewrite(s) read damaged and the original was put back automatically:`);
+    list(restored.map((r) => short(r.path)));
+  }
   if (failed.length) {
     problems += 1;
     say("  ! failed (\"can't be read\" in a batch usually means the drive dropped out; re-queue with \"Add browser audio now\"):");

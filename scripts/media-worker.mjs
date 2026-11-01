@@ -49,7 +49,15 @@ import {
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 
 import { countErrors, isStale, isStillArriving, judge } from "./file-check.mjs";
-import { mp4SubtitlesBlock, needsBrowserAudio, remuxArgs, remuxReadsAsWell, verifyRemux } from "./browser-audio.mjs";
+import {
+  brokenRewritePath,
+  keptOriginalPath,
+  mp4SubtitlesBlock,
+  needsBrowserAudio,
+  remuxArgs,
+  remuxReadsAsWell,
+  verifyRemux,
+} from "./browser-audio.mjs";
 import { clamavScanner, scanWaitingUploads, writeHeartbeat } from "./upload-scan.mjs";
 import { backupStamp, runBackup, snapshotDatabase } from "./backup.mjs";
 import { failInterruptedWorkerRuns, recordLoopRun, runWorkerJobs } from "./worker-jobs.mjs";
@@ -341,6 +349,9 @@ async function checkFile(file, size, mtimeMs) {
   if (!read) return null;
   const { audioErrors, videoErrors, unreadable } = read;
   const { verdict, detail } = judge({ audioErrors, videoErrors, unreadable });
+  // A browser-audio rewrite that reads damaged, with its original kept: the
+  // original goes back, and is read again on the next pass.
+  if (verdict === "damaged" && restoreKeptOriginal(file, detail)) return null;
   db.prepare(
     `INSERT INTO file_checks (path, size, mtime_ms, checked_at, audio_errors, video_errors, verdict, detail, allowed)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
@@ -350,6 +361,36 @@ async function checkFile(file, size, mtimeMs) {
        verdict = excluded.verdict, detail = excluded.detail, allowed = 0`,
   ).run(file, size, Math.round(mtimeMs), Date.now(), audioErrors, videoErrors, verdict, detail);
   return verdict;
+}
+
+/**
+ * Puts a file's kept original back in place of its browser-audio rewrite
+ * (keptOriginalPath), keeping the rewrite as evidence (brokenRewritePath);
+ * nothing is deleted. False when there is no kept original.
+ */
+function restoreKeptOriginal(file, detail) {
+  const kept = keptOriginalPath(file);
+  if (!existsSync(kept)) return false;
+  try {
+    renameSync(file, brokenRewritePath(file));
+    renameSync(kept, file);
+  } catch (error) {
+    log(`file check: could not restore the original of ${basename(file)}: ${error.message}`);
+    return false;
+  }
+  log(`file check: ${basename(file)}'s browser-audio rewrite read damaged (${detail}); the original is back`);
+  // Its old reading is of the rewrite; the original is read afresh, and the
+  // browser-audio job is told not to try this file again by itself.
+  db.prepare("DELETE FROM file_checks WHERE path = ?").run(file);
+  if (browserAudioReady()) {
+    db.prepare(
+      `INSERT INTO browser_audio (path, size, mtime_ms, status, detail, checked_at) VALUES (?, ?, ?, 'failed', ?, ?)
+       ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime_ms = excluded.mtime_ms, status = excluded.status,
+         detail = excluded.detail, checked_at = excluded.checked_at`,
+    ).run(file, statSync(file).size, Math.round(statSync(file).mtimeMs), `original restored: the rewrite read damaged (${detail})`, Date.now());
+  }
+  noteLibraryChange(file, { reprobe: true });
+  return true;
 }
 
 /**
@@ -575,13 +616,25 @@ async function addBrowserAudio(file) {
     log(`browser audio: ${basename(file)} is being watched, trying again later`);
     return null;
   }
+  // The original is kept, never overwritten: renamed aside first (same
+  // drive, so instant), then the new copy takes its name. A rewrite that
+  // passes every check here can still turn out damaged; the file check then
+  // puts this back (restoreKeptOriginal). Buffy S01E01 and The World were
+  // lost on 2026-10-28 because the new copy simply replaced them.
+  const kept = keptOriginalPath(file);
   try {
+    if (!existsSync(kept)) renameSync(file, kept);
     renameSync(temp, file);
     utimesSync(file, original.atime, original.mtime);
   } catch (error) {
+    // Whatever happened, the original goes back to its own name.
+    try {
+      if (!existsSync(file) && existsSync(kept)) renameSync(kept, file);
+    } catch { /* reported below */ }
     cleanUp();
     return { status: "failed", detail: `could not put it in place: ${error.message}` };
   }
+  log(`browser audio: ${basename(file)} swapped in; the original is kept as ${basename(kept)}`);
   noteLibraryChange(file, { reprobe: true });
   return { status: "added", detail: `stereo AAC added (it had ${need.reason})` };
 }

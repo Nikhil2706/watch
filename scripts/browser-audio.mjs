@@ -104,7 +104,13 @@ export function remuxArgs(input, output, streams, ext) {
   for (let i = 1; i <= originals; i += 1) args.push(`-disposition:a:${i}`, "0");
   // An MP4 is only remuxed when its subtitles are mov_text (see
   // mp4SubtitlesBlock), the one kind that copies back into MP4.
-  if (!mkv) args.push("-movflags", "+faststart");
+  //
+  // No "-movflags +faststart". It moves the index to the front in a second
+  // pass that shifts the whole file in place, and twice (Buffy S01E01 and
+  // The World, 2026-10-28, around the drive's dropouts) that pass stopped
+  // partway: everything after the break was left where it was, a file's
+  // length behind where the index said. The originals have their index at
+  // the end and play in every browser here, so the new copy does too.
   args.push(output);
   return args;
 }
@@ -171,4 +177,25 @@ export function remuxReadsAsWell(before, after) {
 export function mp4SubtitlesBlock(streams, ext) {
   if (String(ext).toLowerCase() === ".mkv") return false;
   return (streams ?? []).some((s) => s.codec_type === "subtitle" && s.codec_name !== "mov_text");
+}
+
+/**
+ * Where the original is kept when a remux takes its place: beside it, hidden
+ * (Jellyfin skips dotfiles), on the same drive so moving it is a rename, not
+ * a copy. Never deleted by the worker: if the new copy is ever found damaged,
+ * the file check puts this back (media-worker.mjs, restoreKeptOriginal).
+ */
+export function keptOriginalPath(file) {
+  const slash = file.lastIndexOf("/");
+  const dir = file.slice(0, slash + 1);
+  const name = file.slice(slash + 1);
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  return `${dir}.${stem}.before-browser-audio${ext}`;
+}
+
+/** Where a rewritten copy found damaged is kept once the original is back: the evidence, not deleted either. */
+export function brokenRewritePath(file) {
+  return keptOriginalPath(file).replace(".before-browser-audio", ".browser-audio-broken");
 }
