@@ -32,6 +32,7 @@ const Player = dynamic(() => importOrReload(() => import("./Player")).then((m) =
 
 import type { RatePrompt } from "./EndPrompt";
 import type { ReadingItem } from "./EndReading";
+import type { LiveProgramme } from "./Player";
 
 export interface PlayerMountProps {
   itemId: string;
@@ -53,6 +54,7 @@ export interface PlayerMountProps {
   creditsStart?: number | null;
   ratePrompt?: RatePrompt | null;
   reading?: ReadingItem[];
+  live?: LiveProgramme | null;
 }
 
 export function PlayerMount(props: PlayerMountProps) {

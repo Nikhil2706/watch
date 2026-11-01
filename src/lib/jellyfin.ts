@@ -1063,6 +1063,17 @@ export async function listAllMoviesAdmin(
  * library again. Fifty titles took under a second against the real library;
  * all 1,628 took ten.
  */
+/** Every item's path, genres and running time, for working out channel lineups (channels.ts). */
+export async function listItemsForChannels(): Promise<
+  Array<{ Id: string; Name: string; Path?: string; Genres?: string[]; RunTimeTicks?: number }>
+> {
+  const data = await jellyfinFetch<{ Items: Array<{ Id: string; Name: string; Path?: string; Genres?: string[]; RunTimeTicks?: number }> }>(
+    "/Items?IncludeItemTypes=Movie&Recursive=true&Fields=Path,Genres&Limit=10000",
+    { token: env.jellyfinApiKey, timeoutMs: 60_000 },
+  );
+  return data?.Items ?? [];
+}
+
 export async function getAdminMoviesByIds(itemIds: string[]): Promise<AdminMovieListItem[]> {
   if (itemIds.length === 0) return [];
   const data = await jellyfinFetch<{ Items: AdminMovieListItem[] }>(
