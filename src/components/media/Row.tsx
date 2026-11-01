@@ -1,15 +1,17 @@
 import Link from "next/link";
 
 import { PosterCard } from "./PosterCard";
+import { RowRail } from "./RowRail";
 import type { ListKind } from "@/lib/lists";
 import { prefersStillLayout, type MediaItem } from "@/lib/media";
 
 /**
  * A horizontally scrolling row of posters.
  *
- * Scrolling is pure CSS (`overflow-x` + `scroll-snap`), which means this stays a
- * server component with no JavaScript shipped, and it behaves natively on a
- * touchscreen — the main way this will be used.
+ * Scrolling is CSS (`overflow-x` + `scroll-snap`), so it behaves natively on a
+ * touchscreen, the main way this will be used, and the cards stay server-
+ * rendered. The one piece of JavaScript is RowRail's ‹ › for a mouse, which
+ * otherwise had no way along a row.
  */
 export function Row({
   title,
@@ -74,7 +76,7 @@ export function Row({
           title
         )}
       </h2>
-      <div className={itemMarkers && itemMarkers.size > 0 ? "row-scroll row-scroll--marked" : "row-scroll"}>
+      <RowRail className={itemMarkers && itemMarkers.size > 0 ? "row-scroll row-scroll--marked" : "row-scroll"} label={title}>
         {items.map((item) => (
           <PosterCard
             key={item.Id}
@@ -92,7 +94,7 @@ export function Row({
             marker={itemMarkers?.get(item.Id)}
           />
         ))}
-      </div>
+      </RowRail>
     </section>
   );
 }
