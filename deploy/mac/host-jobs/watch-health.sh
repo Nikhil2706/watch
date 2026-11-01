@@ -35,10 +35,21 @@ if [ -d "$DRIVE/Da Moveesh" ]; then
 else
   flag "$DRIVE is not mounted. The site cannot play anything until it is back (com.watch.up starts it again)."
 fi
-# Dropouts in the last day, as com.watch.up saw them.
+# Dropouts in the last day, as com.watch.up saw them. "Not mounted" in the
+# first three minutes after the Mac starts is the drive still mounting (the
+# off-hours schedule boots it every morning), not a dropout.
 if [ -f "$HOME/Library/Logs/watch-up.log" ]; then
   yesterday=$(date -v-1d '+%Y-%m-%d %H:%M:%S')
-  drops=$(awk -v since="[$yesterday]" '$0 >= since && /drive is gone|restarting OrbStack|not mounted/' "$HOME/Library/Logs/watch-up.log" | wc -l | tr -d ' ')
+  booted=$(sysctl -n kern.boottime | sed -E 's/^\{ sec = ([0-9]+),.*/\1/')
+  drops=0
+  while IFS= read -r line; do
+    stamp=$(echo "$line" | sed -E 's/^\[([^]]+)\].*/\1/')
+    at=$(date -j -f '%Y-%m-%d %H:%M:%S' "$stamp" +%s 2>/dev/null || echo 0)
+    case "$line" in
+      *"not mounted"*) [ "$at" -ge "$booted" ] && [ "$at" -lt $((booted + 180)) ] && continue ;;
+    esac
+    drops=$((drops + 1))
+  done < <(awk -v since="[$yesterday]" '$0 >= since && /drive is gone|restarting OrbStack|not mounted/' "$HOME/Library/Logs/watch-up.log")
   [ "$drops" -gt 0 ] && flag "$drops drive dropout line(s) in watch-up.log in the last day. Elements should be on its own back port, not sharing with My Passport."
 fi
 echo

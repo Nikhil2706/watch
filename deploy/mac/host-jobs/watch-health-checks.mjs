@@ -219,6 +219,73 @@ for (const g of groups) {
 if (unlinked.length) say(`  not linked to TMDB: ${unlinked.join(", ")}`);
 say("  (a missing episode can also be one whose file TMDB has no still for: check before downloading)");
 
+// ---- Episodes shown under another episode's title -------------------------------
+// A file's still link says which TMDB episode the site shows for it (title,
+// synopsis, still). When TMDB numbers a season differently from the files,
+// a whole stretch is off: Buffy S3 (Earshot moved to the end for its air date)
+// showed "The Prom" on Choices, and its Play played Choices (2026-10-31). Only
+// flagged when neither the file's name nor Jellyfin's title fits the linked
+// episode and one of them fits another episode of that season: so a file
+// named for its episode (E.R., Friday Night Lights), whose Jellyfin title
+// may itself be off, is left alone. Fix: point the file at the right episode
+// (its still link) and give it that episode's still.
+say();
+say("EPISODE TITLES (each file against the TMDB episode it is shown as)");
+try {
+  const r = await fetch(`${JF}/Items?Recursive=true&IncludeItemTypes=Movie&Fields=Path&Limit=10000`, { headers: H });
+  const titleOf = new Map(((await r.json()).Items ?? []).filter((i) => i.Path).map((i) => [i.Path, i.Name]));
+  // "(2)", "Part II" and "Part 2" are one thing; punctuation and case are not titles.
+  const norm = (s) =>
+    String(s ?? "")
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/\bpart\s+ii\b|\(2\)/g, "part2")
+      .replace(/\bpart\s+i\b|\(1\)/g, "part1")
+      .replace(/[^a-z0-9]+/g, "");
+  const fits = (text, name) => {
+    const a = norm(text);
+    const b = norm(name);
+    return b.length >= 3 && (a === b || a.includes(b));
+  };
+  const seasons = new Map();
+  const seasonOf = (show, n) => {
+    const key = `${show}:${n}`;
+    if (!seasons.has(key)) {
+      const row = db.prepare("SELECT payload FROM tmdb_cache WHERE kind = 'season' AND tmdb_id = ? AND season = ?").get(show, n);
+      seasons.set(key, row ? (JSON.parse(row.payload).episodes ?? []) : []);
+    }
+    return seasons.get(key);
+  };
+  const links = db
+    .prepare(
+      `SELECT t.subject_id AS path, t.season, t.episode, g.group_name AS show, gl.tmdb_id AS tmdb
+         FROM tmdb_links t
+         JOIN library_groups g ON g.path = t.subject_id
+         JOIN tmdb_links gl ON gl.subject_type = 'group' AND gl.subject_id = g.group_id AND gl.tmdb_kind = 'tv'
+        WHERE t.subject_type = 'still' AND t.season IS NOT NULL`,
+    )
+    .all();
+  const off = [];
+  for (const link of links) {
+    const episodes = seasonOf(link.tmdb, link.season);
+    const shown = episodes.find((e) => e.episode_number === link.episode);
+    if (!shown?.name) continue;
+    const file = link.path.split("/").pop().replace(/\.[^.]+$/, "");
+    const title = titleOf.get(link.path) ?? "";
+    if (fits(file, shown.name) || fits(title, shown.name)) continue;
+    const really = episodes.find((e) => e.episode_number !== link.episode && (fits(file, e.name) || (title && norm(title) === norm(e.name))));
+    const who = file.toLowerCase().startsWith(link.show.toLowerCase()) ? file : `${link.show}: ${file}`;
+    if (really) off.push(`${who}: shown as E${link.episode} "${shown.name}", looks like E${really.episode_number} "${really.name}"`);
+  }
+  if (off.length) {
+    problems += 1;
+    say(`  ! ${off.length} episode(s) shown under another episode's title (Play plays the file, not the title):`);
+    list(off);
+  } else say("  ok: every linked episode fits its own title");
+} catch (error) {
+  say(`  could not check: ${error.message}`);
+}
+
 say();
 say(`PROBLEMS ${problems}`);
 console.log(out.join("\n"));
