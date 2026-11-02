@@ -127,7 +127,16 @@ interface Rule {
   words: (f: CatalogueFacts) => string;
 }
 
-const noMetadataUnanswered = (f: CatalogueFacts) => !f.hasMetadata && !f.whitelisted;
+/*
+ * A file in a show is answered: the show says what it is. Until 2026-11-02 a
+ * grouped episode with no metadata was listed inside its show and nowhere
+ * else, and a show whose every episode Jellyfin had not identified (Angel,
+ * NewsRadio, Studio 60, My So-Called Life...) had nothing to appear by in
+ * Browse, Search or Recently added — the show vanished, though its own page
+ * worked. Discovery lists fold a show's episodes into one card for the show,
+ * so listing them there shows the show, not the episodes.
+ */
+const noMetadataUnanswered = (f: CatalogueFacts) => !f.hasMetadata && !f.whitelisted && !f.group;
 
 const RULES: readonly Rule[] = [
   {

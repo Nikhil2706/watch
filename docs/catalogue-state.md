@@ -67,7 +67,7 @@ shown. Each reason says, as data rather than as scattered `if`s:
 | `excluded` | `library_excluded` | all | no (a decision already) | "Hidden by you: duplicate copy" | unhide |
 | `damaged` | `file_checks` damaged, not allowed | all | yes | "Damaged: 74 broken pieces of picture" | show_anyway, replace_recheck, hide |
 | `ungrouped_episode` | PR #24 rules | all | yes | "Episode 3 of Nirvanna the Band the Show, in no show" | place_as episode (group), place_as film, hide |
-| `no_metadata` | Jellyfin item + not whitelisted | discovery, resume | yes | "Not identified: nothing knows what this file is" | identify, show_anyway, place_as …, hide |
+| `no_metadata` | Jellyfin item + not whitelisted + in no show | discovery, resume | yes | "Not identified: nothing knows what this file is" | identify, show_anyway, place_as …, hide |
 | `identifying` | `no_metadata` + an open `folder_match_suggestions` row | discovery, resume | yes | "Probably *Amblin* (1968): from its folder, Steven Spielberg" | accept suggestion, identify, show_anyway, hide |
 | `scheduled` | `library_rollout_slots` unrevealed | all | no | "Coming 21 Oct" | release now, reschedule |
 | `special_feature` | `special_features` | discovery, show episodes | only if mapped nowhere | "Extras for Tenet" | place_as …, unmark |
@@ -344,8 +344,10 @@ The migration must not move a single film on or off the site. Three guards:
    A rescan that re-mints ids silently un-marks them. Proposed: re-key on path
    in step 3, with a migration that maps the current ids through the library
    listing.
-4. **A show's episode list and the no-metadata rule.** Kept as today: a grouped
-   episode with no metadata is listed inside its show and nowhere else.
+4. **A show's episode list and the no-metadata rule.** Settled 2026-11-02: a
+   file in a show is identified by the show, so `no_metadata` does not hold
+   for it. Keeping it "inside its show and nowhere else" hid whole shows whose
+   episodes Jellyfin had not identified (Angel, NewsRadio, Studio 60).
 5. **Rollout per viewer.** Today a scheduled title is hidden from everyone,
    curator included, until its date. Should the curator see it on the site
    with "Coming 21 Oct"?

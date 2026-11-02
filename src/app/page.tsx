@@ -55,6 +55,9 @@ function clock(seconds: number): string {
 /** Cards in Home's Recently watched row; the rest are on /history. */
 const RECENTLY_WATCHED_ROW = 12;
 
+/** Cards in Home's Recently added row, after a show's episodes are folded into one. */
+const RECENTLY_ADDED_ROW = 20;
+
 /**
  * Home. Rows come straight from Jellyfin's own organisation of the library —
  * its resume positions, its "latest" ordering, its genre tags. Nothing here
@@ -126,7 +129,10 @@ export default async function HomePage() {
       collapsed: collapseEpisodeGroups(await getAllMovies(session, { genre, limit: 20 }).catch(() => [])),
     })),
   );
+  // Folded first, then cut: getLatest reads far past the row so that one
+  // series cannot take every place (media.ts, LATEST_READ).
   const collapsedLatest = collapseEpisodeGroups(latest);
+  collapsedLatest.items = collapsedLatest.items.slice(0, RECENTLY_ADDED_ROW);
 
   // Leaving soon is a pick like the others (the site keeps its titles, the
   // curator writes it), and goes after them: what the curator chose to keep

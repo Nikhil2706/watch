@@ -292,12 +292,20 @@ export async function getRecentlyWatched(
   return filterVisible(data?.Items ?? [], session, { context: "resume" });
 }
 
+/**
+ * Newest first, read well past the row's length: Home folds a show's episodes
+ * into one card, and with 20 a run of one series emptied the row — on
+ * 2026-11-02, 18 re-fetched Buffy episodes made it three cards long and put a
+ * whole new season of Angel at 21st to 47th, off it.
+ */
+const LATEST_READ = 200;
+
 export async function getLatest(session: ResolvedSession): Promise<MediaItem[]> {
   const [token, device] = creds(session);
   // /Items/Latest returns a bare array, not the usual {Items,TotalRecordCount}.
   const data = await userFetch<MediaItem[]>(token, device, "/Items/Latest", {
     userId: session.jellyfinUserId,
-    limit: 20,
+    limit: LATEST_READ,
     includeItemTypes: "Movie",
     fields: LIST_FIELDS,
     enableImageTypes: "Primary,Backdrop",
@@ -1347,6 +1355,16 @@ export async function smartSearch(
     if (hits.has(key) || hits.size >= limit) return;
     hits.set(key, { item, reason, groupId: g?.groupId });
   };
+
+  // A show by its own name, first. Once Jellyfin identifies its episodes they
+  // carry their own titles ("City of..."), so neither the title search nor the
+  // synopsis pass below reliably reaches "Angel" — on 2026-11-02 eight title
+  // hits (Buffy's "Angel", "Angel Maintenance") filled the results first.
+  // `everything` is already filtered to what this viewer may see.
+  for (const item of everything) {
+    const g = item.Path ? groupedPaths.get(item.Path) : undefined;
+    if (g && g.groupName.toLowerCase().includes(term)) add(item, "Show");
+  }
 
   for (const item of byTitle) add(item, "Title");
 
