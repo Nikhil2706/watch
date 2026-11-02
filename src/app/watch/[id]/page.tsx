@@ -14,7 +14,8 @@ import { getGroupKind } from "@/lib/library-curation";
 import { readingFor } from "@/lib/scraping/articles";
 import { getCreditsStart, getEpisodeContext, getItem, getPlaybackPlan, posterUrl, resumeSeconds } from "@/lib/media";
 import { extractJellyfinId, itemHref, watchHref } from "@/lib/slugs";
-import { defaultTrack, listSubtitles } from "@/lib/subtitles";
+import { choosePictureBurn, parseSubtitleRequest } from "@/lib/picture-subtitles";
+import { defaultTrack, listPictureSubtitles, listSubtitles } from "@/lib/subtitles";
 import { resolvePlaybackClientFromRequest } from "@/lib/tv/detect";
 
 export const dynamic = "force-dynamic";
@@ -24,22 +25,39 @@ export default async function WatchPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ t?: string }>;
+  searchParams: Promise<{ t?: string; sub?: string }>;
 }) {
   const session = await currentSession();
   if (!session) redirect("/login");
 
   const { id: rawId } = await params;
   const id = extractJellyfinId(rawId);
-  const { t } = await searchParams;
+  const { t, sub } = await searchParams;
 
   const item = await getItem(session, id);
   if (!item) notFound();
 
+  // Every selectable track, ordered recommended-first, plus the one to switch
+  // on automatically. Both are resolved server-side so the player receives a
+  // decision rather than having to make one. ?sub= is a choice made in the
+  // player's menu that needed a new stream: a picture subtitle (burned in by
+  // Jellyfin, picture-subtitles.ts), or leaving one ("off", or a text track).
+  const requested = parseSubtitleRequest(sub);
+  const subtitles = listSubtitles(item);
+  const pictures = listPictureSubtitles(item);
+  const textDefault =
+    requested === "off"
+      ? null
+      : typeof requested === "number"
+        ? (subtitles.find((s) => s.index === requested) ?? null)
+        : defaultTrack(subtitles);
+  const burned = choosePictureBurn({ pictures, textDefault: textDefault !== null, requested });
+  const preferred = burned === null ? textDefault : null;
+
   let plan = null;
   let planError: string | null = null;
   try {
-    plan = await getPlaybackPlan(session, id, await resolvePlaybackClientFromRequest());
+    plan = await getPlaybackPlan(session, id, await resolvePlaybackClientFromRequest(), { burnSubtitle: burned });
   } catch (error) {
     console.error("[watch] PlaybackInfo failed:", error);
     logEvent({
@@ -53,12 +71,6 @@ export default async function WatchPage({
     });
     planError = "The media server could not prepare this title for playback.";
   }
-
-  // Every selectable track, ordered recommended-first, plus the one to switch
-  // on automatically. Both are resolved server-side so the player receives a
-  // decision rather than having to make one.
-  const subtitles = listSubtitles(item);
-  const preferred = defaultTrack(subtitles);
 
   // An explicit ?t= wins over the stored resume position, so "Start over"
   // (which omits it) genuinely starts over.
@@ -133,6 +145,8 @@ export default async function WatchPage({
             recommended: t.recommended,
           }))}
           defaultSubtitleIndex={preferred?.index ?? null}
+          pictureSubtitles={pictures.map((p) => ({ index: p.index, label: p.label }))}
+          burnedSubtitleIndex={burned}
           nextHref={nextHref}
           nextLabel={nextLabel}
           creditsStart={creditsStart}
