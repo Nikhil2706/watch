@@ -1,8 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useLayoutEffect, useState } from "react";
 
+import { useTvMode } from "@/components/tv/TvProvider";
 import { importOrReload } from "@/lib/chunk-reload";
+import { cameByInAppNavigation } from "@/lib/tv-memory";
 
 import type { PlayerPartySync, PlayerPictureSubtitle, PlayerSubtitle } from "./Player";
 
@@ -60,5 +63,27 @@ export interface PlayerMountProps {
 }
 
 export function PlayerMount(props: PlayerMountProps) {
+  const tvMode = useTvMode();
+  const [reloading, setReloading] = useState(false);
+
+  // A TV opening a title from a page it reached in-app loads the page afresh
+  // first, so the memory of the pages and players before it is let go
+  // (tv-memory.ts). Before the player mounts, so no stream is started only to
+  // be dropped. Once: after the reload the page is the document's own.
+  useLayoutEffect(() => {
+    if (!tvMode || !window.location.pathname.startsWith("/watch/")) return;
+    const entry = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+    if (!cameByInAppNavigation(entry?.name, window.location.href)) return;
+    setReloading(true);
+    window.location.replace(window.location.href);
+  }, [tvMode]);
+
+  if (reloading) {
+    return (
+      <div className="player-stage">
+        <div className="player-skeleton" aria-hidden="true" />
+      </div>
+    );
+  }
   return <Player {...props} />;
 }
