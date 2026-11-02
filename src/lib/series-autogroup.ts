@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getAdminMovies, invalidateAdminMovies } from "./admin-library-cache";
+import { getAdminMovies, invalidateAdminMovies, releaseAdminMoviesAfterScan } from "./admin-library-cache";
 import { asRows, getDb } from "./db";
 import { env } from "./env";
 import { getAlternateVersionPathSet } from "./film-versions";
@@ -300,16 +300,20 @@ export function describeAutoGroupRun(r: SeriesAutoGroupRun): string {
  * After a library scan: wait for Jellyfin to finish (the scan call returns as
  * soon as it starts), then group what arrived. Fire-and-forget from
  * library-scan.ts; gives up waiting after half an hour and runs anyway.
+ * Also what ends library-scan.ts's hold on the cached listing.
  */
 export async function autoGroupAfterScan(): Promise<void> {
   const deadline = Date.now() + 30 * 60_000;
-  await new Promise((resolve) => setTimeout(resolve, 15_000));
-  while (Date.now() < deadline) {
-    const status = await getLibraryScanStatus().catch(() => null);
-    if (!status?.running) break;
+  try {
     await new Promise((resolve) => setTimeout(resolve, 15_000));
+    while (Date.now() < deadline) {
+      const status = await getLibraryScanStatus().catch(() => null);
+      if (!status?.running) break;
+      await new Promise((resolve) => setTimeout(resolve, 15_000));
+    }
+  } finally {
+    releaseAdminMoviesAfterScan();
   }
-  invalidateAdminMovies();
   const r = await runSeriesAutoGroup();
   if (r.created.length || r.added.length) console.log(`[series-autogroup] after scan: ${describeAutoGroupRun(r)}`);
 }

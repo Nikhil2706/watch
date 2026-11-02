@@ -2,6 +2,7 @@ import "server-only";
 
 import { getAdminMovie, getAdminMoviesByIds, listAllMoviesAdmin, type AdminMovieListItem } from "./jellyfin";
 import { inBatches, staleIds } from "./library-listing-diff";
+import { newScanHold, scanEnded, scanHolding, scanStarted, type ScanHold } from "./scan-hold";
 
 /**
  * A short-lived cache of the whole-library admin listing.
@@ -16,8 +17,9 @@ import { inBatches, staleIds } from "./library-listing-diff";
  *
  *  1. A result is reused for FRESH_MS, and past that it is STILL served —
  *     immediately — while a refresh runs behind it. The library only changes
- *     when somebody drops a file in and a scan runs, and the scan route calls
- *     invalidate() itself, so "I just added a film" is never behind. What this
+ *     when somebody drops a file in and a scan runs, and while a scan runs
+ *     nothing is served from here at all (scan-hold.ts), so "I just added a
+ *     film" is never behind. What this
  *     buys is that nobody ever waits 16 seconds for the expensive shape once
  *     it has been fetched once: the console's Library tab opens instantly on
  *     a slightly-old list and corrects itself a moment later. A blocking
@@ -59,6 +61,8 @@ interface State {
   heldWholeAt: number;
   wholeInBackground: boolean;
   unsettledUntil: number;
+  /** A library scan is running or has just ended (scan-hold.ts). */
+  scanHold: ScanHold;
 }
 
 declare global {
@@ -74,7 +78,10 @@ const S: State = (globalThis.__jellyfinGateAdminLibrary ??= {
   heldWholeAt: 0,
   wholeInBackground: false,
   unsettledUntil: 0,
+  scanHold: newScanHold(),
 });
+// A process that loaded an older copy of this module has no scanHold yet.
+S.scanHold ??= newScanHold();
 
 const cache = S.cache;
 const inFlight = S.inFlight;
@@ -178,7 +185,7 @@ export async function getAdminMovies(
   const cached = cache.get(key);
   const existing = inFlight.get(key);
 
-  if (cached && Date.now() >= S.unsettledUntil) {
+  if (cached && Date.now() >= S.unsettledUntil && !scanHolding(S.scanHold, Date.now())) {
     // Stale-while-revalidate: hand back what we have either way, and only
     // kick off a refresh if one isn't already running.
     if (Date.now() - cached.fetchedAt >= FRESH_MS && !existing) {
@@ -227,6 +234,22 @@ function refresh(key: string, withMediaSources: boolean): Promise<AdminMovieList
 export function invalidateAdminMovies(): void {
   cache.clear();
   S.generation += 1;
+}
+
+/**
+ * A library scan has started: until releaseAdminMoviesAfterScan(), every read
+ * goes to Jellyfin and nothing read is kept. Dropping the listing once at the
+ * start was not enough — see scan-hold.ts for what it let through.
+ */
+export function holdAdminMoviesForScan(): void {
+  scanStarted(S.scanHold, Date.now());
+  invalidateAdminMovies();
+}
+
+/** Jellyfin has finished the scan: reads go to it for a little longer, then the cache is trusted again. */
+export function releaseAdminMoviesAfterScan(): void {
+  scanEnded(S.scanHold, Date.now());
+  invalidateAdminMovies();
 }
 
 /**

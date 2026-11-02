@@ -2,7 +2,7 @@ import "server-only";
 
 import { readdirSync, statSync } from "node:fs";
 
-import { invalidateAdminMovies } from "./admin-library-cache";
+import { holdAdminMoviesForScan } from "./admin-library-cache";
 import { syncLeavingPick } from "./folder-removals";
 import { getDb } from "./db";
 import { env } from "./env";
@@ -71,8 +71,9 @@ export async function scanLibraryNow(
   if (folders.length > 0) scanned = (await refreshLibraryFolders(folders)).refreshed;
   if (scanned.length === 0) await refreshLibrary();
   // A scan is the whole point at which "what is in the library" changes, so
-  // the cached listing must not answer for the next minute with the old one.
-  invalidateAdminMovies();
+  // the cached listing must not answer until it is over: held open here,
+  // released by autoGroupAfterScan below once Jellyfin is idle.
+  holdAdminMoviesForScan();
   getDb()
     .prepare(
       `INSERT INTO health_last_scan (id, triggered_at) VALUES (1, ?)
