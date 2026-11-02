@@ -1356,6 +1356,16 @@ export async function smartSearch(
     hits.set(key, { item, reason, groupId: g?.groupId });
   };
 
+  // A show by its own name, first. Once Jellyfin identifies its episodes they
+  // carry their own titles ("City of..."), so neither the title search nor the
+  // synopsis pass below reliably reaches "Angel" — on 2026-11-02 eight title
+  // hits (Buffy's "Angel", "Angel Maintenance") filled the results first.
+  // `everything` is already filtered to what this viewer may see.
+  for (const item of everything) {
+    const g = item.Path ? groupedPaths.get(item.Path) : undefined;
+    if (g && g.groupName.toLowerCase().includes(term)) add(item, "Show");
+  }
+
   for (const item of byTitle) add(item, "Title");
 
   if (hits.size < limit) {
