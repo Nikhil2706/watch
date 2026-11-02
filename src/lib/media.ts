@@ -292,12 +292,20 @@ export async function getRecentlyWatched(
   return filterVisible(data?.Items ?? [], session, { context: "resume" });
 }
 
+/**
+ * Newest first, read well past the row's length: Home folds a show's episodes
+ * into one card, and with 20 a run of one series emptied the row — on
+ * 2026-11-02, 18 re-fetched Buffy episodes made it three cards long and put a
+ * whole new season of Angel at 21st to 47th, off it.
+ */
+const LATEST_READ = 200;
+
 export async function getLatest(session: ResolvedSession): Promise<MediaItem[]> {
   const [token, device] = creds(session);
   // /Items/Latest returns a bare array, not the usual {Items,TotalRecordCount}.
   const data = await userFetch<MediaItem[]>(token, device, "/Items/Latest", {
     userId: session.jellyfinUserId,
-    limit: 20,
+    limit: LATEST_READ,
     includeItemTypes: "Movie",
     fields: LIST_FIELDS,
     enableImageTypes: "Primary,Backdrop",

@@ -8,7 +8,9 @@
  * The first test is the promise the migration rests on: the new rule lists
  * exactly what filterVisible listed before, for every combination of facts, in
  * every list context. LEGACY is the old rule copied out of media.ts as it stood
- * on 2026-10-14 (catalogue-legacy.ts); do not "fix" it.
+ * on 2026-10-14 (catalogue-legacy.ts); do not "fix" it. One change since is
+ * deliberate and stated in the test: a file in a show counts as identified
+ * (2026-11-02).
  */
 
 import assert from "node:assert/strict";
@@ -92,7 +94,8 @@ function legacyInputs(on: Set<Switch>): LegacyInputs {
     excluded: on.has("excluded"),
     damaged: on.has("damaged"),
     ungroupedEpisode: on.has("ungroupedEpisode"),
-    noMetadata: on.has("noMetadata"),
+    // The one deliberate change from the old rule: the show identifies it.
+    noMetadata: on.has("noMetadata") && !on.has("grouped"),
     whitelisted: on.has("whitelisted"),
     scheduled: on.has("scheduled"),
   };
@@ -102,7 +105,7 @@ function legacyInputs(on: Set<Switch>): LegacyInputs {
  * 1. Nothing moves
  * ------------------------------------------------------------------ */
 
-test("lists exactly what the old filterVisible listed: every combination, every context", () => {
+test("lists what the old filterVisible listed, but for a file in a show: every combination, every context", () => {
   let cases = 0;
   for (let mask = 0; mask < 1 << SWITCHES.length; mask++) {
     const on = new Set(SWITCHES.filter((_, bit) => mask & (1 << bit)));
@@ -214,11 +217,18 @@ test("hidden by the curator silences everything else in the inbox", () => {
   assert.equal(s.reasons.length, 5); // still all there to read
 });
 
-test("a grouped episode with no metadata is placed, listed in its show only, and asks nothing", () => {
-  const s = deriveCatalogueState(facts({ group: { groupId: "g", groupName: "E.R." }, hasMetadata: false }));
+test("a grouped episode with no metadata is placed, listed everywhere its show is, and asks nothing", () => {
+  // Angel, 2026-11-02: every episode unidentified by Jellyfin, so the show
+  // had nothing to appear by in Browse, Search or Recently added.
+  const s = deriveCatalogueState(facts({ group: { groupId: "g", groupName: "Angel" }, hasMetadata: false }));
   assert.equal(s.state, "placed");
   assert.equal(s.needsYou, false);
-  assert.equal(isListed(s, "show_episodes"), true);
+  assert.deepEqual(s.reasons.map((r) => r.code), ["episode"]);
+  for (const context of LIST_CONTEXTS) assert.equal(isListed(s, context), true, context);
+});
+
+test("a grouped episode with no metadata is still hidden when the curator hid it", () => {
+  const s = deriveCatalogueState(facts({ group: { groupId: "g", groupName: "Angel" }, hasMetadata: false, excluded: {} }));
   assert.equal(isListed(s, "discovery"), false);
 });
 
