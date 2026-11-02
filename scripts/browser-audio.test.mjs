@@ -1,7 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { defaultAudio, mp4SubtitlesBlock, needsBrowserAudio, remuxArgs, remuxReadsAsWell, verifyRemux } from "./browser-audio.mjs";
+import {
+  brokenRewritePath,
+  defaultAudio,
+  keptOriginalPath,
+  mp4SubtitlesBlock,
+  needsBrowserAudio,
+  remuxArgs,
+  remuxReadsAsWell,
+  verifyRemux,
+} from "./browser-audio.mjs";
 
 const v = { codec_type: "video", codec_name: "h264", pix_fmt: "yuv420p" };
 const a = (codec_name, extra = {}) => ({ codec_type: "audio", codec_name, ...extra });
@@ -71,10 +80,21 @@ test("the AAC track goes first, is the default, and every original follows", () 
   assert.equal(args.at(-1), ".tmp.mkv");
 });
 
-test("MP4 gets faststart and no attachments", () => {
+test("MP4 gets no faststart pass and no attachments", () => {
+  // The in-place faststart shift is what broke Buffy S01E01 and The World.
   const args = remuxArgs("in.mp4", ".tmp.mp4", [v, a("ac3")], ".mp4");
-  assert.ok(args.includes("+faststart"));
+  assert.ok(!args.includes("+faststart"));
+  assert.ok(!args.includes("-movflags"));
   assert.ok(!args.includes("0:t?"));
+});
+
+test("the kept original sits beside the file, hidden, same extension", () => {
+  assert.equal(
+    keptOriginalPath("/media/TV/Buffy/Season 1/Buffy S01E01.mp4"),
+    "/media/TV/Buffy/Season 1/.Buffy S01E01.before-browser-audio.mp4",
+  );
+  assert.equal(keptOriginalPath("/media/The World(1).m4v"), "/media/.The World(1).before-browser-audio.m4v");
+  assert.equal(brokenRewritePath("/media/Film.mkv"), "/media/.Film.browser-audio-broken.mkv");
 });
 
 const probe = (duration, streams) => ({ format: { duration: String(duration) }, streams });
