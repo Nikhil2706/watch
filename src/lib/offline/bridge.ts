@@ -7,6 +7,7 @@ import {
   type PendingDownload,
 } from "./pending";
 import type { OfflineBridge, OfflineBundle } from "./types";
+import { offlineResumeSeconds, recordWatch, syncWatched } from "./watched";
 
 /**
  * Finds the native shell hosting this page, if any.
@@ -180,6 +181,36 @@ export async function resumeOfflineDownloads(): Promise<PendingDownload[]> {
   const bridge = getOfflineBridge();
   if (!bridge) return [];
   return resumePending({ bridge, fetcher: boundFetch, store: localStore() });
+}
+
+/** One position report from the Downloads player, kept on the device (watched.ts). */
+export function recordOfflineWatch(report: {
+  itemId: string;
+  positionSeconds: number;
+  durationSeconds: number;
+  ended: boolean;
+}): void {
+  recordWatch(localStore(), report, Date.now());
+}
+
+/** Where a download was left on this device, in seconds; 0 if never played here. */
+export function offlineResumePoint(itemId: string): number {
+  return offlineResumeSeconds(localStore(), itemId);
+}
+
+let syncing: Promise<number> | null = null;
+
+/**
+ * Hands what was watched offline to Jellyfin. Safe to call often; a no-op with
+ * nothing waiting. One run at a time: two overlapping runs (the every-page
+ * tick and opening a download) would both see a title as unplayed and mark it
+ * played twice.
+ */
+export function syncOfflineWatched(): Promise<number> {
+  syncing ??= syncWatched(localStore(), boundFetch).finally(() => {
+    syncing = null;
+  });
+  return syncing;
 }
 
 export function pendingOfflineDownloads(): PendingDownload[] {

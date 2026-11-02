@@ -244,6 +244,12 @@ interface PlayerProps {
   reading?: ReadingItem[];
   /** Tuned to a channel (channels.ts): live only, no pausing or skipping, up/down change channel. */
   live?: LiveProgramme | null;
+  /**
+   * Every position report, as it is sent to Jellyfin. The Downloads screen
+   * keeps these on the device, because offline the report to Jellyfin fails
+   * (offline/watched.ts).
+   */
+  onReport?: (report: { positionSeconds: number; durationSeconds: number; ended: boolean }) => void;
 }
 
 /** A channel's programme as the player gets it (the /live/[id] page). */
@@ -295,9 +301,13 @@ export function Player({
   ratePrompt = null,
   reading = NO_READING,
   live = null,
+  onReport,
 }: PlayerProps) {
   const player = useRef<MediaPlayerInstance>(null);
   const liveRef = useRef(live);
+  // A ref, so a new callback each render does not restart the reporting below.
+  const onReportRef = useRef(onReport);
+  onReportRef.current = onReport;
   liveRef.current = live;
 
   /* ---- Live: a channel (channels.ts) ----
@@ -1496,7 +1506,12 @@ export function Player({
       CanSeek: true,
     };
 
-    function report(path: string, extra: Record<string, unknown> = {}, keepalive = false) {
+    function report(path: string, extra: Record<string, unknown> = {}, keepalive = false, ended = false) {
+      onReportRef.current?.({
+        positionSeconds: instance?.currentTime ?? 0,
+        durationSeconds: instance?.duration ?? 0,
+        ended,
+      });
       void fetch(`/jf/Sessions/Playing${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1551,7 +1566,7 @@ export function Player({
       endCooldownOnPlaying(driftControl.current, Date.now());
       setNeedsTap(false);
     };
-    const onEnded = () => report("/Stopped");
+    const onEnded = () => report("/Stopped", {}, false, true);
     const onError = () => {
       const mediaError = instance.state.error;
       reportPlayerError({

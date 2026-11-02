@@ -6,10 +6,13 @@ import { Player, type PlayerSubtitle } from "@/components/media/Player";
 import {
   cancelPendingDownload,
   getOfflineBridge,
+  offlineResumePoint,
   offlineSupported,
   pendingOfflineDownloads,
   prepareForOffline,
+  recordOfflineWatch,
   resumeOfflineDownloads,
+  syncOfflineWatched,
 } from "@/lib/offline/bridge";
 import type { PendingDownload } from "@/lib/offline/pending";
 import { useCloseOnBack } from "@/lib/overlay-back";
@@ -28,23 +31,25 @@ import { OFFLINE_BRIDGE_VERSION, type OfflineBundle } from "@/lib/offline/types"
  */
 
 /**
- * Where this person left the film, when there is a connection to ask.
+ * Where this person left the film.
  *
  * The player reports its position as it plays, and that report is what
  * Jellyfin keeps as the resume point. Started at 0:00, a download played
  * online wiped it: 25 minutes into Sympathy for Mr. Vengeance became "Play"
- * after a few seconds of the offline copy. Offline the report fails anyway,
- * so 0:00 is harmless there; the lookup gives up quickly so a bad connection
- * doesn't hold the film back.
+ * after a few seconds of the offline copy. So with a connection, anything
+ * watched offline is handed over first and Jellyfin is asked; without one,
+ * the device's own record of where it was left (offline/watched.ts). The
+ * lookup gives up quickly so a bad connection doesn't hold the film back.
  */
 async function resumePoint(itemId: string): Promise<number> {
   try {
+    await syncOfflineWatched();
     const response = await fetch(`/jf/UserItems/${itemId}/UserData`, { signal: AbortSignal.timeout(2500) });
-    if (!response.ok) return 0;
+    if (!response.ok) return offlineResumePoint(itemId);
     const data = (await response.json()) as { PlaybackPositionTicks?: number; Played?: boolean };
     return data.Played ? 0 : Math.floor((data.PlaybackPositionTicks ?? 0) / 10_000_000);
   } catch {
-    return 0;
+    return offlineResumePoint(itemId);
   }
 }
 
@@ -55,7 +60,7 @@ interface Playing {
   subtitles: PlayerSubtitle[];
   /** Blob URLs to revoke when this closes. */
   revoke: string[];
-  /** Where to begin: the resume point when online, else 0. */
+  /** Where to begin: Jellyfin's resume point when online, else this device's own. */
   startSeconds: number;
 }
 
@@ -228,6 +233,7 @@ export function DownloadsScreen() {
           transcodeReasons={[]}
           subtitles={playing.subtitles}
           defaultSubtitleIndex={preferred ? preferred.index : null}
+          onReport={(report) => recordOfflineWatch({ itemId: playing.bundle.itemId, ...report })}
         />
       </div>
     );
