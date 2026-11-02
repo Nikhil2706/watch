@@ -16,3 +16,13 @@ deploy
 # (dupefinder/Dockerfile). The gate/worker build does `COPY . .`, so without this
 # line every Node image build also copies ~850KB of vendored C# it never uses.
 dupefinder
+# Folders the stack mounts from the checkout when their *_PATH is unset
+# (docker-compose.yml). They hold films, not code. On 2026-11-02 the Mac's
+# media-downloads-cache was 15 GB: every build copied it in (two minutes for
+# COPY . .), and `next build` was killed for memory, which took OrbStack and
+# every container down with it. Without it the same build compiled in 5 s.
+/media
+/media-downloads-cache
+/media-excluded
+/media-quarantine
+/backups
