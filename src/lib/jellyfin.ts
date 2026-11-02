@@ -3,6 +3,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 
 import { env } from "./env";
+import { listAllItems } from "./jellyfin-listing";
 import { nearestFolder, outermostFolders } from "./library-folders";
 
 /**
@@ -1047,14 +1048,19 @@ export async function listAllMoviesAdmin(
     ? "Overview,ProviderIds,Path,ProductionYear,Etag,MediaSources"
     : "Overview,ProviderIds,Path,ProductionYear,Etag";
 
-  const data = await jellyfinFetch<{ Items: AdminMovieListItem[] }>(
-    // ImageTags.Primary arrives on every item by default — confirmed
-    // empirically, not gated by Fields= like Overview/ProviderIds/etc are.
-    `/Items?IncludeItemTypes=Movie&Recursive=true&Fields=${fields}&Limit=2000`,
-    // The heavy shape needs far more than the client's default 15s budget.
-    { token: env.jellyfinApiKey, timeoutMs: withMediaSources ? 90_000 : 30_000 },
+  // ImageTags.Primary arrives on every item by default — confirmed
+  // empirically, not gated by Fields= like Overview/ProviderIds/etc are.
+  // By library and paged, not one ParentId-less request: see jellyfin-listing.ts.
+  // The heavy shape needs far more than the client's default 15s budget.
+  return listAllItems<AdminMovieListItem>(
+    adminGet(withMediaSources ? 90_000 : 30_000),
+    `IncludeItemTypes=Movie&Recursive=true&Fields=${fields}`,
   );
-  return data.Items;
+}
+
+/** A GET with the admin key, for jellyfin-listing.ts. */
+function adminGet(timeoutMs: number) {
+  return <T>(path: string) => jellyfinFetch<T>(path, { token: env.jellyfinApiKey, timeoutMs });
 }
 
 /**
@@ -1067,11 +1073,10 @@ export async function listAllMoviesAdmin(
 export async function listItemsForChannels(): Promise<
   Array<{ Id: string; Name: string; Path?: string; Genres?: string[]; RunTimeTicks?: number }>
 > {
-  const data = await jellyfinFetch<{ Items: Array<{ Id: string; Name: string; Path?: string; Genres?: string[]; RunTimeTicks?: number }> }>(
-    "/Items?IncludeItemTypes=Movie&Recursive=true&Fields=Path,Genres&Limit=10000",
-    { token: env.jellyfinApiKey, timeoutMs: 60_000 },
+  return listAllItems<{ Id: string; Name: string; Path?: string; Genres?: string[]; RunTimeTicks?: number }>(
+    adminGet(60_000),
+    "IncludeItemTypes=Movie&Recursive=true&Fields=Path,Genres",
   );
-  return data?.Items ?? [];
 }
 
 export async function getAdminMoviesByIds(itemIds: string[]): Promise<AdminMovieListItem[]> {
@@ -1134,11 +1139,11 @@ export interface AdminPersonCredit {
  * timeout listAllMoviesAdmin needs for its own heavy pull.
  */
 export async function getPeopleForAllMoviesAdmin(): Promise<Map<string, AdminPersonCredit[]>> {
-  const data = await jellyfinFetch<{ Items: Array<{ Id: string; People?: AdminPersonCredit[] }> }>(
-    "/Items?IncludeItemTypes=Movie&Recursive=true&Fields=People&Limit=2000",
-    { token: env.jellyfinApiKey, timeoutMs: 90_000 },
+  const items = await listAllItems<{ Id: string; People?: AdminPersonCredit[] }>(
+    adminGet(90_000),
+    "IncludeItemTypes=Movie&Recursive=true&Fields=People",
   );
   const map = new Map<string, AdminPersonCredit[]>();
-  for (const item of data.Items) map.set(item.Id, item.People ?? []);
+  for (const item of items) map.set(item.Id, item.People ?? []);
   return map;
 }
