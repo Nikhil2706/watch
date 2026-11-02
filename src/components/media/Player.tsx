@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTvBack, useTvMode } from "@/components/tv/TvProvider";
 import { burnedStartJump } from "@/lib/burned-start-gap";
 import { captionFontPx } from "@/lib/caption-size";
+import { DEFAULT_TV_BACK_BUFFER_SECONDS, tvBackBufferSeconds } from "@/lib/tv-memory";
 import {
   consumeEcho,
   DRIFT_CHECK_INTERVAL_MS,
@@ -1483,7 +1484,21 @@ export function Player({
         // top, and the seek in onCanPlay restarts it. Not in a party: there the
         // room's position wins, and is applied in onCanPlay.
         ...(startSeconds > 0 && !partyRef.current ? { startPosition: startSeconds } : {}),
+        // On a TV, what has been watched is kept to a memory budget
+        // (tv-memory.ts); hls.js otherwise keeps all of it, and a long
+        // transcoded episode filled a 1.8 GB TV until its web engine crashed.
+        ...(tvMode ? { backBufferLength: DEFAULT_TV_BACK_BUFFER_SECONDS } : {}),
       };
+      if (tvMode) {
+        provider.onInstance((hls) => {
+          const Hls = hls.constructor as typeof import("hls.js").default;
+          hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
+            const bitrate = Math.max(0, ...data.levels.map((level) => level.bitrate || 0));
+            // Read by hls.js each time it trims the buffer, so changing it here applies.
+            hls.config.backBufferLength = tvBackBufferSeconds(bitrate);
+          });
+        });
+      }
     }
   }
 
