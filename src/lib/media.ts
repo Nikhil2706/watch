@@ -23,6 +23,7 @@ import {
   partsUnitFor,
 } from "./library-curation";
 import { isRestrictedContent } from "./parental-control";
+import { isPictureCodec } from "./picture-subtitles";
 import {
   getFeatureIdsForFilm,
   getTargetsForFeatures,
@@ -979,6 +980,9 @@ interface PlaybackInfoResponse {
   PlaySessionId: string;
   MediaSources: Array<{
     Id: string;
+    /** The subtitle Jellyfin will burn in or attach; -1 or absent for none. */
+    DefaultSubtitleStreamIndex?: number;
+    MediaStreams?: Array<{ Index: number; Type?: string; Codec?: string }>;
     SupportsDirectPlay?: boolean;
     SupportsDirectStream?: boolean;
     SupportsTranscoding?: boolean;
@@ -995,19 +999,36 @@ export async function getPlaybackPlan(
   session: ResolvedSession,
   itemId: string,
   client: PlaybackClient = "phone",
+  /** A picture subtitle to burn in (picture-subtitles.ts); none when absent. */
+  options: { burnSubtitle?: number | null } = {},
 ): Promise<PlaybackPlan | null> {
   const [token, device] = creds(session);
+  const ask = (choice?: { mediaSourceId: string; subtitleStreamIndex: number }) =>
+    userPost<PlaybackInfoResponse>(
+      token,
+      device,
+      `/Items/${encodeURIComponent(itemId)}/PlaybackInfo`,
+      { DeviceProfile: browserProfile(client), EnableDirectPlay: true, EnableTranscoding: true },
+      { userId: session.jellyfinUserId, ...choice },
+    );
 
-  const info = await userPost<PlaybackInfoResponse>(
-    token,
-    device,
-    `/Items/${encodeURIComponent(itemId)}/PlaybackInfo`,
-    { DeviceProfile: browserProfile(client), EnableDirectPlay: true, EnableTranscoding: true },
-    { userId: session.jellyfinUserId },
-  );
-
-  const source = info?.MediaSources?.[0];
+  let info = await ask();
+  let source = info?.MediaSources?.[0];
   if (!source) return null;
+
+  // Jellyfin burns in whatever picture subtitle the file marks as default —
+  // Danish, on Angel — when nobody chose it. Asked again with the site's own
+  // choice whenever its pick would burn something else in. Jellyfin only
+  // honours subtitleStreamIndex alongside mediaSourceId (measured on 10.11:
+  // without it, the request is ignored).
+  const wanted = options.burnSubtitle ?? -1;
+  const picked = source.DefaultSubtitleStreamIndex ?? -1;
+  const pickedIsPicture = isPictureCodec(source.MediaStreams?.find((s) => s.Index === picked)?.Codec);
+  if (picked !== wanted && (pickedIsPicture || wanted !== -1)) {
+    info = await ask({ mediaSourceId: source.Id, subtitleStreamIndex: wanted });
+    source = info?.MediaSources?.[0];
+    if (!source) return null;
+  }
 
   const reasons = source.TranscodeReasons ?? [];
 

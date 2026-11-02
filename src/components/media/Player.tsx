@@ -56,6 +56,7 @@ import { EndReading, type ReadingItem } from "./EndReading";
 
 /** One empty list for every render, so the end-of-film effect is not re-bound each time. */
 const NO_READING: ReadingItem[] = [];
+const NO_PICTURE_SUBTITLES: PlayerPictureSubtitle[] = [];
 
 /**
  * What sits beside the player in a watch party room (PartyRoomClient): the
@@ -178,6 +179,19 @@ export interface PlayerSubtitle {
   recommended: boolean;
 }
 
+/** A picture subtitle (DVD/Blu-ray): only shown burned into a new stream (picture-subtitles.ts). */
+export interface PlayerPictureSubtitle {
+  index: number;
+  label: string;
+}
+
+/**
+ * The menu entry for a picture subtitle is a <track> with no cues: picking it
+ * is the request for a stream with that subtitle burned in. A real track would
+ * draw text over the burned-in picture, and there is no text to draw.
+ */
+const EMPTY_VTT = "data:text/vtt;charset=utf-8,WEBVTT%0A";
+
 /**
  * Watch-party playback sync, threaded through from a page composing
  * <Player> with usePartySocket() (src/components/party/usePartySocket.ts).
@@ -231,6 +245,10 @@ interface PlayerProps {
   transcodeReasons: string[];
   subtitles: PlayerSubtitle[];
   defaultSubtitleIndex: number | null;
+  /** Picture subtitles; choosing one reloads /watch with ?sub= so it is burned in. */
+  pictureSubtitles?: PlayerPictureSubtitle[];
+  /** The picture subtitle burned into this stream, or null. */
+  burnedSubtitleIndex?: number | null;
   party?: PlayerPartySync;
   /** The next episode's watch URL, for Shift+N and the "Next episode" button. */
   nextHref?: string | null;
@@ -288,6 +306,8 @@ export function Player({
   transcodeReasons,
   subtitles,
   defaultSubtitleIndex,
+  pictureSubtitles = NO_PICTURE_SUBTITLES,
+  burnedSubtitleIndex = null,
   party,
   nextHref = null,
   nextLabel = null,
@@ -1481,6 +1501,32 @@ export function Player({
   }
 
   /**
+   * A picture subtitle can't be switched on in place: it has to be burned into
+   * a new stream. So picking one in the menu — or leaving the one burned in —
+   * reloads /watch from the same moment with ?sub= saying what was chosen
+   * (picture-subtitles.ts). Nothing happens while the choice matches the
+   * stream, which is also what the menu shows as the page loads.
+   */
+  useEffect(() => {
+    const instance = player.current;
+    if (!instance || pictureSubtitles.length === 0) return;
+    const onModeChange = () => {
+      const showing = instance.textTracks.toArray().find((t) => t.mode === "showing");
+      const id = showing?.id ?? "";
+      const picture = id.startsWith("picture-") ? Number(id.slice("picture-".length)) : null;
+      const text = id.startsWith("text-") ? Number(id.slice("text-".length)) : null;
+      if (picture === burnedSubtitleIndex) return;
+      if (picture === null && burnedSubtitleIndex === null) return;
+      const url = new URL(window.location.href);
+      url.searchParams.set("sub", String(picture ?? text ?? "off"));
+      url.searchParams.set("t", String(Math.floor(instance.currentTime)));
+      window.location.replace(url.toString());
+    };
+    instance.textTracks.addEventListener("mode-change", onModeChange);
+    return () => instance.textTracks.removeEventListener("mode-change", onModeChange);
+  }, [pictureSubtitles, burnedSubtitleIndex]);
+
+  /**
    * Feeds Jellyfin the playback position so its own Continue Watching stays
    * correct, and tells it to stop transcoding when the viewer leaves.
    */
@@ -1638,11 +1684,22 @@ export function Player({
         onCanPlay={onCanPlay}
       >
         <MediaProvider>
+          {pictureSubtitles.map((track) => (
+            <Track
+              key={`picture-${track.index}`}
+              id={`picture-${track.index}`}
+              src={EMPTY_VTT}
+              kind="subtitles"
+              label={`${track.label} (from the disc)`}
+              default={track.index === burnedSubtitleIndex}
+            />
+          ))}
           {subtitles.map((track) => (
             <Track
               // Vidstack's Track declares its own string `key` prop, which
               // collides with React's; a string satisfies both.
               key={String(track.index)}
+              id={`text-${track.index}`}
               src={track.url}
               kind="subtitles"
               label={track.recommended ? `${track.label} (recommended)` : track.label}

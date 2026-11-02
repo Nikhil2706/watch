@@ -2,6 +2,7 @@ import "server-only";
 
 import { asRow, getDb } from "./db";
 import type { MediaItem } from "./media";
+import { isPictureCodec, type PictureTrack } from "./picture-subtitles";
 
 /**
  * Subtitle track selection.
@@ -141,11 +142,28 @@ export function clearRecommended(itemId: string): void {
 }
 
 /**
+ * The picture subtitles (DVDSUB, PGS) of an item, which only show burned into
+ * the picture (picture-subtitles.ts). Listed apart from listSubtitles because
+ * choosing one means a new stream, not a <track>.
+ */
+export function listPictureSubtitles(item: MediaItem): PictureTrack[] {
+  const source = item.MediaSources?.[0];
+  return (source?.MediaStreams ?? [])
+    .filter((stream) => stream.Type === "Subtitle" && isPictureCodec(stream.Codec))
+    .map((stream) => ({
+      index: stream.Index,
+      label: readableLabel(stream),
+      language: stream.Language ?? null,
+      isForced: Boolean(stream.IsForced),
+    }));
+}
+
+/**
  * Every selectable subtitle track for an item, ordered for a picker.
  *
  * Image-based tracks (PGS, VOBSUB) are excluded: they cannot be rendered as
  * text by a browser, and offering them would produce a track that silently does
- * nothing when chosen.
+ * nothing when chosen. listPictureSubtitles has them.
  */
 export function listSubtitles(item: MediaItem): SubtitleTrack[] {
   const source = item.MediaSources?.[0];
@@ -155,10 +173,7 @@ export function listSubtitles(item: MediaItem): SubtitleTrack[] {
 
   const tracks = (source.MediaStreams ?? [])
     .filter((stream) => stream.Type === "Subtitle")
-    .filter((stream) => {
-      const codec = (stream.Codec ?? "").toLowerCase();
-      return !["pgssub", "pgs", "dvdsub", "dvbsub", "vobsub", "hdmv_pgs_subtitle"].includes(codec);
-    })
+    .filter((stream) => !isPictureCodec(stream.Codec))
     .map((stream) => {
       const language = stream.Language ?? null;
       return {

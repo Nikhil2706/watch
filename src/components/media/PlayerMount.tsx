@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 
 import { importOrReload } from "@/lib/chunk-reload";
 
-import type { PlayerPartySync, PlayerSubtitle } from "./Player";
+import type { PlayerPartySync, PlayerPictureSubtitle, PlayerSubtitle } from "./Player";
 
 /**
  * Client-only mount for the player.
@@ -47,6 +47,8 @@ export interface PlayerMountProps {
   transcodeReasons: string[];
   subtitles: PlayerSubtitle[];
   defaultSubtitleIndex: number | null;
+  pictureSubtitles?: PlayerPictureSubtitle[];
+  burnedSubtitleIndex?: number | null;
   party?: PlayerPartySync;
   /** The next episode's watch URL, for Shift+N and the "Next episode" button. */
   nextHref?: string | null;
