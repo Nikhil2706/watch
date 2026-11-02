@@ -2,6 +2,7 @@ package com.abhigyanverma.watch;
 
 import android.net.Uri;
 import android.os.Build;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ServiceWorkerClient;
 import android.webkit.ServiceWorkerController;
 import android.webkit.WebResourceRequest;
@@ -61,6 +62,13 @@ final class OfflineMedia {
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 WebResourceResponse ours = intercept(bridge, request);
                 return ours != null ? ours : super.shouldInterceptRequest(view, request);
+            }
+
+            // Here because this is the app's one WebViewClient: without it a
+            // dead renderer takes the whole app down (RenderRecovery).
+            @Override
+            public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                return RenderRecovery.recover(bridge, view, detail.didCrash());
             }
         });
         if (Build.VERSION.SDK_INT >= 24) {

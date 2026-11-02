@@ -55,7 +55,7 @@ public class MainActivity extends BridgeActivity {
      * user agent, only on an actual television, and the site's own existing
      * detection does the rest. Nothing here reimplements any of it.
      */
-    private void announceTelevisionToTheSite() {
+    private void announceTelevisionToTheSite(String resumeUrl) {
         if (!isTelevision()) return;
 
         WebSettings settings = this.bridge.getWebView().getSettings();
@@ -91,7 +91,10 @@ public class MainActivity extends BridgeActivity {
                 webView.clearHistory();
             }
         });
-        this.bridge.getWebView().reload();
+        // After a renderer crash, the page that was open rather than the start
+        // URL again (RenderRecovery); either way it goes out with the new agent.
+        if (resumeUrl != null) this.bridge.getWebView().loadUrl(resumeUrl);
+        else this.bridge.getWebView().reload();
     }
 
     private boolean isTelevision() {
@@ -114,7 +117,9 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
 
         OfflineMedia.install(this.bridge);
-        announceTelevisionToTheSite();
+        String resumeUrl = RenderRecovery.resumeUrl(getIntent(), this.bridge);
+        announceTelevisionToTheSite(resumeUrl);
+        if (resumeUrl != null && !isTelevision()) this.bridge.getWebView().loadUrl(resumeUrl);
         installBackHandling();
 
         // Sideloaded, so no store pushes updates. Fire-and-forget on a
