@@ -15,6 +15,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { useTvBack, useTvMode } from "@/components/tv/TvProvider";
+import { burnedStartJump } from "@/lib/burned-start-gap";
 import { captionFontPx } from "@/lib/caption-size";
 import {
   consumeEcho,
@@ -1509,6 +1510,27 @@ export function Player({
       player.current.currentTime = startSeconds;
     }
   }
+
+  /**
+   * With a picture subtitle burned in, a stream started part-way — opening at
+   * a resume point, after picking a subtitle, after a seek — begins at the
+   * next subtitle line, not where it was asked to (burned-start-gap.ts). Left
+   * alone the player waits at the asked-for second forever. Checked once a
+   * second; nothing happens while it is playing.
+   */
+  useEffect(() => {
+    const instance = player.current;
+    if (!instance || burnedSubtitleIndex === null) return;
+    const timer = setInterval(() => {
+      const video = instance.el?.querySelector("video");
+      if (!video) return;
+      const buffered: Array<[number, number]> = [];
+      for (let i = 0; i < video.buffered.length; i++) buffered.push([video.buffered.start(i), video.buffered.end(i)]);
+      const to = burnedStartJump({ currentTime: video.currentTime, readyState: video.readyState, buffered });
+      if (to !== null) instance.currentTime = to;
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [burnedSubtitleIndex]);
 
   /**
    * A picture subtitle can't be switched on in place: it has to be burned into
