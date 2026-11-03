@@ -1401,6 +1401,50 @@ a.curator-card:hover {
 }
 
 /*
+ * A phone turned sideways is for watching: the film gets the whole screen.
+ * The Back/title bar floats over the picture and fades out with the player's
+ * controls, instead of taking 52px off the top of a 400px-tall screen, and
+ * the video gets the full height. Touch devices only, so a short desktop
+ * window keeps its bar. The other half is the app hiding Android's status
+ * and navigation bars in landscape (MainActivity), which a page cannot do.
+ */
+@media (hover: none) and (pointer: coarse) and (orientation: landscape) {
+  .player-page {
+    position: relative;
+  }
+
+  .player-page > .player-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    background: linear-gradient(rgba(0, 0, 0, 0.6), transparent);
+    transition: opacity 0.2s ease;
+  }
+
+  /* Every rule that left 52px for the bar, or the player sat 26px low with
+     its bottom cut off. */
+  .vds-player,
+  .vds-player video,
+  .player-stage video,
+  .player-page .player-skeleton {
+    max-height: 100dvh;
+  }
+
+  .player-page:has(.plyr--hide-controls) > .player-bar,
+  .dl-player:has(.plyr--hide-controls) .dl-player-back {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .dl-player .dl-player-back {
+    transition: opacity 0.2s ease;
+  }
+}
+
+/*
  * Hide the pointer with the controls in fullscreen. Vidstack's Plyr sheet
  * has this rule, but on the layout's root (.plyr), which is
  * pointer-events: none so clicks reach the video. An element that is never

@@ -105,6 +105,19 @@ public class MainActivity extends BridgeActivity {
         return ui != null && ui.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION;
     }
 
+    /** Null on a television. */
+    private FullscreenViewing fullscreen;
+
+    /**
+     * The manifest declares orientation changes handled, so turning the phone
+     * does not restart the activity (and the film); this is where it lands.
+     */
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        if (fullscreen != null) fullscreen.apply();
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         // BEFORE super.onCreate(): Capacitor builds its plugin registry during
@@ -120,6 +133,7 @@ public class MainActivity extends BridgeActivity {
         String resumeUrl = RenderRecovery.resumeUrl(getIntent(), this.bridge);
         announceTelevisionToTheSite(resumeUrl);
         if (resumeUrl != null && !isTelevision()) this.bridge.getWebView().loadUrl(resumeUrl);
+        if (!isTelevision()) fullscreen = FullscreenViewing.install(this, this.bridge);
         installBackHandling();
 
         // Sideloaded, so no store pushes updates. Fire-and-forget on a
@@ -245,13 +259,15 @@ public class MainActivity extends BridgeActivity {
      * plugin handled it, so Back finished the activity from any page - one
      * press from a film page and the app was gone.
      *
-     * In order: close whatever is open on the page (menu, dropdown, offline
-     * player - see src/lib/overlay-back.ts), else go back a page, else leave.
+     * In order: leave fullscreen (FullscreenViewing), close whatever is open
+     * on the page (menu, dropdown, offline player - see
+     * src/lib/overlay-back.ts), else go back a page, else leave.
      */
     private void installBackHandling() {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
+                if (fullscreen != null && fullscreen.exitIfFullscreen()) return;
                 final WebView web = bridge.getWebView();
                 web.evaluateJavascript(
                     "(function(){try{return !!(window.__watchCloseOverlay&&window.__watchCloseOverlay())}catch(e){return false}})()",
