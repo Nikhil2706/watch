@@ -13,6 +13,7 @@ import {
   plyrLayoutIcons,
 } from "@vidstack/react/player/layouts/plyr";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { useTvBack, useTvMode } from "@/components/tv/TvProvider";
 import { burnedStartJump } from "@/lib/burned-start-gap";
@@ -119,6 +120,23 @@ function PlayIcon() {
   return (
     <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <path d="M8 5v14l11-7z" />
+    </svg>
+  );
+}
+
+function StartOverIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M4 4v6h6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4.6 15a8 8 0 1 0 1.9-8.3L4 10" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function NextEpisodeIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M5 5v14l10-7zM16 5h3v14h-3z" />
     </svg>
   );
 }
@@ -553,6 +571,56 @@ export function Player({
   const tvMode = useTvMode();
   const tvModeRef = useRef(tvMode);
   tvModeRef.current = tvMode;
+
+  /* ---- Start over and Next episode, in the bar over the video ----
+   * As on Netflix, beside "‹ Back" rather than only at the credits. The bar
+   * is the page's (it holds the page's Back link), so the buttons are put
+   * into it from here, where the player is. Not in a watch party, where the
+   * room decides where everyone is, nor on a live channel, which has no
+   * start. On a TV the remote reaches them with up, then left and right
+   * along the bar (moveTopBar). */
+  const [barSlot, setBarSlot] = useState<HTMLElement | null>(null);
+  const inParty = Boolean(party);
+  const onLive = Boolean(live);
+  useEffect(() => {
+    setBarSlot(inParty || onLive ? null : document.querySelector<HTMLElement>(PLAYER_TOP_BAR));
+  }, [inParty, onLive]);
+
+  function startOver() {
+    runActionRef.current({ kind: "seekTo", where: "start" });
+    void player.current?.play();
+    // Focus left on the button would hold the bar up for good (below). A TV
+    // keeps it: the remote is still on the bar.
+    if (!tvModeRef.current && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  }
+
+  // The bar is outside the player, so a mouse resting on Start over counted
+  // as no movement and the bar faded from under it. Held up while the pointer
+  // or keyboard focus is in it.
+  useEffect(() => {
+    const bar = barSlot;
+    if (!bar) return;
+    const hold = () => {
+      player.current?.controls.show();
+      player.current?.controls.pause();
+    };
+    const release = (event: Event) => {
+      const next = (event as FocusEvent).relatedTarget as Node | null;
+      if (event.type === "focusout" && next && bar.contains(next)) return;
+      if (event.type === "pointerleave" && bar.contains(document.activeElement)) return;
+      player.current?.controls.resume();
+    };
+    bar.addEventListener("pointerenter", hold);
+    bar.addEventListener("pointerleave", release);
+    bar.addEventListener("focusin", hold);
+    bar.addEventListener("focusout", release);
+    return () => {
+      bar.removeEventListener("pointerenter", hold);
+      bar.removeEventListener("pointerleave", release);
+      bar.removeEventListener("focusin", hold);
+      bar.removeEventListener("focusout", release);
+    };
+  }, [barSlot]);
 
   // A real mouse (a computer, not a phone or a TV): a click on the video
   // plays and pauses it, as on YouTube. Decided after mount, since the
@@ -1839,6 +1907,30 @@ export function Player({
             <PlayIcon />
           </button>
         ) : null}
+
+        {barSlot
+          ? createPortal(
+              <div className="player-bar-actions">
+                <button type="button" className="btn ghost" onClick={startOver} aria-label="Start over">
+                  <StartOverIcon />
+                  <span className="player-bar-label">Start over</span>
+                </button>
+                {nextHref ? (
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    onClick={() => runActionRef.current({ kind: "next" })}
+                    aria-label={nextLabel ? `Next episode: ${nextLabel}` : "Next episode"}
+                    title={nextLabel ?? undefined}
+                  >
+                    <NextEpisodeIcon />
+                    <span className="player-bar-label">Next episode</span>
+                  </button>
+                ) : null}
+              </div>,
+              barSlot,
+            )
+          : null}
 
         {live ? (
           <div className="live-badge" aria-label={`Live on ${live.channelName}`}>

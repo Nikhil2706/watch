@@ -6,7 +6,7 @@ import {
   resumeSeconds,
   type MediaItem,
 } from "@/lib/media";
-import { itemHref, watchHref } from "@/lib/slugs";
+import { itemHref, startOverHref, watchHref } from "@/lib/slugs";
 
 /**
  * Featured title at the top of the home page.
@@ -92,6 +92,11 @@ export function Hero({
           >
             ▶ {resume > 0 ? "Resume" : "Play"}
           </Link>
+          {resume > 0 ? (
+            <Link className="btn ghost" href={startOverHref(item.Id, item.Name, item.ProductionYear)}>
+              Start over
+            </Link>
+          ) : null}
           <Link className="btn ghost" href={itemHref(item.Id, item.Name, item.ProductionYear)}>
             More info
           </Link>
