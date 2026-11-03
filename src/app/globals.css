@@ -1424,7 +1424,12 @@ a.curator-card:hover {
     transition: opacity 0.2s ease;
   }
 
-  .player-stage video {
+  /* Every rule that left 52px for the bar, or the player sat 26px low with
+     its bottom cut off. */
+  .vds-player,
+  .vds-player video,
+  .player-stage video,
+  .player-page .player-skeleton {
     max-height: 100dvh;
   }
 
