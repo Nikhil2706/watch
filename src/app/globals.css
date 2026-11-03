@@ -1401,46 +1401,76 @@ a.curator-card:hover {
 }
 
 /*
- * A phone turned sideways is for watching: the film gets the whole screen.
- * The Back/title bar floats over the picture and fades out with the player's
- * controls, instead of taking 52px off the top of a 400px-tall screen, and
- * the video gets the full height. Touch devices only, so a short desktop
- * window keeps its bar. The other half is the app hiding Android's status
- * and navigation bars in landscape (MainActivity), which a page cannot do.
+ * The film gets the whole screen, as on Netflix: on its own player page (not
+ * a watch party, whose bar sits above a grid) the "‹ Back / title / Start
+ * over / Next episode" bar lies see-through over the top of the video and
+ * comes and goes with the control bar, on a computer, a phone and a TV
+ * alike. Vidstack marks the player with data-controls while its controls
+ * are showing: they hide after a moment with no mouse, touch or key, and
+ * stay while paused. The video gets the full height in return. A page that
+ * could not play keeps its bar, since there are no controls to follow. On a
+ * phone in landscape the app also hides Android's own bars (MainActivity).
  */
-@media (hover: none) and (pointer: coarse) and (orientation: landscape) {
-  .player-page {
-    position: relative;
-  }
+.player-page:has(.player-stage):not(:has(.party-room-grid)) {
+  position: relative;
+}
 
-  .player-page > .player-bar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 5;
-    padding-top: calc(10px + env(safe-area-inset-top, 0px));
-    background: linear-gradient(rgba(0, 0, 0, 0.6), transparent);
-    transition: opacity 0.2s ease;
-  }
+.player-page:has(.player-stage):not(:has(.party-room-grid)) > .player-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0));
+  transition: opacity 0.25s ease, visibility 0s linear 0s;
+}
 
-  /* Every rule that left 52px for the bar, or the player sat 26px low with
-     its bottom cut off. */
-  .vds-player,
-  .vds-player video,
-  .player-stage video,
-  .player-page .player-skeleton {
-    max-height: 100dvh;
-  }
+.player-page:has(.vds-player:not([data-controls])):not(:has(.party-room-grid)) > .player-bar,
+.dl-player:has(.vds-player:not([data-controls])) .dl-player-back {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.25s ease, visibility 0s linear 0.25s;
+}
 
-  .player-page:has(.plyr--hide-controls) > .player-bar,
-  .dl-player:has(.plyr--hide-controls) .dl-player-back {
-    opacity: 0;
-    pointer-events: none;
-  }
+.dl-player .dl-player-back {
+  transition: opacity 0.25s ease, visibility 0s linear 0s;
+}
 
-  .dl-player .dl-player-back {
-    transition: opacity 0.2s ease;
+/* Every rule that left 52px for the bar above, or the player sat 26px low
+   with its bottom cut off. */
+.player-page:not(:has(.party-room-grid)) .vds-player,
+.player-page:not(:has(.party-room-grid)) .vds-player video,
+.player-page:not(:has(.party-room-grid)) .player-stage video,
+.player-page:not(:has(.party-room-grid)) .player-skeleton,
+.dl-player .vds-player,
+.dl-player .vds-player video {
+  max-height: 100dvh;
+}
+
+/* Start over and Next episode, at the right end of the bar (Player.tsx). */
+.player-bar .title {
+  flex: 1;
+  min-width: 0;
+}
+
+.player-bar-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+.player-bar-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+}
+
+/* A phone held upright has room for the icons only; each keeps its name
+   for screen readers (aria-label). */
+@media (max-width: 560px) {
+  .player-bar-label {
+    display: none;
   }
 }
 
