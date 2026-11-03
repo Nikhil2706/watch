@@ -1400,6 +1400,17 @@ a.curator-card:hover {
   object-fit: contain;
 }
 
+/* The video's 100% is of Vidstack's provider box, which as a flex item of
+   the fullscreen player shrank to the video's own size: a 640x360 episode
+   (Nathan For You, 2026-11-04) sat tiny in the middle of a 1080p screen. */
+.vds-player:fullscreen [data-media-provider],
+.player-stage:fullscreen [data-media-provider],
+.vds-player:-webkit-full-screen [data-media-provider],
+.player-stage:-webkit-full-screen [data-media-provider] {
+  width: 100%;
+  height: 100%;
+}
+
 /*
  * The film gets the whole screen, as on Netflix: on its own player page (not
  * a watch party, whose bar sits above a grid) the "‹ Back / title / Start
