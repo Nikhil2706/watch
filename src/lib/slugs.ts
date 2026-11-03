@@ -45,3 +45,12 @@ export function watchHref(id: string, name?: string | null, year?: number | null
   const base = slug ? `/watch/${slug}-${id}` : `/watch/${id}`;
   return resumeSeconds && resumeSeconds > 0 ? `${base}?t=${resumeSeconds}` : base;
 }
+
+/**
+ * /watch from the very beginning. Not watchHref with 0: that leaves ?t= off,
+ * and with no ?t= the watch page resumes from the stored position, so every
+ * "Start over" button resumed instead.
+ */
+export function startOverHref(id: string, name?: string | null, year?: number | null): string {
+  return `${watchHref(id, name, year)}?t=0`;
+}

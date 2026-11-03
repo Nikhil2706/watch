@@ -50,7 +50,7 @@ import {
 } from "@/lib/media";
 import { StartPartyButton } from "@/components/party/StartPartyButton";
 import { getSeriesContextForFilm } from "@/lib/scraping/film-series";
-import { extractJellyfinId, itemHref, watchHref } from "@/lib/slugs";
+import { extractJellyfinId, itemHref, startOverHref, watchHref } from "@/lib/slugs";
 
 export const dynamic = "force-dynamic";
 
@@ -367,7 +367,7 @@ export default async function ItemPage({
                 ▶ {resume > 0 ? `Resume at ${Math.floor(resume / 60)}m` : "Play"}
               </Link>
               {resume > 0 ? (
-                <Link className="btn ghost" href={watchHref(item.Id, item.Name, item.ProductionYear)}>
+                <Link className="btn ghost" href={startOverHref(item.Id, item.Name, item.ProductionYear)}>
                   Start over
                 </Link>
               ) : null}
