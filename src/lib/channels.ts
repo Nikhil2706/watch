@@ -1,6 +1,6 @@
 import "server-only";
 
-import { lineupMs, onNow, seededShuffle, upcoming, type OnNow } from "./channel-schedule";
+import { lineupMs, onNow, seededShuffle, slotLength, timetableMarkMs, upcoming, type OnNow, type SlotRule } from "./channel-schedule";
 import { generateId } from "./crypto";
 import { asRow, asRows, getDb, transaction } from "./db";
 import { parseEpisodeInfo } from "./episode-naming";
@@ -27,7 +27,6 @@ import { getGroup, getGroupedPathMap, listGroups } from "./library-curation";
 
 export type OrderMode = "in_order" | "shuffle";
 
-const QUARTER_HOUR_MS = 15 * 60_000;
 /**
  * When the lineup has played through: start again ("loop", every channel
  * before v69), go off air and stay to be added to ("stop"), or go ("remove":
@@ -50,8 +49,9 @@ export interface Channel {
   epochMs: number;
   builtAt: number | null;
   atEnd: AtEnd;
-  /** Every programme gets exactly this long, so the channel keeps to a timetable; 0 = each its own length. */
+  /** The timetable's slot (slotRule says how programmes fit it); 0 = each programme its own length. */
   slotMs: number;
+  slotRule: SlotRule;
 }
 
 export interface ChannelSlot {
@@ -70,6 +70,7 @@ interface ChannelRow {
   built_at: number | null;
   at_end: string;
   slot_ms: number;
+  slot_rule: string;
 }
 
 const toChannel = (r: ChannelRow): Channel => ({
@@ -81,15 +82,21 @@ const toChannel = (r: ChannelRow): Channel => ({
   builtAt: r.built_at,
   atEnd: r.at_end === "stop" || r.at_end === "remove" ? r.at_end : "loop",
   slotMs: Math.max(0, r.slot_ms ?? 0),
+  slotRule: parseSlotRule(r.slot_rule),
 });
 
+export function parseSlotRule(value: unknown): SlotRule {
+  return value === "round" ? "round" : "fixed";
+}
+
 /**
- * How long each programme takes on the channel's clock: its slot when the
- * channel has one (a shorter programme is followed by "next in…", a longer
- * one is cut there), else its own running time.
+ * How long each programme takes on the channel's clock (slotLength): a fixed
+ * slot, its own length rounded up to the next slot, or with no slot its own
+ * running time. Wherever that is longer than the programme, "next in…"
+ * fills the rest.
  */
-function timetable(slotMs: number, slots: ChannelSlot[]): Array<{ runtimeMs: number }> {
-  return slots.map((s) => ({ runtimeMs: slotMs > 0 ? slotMs : s.runtimeMs }));
+function timetable(slotMs: number, rule: SlotRule, slots: ChannelSlot[]): Array<{ runtimeMs: number }> {
+  return slots.map((s) => ({ runtimeMs: slotLength(s.runtimeMs, slotMs, rule) }));
 }
 
 export function parseAtEnd(value: unknown): AtEnd {
@@ -115,7 +122,7 @@ export function listChannels(nowMs = Date.now()): Channel[] {
 function removeFinishedChannels(nowMs: number): void {
   const rows = asRows<ChannelRow>(getDb().prepare("SELECT * FROM channels WHERE at_end = 'remove'").all());
   for (const row of rows) {
-    const total = lineupMs(timetable(row.slot_ms ?? 0, getSlots(row.id)));
+    const total = lineupMs(timetable(row.slot_ms ?? 0, parseSlotRule(row.slot_rule), getSlots(row.id)));
     if (row.built_at !== null && total > 0 && nowMs >= row.epoch_ms + total) deleteChannel(row.id);
   }
 }
@@ -137,32 +144,34 @@ export function getSlots(channelId: string): ChannelSlot[] {
   ).map((r) => ({ itemId: r.item_id, path: r.path, name: r.name, runtimeMs: r.runtime_ms }));
 }
 
-export function createChannel(name: string, orderMode: OrderMode, atEnd: AtEnd = "loop", slotMs = 0): string {
+export function createChannel(name: string, orderMode: OrderMode, atEnd: AtEnd = "loop", slotMs = 0, slotRule: SlotRule = "fixed"): string {
   const id = generateId();
   const now = Date.now();
   const last = asRow<{ p: number | null }>(getDb().prepare("SELECT MAX(position) AS p FROM channels").get());
   getDb()
-    .prepare("INSERT INTO channels (id, name, order_mode, at_end, slot_ms, position, epoch_ms, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(id, name.trim(), orderMode, atEnd, Math.max(0, Math.round(slotMs)), (last?.p ?? -1) + 1, now, now, now);
+    .prepare(
+      "INSERT INTO channels (id, name, order_mode, at_end, slot_ms, slot_rule, position, epoch_ms, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .run(id, name.trim(), orderMode, atEnd, Math.max(0, Math.round(slotMs)), slotRule, (last?.p ?? -1) + 1, now, now, now);
   return id;
 }
 
 /** Name, order and lineup in one go; the lineup is worked out again afterwards. */
 export async function saveChannel(
   id: string,
-  input: { name: string; orderMode: OrderMode; atEnd: AtEnd; slotMs: number; entries: ChannelEntry[] },
+  input: { name: string; orderMode: OrderMode; atEnd: AtEnd; slotMs: number; slotRule: SlotRule; entries: ChannelEntry[] },
 ): Promise<{ slots: number; runtimeMs: number }> {
   transaction(() => {
     getDb()
-      .prepare("UPDATE channels SET name = ?, order_mode = ?, at_end = ?, slot_ms = ?, updated_at = ? WHERE id = ?")
-      .run(input.name.trim(), input.orderMode, input.atEnd, Math.max(0, Math.round(input.slotMs)), Date.now(), id);
-    // A timetable starts on the quarter hour, so its slots land on times a
-    // person would print in a guide (21:30, 22:15), not 21:37 and 22:22. The
-    // channel's clock goes back to the quarter hour it started in.
+      .prepare("UPDATE channels SET name = ?, order_mode = ?, at_end = ?, slot_ms = ?, slot_rule = ?, updated_at = ? WHERE id = ?")
+      .run(input.name.trim(), input.orderMode, input.atEnd, Math.max(0, Math.round(input.slotMs)), input.slotRule, Date.now(), id);
+    // A timetable starts on a mark, so its slots land on times a person would
+    // print in a guide (21:30, 22:15; or 12:05, 12:35), not 21:37 and 22:22.
+    // The channel's clock goes back to the mark it started after.
     if (input.slotMs > 0) {
       getDb()
         .prepare("UPDATE channels SET epoch_ms = epoch_ms - (epoch_ms % ?) WHERE id = ?")
-        .run(QUARTER_HOUR_MS, id);
+        .run(timetableMarkMs(input.slotMs), id);
     }
     getDb().prepare("DELETE FROM channel_entries WHERE channel_id = ?").run(id);
     const add = getDb().prepare("INSERT INTO channel_entries (id, channel_id, position, kind, ref, label) VALUES (?, ?, ?, ?, ?, ?)");
@@ -236,12 +245,12 @@ export async function rebuildChannel(id: string): Promise<{ slots: number; runti
     ordered.forEach((s, idx) => add.run(id, idx, s.itemId, s.path, s.name, s.runtimeMs));
     getDb().prepare("UPDATE channels SET built_at = ? WHERE id = ?").run(builtAt, id);
   });
-  return { slots: ordered.length, runtimeMs: lineupMs(timetable(channel.slotMs, ordered)) };
+  return { slots: ordered.length, runtimeMs: lineupMs(timetable(channel.slotMs, channel.slotRule, ordered)) };
 }
 
 /** The lineup's length on the channel's clock, slots and all. */
 export function channelRuntimeMs(channel: Channel): number {
-  return lineupMs(timetable(channel.slotMs, getSlots(channel.id)));
+  return lineupMs(timetable(channel.slotMs, channel.slotRule, getSlots(channel.id)));
 }
 
 export interface Programme extends OnNow {
@@ -262,7 +271,7 @@ function programme(on: OnNow, slots: ChannelSlot[]): Programme {
 /** What a channel has on now and next (`count` programmes), from its clock. */
 export function channelGuide(channel: Channel, nowMs: number, count = 4): Programme[] {
   const slots = getSlots(channel.id);
-  return upcoming(timetable(channel.slotMs, slots), channel.epochMs, nowMs, count, channel.atEnd === "loop").map((p) =>
+  return upcoming(timetable(channel.slotMs, channel.slotRule, slots), channel.epochMs, nowMs, count, channel.atEnd === "loop").map((p) =>
     programme(p, slots),
   );
 }
@@ -270,7 +279,7 @@ export function channelGuide(channel: Channel, nowMs: number, count = 4): Progra
 /** Just what is on now. */
 export function channelOnNow(channel: Channel, nowMs: number): Programme | null {
   const slots = getSlots(channel.id);
-  const on = onNow(timetable(channel.slotMs, slots), channel.epochMs, nowMs, channel.atEnd === "loop");
+  const on = onNow(timetable(channel.slotMs, channel.slotRule, slots), channel.epochMs, nowMs, channel.atEnd === "loop");
   return on ? programme(on, slots) : null;
 }
 

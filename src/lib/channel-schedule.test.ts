@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { lineupMs, onNow, seededShuffle, upcoming } from "./channel-schedule.ts";
+import { lineupMs, onNow, seededShuffle, slotLength, timetableMarkMs, upcoming } from "./channel-schedule.ts";
 
 const MIN = 60_000;
 // Three programmes: 45, 30 and 15 minutes; the lineup runs 90 minutes.
@@ -91,4 +91,20 @@ test("fixed slots: each programme takes the slot, so starts land on the marks", 
   assert.equal(second.index, 1);
   assert.equal(second.startedAtMs, epoch + 45 * MIN);
   assert.equal(second.endsAtMs, epoch + 90 * MIN);
+});
+
+test("round slots: a film is rounded up to the next mark and never cut", () => {
+  const five = 5 * MIN;
+  assert.equal(slotLength(107 * MIN + 20_000, five, "round"), 110 * MIN);
+  assert.equal(slotLength(90 * MIN, five, "round"), 90 * MIN);
+  assert.equal(slotLength(45 * MIN + 36_000, 45 * MIN, "fixed"), 45 * MIN);
+  assert.equal(slotLength(41 * MIN, 45 * MIN, "fixed"), 45 * MIN);
+  assert.equal(slotLength(41 * MIN, 0, "round"), 41 * MIN);
+});
+
+test("a timetable starts on its slot's mark, or the quarter hour", () => {
+  assert.equal(timetableMarkMs(5 * MIN), 5 * MIN);
+  assert.equal(timetableMarkMs(15 * MIN), 15 * MIN);
+  assert.equal(timetableMarkMs(45 * MIN), 15 * MIN);
+  assert.equal(timetableMarkMs(60 * MIN), 15 * MIN);
 });

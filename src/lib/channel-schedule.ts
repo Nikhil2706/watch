@@ -101,3 +101,27 @@ export function seededShuffle<T>(items: readonly T[], seed: string): T[] {
   }
   return out;
 }
+
+export type SlotRule = "fixed" | "round";
+
+/**
+ * How long one programme takes on a timetabled channel's clock. `fixed`: the
+ * slot exactly (a longer programme is cut at its end). `round`: the
+ * programme's own length rounded up to the next whole slot, so nothing is cut
+ * and the next one still starts on a mark. No slot: its own length.
+ */
+export function slotLength(runtimeMs: number, slotMs: number, rule: SlotRule): number {
+  if (slotMs <= 0) return runtimeMs;
+  if (rule === "fixed") return slotMs;
+  return Math.max(1, Math.ceil(runtimeMs / slotMs)) * slotMs;
+}
+
+/**
+ * The mark a timetable's clock starts on, so its slots land on times a guide
+ * would print: the slot itself when it divides a quarter hour (every 5
+ * minutes: 12:05, 12:35), else the quarter hour (45-minute slots: 21:30, 22:15).
+ */
+export function timetableMarkMs(slotMs: number): number {
+  const quarter = 15 * 60_000;
+  return slotMs > 0 && quarter % slotMs === 0 ? slotMs : quarter;
+}

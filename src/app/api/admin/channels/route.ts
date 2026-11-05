@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { channelOnNow, channelRuntimeMs, createChannel, getEntries, getSlots, listChannels, parseAtEnd, parseSlotMs, type OrderMode } from "@/lib/channels";
+import { channelOnNow, channelRuntimeMs, createChannel, getEntries, getSlots, listChannels, parseAtEnd, parseSlotMs, parseSlotRule, type OrderMode } from "@/lib/channels";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -35,7 +35,15 @@ export async function POST(request: Request): Promise<Response> {
     if (!name) throw new ValidationError("A channel needs a name.");
     const orderMode: OrderMode = optionalString(body, "orderMode") === "shuffle" ? "shuffle" : "in_order";
     return Response.json(
-      { id: createChannel(name, orderMode, parseAtEnd(optionalString(body, "atEnd")), parseSlotMs(body.slotMs)) },
+      {
+        id: createChannel(
+          name,
+          orderMode,
+          parseAtEnd(optionalString(body, "atEnd")),
+          parseSlotMs(body.slotMs),
+          parseSlotRule(body.slotRule),
+        ),
+      },
       { headers: NO_STORE },
     );
   } catch (error) {
