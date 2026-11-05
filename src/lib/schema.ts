@@ -88,10 +88,12 @@
  * (a shorter one is followed by "next in…", a longer one is cut); with
  * 'round' each is rounded up to the next multiple of slot_ms, so nothing is
  * cut and every start lands on a mark. slot_ms 0 is each programme's own
- * length. ADD COLUMN with defaults (runVersionedMigrations); nothing existing
+ * length. (71) resume_at_ms: a programme whose film was deleted is skipped,
+ * and the next one starts on the following mark, shown as "next in…" until
+ * then. ADD COLUMN with defaults (runVersionedMigrations); nothing existing
  * changes.
  */
-export const SCHEMA_VERSION = 70;
+export const SCHEMA_VERSION = 71;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -789,6 +791,7 @@ CREATE TABLE IF NOT EXISTS channels (
   at_end     TEXT NOT NULL DEFAULT 'loop', -- loop | stop | remove (v69)
   slot_ms    INTEGER NOT NULL DEFAULT 0,   -- the timetable's slot; 0 = each programme its own length (v69)
   slot_rule  TEXT NOT NULL DEFAULT 'fixed', -- fixed (exactly slot_ms, cut if longer) | round (up to a multiple) (v70)
+  resume_at_ms INTEGER NOT NULL DEFAULT 0,  -- after a deleted programme was skipped: the next starts here (v71)
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 ) STRICT;

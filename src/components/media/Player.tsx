@@ -384,16 +384,40 @@ export function Player({
       // Nothing on a channel pauses it; whatever did (the OS, a headset), it plays on, at the live point.
       if (!instance.state.ended) void instance.play().catch(() => {});
     };
+    // A stream that fails mid-programme (the film deleted while it ran) asks
+    // the page again after a moment: the channel skips a deleted programme
+    // there, so this lands on the next one rather than an error.
+    // Three tries per programme: a stream that fails for some other reason
+    // (a transcode that will not start) then shows its error rather than
+    // reloading the page forever.
+    let failed: number | undefined;
+    const onError = () => {
+      const key = `liveRetry:${live.channelId}:${live.startedAtMs}`;
+      let tries = 0;
+      try {
+        tries = Number(sessionStorage.getItem(key) ?? 0);
+        sessionStorage.setItem(key, String(tries + 1));
+      } catch {
+        // No storage: one try.
+        tries = 3;
+      }
+      if (tries >= 3) return;
+      window.clearTimeout(failed);
+      failed = window.setTimeout(retune, 4000);
+    };
     instance.addEventListener("playing", keepLive);
     instance.addEventListener("pause", onPause);
     instance.addEventListener("ended", retune);
+    instance.addEventListener("error", onError);
     const timer = setInterval(keepLive, 15_000);
     return () => {
       instance.removeEventListener("playing", keepLive);
       instance.removeEventListener("pause", onPause);
       instance.removeEventListener("ended", retune);
+      instance.removeEventListener("error", onError);
       clearInterval(timer);
       window.clearTimeout(stop);
+      window.clearTimeout(failed);
     };
   }, [live]);
 

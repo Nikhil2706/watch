@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { LiveIntermission } from "@/components/media/LiveIntermission";
 import { PlayerMount } from "@/components/media/PlayerMount";
-import { channelGuide, getChannel, getSlots, neighbours } from "@/lib/channels";
+import { channelGuide, getChannel, getSlots, neighbours, skipGoneProgramme } from "@/lib/channels";
 import { currentSession } from "@/lib/current-user";
 import { episodeCards } from "@/lib/episode-cards";
 import { getItem, getPlaybackPlan, posterUrl, stillUrl } from "@/lib/media";
@@ -27,8 +27,11 @@ export default async function LiveChannelPage({ params }: { params: Promise<{ id
   const session = await currentSession();
   if (!session) redirect("/login");
   const { id } = await params;
-  const channel = getChannel(decodeURIComponent(id));
-  if (!channel) notFound();
+  const found = getChannel(decodeURIComponent(id));
+  if (!found) notFound();
+  // A programme deleted since the lineup was built is skipped here, before
+  // anyone is tuned in to it (channels.ts).
+  const channel = (await skipGoneProgramme(found)) ? (getChannel(found.id) ?? found) : found;
 
   const now = Date.now();
   const [current, next] = channelGuide(channel, now, 2);
@@ -58,8 +61,11 @@ export default async function LiveChannelPage({ params }: { params: Promise<{ id
 
   // Between programmes on a channel with fixed slots: this one has ended (or
   // was cut at its slot) and the next starts on the timetable.
-  if (now >= current.playsUntilMs) {
-    const following = next ? await getItem(session, next.slot.itemId).catch(() => null) : null;
+  // Before the programme starts (just after a skip), or after it has ended
+  // (a slot longer than it): "next in…" until the next one.
+  const waitingFor = now < current.startedAtMs ? current : now >= current.playsUntilMs ? (next ?? null) : undefined;
+  if (waitingFor !== undefined) {
+    const following = waitingFor ? await getItem(session, waitingFor.slot.itemId).catch(() => null) : null;
     const cards = following ? episodeCards([following]) : null;
     const nextShow = following ? (cards!.titles.get(following.Id) ?? null) : null;
     const nextLine = following ? (cards!.lines.get(following.Id) ?? null) : null;
@@ -73,9 +79,9 @@ export default async function LiveChannelPage({ params }: { params: Promise<{ id
         </div>
         <LiveIntermission
           channelId={channel.id}
-          startsAtMs={current.endsAtMs}
-          nextTitle={next ? (nextShow ?? next.slot.name) : null}
-          nextLine={nextShow ? (nextLine ?? next?.slot.name ?? null) : null}
+          startsAtMs={waitingFor ? waitingFor.startedAtMs : current.endsAtMs}
+          nextTitle={waitingFor ? (nextShow ?? waitingFor.slot.name) : null}
+          nextLine={nextShow ? (nextLine ?? waitingFor?.slot.name ?? null) : null}
           art={following ? (nextShow ? stillUrl(following, 960) : posterUrl(following, 480)) : null}
         />
       </div>

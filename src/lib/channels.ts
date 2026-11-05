@@ -1,11 +1,13 @@
 import "server-only";
 
+import { existsSync, readdirSync } from "node:fs";
+
 import { lineupMs, onNow, seededShuffle, slotLength, timetableMarkMs, upcoming, type OnNow, type SlotRule } from "./channel-schedule";
 import { generateId } from "./crypto";
 import { asRow, asRows, getDb, transaction } from "./db";
 import { parseEpisodeInfo } from "./episode-naming";
 import { getDamagedPathSet } from "./file-checks";
-import { listItemsForChannels } from "./jellyfin";
+import { getAdminMoviesByIds, listItemsForChannels } from "./jellyfin";
 import { getGroup, getGroupedPathMap, listGroups } from "./library-curation";
 
 /**
@@ -52,6 +54,8 @@ export interface Channel {
   /** The timetable's slot (slotRule says how programmes fit it); 0 = each programme its own length. */
   slotMs: number;
   slotRule: SlotRule;
+  /** After a deleted programme was skipped: nothing plays before this, the next one starts here. */
+  resumeAtMs: number;
 }
 
 export interface ChannelSlot {
@@ -71,6 +75,7 @@ interface ChannelRow {
   at_end: string;
   slot_ms: number;
   slot_rule: string;
+  resume_at_ms: number;
 }
 
 const toChannel = (r: ChannelRow): Channel => ({
@@ -83,6 +88,7 @@ const toChannel = (r: ChannelRow): Channel => ({
   atEnd: r.at_end === "stop" || r.at_end === "remove" ? r.at_end : "loop",
   slotMs: Math.max(0, r.slot_ms ?? 0),
   slotRule: parseSlotRule(r.slot_rule),
+  resumeAtMs: r.resume_at_ms ?? 0,
 });
 
 export function parseSlotRule(value: unknown): SlotRule {
@@ -271,7 +277,9 @@ function programme(on: OnNow, slots: ChannelSlot[]): Programme {
 /** What a channel has on now and next (`count` programmes), from its clock. */
 export function channelGuide(channel: Channel, nowMs: number, count = 4): Programme[] {
   const slots = getSlots(channel.id);
-  return upcoming(timetable(channel.slotMs, channel.slotRule, slots), channel.epochMs, nowMs, count, channel.atEnd === "loop").map((p) =>
+  // Just after a skip, the guide starts from the programme that is next.
+  const at = Math.max(nowMs, channel.resumeAtMs);
+  return upcoming(timetable(channel.slotMs, channel.slotRule, slots), channel.epochMs, at, count, channel.atEnd === "loop").map((p) =>
     programme(p, slots),
   );
 }
@@ -279,8 +287,83 @@ export function channelGuide(channel: Channel, nowMs: number, count = 4): Progra
 /** Just what is on now. */
 export function channelOnNow(channel: Channel, nowMs: number): Programme | null {
   const slots = getSlots(channel.id);
-  const on = onNow(timetable(channel.slotMs, channel.slotRule, slots), channel.epochMs, nowMs, channel.atEnd === "loop");
+  const at = Math.max(nowMs, channel.resumeAtMs);
+  const on = onNow(timetable(channel.slotMs, channel.slotRule, slots), channel.epochMs, at, channel.atEnd === "loop");
   return on ? programme(on, slots) : null;
+}
+
+/**
+ * The film drive is there. With it unplugged every file would look deleted
+ * and a channel would skip its way through its whole lineup, so nothing is
+ * judged gone while the media folder itself is missing or empty.
+ */
+function mediaPresent(): boolean {
+  try {
+    return readdirSync("/media").length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Deleted since the lineup was built: off the disk, or no longer in Jellyfin. */
+async function programmeGone(slot: ChannelSlot): Promise<boolean> {
+  if (!mediaPresent()) return false;
+  if (!existsSync(slot.path)) return true;
+  try {
+    return (await getAdminMoviesByIds([slot.itemId])).length === 0;
+  } catch {
+    // Jellyfin not answering is not the film being gone.
+    return false;
+  }
+}
+
+/**
+ * A programme deleted while its channel runs is skipped: if what is on now
+ * has gone, it is taken out of the lineup (order kept, nothing reshuffled)
+ * and the next one starts on the channel's next mark (the next 5 minutes, the
+ * next quarter hour), with "next in…" until then. The timetable after it
+ * moves up to follow. Checked whenever someone opens the guide or tunes in,
+ * which is also what the player does when a programme ends or its stream
+ * fails. Returns true when it skipped something.
+ */
+export async function skipGoneProgramme(channel: Channel, nowMs = Date.now()): Promise<boolean> {
+  const on = channelOnNow(channel, nowMs);
+  if (!on || nowMs < on.startedAtMs || nowMs >= on.playsUntilMs) return false;
+  if (!(await programmeGone(on.slot))) return false;
+
+  const slots = getSlots(channel.id);
+  const loop = channel.atEnd === "loop";
+  const oldCycle = lineupMs(timetable(channel.slotMs, channel.slotRule, slots));
+  let cycles = loop && oldCycle > 0 ? Math.floor((on.startedAtMs - channel.epochMs) / oldCycle) : 0;
+  const remaining = slots.filter((_, k) => k !== on.index);
+  const blocks = timetable(channel.slotMs, channel.slotRule, remaining);
+  const newCycle = lineupMs(blocks);
+  const mark = channel.slotMs > 0 ? timetableMarkMs(channel.slotMs) : 1;
+  const resumeAt = Math.ceil(nowMs / mark) * mark;
+
+  // The programme that followed takes the gone one's place in the lineup.
+  let next = on.index;
+  if (next >= remaining.length) {
+    next = 0;
+    cycles += 1;
+  }
+  const lastGone = !loop && on.index >= remaining.length;
+  const epoch = lastGone
+    ? nowMs - newCycle // the lineup has nothing after it: off air from now
+    : resumeAt - lineupMs(blocks.slice(0, next)) - cycles * newCycle;
+
+  transaction(() => {
+    getDb().prepare("DELETE FROM channel_slots WHERE channel_id = ?").run(channel.id);
+    const add = getDb().prepare(
+      "INSERT INTO channel_slots (channel_id, idx, item_id, path, name, runtime_ms) VALUES (?, ?, ?, ?, ?, ?)",
+    );
+    remaining.forEach((r, idx) => add.run(channel.id, idx, r.itemId, r.path, r.name, r.runtimeMs));
+    getDb()
+      .prepare("UPDATE channels SET epoch_ms = ?, resume_at_ms = ? WHERE id = ?")
+      .run(epoch, lastGone ? 0 : resumeAt, channel.id);
+  });
+  console.log(`[channels] ${channel.name}: skipped ${on.slot.name} (deleted); next at ${new Date(resumeAt).toISOString()}`);
+  return true;
 }
 
 /** The channels either side on the guide, round the ends: a remote's up/down. */

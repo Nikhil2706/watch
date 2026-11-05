@@ -455,6 +455,10 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "channels") && !columnExists(db, "channels", "slot_rule")) {
     db.exec("ALTER TABLE channels ADD COLUMN slot_rule TEXT NOT NULL DEFAULT 'fixed'");
   }
+  // v71: where a channel picks up after skipping a deleted programme.
+  if (tableExists(db, "channels") && !columnExists(db, "channels", "resume_at_ms")) {
+    db.exec("ALTER TABLE channels ADD COLUMN resume_at_ms INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 /**
