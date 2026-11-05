@@ -1313,6 +1313,14 @@ export function Player({
     const video = mediaElement();
     setNeedsTap(false);
     if (!instance || !video) return;
+    // A channel: in at its live point, wherever it has got to while the
+    // button waited.
+    const tuned = liveRef.current;
+    if (tuned) {
+      video.currentTime = Math.max(0, (Date.now() - tuned.startedAtMs) / 1000);
+      video.play().catch(() => setNeedsTap(true));
+      return;
+    }
     // The room kept going while the button waited: join where it is now,
     // not where this screen stopped. A tap is a gesture, so this play is
     // allowed; still the room's doing, not the viewer's.
@@ -1842,6 +1850,13 @@ export function Player({
         keyDisabled
         onProviderChange={onProviderChange}
         onCanPlay={onCanPlay}
+        // A channel reloads its page at every programme, and a browser that
+        // will not start sound on a fresh page refused the autoplay with no
+        // way in: live mode has no play button and ignores clicks on the
+        // picture. The same tap a watch party asks for (2026-11-05, Chrome).
+        onAutoPlayFail={() => {
+          if (liveRef.current) setNeedsTap(true);
+        }}
       >
         <MediaProvider>
           {pictureSubtitles.map((track) => (
@@ -1909,7 +1924,7 @@ export function Player({
         {needsTap ? (
           <button ref={tapButtonRef} type="button" className="party-tap-to-join" onClick={joinByTap}>
             <PlayIcon />
-            <span>Tap to join the film</span>
+            <span>{live ? `Tap to watch ${live.channelName}` : "Tap to join the film"}</span>
           </button>
         ) : null}
 
