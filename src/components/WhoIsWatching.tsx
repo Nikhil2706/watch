@@ -64,7 +64,11 @@ export function WhoIsWatching({ accounts }: { accounts: DeviceAccount[] }) {
                 {account.username.slice(0, 1).toUpperCase()}
               </span>
               <span className="who-name">{account.username}</span>
-              {pending === account.userId ? <span className="who-note">Switching…</span> : null}
+              {pending === account.userId ? (
+                <span className="who-note">Switching…</span>
+              ) : account.active ? (
+                <span className="who-note">Watching now</span>
+              ) : null}
             </button>
           </li>
         ))}

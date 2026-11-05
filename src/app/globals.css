@@ -2355,13 +2355,11 @@ button.chip:disabled {
   font-size: 1rem;
 }
 
-/* The account in use, quietly: the one to press to carry on as you were. */
-.who-tile[aria-current="true"] .who-name::after {
-  content: " · now";
-  color: var(--muted);
-}
-
+/* "Watching now" under the account in use, and "Switching…" while it goes:
+   a line of its own, so a long name is not cut short by it. */
 .who-note {
+  margin-top: -6px;
+  color: var(--muted);
   font-size: 0.8rem;
 }
 

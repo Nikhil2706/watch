@@ -109,6 +109,10 @@ html[data-tv="true"] .who-name {
   font-size: 1.6rem;
 }
 
+html[data-tv="true"] .who-note {
+  font-size: 1.1rem;
+}
+
 html[data-tv="true"] .who-tile:focus .who-avatar {
   border-color: #fff;
   transform: scale(1.08);
