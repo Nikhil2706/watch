@@ -12,7 +12,10 @@ import { resolvePlaybackClientFromRequest } from "@/lib/tv/detect";
 
 export const dynamic = "force-dynamic";
 
-const clock = (ms: number) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+// India time, as the rest of the site's times are: this renders on the
+// server, whose clock is UTC, and printed "until 17:00" for 22:30.
+const clock = (ms: number) =>
+  new Date(ms).toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
 
 /**
  * Tuned to a channel (channels.ts): what is on now, worked out from the
