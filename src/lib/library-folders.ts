@@ -59,3 +59,32 @@ export function outermostFolders<T extends { Path?: string }>(folders: readonly 
   const unique = [...new Map(folders.filter((f) => f.Path).map((f) => [f.Path!, f])).values()];
   return unique.filter((f) => !unique.some((other) => other !== f && isWithin(f.Path!, other.Path!)));
 }
+
+/** The reason a held file carries; a scan of a folder releases the holds under it. */
+export const HELD_REASON_PREFIX = "held:";
+
+/**
+ * Which files on disk a scan of `asked` must hold back.
+ *
+ * Jellyfin can only re-read a folder it already knows, so a new show's
+ * folder is picked up by re-reading the folder above it (or, at the top of
+ * the library, the whole library) — and that reads every other new folder
+ * beside it too. On 2026-11-06 a scan of Sabrina brought seven other shows
+ * onto the site with it. The curator brings things on at their own pace, so
+ * every file under what is re-read that Jellyfin does not know yet and that
+ * is not inside a folder they asked for is hidden before the scan starts.
+ */
+export function filesToHold(
+  onDisk: readonly string[],
+  known: ReadonlySet<string>,
+  asked: readonly string[],
+): string[] {
+  const roots = asked.map(tidy);
+  return onDisk.filter((file) => !known.has(file) && !roots.some((root) => isWithin(file, root)));
+}
+
+/** Of held paths, the ones a scan of `asked` brings on: those inside a folder asked for. */
+export function holdsToRelease(held: readonly string[], asked: readonly string[]): string[] {
+  const roots = asked.map(tidy);
+  return held.filter((path) => roots.some((root) => isWithin(path, root)));
+}

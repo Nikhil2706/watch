@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { unexcludePath } from "@/lib/library-curation";
-import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { optionalPath, readJsonBody, ValidationError } from "@/lib/validation";
 import { logDecision } from "@/lib/catalogue-decisions";
 
 export const runtime = "nodejs";
@@ -15,7 +15,7 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const body = await readJsonBody(request);
-    const path = optionalString(body, "path");
+    const path = optionalPath(body, "path");
     if (!path) throw new ValidationError("path is required.");
 
     const found = unexcludePath(path);

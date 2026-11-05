@@ -472,7 +472,7 @@ export async function refreshLibrary(): Promise<void> {
 }
 
 /**
- * Re-reads only the folders these library paths are in, where
+ * Which folders to re-read for these library paths, where
  * refreshLibrary() walks all of it.
  *
  * A full scan costs the same two to three minutes of a busy CPU whether one
@@ -481,16 +481,16 @@ export async function refreshLibrary(): Promise<void> {
  * film shows up: the film's own folder is not an item yet, so the nearest
  * folder above it that is one gets re-read.
  *
- * `unresolved` is every path with no such folder — a file put straight into
- * the library root, whose parent is the library itself. Nothing is refreshed
- * unless every path resolves; the caller falls back to a full scan, which is
- * the only thing that covers them all.
+ * `unresolved` is every path with no such folder — a new folder put straight
+ * into the library root, whose parent is the library itself. When any path
+ * is unresolved no folders are returned; only a full scan covers them all.
  *
- * Fire-and-forget on Jellyfin's side, like the full scan.
+ * Re-reading a folder reads everything new under it, not just what was
+ * asked for: library-scan.ts holds the rest back first.
  */
-export async function refreshLibraryFolders(
+export async function resolveScanFolders(
   paths: string[],
-): Promise<{ refreshed: string[]; unresolved: string[] }> {
+): Promise<{ folders: Array<{ Id: string; Path: string }>; unresolved: string[] }> {
   const data = await jellyfinFetch<{ Items: Array<{ Id: string; Path?: string }> }>(
     "/Items?Recursive=true&IncludeItemTypes=Folder&Fields=Path&Limit=5000",
     { token: env.jellyfinApiKey, timeoutMs: 30_000 },
@@ -500,9 +500,13 @@ export async function refreshLibraryFolders(
   const known = data.Items.filter((f) => f.Path !== env.mediaLibraryPath);
   const found = paths.map((path) => ({ path, folder: nearestFolder(path, known) }));
   const unresolved = found.filter((f) => !f.folder).map((f) => f.path);
-  if (unresolved.length > 0) return { refreshed: [], unresolved };
+  if (unresolved.length > 0) return { folders: [], unresolved };
+  const folders = outermostFolders(found.map((f) => f.folder!)) as Array<{ Id: string; Path: string }>;
+  return { folders, unresolved: [] };
+}
 
-  const folders = outermostFolders(found.map((f) => f.folder!));
+/** Re-reads these folders (from resolveScanFolders), each with everything under it. */
+export async function refreshFolders(folders: Array<{ Id: string }>): Promise<void> {
   const params = new URLSearchParams({
     Recursive: "true",
     MetadataRefreshMode: "Default",
@@ -517,7 +521,21 @@ export async function refreshLibraryFolders(
       expectJson: false,
     });
   }
-  return { refreshed: folders.map((f) => f.Path!), unresolved: [] };
+}
+
+/** The file path of every film and episode Jellyfin has, in pages. */
+export async function listKnownMediaPaths(): Promise<Set<string>> {
+  const PAGE = 5000;
+  const paths = new Set<string>();
+  for (let start = 0; start < 200_000; start += PAGE) {
+    const data = await jellyfinFetch<{ Items: Array<{ Path?: string }> }>(
+      `/Items?Recursive=true&IsFolder=false&Fields=Path&EnableImages=false&StartIndex=${start}&Limit=${PAGE}`,
+      { token: env.jellyfinApiKey, timeoutMs: 60_000 },
+    );
+    for (const item of data.Items) if (item.Path) paths.add(item.Path);
+    if (data.Items.length < PAGE) break;
+  }
+  return paths;
 }
 
 export interface LibraryScanStatus {

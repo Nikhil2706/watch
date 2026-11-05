@@ -2,7 +2,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { refreshAdminMovie } from "@/lib/admin-library-cache";
 import { setManualMetadata } from "@/lib/jellyfin";
 import { markMetadataConfirmed } from "@/lib/library-curation";
-import { optionalInt, optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { optionalInt, optionalPath, optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const body = await readJsonBody(request);
     const itemId = optionalString(body, "itemId");
-    const path = optionalString(body, "path");
+    const path = optionalPath(body, "path");
     if (!itemId) throw new ValidationError("itemId is required.");
 
     const name = optionalString(body, "name");
