@@ -7,6 +7,9 @@ import { adminApi } from "@/lib/admin/client-api";
 import { useToasts } from "../Toasts";
 
 type OrderMode = "in_order" | "shuffle";
+type AtEnd = "loop" | "stop" | "remove";
+
+const AT_END_NOTE: Record<AtEnd, string> = { loop: "loops", stop: "goes off air at the end", remove: "removed at the end" };
 interface Entry {
   kind: "item" | "group" | "genre";
   ref: string;
@@ -16,13 +19,14 @@ interface ChannelSummary {
   id: string;
   name: string;
   orderMode: OrderMode;
+  atEnd: AtEnd;
   entries: number;
   programmes: number;
   runtimeMs: number;
   onNow: string | null;
 }
 interface ChannelDetail {
-  channel: { id: string; name: string; orderMode: OrderMode };
+  channel: { id: string; name: string; orderMode: OrderMode; atEnd: AtEnd };
   entries: Entry[];
   guide: Array<{ name: string; startsAt: number; endsAt: number }>;
 }
@@ -109,7 +113,7 @@ export function ChannelsWorkspace() {
             <div className="adm-grow">
               <div className="adm-card-title">{c.name}</div>
               <div className="hint">
-                {c.programmes} programmes · {hours(c.runtimeMs)} · {c.orderMode === "shuffle" ? "shuffled" : "in order"}
+                {c.programmes} programmes · {hours(c.runtimeMs)} · {c.orderMode === "shuffle" ? "shuffled" : "in order"} · {AT_END_NOTE[c.atEnd] ?? "loops"}
                 {c.onNow ? ` · on now: ${c.onNow}` : c.entries ? " · nothing playable" : " · empty"}
               </div>
             </div>
@@ -135,6 +139,7 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
   const [detail, setDetail] = useState<ChannelDetail | null>(null);
   const [name, setName] = useState("");
   const [orderMode, setOrderMode] = useState<OrderMode>("in_order");
+  const [atEnd, setAtEnd] = useState<AtEnd>("loop");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [q, setQ] = useState("");
   const [found, setFound] = useState<{ entries: Entry[]; genres: string[] } | null>(null);
@@ -147,6 +152,7 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
       setDetail(d);
       setName(d.channel.name);
       setOrderMode(d.channel.orderMode);
+      setAtEnd(d.channel.atEnd ?? "loop");
       setEntries(d.entries);
     } catch (e) {
       show("err", message(e));
@@ -182,9 +188,9 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
     try {
       const r = await adminApi<{ slots: number; runtimeMs: number }>(`/api/admin/channels/${id}`, {
         method: "PUT",
-        body: { name, orderMode, entries },
+        body: { name, orderMode, atEnd, entries },
       });
-      show("ok", `Saved: ${r.slots} programmes, ${hours(r.runtimeMs)} before it loops.`);
+      show("ok", `Saved: ${r.slots} programmes, ${hours(r.runtimeMs)} ${atEnd === "loop" ? "before it loops" : "in all"}.`);
       await load();
       await onChanged();
     } catch (e) {
@@ -219,6 +225,11 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
         <select value={orderMode} onChange={(e) => setOrderMode(e.target.value as OrderMode)} aria-label="Order">
           <option value="in_order">Play in order</option>
           <option value="shuffle">Shuffle</option>
+        </select>
+        <select value={atEnd} onChange={(e) => setAtEnd(e.target.value as AtEnd)} aria-label="When it ends">
+          <option value="loop">At the end: start again</option>
+          <option value="stop">At the end: go off air</option>
+          <option value="remove">At the end: remove the channel</option>
         </select>
       </div>
 

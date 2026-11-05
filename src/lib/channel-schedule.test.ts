@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { onNow, seededShuffle, upcoming } from "./channel-schedule.ts";
+import { lineupMs, onNow, seededShuffle, upcoming } from "./channel-schedule.ts";
 
 const MIN = 60_000;
 // Three programmes: 45, 30 and 15 minutes; the lineup runs 90 minutes.
@@ -67,4 +67,19 @@ test("a seeded shuffle is the same for the same seed, and a real reorder", () =>
   assert.notDeepEqual(a, list);
   assert.notDeepEqual(a, seededShuffle(list, "channel-1:2"));
   assert.deepEqual([...a].sort((x, y) => x - y), list);
+});
+
+test("a lineup that does not loop plays once, then is off air", () => {
+  assert.equal(lineupMs(slots), 90 * MIN);
+  assert.equal(onNow(slots, epoch, epoch + 80 * MIN, false)?.index, 2);
+  assert.equal(onNow(slots, epoch, epoch + 90 * MIN, false), null);
+  assert.equal(onNow(slots, epoch, epoch - MIN, false), null);
+  // Looping, the same moment is the top of the lineup again.
+  assert.equal(onNow(slots, epoch, epoch + 90 * MIN)?.index, 0);
+});
+
+test("the guide of a lineup that does not loop stops at its last programme", () => {
+  const guide = upcoming(slots, epoch, epoch + 50 * MIN, 4, false);
+  assert.deepEqual(guide.map((p) => p.index), [1, 2]);
+  assert.deepEqual(upcoming(slots, epoch, epoch + 50 * MIN, 4).map((p) => p.index), [1, 2, 0, 1]);
 });

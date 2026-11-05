@@ -28,11 +28,21 @@ export interface OnNow {
   endsAtMs: number;
 }
 
-/** The programme on at `nowMs`, or null for a lineup with nothing to show. */
-export function onNow(slots: readonly Slot[], epochMs: number, nowMs: number): OnNow | null {
-  const cycle = slots.reduce((sum, s) => sum + Math.max(0, s.runtimeMs), 0);
+/** The whole lineup's running time, once through. */
+export function lineupMs(slots: readonly Slot[]): number {
+  return slots.reduce((sum, s) => sum + Math.max(0, s.runtimeMs), 0);
+}
+
+/**
+ * The programme on at `nowMs`, or null for a lineup with nothing to show.
+ * With `loop` false the lineup plays once: nothing is on before the epoch or
+ * after the last programme ends (the channel is off air).
+ */
+export function onNow(slots: readonly Slot[], epochMs: number, nowMs: number, loop = true): OnNow | null {
+  const cycle = lineupMs(slots);
   if (cycle <= 0) return null;
   const elapsed = nowMs - epochMs;
+  if (!loop && (elapsed < 0 || elapsed >= cycle)) return null;
   // Wrapped into [0, cycle): before the epoch counts back from the end.
   const intoCycle = ((elapsed % cycle) + cycle) % cycle;
   let at = 0;
@@ -48,14 +58,19 @@ export function onNow(slots: readonly Slot[], epochMs: number, nowMs: number): O
   return null;
 }
 
-/** What is on now and the `count - 1` programmes after it, with their wall-clock times: the guide. */
-export function upcoming(slots: readonly Slot[], epochMs: number, nowMs: number, count: number): OnNow[] {
-  const first = onNow(slots, epochMs, nowMs);
+/**
+ * What is on now and the `count - 1` programmes after it, with their
+ * wall-clock times: the guide. A lineup that does not loop runs out at its
+ * last programme, so its guide can be shorter than `count`.
+ */
+export function upcoming(slots: readonly Slot[], epochMs: number, nowMs: number, count: number, loop = true): OnNow[] {
+  const first = onNow(slots, epochMs, nowMs, loop);
   if (!first) return [];
   const out: OnNow[] = [first];
   let index = first.index;
   let startedAtMs = first.endsAtMs;
   while (out.length < count) {
+    if (!loop && index + 1 >= slots.length) break;
     index = (index + 1) % slots.length;
     const runtime = Math.max(0, slots[index]!.runtimeMs);
     if (runtime === 0) continue;

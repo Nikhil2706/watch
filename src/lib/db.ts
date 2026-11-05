@@ -443,6 +443,11 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "users") && !columnExists(db, "users", "activity_visibility")) {
     db.exec("ALTER TABLE users ADD COLUMN activity_visibility TEXT NOT NULL DEFAULT 'friends'");
   }
+
+  // v69: what a channel does when its lineup has played through (channels.ts).
+  if (tableExists(db, "channels") && !columnExists(db, "channels", "at_end")) {
+    db.exec("ALTER TABLE channels ADD COLUMN at_end TEXT NOT NULL DEFAULT 'loop'");
+  }
 }
 
 /**

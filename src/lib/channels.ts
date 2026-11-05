@@ -1,6 +1,6 @@
 import "server-only";
 
-import { onNow, seededShuffle, upcoming, type OnNow } from "./channel-schedule";
+import { lineupMs, onNow, seededShuffle, upcoming, type OnNow } from "./channel-schedule";
 import { generateId } from "./crypto";
 import { asRow, asRows, getDb, transaction } from "./db";
 import { parseEpisodeInfo } from "./episode-naming";
@@ -26,6 +26,12 @@ import { getGroup, getGroupedPathMap, listGroups } from "./library-curation";
  */
 
 export type OrderMode = "in_order" | "shuffle";
+/**
+ * When the lineup has played through: start again ("loop", every channel
+ * before v69), go off air and stay to be added to ("stop"), or go ("remove":
+ * the channel is deleted the next time the channels are listed).
+ */
+export type AtEnd = "loop" | "stop" | "remove";
 export type EntryKind = "item" | "group" | "genre";
 
 export interface ChannelEntry {
@@ -41,6 +47,7 @@ export interface Channel {
   position: number;
   epochMs: number;
   builtAt: number | null;
+  atEnd: AtEnd;
 }
 
 export interface ChannelSlot {
@@ -57,6 +64,7 @@ interface ChannelRow {
   position: number;
   epoch_ms: number;
   built_at: number | null;
+  at_end: string;
 }
 
 const toChannel = (r: ChannelRow): Channel => ({
@@ -66,10 +74,29 @@ const toChannel = (r: ChannelRow): Channel => ({
   position: r.position,
   epochMs: r.epoch_ms,
   builtAt: r.built_at,
+  atEnd: r.at_end === "stop" || r.at_end === "remove" ? r.at_end : "loop",
 });
 
-export function listChannels(): Channel[] {
+export function parseAtEnd(value: unknown): AtEnd {
+  return value === "stop" || value === "remove" ? value : "loop";
+}
+
+export function listChannels(nowMs = Date.now()): Channel[] {
+  removeFinishedChannels(nowMs);
   return asRows<ChannelRow>(getDb().prepare("SELECT * FROM channels ORDER BY position, created_at").all()).map(toChannel);
+}
+
+/**
+ * A "remove" channel whose lineup has played through is deleted, entries,
+ * slots and all (they cascade). Checked whenever the channels are listed,
+ * which is whenever anyone looks at the guide, so nothing has to be scheduled.
+ */
+function removeFinishedChannels(nowMs: number): void {
+  const rows = asRows<ChannelRow>(getDb().prepare("SELECT * FROM channels WHERE at_end = 'remove'").all());
+  for (const row of rows) {
+    const total = lineupMs(getSlots(row.id));
+    if (row.built_at !== null && total > 0 && nowMs >= row.epoch_ms + total) deleteChannel(row.id);
+  }
 }
 
 export function getChannel(id: string): Channel | null {
@@ -89,25 +116,25 @@ export function getSlots(channelId: string): ChannelSlot[] {
   ).map((r) => ({ itemId: r.item_id, path: r.path, name: r.name, runtimeMs: r.runtime_ms }));
 }
 
-export function createChannel(name: string, orderMode: OrderMode): string {
+export function createChannel(name: string, orderMode: OrderMode, atEnd: AtEnd = "loop"): string {
   const id = generateId();
   const now = Date.now();
   const last = asRow<{ p: number | null }>(getDb().prepare("SELECT MAX(position) AS p FROM channels").get());
   getDb()
-    .prepare("INSERT INTO channels (id, name, order_mode, position, epoch_ms, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run(id, name.trim(), orderMode, (last?.p ?? -1) + 1, now, now, now);
+    .prepare("INSERT INTO channels (id, name, order_mode, at_end, position, epoch_ms, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(id, name.trim(), orderMode, atEnd, (last?.p ?? -1) + 1, now, now, now);
   return id;
 }
 
 /** Name, order and lineup in one go; the lineup is worked out again afterwards. */
 export async function saveChannel(
   id: string,
-  input: { name: string; orderMode: OrderMode; entries: ChannelEntry[] },
+  input: { name: string; orderMode: OrderMode; atEnd: AtEnd; entries: ChannelEntry[] },
 ): Promise<{ slots: number; runtimeMs: number }> {
   transaction(() => {
     getDb()
-      .prepare("UPDATE channels SET name = ?, order_mode = ?, updated_at = ? WHERE id = ?")
-      .run(input.name.trim(), input.orderMode, Date.now(), id);
+      .prepare("UPDATE channels SET name = ?, order_mode = ?, at_end = ?, updated_at = ? WHERE id = ?")
+      .run(input.name.trim(), input.orderMode, input.atEnd, Date.now(), id);
     getDb().prepare("DELETE FROM channel_entries WHERE channel_id = ?").run(id);
     const add = getDb().prepare("INSERT INTO channel_entries (id, channel_id, position, kind, ref, label) VALUES (?, ?, ?, ?, ?, ?)");
     input.entries.forEach((e, i) => add.run(generateId(), id, i, e.kind, e.ref, e.label));
@@ -190,13 +217,13 @@ export interface Programme extends OnNow {
 /** What a channel has on now and next (`count` programmes), from its clock. */
 export function channelGuide(channel: Channel, nowMs: number, count = 4): Programme[] {
   const slots = getSlots(channel.id);
-  return upcoming(slots, channel.epochMs, nowMs, count).map((p) => ({ ...p, slot: slots[p.index]! }));
+  return upcoming(slots, channel.epochMs, nowMs, count, channel.atEnd === "loop").map((p) => ({ ...p, slot: slots[p.index]! }));
 }
 
 /** Just what is on now. */
 export function channelOnNow(channel: Channel, nowMs: number): Programme | null {
   const slots = getSlots(channel.id);
-  const on = onNow(slots, channel.epochMs, nowMs);
+  const on = onNow(slots, channel.epochMs, nowMs, channel.atEnd === "loop");
   return on ? { ...on, slot: slots[on.index]! } : null;
 }
 

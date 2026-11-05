@@ -80,7 +80,13 @@
  * asks, the worker runs alass (subtitle-autosync.ts, scripts/subtitle-autosync.mjs).
  * CREATE ... IF NOT EXISTS; nothing existing changes.
  */
-export const SCHEMA_VERSION = 68;
+/*
+ * 69: channels.at_end — what a channel does when its lineup has played
+ * through: 'loop' (start again, as every channel did), 'stop' (go off air,
+ * kept to be extended) or 'remove' (the channel goes). ADD COLUMN with a
+ * default (runVersionedMigrations); nothing existing changes.
+ */
+export const SCHEMA_VERSION = 69;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -775,6 +781,7 @@ CREATE TABLE IF NOT EXISTS channels (
   position   INTEGER NOT NULL DEFAULT 0, -- order on the guide
   epoch_ms   INTEGER NOT NULL,           -- when the lineup's first programme started
   built_at   INTEGER,                    -- when channel_slots was last worked out
+  at_end     TEXT NOT NULL DEFAULT 'loop', -- loop | stop | remove (v69)
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 ) STRICT;
