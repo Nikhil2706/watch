@@ -2255,6 +2255,125 @@ button.chip:disabled {
   }
 }
 
+/* --- Who's watching? (/profiles) ---------------------------------- */
+
+/* Tiles across the room, not a form in a card: one column, no panel. */
+.auth-layout:has(.who-watching) {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "brand"
+    "panel";
+  justify-items: center;
+  max-width: 1200px;
+}
+
+.auth-panel:has(.who-watching) {
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.who-watching {
+  text-align: center;
+}
+
+.who-watching-title {
+  margin: 0 0 32px;
+  font-size: clamp(1.7rem, 4vw, 2.6rem);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.who-watching-tiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 24px;
+}
+
+.who-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 148px;
+  padding: 8px;
+  border: 0;
+  border-radius: 14px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.who-avatar {
+  width: 124px;
+  height: 124px;
+  display: grid;
+  place-items: center;
+  border: 3px solid transparent;
+  border-radius: 18px;
+  background: hsl(var(--who-hue, 220) 45% 42%);
+  color: #fff;
+  font-size: 3.2rem;
+  font-weight: 700;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.who-add .who-avatar {
+  border: 2px dashed rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.who-tile:hover,
+.who-tile:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.who-tile:hover .who-avatar,
+.who-tile:focus-visible .who-avatar {
+  border-color: #fff;
+  transform: scale(1.06);
+}
+
+.who-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1rem;
+}
+
+/* "Watching now" under the account in use, and "Switching…" while it goes:
+   a line of its own, so a long name is not cut short by it. */
+.who-note {
+  margin-top: -6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 560px) {
+  .who-tile {
+    width: 108px;
+  }
+  .who-avatar {
+    width: 90px;
+    height: 90px;
+    font-size: 2.3rem;
+  }
+}
+
 /* --- Brand ------------------------------------------------------- */
 
 .wordmark {

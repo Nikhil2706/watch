@@ -33,6 +33,16 @@ export default async function PairPage({
         <strong>{session.username}</strong>.
       </p>
       <PairApproveForm initialCode={code ?? ""} />
+      {/* A family scanning the TV's "Add someone" QR with whichever phone is
+          to hand: that phone may be signed in as someone else. Signing the
+          right person in here keeps the phone's own accounts too
+          (device-accounts.ts), then comes back to approve the TV as them. */}
+      <div className="auth-foot">
+        <p>
+          Not {session.username}?{" "}
+          <a href={`/login?add=1&next=${encodeURIComponent(next)}`}>Use another account</a>
+        </p>
+      </div>
     </AuthShell>
   );
 }

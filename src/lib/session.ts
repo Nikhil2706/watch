@@ -3,6 +3,7 @@ import "server-only";
 import { cookieSecure, env } from "./env";
 import { generateSessionId, generateId } from "./crypto";
 import { asRow, asRows, getDb, transaction } from "./db";
+import { addDeviceAccount, parseDeviceAccounts, removeDeviceAccount, serializeDeviceAccounts } from "./device-accounts";
 
 /**
  * Opaque server-side sessions.
@@ -22,6 +23,12 @@ import { asRow, asRows, getDb, transaction } from "./db";
  */
 
 export const SESSION_COOKIE = "jfg_session";
+
+/** Every session signed in on this device, for switching (device-accounts.ts). */
+export const ACCOUNTS_COOKIE = "jfg_accounts";
+
+/** Set while a TV is in use; when it lapses, Home asks "Who's watching?" (middleware.ts). */
+export const RECENT_COOKIE = "jfg_recent";
 
 export interface SessionRow {
   id: string;
@@ -189,19 +196,24 @@ export function createSessionForLogin(input: {
   return sessionId;
 }
 
-/** Reads the session id out of the request's Cookie header. */
-export function readSessionCookie(request: Request): string | null {
+/** One cookie's value out of the request's Cookie header. */
+function readCookie(request: Request, name: string): string | null {
   const header = request.headers.get("cookie");
   if (!header) return null;
 
   for (const part of header.split(";")) {
     const index = part.indexOf("=");
     if (index === -1) continue;
-    if (part.slice(0, index).trim() !== SESSION_COOKIE) continue;
+    if (part.slice(0, index).trim() !== name) continue;
     const value = part.slice(index + 1).trim();
     return value === "" ? null : decodeURIComponent(value);
   }
   return null;
+}
+
+/** Reads the session id out of the request's Cookie header. */
+export function readSessionCookie(request: Request): string | null {
+  return readCookie(request, SESSION_COOKIE);
 }
 
 /**
@@ -249,6 +261,56 @@ export function getSession(sessionId: string | null): ResolvedSession | null {
 
 export function getSessionFromRequest(request: Request): ResolvedSession | null {
   return getSession(readSessionCookie(request));
+}
+
+/* ------------------------------------------------------------------ *
+ * Accounts saved on this device (device-accounts.ts)
+ * ------------------------------------------------------------------ */
+
+/**
+ * The session ids saved on the device that sent this request, newest first,
+ * with the active session included even if the list predates it (a device
+ * signed in before switching existed has jfg_session and no list).
+ */
+export function readDeviceAccounts(request: Request): string[] {
+  const saved = parseDeviceAccounts(readCookie(request, ACCOUNTS_COOKIE));
+  const active = readSessionCookie(request);
+  return active && !saved.includes(active) ? [...saved, active] : saved;
+}
+
+/**
+ * The saved accounts that can still be switched to, resolved, newest first.
+ * A session that has ended (signed out elsewhere, revoked, expired) is left
+ * out; `ids` is the list to write back so the cookie forgets it too.
+ */
+export function resolveDeviceAccounts(saved: string[]): { accounts: ResolvedSession[]; ids: string[] } {
+  const accounts: ResolvedSession[] = [];
+  for (const id of saved) {
+    const session = getSession(id);
+    if (session && !accounts.some((a) => a.userId === session.userId)) accounts.push(session);
+  }
+  return { accounts, ids: accounts.map((a) => a.sessionId) };
+}
+
+/**
+ * The cookies for a sign-in on this device: the session itself, and the
+ * device's list with it added. Signing in never signs anyone else out here;
+ * an earlier session of the same account is replaced in the list. Signing in
+ * is also using the device: without the recent mark, the first Home after
+ * someone was added on a TV asked "Who's watching?" of the person who had
+ * just answered it.
+ */
+export function signInCookies(request: Request, sessionId: string): string[] {
+  const userOf = (id: string) => asRow<{ user_id: string }>(getDb().prepare("SELECT user_id FROM sessions WHERE id = ?").get(id))?.user_id;
+  const me = userOf(sessionId);
+  const ids = addDeviceAccount(readDeviceAccounts(request), sessionId, (other) => me !== undefined && userOf(other) === me);
+  return [sessionCookie(sessionId), accountsCookie(ids), recentCookie()];
+}
+
+/** The device's list after this session signs out here. */
+export function signOutAccountsCookie(request: Request, sessionId: string): { cookie: string; remaining: number } {
+  const ids = removeDeviceAccount(readDeviceAccounts(request), sessionId);
+  return { cookie: accountsCookie(ids), remaining: ids.length };
 }
 
 /**
@@ -368,6 +430,46 @@ export function sessionCookie(sessionId: string): string {
     "HttpOnly",
     "SameSite=Lax",
     `Max-Age=${maxAge}`,
+  ];
+  if (cookieSecure) parts.push("Secure");
+  return parts.join("; ");
+}
+
+/** How long a TV counts as in use after the last page it opened. */
+export const RECENT_SECONDS = 3 * 60 * 60;
+
+/**
+ * `Set-Cookie` marking this TV as in use. Not httpOnly-sensitive (it holds no
+ * identity), but kept httpOnly like the rest; middleware renews it.
+ */
+export function recentCookie(): string {
+  const parts = [`${RECENT_COOKIE}=1`, "Path=/", "HttpOnly", "SameSite=Lax", `Max-Age=${RECENT_SECONDS}`];
+  if (cookieSecure) parts.push("Secure");
+  return parts.join("; ");
+}
+
+/** Response headers carrying several Set-Cookie lines, which a plain object cannot. */
+export function withCookies(base: Record<string, string>, cookies: string[]): Headers {
+  const headers = new Headers(base);
+  for (const cookie of cookies) headers.append("Set-Cookie", cookie);
+  return headers;
+}
+
+/**
+ * `Set-Cookie` for the device's saved accounts; same flags as the session's.
+ * It lasts as long as browsers allow (400 days) rather than one session's
+ * TTL: each session renews itself as it is used, and the list must not lapse
+ * under a TV used daily. It only names sessions, each checked on every read,
+ * so outliving one grants nothing.
+ */
+export function accountsCookie(ids: string[]): string {
+  const value = serializeDeviceAccounts(ids);
+  const parts = [
+    `${ACCOUNTS_COOKIE}=${encodeURIComponent(value)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${value ? 400 * 24 * 60 * 60 : 0}`,
   ];
   if (cookieSecure) parts.push("Secure");
   return parts.join("; ");

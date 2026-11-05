@@ -1,7 +1,7 @@
 import { pollDevicePairing } from "@/lib/device-pairing";
 import { getClientIp, getUserAgent } from "@/lib/ip";
 import { checkRateLimit, DEVICE_POLL_LIMIT, rateLimitHeaders } from "@/lib/ratelimit";
-import { sessionCookie } from "@/lib/session";
+import { signInCookies, withCookies } from "@/lib/session";
 import { readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -53,7 +53,7 @@ export async function POST(request: Request): Promise<Response> {
 
     return Response.json(
       { status: "authenticated", username: result.username },
-      { status: 200, headers: { ...NO_STORE, "Set-Cookie": sessionCookie(result.sessionId) } },
+      { status: 200, headers: withCookies(NO_STORE, signInCookies(request, result.sessionId)) },
     );
   } catch (error) {
     console.error("[auth/device/poll]", error);

@@ -11,7 +11,7 @@ import {
   LOGIN_LIMIT,
   rateLimitHeaders,
 } from "@/lib/ratelimit";
-import { createSessionForLogin, sessionCookie, SuspendedAccountError } from "@/lib/session";
+import { createSessionForLogin, signInCookies, withCookies, SuspendedAccountError } from "@/lib/session";
 import { readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -148,7 +148,7 @@ export async function POST(request: Request): Promise<Response> {
     { ok: true, username: auth.User.Name ?? username },
     {
       status: 200,
-      headers: { ...NO_STORE, "Set-Cookie": sessionCookie(sessionId) },
+      headers: withCookies(NO_STORE, signInCookies(request, sessionId)),
     },
   );
 }

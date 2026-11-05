@@ -8,9 +8,12 @@ export function LogoutButton() {
   async function onClick() {
     setPending(true);
     // Fire and navigate regardless of the outcome: the server clears the cookie
-    // on every response from this endpoint, including failures.
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
-    window.location.assign("/login");
+    // on every response from this endpoint, including failures. With others
+    // still signed in on this device it says to go to "Who's watching?".
+    const result = await fetch("/api/auth/logout", { method: "POST" })
+      .then((r) => r.json() as Promise<{ next?: string }>)
+      .catch(() => ({ next: undefined }));
+    window.location.assign(result.next === "/profiles" ? "/profiles" : "/login");
   }
 
   return (

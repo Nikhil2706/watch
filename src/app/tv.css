@@ -62,8 +62,64 @@ html[data-tv="true"] .appbar nav a {
   padding: 8px 4px;
 }
 
+/* The name is the way to "Who's watching?" on a family TV, so it stays, as
+   a pill the remote can land on. */
 html[data-tv="true"] .appbar .who {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 1.05rem;
+  text-decoration: none;
+}
+
+html[data-tv="true"] .appbar .who::before {
+  content: "⇄";
+  margin-right: 10px;
+  color: var(--muted);
+}
+
+/* Who's watching? from the sofa: tiles to read at three metres, and the
+   focused one plain to see. */
+html[data-tv="true"] .who-watching-title {
+  margin-bottom: 56px;
+  font-size: 3.4rem;
+}
+
+html[data-tv="true"] .who-watching-tiles {
+  gap: 48px;
+}
+
+html[data-tv="true"] .who-tile {
+  width: 230px;
+  gap: 18px;
+}
+
+html[data-tv="true"] .who-avatar {
+  width: 200px;
+  height: 200px;
+  border-width: 6px;
+  border-radius: 26px;
+  font-size: 5.4rem;
+}
+
+html[data-tv="true"] .who-name {
+  font-size: 1.6rem;
+}
+
+html[data-tv="true"] .who-note {
+  font-size: 1.1rem;
+}
+
+html[data-tv="true"] .who-tile:focus .who-avatar {
+  border-color: #fff;
+  transform: scale(1.08);
+}
+
+html[data-tv="true"] .who-tile:focus {
+  color: var(--text);
 }
 
 /* "Remote" turns this device into a phone-style controller — never what a

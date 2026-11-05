@@ -63,10 +63,15 @@ export function AppBar({
         <SearchBox initialQuery={query ?? ""} autoFocus={searching && !query} />
         <AppBarListLink />
         <NotificationBell />
-        <span className="who">{username}</span>
+        {/* The name is the way to "Who's watching?": switch to anyone else
+            signed in on this device, or add someone. */}
+        <Link href="/profiles" className="who" title="Switch account">
+          {username}
+        </Link>
         <LogoutButton />
         <AppBarMore>
           <span className="appbar-more-who">Signed in as {username}</span>
+          <Link href="/profiles">Switch account</Link>
           <Link href="/history">History</Link>
           <Link href="/friends">Friends</Link>
           <Link href="/coming-soon">Coming soon</Link>

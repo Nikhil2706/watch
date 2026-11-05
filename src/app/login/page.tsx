@@ -11,13 +11,16 @@ export const dynamic = "force-dynamic";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; add?: string }>;
 }) {
+  const params = await searchParams;
+  // "Add someone" (Who's watching?) signs a second account in on this device
+  // without signing the first out (device-accounts.ts).
+  const adding = params.add === "1";
   const session = await currentSession();
-  if (session) redirect("/");
+  if (session && !adding) redirect("/");
 
   const tvMode = await resolveTvModeFromRequest();
-  const params = await searchParams;
 
   // Open-redirect guard. Only a same-origin absolute path is accepted; a value
   // like `//evil.example` or `https://evil.example` is discarded. Without this,
@@ -29,6 +32,24 @@ export default async function LoginPage({
   // Set when middleware bounced someone off a page they asked for, which
   // usually means their session ran out rather than that they arrived cold.
   const returning = next !== "/";
+
+  if (adding) {
+    return (
+      <AuthShell pitch={false}>
+        <h1 className="auth-title">Add someone</h1>
+        <p className="auth-sub">
+          Sign in with their own account. Everyone already here stays signed in, and you can switch
+          between you from &ldquo;Who&apos;s watching?&rdquo;.
+        </p>
+        <LoginScreen tvModeGuess={tvMode} next={next} />
+        <div className="auth-foot">
+          <p>
+            <a href="/profiles">Back to Who&apos;s watching?</a>
+          </p>
+        </div>
+      </AuthShell>
+    );
+  }
 
   return (
     <AuthShell>
