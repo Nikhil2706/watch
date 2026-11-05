@@ -7913,6 +7913,19 @@ html[data-in-app] .app-get {
   .lg-row {
     grid-template-columns: 110px 900px;
   }
+  /* Two short lines rather than "Buff…". */
+  .lg-chan {
+    gap: 6px;
+    padding: 0 8px;
+  }
+  .lg-chan-name {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    font-size: 0.82rem;
+    line-height: 1.2;
+  }
 }
 
 /* Live TV guide (/live), the earlier list: one card per channel. Home's "On now" row still uses these. */
