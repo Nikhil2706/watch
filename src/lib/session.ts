@@ -293,15 +293,18 @@ export function resolveDeviceAccounts(saved: string[]): { accounts: ResolvedSess
 }
 
 /**
- * Both cookies for a sign-in on this device: the session itself, and the
+ * The cookies for a sign-in on this device: the session itself, and the
  * device's list with it added. Signing in never signs anyone else out here;
- * an earlier session of the same account is replaced in the list.
+ * an earlier session of the same account is replaced in the list. Signing in
+ * is also using the device: without the recent mark, the first Home after
+ * someone was added on a TV asked "Who's watching?" of the person who had
+ * just answered it.
  */
 export function signInCookies(request: Request, sessionId: string): string[] {
   const userOf = (id: string) => asRow<{ user_id: string }>(getDb().prepare("SELECT user_id FROM sessions WHERE id = ?").get(id))?.user_id;
   const me = userOf(sessionId);
   const ids = addDeviceAccount(readDeviceAccounts(request), sessionId, (other) => me !== undefined && userOf(other) === me);
-  return [sessionCookie(sessionId), accountsCookie(ids)];
+  return [sessionCookie(sessionId), accountsCookie(ids), recentCookie()];
 }
 
 /** The device's list after this session signs out here. */
