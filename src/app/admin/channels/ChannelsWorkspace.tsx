@@ -28,7 +28,15 @@ interface ChannelSummary {
   onNow: string | null;
 }
 interface ChannelDetail {
-  channel: { id: string; name: string; orderMode: OrderMode; atEnd: AtEnd; slotMs: number; slotRule: "fixed" | "round" | "pack" };
+  channel: {
+    id: string;
+    name: string;
+    orderMode: OrderMode;
+    atEnd: AtEnd;
+    slotMs: number;
+    slotRule: "fixed" | "round" | "pack";
+    description?: string;
+  };
   entries: Entry[];
   guide: Array<{ name: string; startsAt: number; endsAt: number }>;
 }
@@ -152,6 +160,7 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
   // One choice in the console: "" (each its own length), "fixed:45" or "round:5".
   const [slot, setSlot] = useState("");
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [description, setDescription] = useState("");
   const [q, setQ] = useState("");
   const [found, setFound] = useState<{ entries: Entry[]; genres: string[] } | null>(null);
   const [genre, setGenre] = useState("");
@@ -166,6 +175,7 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
       setAtEnd(d.channel.atEnd ?? "loop");
       setSlot(d.channel.slotMs ? `${d.channel.slotRule ?? "fixed"}:${d.channel.slotMs / 60_000}` : "");
       setEntries(d.entries);
+      setDescription(d.channel.description ?? "");
     } catch (e) {
       show("err", message(e));
     }
@@ -216,6 +226,18 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
       show("err", message(e));
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Saved on its own as you leave the box: wording never rebuilds the lineup.
+  async function saveDescription() {
+    if (description.trim() === (detail?.channel.description ?? "")) return;
+    try {
+      await adminApi(`/api/admin/channels/${id}/description`, { method: "PUT", body: { description } });
+      show("ok", "Description saved.");
+      await load();
+    } catch (e) {
+      show("err", message(e));
     }
   }
 
@@ -272,6 +294,16 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
           ))}
         </select>
       </div>
+
+      <textarea
+        className="adm-grow"
+        rows={2}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        onBlur={() => void saveDescription()}
+        placeholder="What this channel is, for the guide: e.g. Every episode of Buffy and Angel, in the order they aired."
+        aria-label="What this channel is"
+      />
 
       <div className="adm-card-title">Lineup</div>
       {entries.length === 0 ? <p className="hint">Nothing yet: add films, episodes, whole shows or a genre below.</p> : null}

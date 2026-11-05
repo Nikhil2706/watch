@@ -13,11 +13,13 @@ export const dynamic = "force-dynamic";
  * the top beside what is on, and the guide below, every channel three hours
  * ahead (LiveGuide), from each channel's clock (channels.ts).
  */
-export default async function LivePage() {
+export default async function LivePage({ searchParams }: { searchParams: Promise<{ channel?: string }> }) {
   const session = await currentSession();
   if (!session) redirect("/login");
   const now = Date.now();
   const channels = await liveGuideGrid(session, now);
+  // Back from a channel (down on the remote): that channel highlighted.
+  const { channel: from } = await searchParams;
 
   return (
     <>
@@ -37,7 +39,7 @@ export default async function LivePage() {
           </div>
         </>
       ) : (
-        <LiveGuide channels={channels} serverNowMs={now} />
+        <LiveGuide channels={channels} serverNowMs={now} initialChannelId={typeof from === "string" ? from : null} />
       )}
     </>
   );

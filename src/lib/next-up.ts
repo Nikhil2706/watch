@@ -81,7 +81,7 @@ export function nextUpEpisodes(
  * episode) a later episode of the show is watched.
  */
 export function continueWatchingOrder(
-  resume: ReadonlyArray<{ id: string; at: number }>,
+  resume: ReadonlyArray<{ id: string; at: number; show?: string }>,
   nextUp: readonly NextUp[],
   removed: ReadonlyMap<string, number>,
   limit: number,
@@ -90,11 +90,20 @@ export function continueWatchingOrder(
     const removedAt = removed.get(id);
     return removedAt === undefined || at > removedAt;
   };
+  // One card a show: the episode played most recently. Three half-watched
+  // Buffy episodes were three cards (the owner, 2026-11-06).
+  const seenShows = new Set<string>();
   return [
-    ...resume.filter((r) => kept(r.id, r.at)).map((r) => ({ id: r.id, at: r.at, nextUp: false })),
-    ...nextUp.filter((n) => kept(n.id, n.at)).map((n) => ({ id: n.id, at: n.at, nextUp: true })),
+    ...resume.filter((r) => kept(r.id, r.at)).map((r) => ({ id: r.id, at: r.at, show: r.show, nextUp: false })),
+    ...nextUp.filter((n) => kept(n.id, n.at)).map((n) => ({ id: n.id, at: n.at, show: n.groupId, nextUp: true })),
   ]
     .sort((a, b) => b.at - a.at)
+    .filter((card) => {
+      if (!card.show) return true;
+      if (seenShows.has(card.show)) return false;
+      seenShows.add(card.show);
+      return true;
+    })
     .slice(0, limit)
     .map(({ id, nextUp }) => ({ id, nextUp }));
 }

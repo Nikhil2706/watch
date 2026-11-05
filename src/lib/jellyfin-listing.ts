@@ -69,16 +69,43 @@ export async function listAllItems<T extends { Id: string }>(get: JellyfinGet, q
 }
 
 async function listPaged<T>(get: JellyfinGet, query: string, parent: string | null): Promise<T[]> {
-  const items: T[] = [];
   const scope = parent ? `&ParentId=${encodeURIComponent(parent)}` : "";
-  for (let start = 0; ; start += PAGE_SIZE) {
-    // SortName then Id, so the order cannot change between pages.
-    const page = await get<ItemPage<T>>(
-      `/Items?${query}${scope}&SortBy=SortName,Id&SortOrder=Ascending&StartIndex=${start}&Limit=${PAGE_SIZE}`,
-    );
-    const got = page.Items ?? [];
+  // SortName then Id, so the order cannot change between pages.
+  return everyPage<T>((start, limit) =>
+    get<ItemPage<T>>(`/Items?${query}${scope}&SortBy=SortName,Id&SortOrder=Ascending&StartIndex=${start}&Limit=${limit}`),
+  );
+}
+
+/** A runaway stop, far past any library this site has; reaching it is logged. */
+export const MAX_ITEMS = 200_000;
+
+/**
+ * Every item of a Jellyfin query, a page at a time: the one way this site
+ * asks Jellyfin for "all of" anything.
+ *
+ * Asking for "the first N" where everything was meant cut the library three
+ * times, each quietly: Limit=200 (Browse showed 181 of 446), Limit=2000 in
+ * the admin listing (fixed 2026-11-02), and Limit=2000 again in the viewers'
+ * listing and the cast list, which on 2026-11-06 hid every title after "Pied
+ * Piper" — Sabrina, The Stepfather, Angel S1E5–6 in Home's next-up. Each fix
+ * reached only the copy that had broken. jellyfin-limits.test.ts now fails
+ * on any fixed Limit of PAGE_SIZE or more outside this file.
+ *
+ * `fetchPage` gets the start index and page size; keep its sort fixed (end
+ * it with Id) so items cannot shift between pages.
+ */
+export async function everyPage<T>(
+  fetchPage: (startIndex: number, limit: number) => Promise<ItemPage<T> | null | undefined>,
+  pageSize: number = PAGE_SIZE,
+): Promise<T[]> {
+  const items: T[] = [];
+  for (let start = 0; start < MAX_ITEMS; start += pageSize) {
+    const page = await fetchPage(start, pageSize);
+    const got = page?.Items ?? [];
     items.push(...got);
-    const total = page.TotalRecordCount ?? 0;
-    if (got.length < PAGE_SIZE || start + got.length >= total) return items;
+    const total = page?.TotalRecordCount;
+    if (got.length < pageSize || (typeof total === "number" && start + got.length >= total)) return items;
   }
+  console.error(`[jellyfin-listing] stopped at ${MAX_ITEMS} items; the library is bigger than this site expects`);
+  return items;
 }

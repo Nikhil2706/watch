@@ -10,6 +10,7 @@ import { parseEpisodeInfo } from "./episode-naming";
 import { continueRemovals } from "./continue-removed";
 import { continueWatchingOrder, nextUpEpisodes, type EpisodeState } from "./next-up";
 import { userFetch, userPost } from "./jellyfin";
+import { everyPage } from "./jellyfin-listing";
 import {
   getAllGroupSeriesPosters,
   getConfirmedPathSet,
@@ -219,7 +220,7 @@ export async function getContinueWatching(
 ): Promise<{ items: MediaItem[]; nextUp: Set<string> }> {
   const [resume, all] = await Promise.all([
     getResume(session),
-    fetchAllMoviesCached(session, { limit: 2000 })
+    fetchAllMoviesCached(session)
       .then((items) => filterVisible(items, session, { context: "show_episodes" }))
       .catch(() => [] as MediaItem[]),
   ]);
@@ -249,7 +250,7 @@ export async function getContinueWatching(
   );
 
   const order = continueWatchingOrder(
-    resume.map((i) => ({ id: i.Id, at: lastPlayedMs(i) ?? 0 })),
+    resume.map((i) => ({ id: i.Id, at: lastPlayedMs(i) ?? 0, show: i.Path ? showOf.get(i.Path)?.groupId : undefined })),
     nextUpEpisodes(shows, inProgress, Date.now()),
     continueRemovals(session.userId),
     CONTINUE_WATCHING_LIMIT,
@@ -342,12 +343,6 @@ export async function getLatest(session: ResolvedSession): Promise<MediaItem[]> 
 const ALL_MOVIES_TTL_MS = 60_000;
 const ALL_MOVIES_STALE_MS = 10 * 60_000;
 
-/** What callers ask for when they mean the whole library; fetchAllMoviesCached pages it. */
-const EVERYTHING = 2000;
-const LISTING_PAGE = 1000;
-/** A runaway stop, far past any library this site has. */
-const MAX_LISTING = 100_000;
-
 /**
  * The cached Jellyfin fetch behind getAllMovies(), WITHOUT filterVisible()
  * applied — the cache holds what Jellyfin returned, and each caller filters
@@ -364,7 +359,7 @@ async function fetchAllMoviesCached(
   session: ResolvedSession,
   options: { limit?: number; sortBy?: string; genre?: string } = {},
 ): Promise<MediaItem[]> {
-  const cacheKey = `${session.jellyfinUserId}:${options.limit ?? 2000}:${options.sortBy ?? "SortName"}:${options.genre ?? ""}`;
+  const cacheKey = `${session.jellyfinUserId}:${options.limit ?? "all"}:${options.sortBy ?? "SortName"}:${options.genre ?? ""}`;
   return cached(
     "all-movies",
     cacheKey,
@@ -375,7 +370,7 @@ async function fetchAllMoviesCached(
           userId: session.jellyfinUserId,
           recursive: true,
           includeItemTypes: "Movie",
-          sortBy: options.sortBy ?? "SortName",
+          sortBy: `${options.sortBy ?? "SortName"},Id`,
           sortOrder: "Ascending",
           startIndex,
           limit,
@@ -383,22 +378,9 @@ async function fetchAllMoviesCached(
           fields: LIST_FIELDS,
           enableImageTypes: "Primary,Backdrop",
         });
-      // A short row (Home's 20) is one request.
-      if (options.limit !== undefined && options.limit < EVERYTHING) {
-        return (await page(0, options.limit))?.Items ?? [];
-      }
-      // Everything, in pages. One request of 200, then of 2000, each looked
-      // like plenty and each silently cut the library when it grew past it:
-      // on 2026-11-06 a scan took Jellyfin to 2720 and every title after the
-      // 2000th in the alphabet (Sabrina, The Stepfather, hundreds of episodes)
-      // vanished from Browse, Search and show pages for everyone.
-      const all: MediaItem[] = [];
-      for (let start = 0; start < MAX_LISTING; start += LISTING_PAGE) {
-        const items = (await page(start, LISTING_PAGE))?.Items ?? [];
-        all.push(...items);
-        if (items.length < LISTING_PAGE) break;
-      }
-      return all;
+      // A short row (Home's 20) is one request; no limit is everything.
+      if (options.limit !== undefined) return (await page(0, options.limit))?.Items ?? [];
+      return everyPage<MediaItem>(page);
     },
     { ttlMs: ALL_MOVIES_TTL_MS, staleMs: ALL_MOVIES_STALE_MS },
   );
@@ -431,20 +413,25 @@ export interface PersonCredit {
  */
 export async function getPeopleForAllMovies(session: ResolvedSession): Promise<Map<string, PersonCredit[]>> {
   const [token, device] = creds(session);
-  const data = await userFetch<ItemsResponse>(
-    token,
-    device,
-    "/Items",
-    {
-      recursive: true,
-      includeItemTypes: "Movie",
-      limit: 2000,
-      fields: "People",
-    },
-    90_000,
+  const items = await everyPage<MediaItem>((startIndex, limit) =>
+    userFetch<ItemsResponse>(
+      token,
+      device,
+      "/Items",
+      {
+        recursive: true,
+        includeItemTypes: "Movie",
+        sortBy: "SortName,Id",
+        sortOrder: "Ascending",
+        startIndex,
+        limit,
+        fields: "People",
+      },
+      90_000,
+    ),
   );
   const map = new Map<string, PersonCredit[]>();
-  for (const item of data?.Items ?? []) {
+  for (const item of items) {
     map.set(item.Id, item.People ?? []);
   }
   return map;
@@ -568,7 +555,7 @@ export async function getCollection(
   // the parts count agreeing with the short list and nothing flagging it.
   // Unconfirmed names are already handled: resolveEpisodeLabel() falls back to
   // the filename's own guess rather than trusting Jellyfin's.
-  const all = filterVisible(await fetchAllMoviesCached(session, { limit: 2000 }), session, {
+  const all = filterVisible(await fetchAllMoviesCached(session), session, {
     context: "show_episodes",
   });
   const items: CollectionItem[] = all
@@ -1381,7 +1368,7 @@ export async function smartSearch(
     search(session, query).catch(() => []),
     // Same cap that used to silently truncate Browse — matched to the same
     // fix so a title past the old 400th slot isn't unfindable by fallback.
-    getAllMovies(session, { limit: 2000 }).catch(() => []),
+    getAllMovies(session).catch(() => []),
   ]);
 
   // Grouped episodes are deduped at insertion, not just in the final list:
@@ -1500,18 +1487,22 @@ export async function getItemsByPerson(
 ): Promise<MediaItem[]> {
   const [token, device] = creds(session);
   try {
-    const data = await userFetch<ItemsResponse>(token, device, "/Items", {
-      userId: session.jellyfinUserId,
-      recursive: true,
-      includeItemTypes: "Movie",
-      personIds: personId,
-      sortBy: "ProductionYear,SortName",
-      sortOrder: "Descending",
-      limit: 100,
-      fields: LIST_FIELDS,
-      enableImageTypes: "Primary,Backdrop",
-    });
-    return filterVisible(data?.Items ?? [], session);
+    // Every film, not the first 100: Mel Blanc alone is in more Looney Tunes than that.
+    const items = await everyPage<MediaItem>((startIndex, limit) =>
+      userFetch<ItemsResponse>(token, device, "/Items", {
+        userId: session.jellyfinUserId,
+        recursive: true,
+        includeItemTypes: "Movie",
+        personIds: personId,
+        sortBy: "ProductionYear,SortName,Id",
+        sortOrder: "Descending",
+        startIndex,
+        limit,
+        fields: LIST_FIELDS,
+        enableImageTypes: "Primary,Backdrop",
+      }),
+    );
+    return filterVisible(items, session);
   } catch {
     return [];
   }

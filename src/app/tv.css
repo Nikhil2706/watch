@@ -1448,11 +1448,11 @@ html[data-tv="true"] .poster-marker {
 /* The Pluto-style guide from the sofa: the preview and what is on fill the
    top, rows and blocks big enough to read, the focused block plain to see. */
 html[data-tv="true"] .lg {
-  padding: 24px 48px 48px;
+  padding: 24px 48px 24px;
 }
 
 html[data-tv="true"] .lg-top {
-  grid-template-columns: 760px minmax(0, 1fr);
+  grid-template-columns: min(760px, calc(40vh * 16 / 9)) minmax(0, 1fr);
   gap: 40px;
   margin-bottom: 28px;
 }
@@ -1466,6 +1466,7 @@ html[data-tv="true"] .lg-info-title {
 }
 
 html[data-tv="true"] .lg-info-line,
+html[data-tv="true"] .lg-info-channel,
 html[data-tv="true"] .lg-info-overview {
   font-size: 1.2rem;
 }

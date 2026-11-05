@@ -74,3 +74,16 @@ test("a removed card stays away until there is something newer", () => {
   // Played again after it was removed: back.
   assert.deepEqual(continueWatchingOrder([{ id: "film", at: NOW }], next, removed, 12), [{ id: "film", nextUp: false }]);
 });
+
+test("one card a show: only the episode played most recently", () => {
+  const resume = [
+    { id: "witch", at: 300, show: "buffy" },
+    { id: "something-blue", at: 100, show: "buffy" },
+    { id: "i-in-team", at: 200, show: "buffy" },
+    { id: "quarantine", at: 50 },
+  ];
+  assert.deepEqual(
+    continueWatchingOrder(resume, [], new Map(), 12).map((c) => c.id),
+    ["witch", "quarantine"],
+  );
+});

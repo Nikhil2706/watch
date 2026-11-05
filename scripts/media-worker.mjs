@@ -1573,16 +1573,33 @@ async function flushLibraryChanges(force) {
   if (reprobe.length > 0) await reprobeJellyfin(reprobe);
 }
 
+/**
+ * Every item of a Jellyfin /Items query, a page at a time. The same rule as
+ * everyPage in src/lib/jellyfin-listing.ts (restated, this script runs on its
+ * own): a fixed Limit cut the site's library three times as it grew.
+ */
+async function jellyfinAll(query, headers, timeoutMs = 30_000) {
+  const PAGE = 1000;
+  const items = [];
+  for (let start = 0; start < 200_000; start += PAGE) {
+    const response = await fetch(
+      `${JELLYFIN_URL}/Items?${query}&SortBy=SortName,Id&StartIndex=${start}&Limit=${PAGE}`,
+      { headers, signal: AbortSignal.timeout(timeoutMs) },
+    );
+    if (!response.ok) throw new Error(`item list -> ${response.status}`);
+    const got = (await response.json()).Items ?? [];
+    items.push(...got);
+    if (got.length < PAGE) break;
+  }
+  return items;
+}
+
 async function reprobeJellyfin(paths) {
   if (!JELLYFIN_API_KEY) return;
   const headers = { Authorization: `MediaBrowser Token="${JELLYFIN_API_KEY}"` };
   try {
-    const response = await fetch(`${JELLYFIN_URL}/Items?Recursive=true&IncludeItemTypes=Movie&Fields=Path&Limit=10000`, {
-      headers,
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!response.ok) throw new Error(`item list -> ${response.status}`);
-    const idByPath = new Map(((await response.json()).Items ?? []).filter((i) => i.Path).map((i) => [i.Path, i.Id]));
+    const items = await jellyfinAll("Recursive=true&IncludeItemTypes=Movie&Fields=Path&EnableImages=false", headers);
+    const idByPath = new Map(items.filter((i) => i.Path).map((i) => [i.Path, i.Id]));
     const query = "MetadataRefreshMode=FullRefresh&ImageRefreshMode=None&ReplaceAllMetadata=false&ReplaceAllImages=false";
     let asked = 0;
     for (const path of paths) {
@@ -1608,14 +1625,10 @@ async function reprobeJellyfin(paths) {
  * because this script runs on its own.
  */
 async function jellyfinFoldersFor(paths, headers) {
-  const response = await fetch(
-    `${JELLYFIN_URL}/Items?Recursive=true&IncludeItemTypes=Folder&Fields=Path&Limit=5000`,
-    { headers, signal: AbortSignal.timeout(30_000) },
-  );
-  if (!response.ok) throw new Error(`folder list -> ${response.status}`);
   // Not the library root: it is a folder to Jellyfin too, and re-reading it
   // is a full scan under another name.
-  const folders = ((await response.json()).Items ?? []).filter((f) => f.Path && f.Path !== LIBRARY);
+  const all = await jellyfinAll("Recursive=true&IncludeItemTypes=Folder&Fields=Path&EnableImages=false", headers);
+  const folders = all.filter((f) => f.Path && f.Path !== LIBRARY);
   const within = (path, root) => path === root || path.startsWith(root + "/");
 
   const chosen = new Map();

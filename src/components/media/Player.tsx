@@ -322,8 +322,8 @@ const LIVE_BLOCKED = new Set<PlayerAction["kind"]>([
 ]);
 
 /** Keys that change channel while tuned in: up/down on a remote, PageUp/PageDown on a keyboard. */
-const CHANNEL_UP = new Set(["ArrowUp", "ChannelUp", "PageUp"]);
-const CHANNEL_DOWN = new Set(["ArrowDown", "ChannelDown", "PageDown"]);
+/** A remote's own channel buttons (and Page up/down): change channel while one plays. */
+const REMOTE_CHANNEL_KEYS = new Set(["ChannelUp", "ChannelDown", "PageUp", "PageDown"]);
 
 export function Player({
   itemId,
@@ -616,15 +616,16 @@ export function Player({
    * As on Netflix, beside "‹ Back" rather than only at the credits. The bar
    * is the page's (it holds the page's Back link), so the buttons are put
    * into it from here, where the player is. Not in a watch party, where the
-   * room decides where everyone is, nor on a live channel, which has no
-   * start. On a TV the remote reaches them with up, then left and right
-   * along the bar (moveTopBar). */
+   * room decides where everyone is. A live channel has no start of its own,
+   * so there the bar holds one button instead: the programme's own page, for
+   * a viewer who got hooked and wants it from the beginning (the owner,
+   * 2026-11-06). On a TV the remote reaches them with up, then left and
+   * right along the bar (moveTopBar). */
   const [barSlot, setBarSlot] = useState<HTMLElement | null>(null);
   const inParty = Boolean(party);
-  const onLive = Boolean(live);
   useEffect(() => {
-    setBarSlot(inParty || onLive ? null : document.querySelector<HTMLElement>(PLAYER_TOP_BAR));
-  }, [inParty, onLive]);
+    setBarSlot(inParty ? null : document.querySelector<HTMLElement>(PLAYER_TOP_BAR));
+  }, [inParty]);
 
   function startOver() {
     runActionRef.current({ kind: "seekTo", where: "start" });
@@ -972,12 +973,35 @@ export function Player({
       if (target?.closest?.(".party-tap-to-join")) return;
       // "How was it?" moves the remote through itself (EndPrompt).
       if (target?.closest?.(".end-prompt")) return;
-      // On a channel, up/down on the video changes channel, as on any TV.
-      if (liveRef.current && !target?.closest?.(".plyr__controls, [role='menu']") && (CHANNEL_UP.has(event.key) || CHANNEL_DOWN.has(event.key))) {
-        event.preventDefault();
-        event.stopPropagation();
-        changeChannel(CHANNEL_UP.has(event.key) ? "up" : "down");
-        return;
+      // On a channel OK cannot pause (it is live): it brings up the bar with
+      // "From the beginning" on it, and OK again opens the programme's page.
+      if (liveRef.current && event.key === "Enter" && !target?.closest?.(PLAYER_TOP_BAR)) {
+        const button = document.querySelector<HTMLElement>(`${PLAYER_TOP_BAR} .player-bar-actions a, ${PLAYER_TOP_BAR} .player-bar-actions button`);
+        if (button) {
+          event.preventDefault();
+          event.stopPropagation();
+          player.current?.controls.show();
+          button.focus();
+          return;
+        }
+      }
+      // On a channel (the owner, 2026-11-06): up goes to the bar ("‹ Channels",
+      // "From the beginning"), as in any film; down goes back to the guide
+      // with this channel highlighted, to look along the others. The remote's
+      // own channel buttons still change channel directly.
+      if (liveRef.current && !target?.closest?.(`.plyr__controls, [role='menu'], ${PLAYER_TOP_BAR}`)) {
+        if (REMOTE_CHANNEL_KEYS.has(event.key)) {
+          event.preventDefault();
+          event.stopPropagation();
+          changeChannel(event.key === "ChannelUp" || event.key === "PageUp" ? "up" : "down");
+          return;
+        }
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          event.stopPropagation();
+          window.location.assign(`/live?channel=${encodeURIComponent(liveRef.current.channelId)}`);
+          return;
+        }
       }
       // An open settings menu keeps up/down/OK (Vidstack moves through it).
       // Left/right mean nothing there, but left unhandled the WebView's own
@@ -1963,7 +1987,22 @@ export function Player({
           </button>
         ) : null}
 
-        {barSlot
+        {barSlot && live
+          ? createPortal(
+              <div className="player-bar-actions">
+                <a
+                  className="btn ghost"
+                  href={`/item/${encodeURIComponent(itemId)}`}
+                  aria-label={`${title}: from the beginning`}
+                  title={`Open ${title}, to watch it from the beginning`}
+                >
+                  <StartOverIcon />
+                  <span className="player-bar-label">From the beginning</span>
+                </a>
+              </div>,
+              barSlot,
+            )
+          : barSlot
           ? createPortal(
               <div className="player-bar-actions">
                 <button type="button" className="btn ghost" onClick={startOver} aria-label="Start over">
@@ -1991,7 +2030,7 @@ export function Player({
           <div className="live-badge" aria-label={`Live on ${live.channelName}`}>
             <span className="live-dot" aria-hidden="true" />
             LIVE · {live.channelName}
-            {tvMode && (live.previousHref || live.nextHref) ? <span className="live-hint"> · ↑ ↓ channels</span> : null}
+            {tvMode ? <span className="live-hint"> · ↓ guide</span> : null}
           </div>
         ) : null}
 
