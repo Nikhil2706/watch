@@ -1070,12 +1070,21 @@ function adminGet(timeoutMs: number) {
  * all 1,628 took ten.
  */
 /** Every item's path, genres and running time, for working out channel lineups (channels.ts). */
-export async function listItemsForChannels(): Promise<
-  Array<{ Id: string; Name: string; Path?: string; Genres?: string[]; RunTimeTicks?: number }>
-> {
-  return listAllItems<{ Id: string; Name: string; Path?: string; Genres?: string[]; RunTimeTicks?: number }>(
+type ChannelListItem = {
+  Id: string;
+  Name: string;
+  Path?: string;
+  Genres?: string[];
+  RunTimeTicks?: number;
+  ProductionYear?: number;
+  // A franchise is found by IMDb id, and two copies of one film are told apart by it (channels.ts).
+  ProviderIds?: { Imdb?: string };
+};
+
+export async function listItemsForChannels(): Promise<ChannelListItem[]> {
+  return listAllItems<ChannelListItem>(
     adminGet(60_000),
-    "IncludeItemTypes=Movie&Recursive=true&Fields=Path,Genres",
+    "IncludeItemTypes=Movie&Recursive=true&Fields=Path,Genres,ProviderIds,ProductionYear",
   );
 }
 

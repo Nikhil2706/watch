@@ -443,6 +443,22 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "users") && !columnExists(db, "users", "activity_visibility")) {
     db.exec("ALTER TABLE users ADD COLUMN activity_visibility TEXT NOT NULL DEFAULT 'friends'");
   }
+
+  // v69: what a channel does when its lineup has played through (channels.ts).
+  if (tableExists(db, "channels") && !columnExists(db, "channels", "at_end")) {
+    db.exec("ALTER TABLE channels ADD COLUMN at_end TEXT NOT NULL DEFAULT 'loop'");
+  }
+  if (tableExists(db, "channels") && !columnExists(db, "channels", "slot_ms")) {
+    db.exec("ALTER TABLE channels ADD COLUMN slot_ms INTEGER NOT NULL DEFAULT 0");
+  }
+  // v70: a timetable's slots are exact ('fixed') or round programmes up ('round').
+  if (tableExists(db, "channels") && !columnExists(db, "channels", "slot_rule")) {
+    db.exec("ALTER TABLE channels ADD COLUMN slot_rule TEXT NOT NULL DEFAULT 'fixed'");
+  }
+  // v71: where a channel picks up after skipping a deleted programme.
+  if (tableExists(db, "channels") && !columnExists(db, "channels", "resume_at_ms")) {
+    db.exec("ALTER TABLE channels ADD COLUMN resume_at_ms INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 /**

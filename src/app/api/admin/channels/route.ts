@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { channelOnNow, createChannel, getEntries, getSlots, listChannels, type OrderMode } from "@/lib/channels";
+import { channelOnNow, channelRuntimeMs, createChannel, getEntries, getSlots, listChannels, parseAtEnd, parseSlotMs, parseSlotRule, type OrderMode } from "@/lib/channels";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -18,7 +18,7 @@ export async function GET(request: Request): Promise<Response> {
       ...c,
       entries: getEntries(c.id).length,
       programmes: slots.length,
-      runtimeMs: slots.reduce((sum, s) => sum + s.runtimeMs, 0),
+      runtimeMs: channelRuntimeMs(c),
       onNow: channelOnNow(c, now)?.slot.name ?? null,
     };
   });
@@ -34,7 +34,18 @@ export async function POST(request: Request): Promise<Response> {
     const name = optionalString(body, "name")?.trim();
     if (!name) throw new ValidationError("A channel needs a name.");
     const orderMode: OrderMode = optionalString(body, "orderMode") === "shuffle" ? "shuffle" : "in_order";
-    return Response.json({ id: createChannel(name, orderMode) }, { headers: NO_STORE });
+    return Response.json(
+      {
+        id: createChannel(
+          name,
+          orderMode,
+          parseAtEnd(optionalString(body, "atEnd")),
+          parseSlotMs(body.slotMs),
+          parseSlotRule(body.slotRule),
+        ),
+      },
+      { headers: NO_STORE },
+    );
   } catch (error) {
     if (error instanceof ValidationError) {
       return Response.json({ error: "invalid_request", message: error.message }, { status: 400, headers: NO_STORE });

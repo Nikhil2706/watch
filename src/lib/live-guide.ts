@@ -1,6 +1,6 @@
 import "server-only";
 
-import { channelGuide, listChannels, type Programme } from "./channels";
+import { channelGuide, getChannel, listChannels, skipGoneProgramme, type Programme } from "./channels";
 import { episodeCards } from "./episode-cards";
 import { getItem, posterUrl, stillUrl, type MediaItem } from "./media";
 import type { ResolvedSession } from "./session";
@@ -23,7 +23,9 @@ export interface GuideChannel {
  */
 export async function liveGuide(session: ResolvedSession, nowMs = Date.now()): Promise<GuideChannel[]> {
   const out: GuideChannel[] = [];
-  for (const channel of listChannels()) {
+  for (const listed of listChannels()) {
+    // A programme deleted since the lineup was built is skipped (channels.ts).
+    const channel = (await skipGoneProgramme(listed, nowMs)) ? (getChannel(listed.id) ?? listed) : listed;
     const [now, next] = channelGuide(channel, nowMs, 2);
     if (!now) continue;
     const item: MediaItem | null = await getItem(session, now.slot.itemId).catch(() => null);

@@ -28,11 +28,21 @@ export interface OnNow {
   endsAtMs: number;
 }
 
-/** The programme on at `nowMs`, or null for a lineup with nothing to show. */
-export function onNow(slots: readonly Slot[], epochMs: number, nowMs: number): OnNow | null {
-  const cycle = slots.reduce((sum, s) => sum + Math.max(0, s.runtimeMs), 0);
+/** The whole lineup's running time, once through. */
+export function lineupMs(slots: readonly Slot[]): number {
+  return slots.reduce((sum, s) => sum + Math.max(0, s.runtimeMs), 0);
+}
+
+/**
+ * The programme on at `nowMs`, or null for a lineup with nothing to show.
+ * With `loop` false the lineup plays once: nothing is on before the epoch or
+ * after the last programme ends (the channel is off air).
+ */
+export function onNow(slots: readonly Slot[], epochMs: number, nowMs: number, loop = true): OnNow | null {
+  const cycle = lineupMs(slots);
   if (cycle <= 0) return null;
   const elapsed = nowMs - epochMs;
+  if (!loop && (elapsed < 0 || elapsed >= cycle)) return null;
   // Wrapped into [0, cycle): before the epoch counts back from the end.
   const intoCycle = ((elapsed % cycle) + cycle) % cycle;
   let at = 0;
@@ -48,14 +58,19 @@ export function onNow(slots: readonly Slot[], epochMs: number, nowMs: number): O
   return null;
 }
 
-/** What is on now and the `count - 1` programmes after it, with their wall-clock times: the guide. */
-export function upcoming(slots: readonly Slot[], epochMs: number, nowMs: number, count: number): OnNow[] {
-  const first = onNow(slots, epochMs, nowMs);
+/**
+ * What is on now and the `count - 1` programmes after it, with their
+ * wall-clock times: the guide. A lineup that does not loop runs out at its
+ * last programme, so its guide can be shorter than `count`.
+ */
+export function upcoming(slots: readonly Slot[], epochMs: number, nowMs: number, count: number, loop = true): OnNow[] {
+  const first = onNow(slots, epochMs, nowMs, loop);
   if (!first) return [];
   const out: OnNow[] = [first];
   let index = first.index;
   let startedAtMs = first.endsAtMs;
   while (out.length < count) {
+    if (!loop && index + 1 >= slots.length) break;
     index = (index + 1) % slots.length;
     const runtime = Math.max(0, slots[index]!.runtimeMs);
     if (runtime === 0) continue;
@@ -85,4 +100,61 @@ export function seededShuffle<T>(items: readonly T[], seed: string): T[] {
     [out[i], out[j]] = [out[j]!, out[i]!];
   }
   return out;
+}
+
+export type SlotRule = "fixed" | "round";
+
+/**
+ * How long one programme takes on a timetabled channel's clock. `fixed`: the
+ * slot exactly (a longer programme is cut at its end). `round`: the
+ * programme's own length rounded up to the next whole slot, so nothing is cut
+ * and the next one still starts on a mark. No slot: its own length.
+ */
+export function slotLength(runtimeMs: number, slotMs: number, rule: SlotRule): number {
+  if (slotMs <= 0) return runtimeMs;
+  if (rule === "fixed") return slotMs;
+  return Math.max(1, Math.ceil(runtimeMs / slotMs)) * slotMs;
+}
+
+/**
+ * The mark a timetable's clock starts on, so its slots land on times a guide
+ * would print: the slot itself when it divides a quarter hour (every 5
+ * minutes: 12:05, 12:35), else the quarter hour (45-minute slots: 21:30, 22:15).
+ */
+export function timetableMarkMs(slotMs: number): number {
+  const quarter = 15 * 60_000;
+  return slotMs > 0 && quarter % slotMs === 0 ? slotMs : quarter;
+}
+
+/** One programme for shuffleInBlocks: the block it belongs to (null on its own) and its place in it. */
+export interface Blocked<T> {
+  item: T;
+  block: string | null;
+  order: number;
+}
+
+/**
+ * A shuffle that keeps what belongs together together: films in parts, a
+ * series, a franchise. Each block is one unit, in its own order (part one
+ * first, a franchise by release), and the units are shuffled with the single
+ * films around them, the same way every time for the same seed.
+ */
+export function shuffleInBlocks<T>(items: readonly Blocked<T>[], seed: string): T[] {
+  const byBlock = new Map<string, Blocked<T>[]>();
+  const units: Blocked<T>[][] = [];
+  for (const entry of items) {
+    if (entry.block === null) {
+      units.push([entry]);
+      continue;
+    }
+    let unit = byBlock.get(entry.block);
+    if (!unit) {
+      unit = [];
+      byBlock.set(entry.block, unit);
+      units.push(unit);
+    }
+    unit.push(entry);
+  }
+  for (const unit of units) unit.sort((a, b) => a.order - b.order);
+  return seededShuffle(units, seed).flatMap((unit) => unit.map((entry) => entry.item));
 }

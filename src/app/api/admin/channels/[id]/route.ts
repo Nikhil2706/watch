@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { channelGuide, deleteChannel, getChannel, getEntries, saveChannel, type ChannelEntry, type OrderMode } from "@/lib/channels";
+import { channelGuide, deleteChannel, getChannel, getEntries, parseAtEnd, parseSlotMs, parseSlotRule, saveChannel, type ChannelEntry, type OrderMode } from "@/lib/channels";
 import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -39,7 +39,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       }
       return { kind: entry.kind as ChannelEntry["kind"], ref: entry.ref, label: String(entry.label ?? entry.ref) };
     });
-    const built = await saveChannel(id, { name, orderMode, entries });
+    // Left out, the channel keeps what it had (older consoles do not send it).
+    const atEnd = "atEnd" in body ? parseAtEnd(optionalString(body, "atEnd")) : getChannel(id)!.atEnd;
+    const slotMs = "slotMs" in body ? parseSlotMs(body.slotMs) : getChannel(id)!.slotMs;
+    const slotRule = "slotRule" in body ? parseSlotRule(body.slotRule) : getChannel(id)!.slotRule;
+    const built = await saveChannel(id, { name, orderMode, atEnd, slotMs, slotRule, entries });
     return Response.json({ ok: true, ...built }, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof ValidationError) {

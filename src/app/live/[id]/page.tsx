@@ -1,17 +1,21 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import { LiveIntermission } from "@/components/media/LiveIntermission";
 import { PlayerMount } from "@/components/media/PlayerMount";
-import { channelGuide, getChannel, neighbours } from "@/lib/channels";
+import { channelGuide, getChannel, getSlots, neighbours, skipGoneProgramme } from "@/lib/channels";
 import { currentSession } from "@/lib/current-user";
 import { episodeCards } from "@/lib/episode-cards";
-import { getItem, getPlaybackPlan, posterUrl } from "@/lib/media";
+import { getItem, getPlaybackPlan, posterUrl, stillUrl } from "@/lib/media";
 import { defaultTrack, listSubtitles } from "@/lib/subtitles";
 import { resolvePlaybackClientFromRequest } from "@/lib/tv/detect";
 
 export const dynamic = "force-dynamic";
 
-const clock = (ms: number) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+// India time, as the rest of the site's times are: this renders on the
+// server, whose clock is UTC, and printed "until 17:00" for 22:30.
+const clock = (ms: number) =>
+  new Date(ms).toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
 
 /**
  * Tuned to a channel (channels.ts): what is on now, worked out from the
@@ -23,8 +27,11 @@ export default async function LiveChannelPage({ params }: { params: Promise<{ id
   const session = await currentSession();
   if (!session) redirect("/login");
   const { id } = await params;
-  const channel = getChannel(decodeURIComponent(id));
-  if (!channel) notFound();
+  const found = getChannel(decodeURIComponent(id));
+  if (!found) notFound();
+  // A programme deleted since the lineup was built is skipped here, before
+  // anyone is tuned in to it (channels.ts).
+  const channel = (await skipGoneProgramme(found)) ? (getChannel(found.id) ?? found) : found;
 
   const now = Date.now();
   const [current, next] = channelGuide(channel, now, 2);
@@ -43,9 +50,40 @@ export default async function LiveChannelPage({ params }: { params: Promise<{ id
         <div className="player-stage">
           <div className="player-msg">
             <strong>Off air</strong>
-            This channel has nothing in its lineup yet.
+            {getSlots(channel.id).length > 0
+              ? "This channel has played its whole lineup."
+              : "This channel has nothing in its lineup yet."}
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // Between programmes on a channel with fixed slots: this one has ended (or
+  // was cut at its slot) and the next starts on the timetable.
+  // Before the programme starts (just after a skip), or after it has ended
+  // (a slot longer than it): "next in…" until the next one.
+  const waitingFor = now < current.startedAtMs ? current : now >= current.playsUntilMs ? (next ?? null) : undefined;
+  if (waitingFor !== undefined) {
+    const following = waitingFor ? await getItem(session, waitingFor.slot.itemId).catch(() => null) : null;
+    const cards = following ? episodeCards([following]) : null;
+    const nextShow = following ? (cards!.titles.get(following.Id) ?? null) : null;
+    const nextLine = following ? (cards!.lines.get(following.Id) ?? null) : null;
+    return (
+      <div className="player-page">
+        <div className="player-bar">
+          <Link className="btn ghost" href="/live">
+            ‹ Channels
+          </Link>
+          <span className="title">{channel.name}</span>
+        </div>
+        <LiveIntermission
+          channelId={channel.id}
+          startsAtMs={waitingFor ? waitingFor.startedAtMs : current.endsAtMs}
+          nextTitle={waitingFor ? (nextShow ?? waitingFor.slot.name) : null}
+          nextLine={nextShow ? (nextLine ?? waitingFor?.slot.name ?? null) : null}
+          art={following ? (nextShow ? stillUrl(following, 960) : posterUrl(following, 480)) : null}
+        />
       </div>
     );
   }
@@ -97,6 +135,7 @@ export default async function LiveChannelPage({ params }: { params: Promise<{ id
             channelName: channel.name,
             startedAtMs: current.startedAtMs,
             endsAtMs: current.endsAtMs,
+            playsUntilMs: current.playsUntilMs,
             previousHref: hrefOf(around.previous),
             nextHref: hrefOf(around.next),
           }}

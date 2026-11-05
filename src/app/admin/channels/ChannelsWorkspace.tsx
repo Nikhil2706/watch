@@ -7,6 +7,9 @@ import { adminApi } from "@/lib/admin/client-api";
 import { useToasts } from "../Toasts";
 
 type OrderMode = "in_order" | "shuffle";
+type AtEnd = "loop" | "stop" | "remove";
+
+const AT_END_NOTE: Record<AtEnd, string> = { loop: "loops", stop: "goes off air at the end", remove: "removed at the end" };
 interface Entry {
   kind: "item" | "group" | "genre";
   ref: string;
@@ -16,13 +19,16 @@ interface ChannelSummary {
   id: string;
   name: string;
   orderMode: OrderMode;
+  atEnd: AtEnd;
+  slotMs: number;
+  slotRule: "fixed" | "round";
   entries: number;
   programmes: number;
   runtimeMs: number;
   onNow: string | null;
 }
 interface ChannelDetail {
-  channel: { id: string; name: string; orderMode: OrderMode };
+  channel: { id: string; name: string; orderMode: OrderMode; atEnd: AtEnd; slotMs: number; slotRule: "fixed" | "round" };
   entries: Entry[];
   guide: Array<{ name: string; startsAt: number; endsAt: number }>;
 }
@@ -109,7 +115,12 @@ export function ChannelsWorkspace() {
             <div className="adm-grow">
               <div className="adm-card-title">{c.name}</div>
               <div className="hint">
-                {c.programmes} programmes · {hours(c.runtimeMs)} · {c.orderMode === "shuffle" ? "shuffled" : "in order"}
+                {c.programmes} programmes · {hours(c.runtimeMs)} · {c.orderMode === "shuffle" ? "shuffled" : "in order"} · {AT_END_NOTE[c.atEnd] ?? "loops"}
+                {c.slotMs
+                  ? c.slotRule === "round"
+                    ? ` · starts every ${c.slotMs / 60_000} minutes`
+                    : ` · ${c.slotMs / 60_000}-minute slots`
+                  : ""}
                 {c.onNow ? ` · on now: ${c.onNow}` : c.entries ? " · nothing playable" : " · empty"}
               </div>
             </div>
@@ -135,6 +146,9 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
   const [detail, setDetail] = useState<ChannelDetail | null>(null);
   const [name, setName] = useState("");
   const [orderMode, setOrderMode] = useState<OrderMode>("in_order");
+  const [atEnd, setAtEnd] = useState<AtEnd>("loop");
+  // One choice in the console: "" (each its own length), "fixed:45" or "round:5".
+  const [slot, setSlot] = useState("");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [q, setQ] = useState("");
   const [found, setFound] = useState<{ entries: Entry[]; genres: string[] } | null>(null);
@@ -147,6 +161,8 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
       setDetail(d);
       setName(d.channel.name);
       setOrderMode(d.channel.orderMode);
+      setAtEnd(d.channel.atEnd ?? "loop");
+      setSlot(d.channel.slotMs ? `${d.channel.slotRule ?? "fixed"}:${d.channel.slotMs / 60_000}` : "");
       setEntries(d.entries);
     } catch (e) {
       show("err", message(e));
@@ -182,9 +198,16 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
     try {
       const r = await adminApi<{ slots: number; runtimeMs: number }>(`/api/admin/channels/${id}`, {
         method: "PUT",
-        body: { name, orderMode, entries },
+        body: {
+          name,
+          orderMode,
+          atEnd,
+          slotMs: slot ? Number(slot.split(":")[1]) * 60_000 : 0,
+          slotRule: slot.startsWith("round") ? "round" : "fixed",
+          entries,
+        },
       });
-      show("ok", `Saved: ${r.slots} programmes, ${hours(r.runtimeMs)} before it loops.`);
+      show("ok", `Saved: ${r.slots} programmes, ${hours(r.runtimeMs)} ${atEnd === "loop" ? "before it loops" : "in all"}.`);
       await load();
       await onChanged();
     } catch (e) {
@@ -219,6 +242,27 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
         <select value={orderMode} onChange={(e) => setOrderMode(e.target.value as OrderMode)} aria-label="Order">
           <option value="in_order">Play in order</option>
           <option value="shuffle">Shuffle</option>
+        </select>
+        <select value={atEnd} onChange={(e) => setAtEnd(e.target.value as AtEnd)} aria-label="When it ends">
+          <option value="loop">At the end: start again</option>
+          <option value="stop">At the end: go off air</option>
+          <option value="remove">At the end: remove the channel</option>
+        </select>
+        {/* A timetable. Round: each programme rounded up so the next starts
+            on a mark (films). Fixed: each gets exactly the slot, longer ones
+            cut at its end (episodes). The gaps show "next in…". */}
+        <select value={slot} onChange={(e) => setSlot(e.target.value)} aria-label="Timetable">
+          <option value="">Each its own length</option>
+          {[5, 10, 15].map((m) => (
+            <option key={`round:${m}`} value={`round:${m}`}>
+              Start every {m} minutes (rounded up)
+            </option>
+          ))}
+          {[30, 45, 60, 90, 120].map((m) => (
+            <option key={`fixed:${m}`} value={`fixed:${m}`}>
+              {m}-minute slots (longer ones cut)
+            </option>
+          ))}
         </select>
       </div>
 

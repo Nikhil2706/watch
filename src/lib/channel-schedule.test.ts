@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { onNow, seededShuffle, upcoming } from "./channel-schedule.ts";
+import { lineupMs, onNow, seededShuffle, shuffleInBlocks, slotLength, timetableMarkMs, upcoming } from "./channel-schedule.ts";
 
 const MIN = 60_000;
 // Three programmes: 45, 30 and 15 minutes; the lineup runs 90 minutes.
@@ -67,4 +67,66 @@ test("a seeded shuffle is the same for the same seed, and a real reorder", () =>
   assert.notDeepEqual(a, list);
   assert.notDeepEqual(a, seededShuffle(list, "channel-1:2"));
   assert.deepEqual([...a].sort((x, y) => x - y), list);
+});
+
+test("a lineup that does not loop plays once, then is off air", () => {
+  assert.equal(lineupMs(slots), 90 * MIN);
+  assert.equal(onNow(slots, epoch, epoch + 80 * MIN, false)?.index, 2);
+  assert.equal(onNow(slots, epoch, epoch + 90 * MIN, false), null);
+  assert.equal(onNow(slots, epoch, epoch - MIN, false), null);
+  // Looping, the same moment is the top of the lineup again.
+  assert.equal(onNow(slots, epoch, epoch + 90 * MIN)?.index, 0);
+});
+
+test("the guide of a lineup that does not loop stops at its last programme", () => {
+  const guide = upcoming(slots, epoch, epoch + 50 * MIN, 4, false);
+  assert.deepEqual(guide.map((p) => p.index), [1, 2]);
+  assert.deepEqual(upcoming(slots, epoch, epoch + 50 * MIN, 4).map((p) => p.index), [1, 2, 0, 1]);
+});
+
+test("fixed slots: each programme takes the slot, so starts land on the marks", () => {
+  // Timetabled as 45-minute slots whatever each runs for.
+  const fixed = slots.map(() => ({ runtimeMs: 45 * MIN }));
+  const second = onNow(fixed, epoch, epoch + 50 * MIN)!;
+  assert.equal(second.index, 1);
+  assert.equal(second.startedAtMs, epoch + 45 * MIN);
+  assert.equal(second.endsAtMs, epoch + 90 * MIN);
+});
+
+test("round slots: a film is rounded up to the next mark and never cut", () => {
+  const five = 5 * MIN;
+  assert.equal(slotLength(107 * MIN + 20_000, five, "round"), 110 * MIN);
+  assert.equal(slotLength(90 * MIN, five, "round"), 90 * MIN);
+  assert.equal(slotLength(45 * MIN + 36_000, 45 * MIN, "fixed"), 45 * MIN);
+  assert.equal(slotLength(41 * MIN, 45 * MIN, "fixed"), 45 * MIN);
+  assert.equal(slotLength(41 * MIN, 0, "round"), 41 * MIN);
+});
+
+test("a timetable starts on its slot's mark, or the quarter hour", () => {
+  assert.equal(timetableMarkMs(5 * MIN), 5 * MIN);
+  assert.equal(timetableMarkMs(15 * MIN), 15 * MIN);
+  assert.equal(timetableMarkMs(45 * MIN), 15 * MIN);
+  assert.equal(timetableMarkMs(60 * MIN), 15 * MIN);
+});
+
+test("a block shuffle keeps each franchise together and in its order", () => {
+  const films = [
+    { item: "Halloween II", block: "halloween", order: 2 },
+    { item: "Martyrs", block: null, order: 0 },
+    { item: "Halloween", block: "halloween", order: 1 },
+    { item: "Serious Games 3", block: "sg", order: 3 },
+    { item: "The Thing", block: null, order: 0 },
+    { item: "Serious Games 1", block: "sg", order: 1 },
+    { item: "Serious Games 2", block: "sg", order: 2 },
+    { item: "Iron Lung", block: null, order: 0 },
+  ];
+  for (const seed of ["a", "b", "c", "d"]) {
+    const out = shuffleInBlocks(films, seed);
+    assert.equal(out.length, films.length);
+    const h = out.indexOf("Halloween");
+    assert.equal(out[h + 1], "Halloween II");
+    const s = out.indexOf("Serious Games 1");
+    assert.deepEqual(out.slice(s, s + 3), ["Serious Games 1", "Serious Games 2", "Serious Games 3"]);
+  }
+  assert.deepEqual(shuffleInBlocks(films, "a"), shuffleInBlocks(films, "a"));
 });

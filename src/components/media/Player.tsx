@@ -297,6 +297,12 @@ export interface LiveProgramme {
   /** When this programme started on the channel's clock (ms since 1970): where "live" is. */
   startedAtMs: number;
   endsAtMs: number;
+  /**
+   * When the programme stops: before endsAtMs on a channel with fixed slots,
+   * where a shorter one is followed by "next in…" and a longer one is cut.
+   * Left out, it plays to endsAtMs.
+   */
+  playsUntilMs?: number;
   /** The channels either side on the guide, for a remote's up/down. */
   previousHref: string | null;
   nextHref: string | null;
@@ -355,13 +361,22 @@ export function Player({
      stall, a backgrounded tab or anything that paused it, it goes back to
      where the channel is now (more than 8 s off). When the programme ends,
      or the clock says it has, the page is asked again for what is on next.
+     On a channel with fixed slots that is at playsUntilMs, to the second:
+     the cut, or the start of "next in…".
      Nothing to pause or skip: see LIVE_BLOCKED and the hidden controls. */
   useEffect(() => {
     const instance = player.current;
     if (!instance || !live) return;
-    const retune = () => window.location.replace(`/live/${encodeURIComponent(live.channelId)}`);
+    const until = live.playsUntilMs ?? live.endsAtMs;
+    let retuned = false;
+    const retune = () => {
+      if (retuned) return;
+      retuned = true;
+      window.location.replace(`/live/${encodeURIComponent(live.channelId)}`);
+    };
+    const stop = window.setTimeout(retune, Math.max(0, until - Date.now()));
     const keepLive = () => {
-      if (Date.now() >= live.endsAtMs - 1000) return retune();
+      if (Date.now() >= until - 1000) return retune();
       const expected = (Date.now() - live.startedAtMs) / 1000;
       if (Math.abs(instance.currentTime - expected) > 8) instance.currentTime = expected;
     };
@@ -369,15 +384,40 @@ export function Player({
       // Nothing on a channel pauses it; whatever did (the OS, a headset), it plays on, at the live point.
       if (!instance.state.ended) void instance.play().catch(() => {});
     };
+    // A stream that fails mid-programme (the film deleted while it ran) asks
+    // the page again after a moment: the channel skips a deleted programme
+    // there, so this lands on the next one rather than an error.
+    // Three tries per programme: a stream that fails for some other reason
+    // (a transcode that will not start) then shows its error rather than
+    // reloading the page forever.
+    let failed: number | undefined;
+    const onError = () => {
+      const key = `liveRetry:${live.channelId}:${live.startedAtMs}`;
+      let tries = 0;
+      try {
+        tries = Number(sessionStorage.getItem(key) ?? 0);
+        sessionStorage.setItem(key, String(tries + 1));
+      } catch {
+        // No storage: one try.
+        tries = 3;
+      }
+      if (tries >= 3) return;
+      window.clearTimeout(failed);
+      failed = window.setTimeout(retune, 4000);
+    };
     instance.addEventListener("playing", keepLive);
     instance.addEventListener("pause", onPause);
     instance.addEventListener("ended", retune);
+    instance.addEventListener("error", onError);
     const timer = setInterval(keepLive, 15_000);
     return () => {
       instance.removeEventListener("playing", keepLive);
       instance.removeEventListener("pause", onPause);
       instance.removeEventListener("ended", retune);
+      instance.removeEventListener("error", onError);
       clearInterval(timer);
+      window.clearTimeout(stop);
+      window.clearTimeout(failed);
     };
   }, [live]);
 
