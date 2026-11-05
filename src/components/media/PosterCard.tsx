@@ -7,10 +7,12 @@ import {
   formatRuntime,
   posterUrl,
   progressPercent,
+  resumeSeconds,
   stillUrl,
   type MediaItem,
 } from "@/lib/media";
-import { itemHref } from "@/lib/slugs";
+import { itemHref, watchHref } from "@/lib/slugs";
+import { CARD_OPTIONS_ATTR, type CardOptions } from "@/lib/tv/card-options";
 
 import { ListButtons } from "./ListButtons";
 import { RemoveFromContinueButton } from "./RemoveFromContinueButton";
@@ -79,9 +81,30 @@ export function PosterCard({
   const runtime = formatRuntime(item.RunTimeTicks);
   // Its folder has been marked to be deleted: say so wherever the poster is.
   const leaving = leavingDaysForItem(item);
+  const resume = resumeSeconds(item);
+  // The overlay buttons' actions, for a remote (TvCardOptions): hold OK.
+  // Not on a collection tile, which is not one playable title.
+  const tvOptions: CardOptions | null =
+    partsCount === undefined
+      ? {
+          itemId: item.Id,
+          title: title ?? item.Name,
+          subtitle: badge ?? null,
+          infoHref: itemHref(item.Id, item.Name, item.ProductionYear),
+          playHref: watchHref(item.Id, item.Name, item.ProductionYear, resume),
+          resuming: resume > 0 && !watched,
+          favourite: lists?.has("favourite") ?? false,
+          rewatch: lists?.has("rewatch") ?? false,
+          watched,
+          removable,
+        }
+      : null;
 
   return (
-    <div className={["poster", still ? "poster--still" : "", marker ? "poster--marked" : ""].filter(Boolean).join(" ")}>
+    <div
+      className={["poster", still ? "poster--still" : "", marker ? "poster--marked" : ""].filter(Boolean).join(" ")}
+      {...(tvOptions ? { [CARD_OPTIONS_ATTR]: JSON.stringify(tvOptions) } : {})}
+    >
       {marker ? (
         <span className="poster-marker">{marker}</span>
       ) : null}
