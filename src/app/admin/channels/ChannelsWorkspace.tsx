@@ -21,14 +21,14 @@ interface ChannelSummary {
   orderMode: OrderMode;
   atEnd: AtEnd;
   slotMs: number;
-  slotRule: "fixed" | "round";
+  slotRule: "fixed" | "round" | "pack";
   entries: number;
   programmes: number;
   runtimeMs: number;
   onNow: string | null;
 }
 interface ChannelDetail {
-  channel: { id: string; name: string; orderMode: OrderMode; atEnd: AtEnd; slotMs: number; slotRule: "fixed" | "round" };
+  channel: { id: string; name: string; orderMode: OrderMode; atEnd: AtEnd; slotMs: number; slotRule: "fixed" | "round" | "pack" };
   entries: Entry[];
   guide: Array<{ name: string; startsAt: number; endsAt: number }>;
 }
@@ -119,7 +119,9 @@ export function ChannelsWorkspace() {
                 {c.slotMs
                   ? c.slotRule === "round"
                     ? ` · starts every ${c.slotMs / 60_000} minutes`
-                    : ` · ${c.slotMs / 60_000}-minute slots`
+                    : c.slotRule === "pack"
+                      ? ` · back to back in ${c.slotMs / 60_000}-minute slots`
+                      : ` · ${c.slotMs / 60_000}-minute slots`
                   : ""}
                 {c.onNow ? ` · on now: ${c.onNow}` : c.entries ? " · nothing playable" : " · empty"}
               </div>
@@ -203,7 +205,7 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
           orderMode,
           atEnd,
           slotMs: slot ? Number(slot.split(":")[1]) * 60_000 : 0,
-          slotRule: slot.startsWith("round") ? "round" : "fixed",
+          slotRule: slot.startsWith("round") ? "round" : slot.startsWith("pack") ? "pack" : "fixed",
           entries,
         },
       });
@@ -261,6 +263,11 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
           {[30, 45, 60, 90, 120].map((m) => (
             <option key={`fixed:${m}`} value={`fixed:${m}`}>
               {m}-minute slots (longer ones cut)
+            </option>
+          ))}
+          {[45, 60].map((m) => (
+            <option key={`pack:${m}`} value={`pack:${m}`}>
+              Back to back in {m}-minute slots (half-hour shows)
             </option>
           ))}
         </select>

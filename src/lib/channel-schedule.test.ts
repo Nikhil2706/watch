@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { lineupMs, onNow, seededShuffle, shuffleInBlocks, slotLength, timetableMarkMs, upcoming } from "./channel-schedule.ts";
+import { lineupMs, onNow, packedLengths, seededShuffle, shuffleInBlocks, slotLength, timetableMarkMs, upcoming } from "./channel-schedule.ts";
 
 const MIN = 60_000;
 // Three programmes: 45, 30 and 15 minutes; the lineup runs 90 minutes.
@@ -129,4 +129,21 @@ test("a block shuffle keeps each franchise together and in its order", () => {
     assert.deepEqual(out.slice(s, s + 3), ["Serious Games 1", "Serious Games 2", "Serious Games 3"]);
   }
   assert.deepEqual(shuffleInBlocks(films, "a"), shuffleInBlocks(films, "a"));
+});
+
+test("pack: two half-hour episodes share a 45-minute slot, then the next pair starts on the mark", () => {
+  const slot = 45 * MIN;
+  const lengths = packedLengths([21.6 * MIN, 22.4 * MIN, 21.9 * MIN, 22.0 * MIN], slot);
+  assert.deepEqual(lengths.map((l) => Math.round(l / 1000)), [1296, 1404, 1314, 1386]);
+  assert.equal(lengths[0]! + lengths[1]!, slot);
+  assert.equal(lengths[2]! + lengths[3]!, slot);
+});
+
+test("pack: a pair a few seconds over keeps its slot (credits cut); a long special gets its own, rounded up", () => {
+  const slot = 45 * MIN;
+  // NewsRadio's longest pair, 45 min 46 s: still one slot.
+  assert.deepEqual(packedLengths([22.9 * MIN, 22.9 * MIN], slot).reduce((a, b) => a + b, 0), slot);
+  // An episode, then Finding Frances (84 min): the episode alone in a slot, the special in two.
+  const l = packedLengths([21 * MIN, 84 * MIN, 21 * MIN], slot);
+  assert.deepEqual(l.map((x) => x / MIN), [45, 90, 45]);
 });
