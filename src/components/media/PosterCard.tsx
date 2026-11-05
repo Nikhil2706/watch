@@ -89,6 +89,7 @@ export function PosterCard({
       ? {
           itemId: item.Id,
           title: title ?? item.Name,
+          subtitle: badge ?? null,
           infoHref: itemHref(item.Id, item.Name, item.ProductionYear),
           playHref: watchHref(item.Id, item.Name, item.ProductionYear, resume),
           resuming: resume > 0 && !watched,

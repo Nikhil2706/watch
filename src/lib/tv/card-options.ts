@@ -11,6 +11,8 @@
 export interface CardOptions {
   itemId: string;
   title: string;
+  /** The card's second line, e.g. "S2 E1 · Mechanic / Realtor" under a show's name. */
+  subtitle?: string | null;
   /** The title's page. */
   infoHref: string;
   /** Plays it, from where it was left when there is a resume point. */

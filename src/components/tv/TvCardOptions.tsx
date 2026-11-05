@@ -141,8 +141,12 @@ export function TvCardOptions() {
     setBusy(true);
     // Where focus goes if this card leaves its row (taken off Continue
     // watching, or marked watched there): the next card, else the one before.
+    // A card alone in its row has neither: then the next poster on the page.
     const poster = link.closest(".poster");
-    const neighbour = (poster?.nextElementSibling ?? poster?.previousElementSibling)?.querySelector<HTMLAnchorElement>(".poster-link");
+    const all = Array.from(document.querySelectorAll<HTMLAnchorElement>(".poster-link"));
+    const neighbour =
+      (poster?.nextElementSibling ?? poster?.previousElementSibling)?.querySelector<HTMLAnchorElement>(".poster-link") ??
+      all.slice(all.indexOf(link) + 1).find((other) => other.getAttribute("href") !== link.getAttribute("href"));
     const neighbourHref = neighbour?.getAttribute("href") ?? null;
     let ok = false;
     let done = "";
@@ -220,6 +224,7 @@ export function TvCardOptions() {
             onClick={(event) => event.stopPropagation()}
           >
             <p className="tv-options-title">{open.options.title}</p>
+            {open.options.subtitle ? <p className="tv-options-sub">{open.options.subtitle}</p> : null}
             {cardActions(open.options).map((action) => (
               <button
                 key={action.key}

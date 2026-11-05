@@ -293,6 +293,16 @@ html[data-tv="true"] .poster[data-tv-options]:focus-within .poster-art::after {
   line-height: 1.25;
 }
 
+.tv-options-title:has(+ .tv-options-sub) {
+  margin-bottom: 4px;
+}
+
+.tv-options-sub {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 1.15rem;
+}
+
 .tv-options-row {
   width: 100%;
   padding: 18px 24px;
