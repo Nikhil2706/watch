@@ -16,7 +16,7 @@ import {
   REDEEM_LIMIT,
   refundRateLimit,
 } from "@/lib/ratelimit";
-import { createUserAndSession, sessionCookie } from "@/lib/session";
+import { createUserAndSession, signInCookies, withCookies } from "@/lib/session";
 import {
   readJsonBody,
   validatePassword,
@@ -151,7 +151,7 @@ export async function POST(request: Request): Promise<Response> {
 
     return Response.json(
       { ok: true, username, redirect: "/" },
-      { status: 201, headers: { ...NO_STORE, "Set-Cookie": sessionCookie(sessionId) } },
+      { status: 201, headers: withCookies(NO_STORE, signInCookies(request, sessionId)) },
     );
   } catch (error) {
     // --- 4. COMPENSATE ----------------------------------------------------

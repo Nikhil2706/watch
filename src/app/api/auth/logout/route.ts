@@ -3,6 +3,9 @@ import {
   clearedSessionCookie,
   destroySession,
   getSessionFromRequest,
+  readSessionCookie,
+  signOutAccountsCookie,
+  withCookies,
 } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -23,19 +26,22 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
  * Step 3 is best-effort: if Jellyfin is down, the user is still logged out here,
  * which is the part under this app's control. Reversing the order would leave a
  * window where Jellyfin had rejected the token but this app still served it.
+ *
+ * Only this account leaves the device. Anyone else signed in here stays on
+ * its list (device-accounts.ts), and `next` sends the page to "Who's
+ * watching?" to pick one of them, or to the sign-in page when none are left.
  */
 export async function POST(request: Request): Promise<Response> {
   const session = getSessionFromRequest(request);
+  const signedOut = signOutAccountsCookie(request, session?.sessionId ?? readSessionCookie(request) ?? "");
+  const next = signedOut.remaining > 0 ? "/profiles" : "/login";
 
-  const headers: Record<string, string> = {
-    ...NO_STORE,
-    "Set-Cookie": clearedSessionCookie(),
-  };
+  const headers = withCookies(NO_STORE, [clearedSessionCookie(), signedOut.cookie]);
 
   if (!session) {
     // Already logged out. Still clear the cookie and report success, so a stale
     // cookie cannot wedge a client in a state it can't get out of.
-    return Response.json({ ok: true }, { headers });
+    return Response.json({ ok: true, next }, { headers });
   }
 
   destroySession(session.sessionId);
@@ -49,7 +55,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   return Response.json(
-    { ok: true, jellyfin_token_invalidated: jellyfinLoggedOut },
+    { ok: true, next, jellyfin_token_invalidated: jellyfinLoggedOut },
     { headers },
   );
 }

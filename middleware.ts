@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { TV_MODE_COOKIE } from "@/lib/tv/constants";
+import { parseDeviceAccounts, shouldAskWhoIsWatching } from "@/lib/device-accounts";
+import { resolveTvMode, TV_MODE_COOKIE } from "@/lib/tv/constants";
 
 /**
  * Cheap gate in front of the page routes.
@@ -47,6 +48,10 @@ import { TV_MODE_COOKIE } from "@/lib/tv/constants";
  */
 
 const SESSION_COOKIE = "jfg_session";
+// Repeated rather than imported: session.ts is server-only (node:sqlite).
+const ACCOUNTS_COOKIE = "jfg_accounts";
+const RECENT_COOKIE = "jfg_recent";
+const RECENT_SECONDS = 3 * 60 * 60;
 
 /**
  * `?tv=1` / `?tv=0` forces TV mode on or off, persisted as a cookie so it
@@ -78,9 +83,45 @@ export function middleware(request: NextRequest): NextResponse {
   }
 
   const sessionCookie = request.cookies.get(SESSION_COOKIE);
+  const savedAccounts = parseDeviceAccounts(request.cookies.get(ACCOUNTS_COOKIE)?.value).length;
+
+  // "Who's watching?" also opens with nobody active, after one person signs
+  // out and others are still signed in on this device. The page itself checks
+  // every saved session; this only decides it is worth showing.
+  if (request.nextUrl.pathname === "/profiles" && (sessionCookie?.value || savedAccounts > 0)) {
+    return applyTvModeOverride(request, NextResponse.next());
+  }
 
   if (sessionCookie?.value) {
-    return applyTvModeOverride(request, NextResponse.next());
+    const tvMode = resolveTvMode({
+      cookieValue: request.cookies.get(TV_MODE_COOKIE)?.value,
+      userAgent: request.headers.get("user-agent"),
+    });
+    // A family TV picked up after a while asks who is watching, as Netflix
+    // does, so nobody's Continue watching fills with someone else's episodes.
+    if (
+      shouldAskWhoIsWatching({
+        tvMode,
+        savedAccounts,
+        recentlyUsed: Boolean(request.cookies.get(RECENT_COOKIE)?.value),
+        pathname: request.nextUrl.pathname,
+      })
+    ) {
+      return applyTvModeOverride(request, NextResponse.redirect(new URL("/profiles", request.url)));
+    }
+    const response = NextResponse.next();
+    // Every page a TV opens counts as use; three hours without one and the
+    // question comes back.
+    if (tvMode && savedAccounts > 1) {
+      response.cookies.set(RECENT_COOKIE, "1", {
+        path: "/",
+        maxAge: RECENT_SECONDS,
+        httpOnly: true,
+        sameSite: "lax",
+        secure: request.nextUrl.protocol === "https:",
+      });
+    }
+    return applyTvModeOverride(request, response);
   }
 
   const loginUrl = new URL("/login", request.url);
