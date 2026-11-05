@@ -91,9 +91,10 @@
  * length. (71) resume_at_ms: a programme whose film was deleted is skipped,
  * and the next one starts on the following mark, shown as "next in…" until
  * then. ADD COLUMN with defaults (runVersionedMigrations); nothing existing
- * changes.
+ * changes. (72) channels.description: what the channel is, in a sentence or
+ * two, shown on the guide beside the programme's own summary.
  */
-export const SCHEMA_VERSION = 71;
+export const SCHEMA_VERSION = 72;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -792,6 +793,7 @@ CREATE TABLE IF NOT EXISTS channels (
   slot_ms    INTEGER NOT NULL DEFAULT 0,   -- the timetable's slot; 0 = each programme its own length (v69)
   slot_rule  TEXT NOT NULL DEFAULT 'fixed', -- fixed (exactly slot_ms, cut if longer) | round (up to a multiple) (v70)
   resume_at_ms INTEGER NOT NULL DEFAULT 0,  -- after a deleted programme was skipped: the next starts here (v71)
+  description TEXT NOT NULL DEFAULT '',     -- what the channel is, for the guide (v72)
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 ) STRICT;

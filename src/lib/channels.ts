@@ -68,6 +68,8 @@ export interface Channel {
   slotRule: SlotRule;
   /** After a deleted programme was skipped: nothing plays before this, the next one starts here. */
   resumeAtMs: number;
+  /** What the channel is, in a sentence or two, for the guide; "" when not written. */
+  description: string;
 }
 
 export interface ChannelSlot {
@@ -88,6 +90,7 @@ interface ChannelRow {
   slot_ms: number;
   slot_rule: string;
   resume_at_ms: number;
+  description?: string | null;
 }
 
 const toChannel = (r: ChannelRow): Channel => ({
@@ -101,7 +104,24 @@ const toChannel = (r: ChannelRow): Channel => ({
   slotMs: Math.max(0, r.slot_ms ?? 0),
   slotRule: parseSlotRule(r.slot_rule),
   resumeAtMs: r.resume_at_ms ?? 0,
+  description: r.description ?? "",
 });
+
+/** Longest description kept: a couple of sentences, not an essay. */
+export const DESCRIPTION_MAX = 600;
+
+/**
+ * Sets what the channel is, for the guide. Only that: saving the channel
+ * itself rebuilds its lineup, which a change of wording must not. False when
+ * there is no such channel.
+ */
+export function setChannelDescription(id: string, description: string): boolean {
+  const text = description.replace(/\s+/g, " ").trim().slice(0, DESCRIPTION_MAX);
+  const result = getDb()
+    .prepare("UPDATE channels SET description = ?, updated_at = ? WHERE id = ?")
+    .run(text, Date.now(), id);
+  return Number(result.changes) > 0;
+}
 
 export function parseSlotRule(value: unknown): SlotRule {
   return value === "round" || value === "pack" ? value : "fixed";

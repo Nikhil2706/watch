@@ -3,7 +3,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 
 import { env } from "./env";
-import { listAllItems } from "./jellyfin-listing";
+import { everyPage, listAllItems } from "./jellyfin-listing";
 import { nearestFolder, outermostFolders } from "./library-folders";
 
 /**
@@ -448,13 +448,19 @@ export function jellyfinAdminCall<T>(path: string, init: { method?: string; body
   return jellyfinFetch<T>(path, { ...init, token: env.jellyfinApiKey, timeoutMs: 15_000 });
 }
 
+/** Every folder Jellyfin knows in the library, a page at a time. */
+function listLibraryFolders(): Promise<Array<{ Id: string; Path?: string }>> {
+  return everyPage((start, limit) =>
+    jellyfinFetch<{ Items: Array<{ Id: string; Path?: string }>; TotalRecordCount?: number }>(
+      `/Items?Recursive=true&IncludeItemTypes=Folder&Fields=Path&EnableImages=false&SortBy=SortName,Id&StartIndex=${start}&Limit=${limit}`,
+      { token: env.jellyfinApiKey, timeoutMs: 30_000 },
+    ),
+  );
+}
+
 /** Every folder path Jellyfin knows in the library, for library-drive.ts's idea of what should be on the drive. */
 export async function listLibraryFolderPaths(): Promise<string[]> {
-  const data = await jellyfinFetch<{ Items: Array<{ Path?: string }> }>(
-    "/Items?Recursive=true&IncludeItemTypes=Folder&Fields=Path&Limit=5000",
-    { token: env.jellyfinApiKey, timeoutMs: 30_000 },
-  );
-  return data.Items.map((f) => f.Path).filter((p): p is string => typeof p === "string");
+  return (await listLibraryFolders()).map((f) => f.Path).filter((p): p is string => typeof p === "string");
 }
 
 /**
@@ -491,13 +497,9 @@ export async function refreshLibrary(): Promise<void> {
 export async function resolveScanFolders(
   paths: string[],
 ): Promise<{ folders: Array<{ Id: string; Path: string }>; unresolved: string[] }> {
-  const data = await jellyfinFetch<{ Items: Array<{ Id: string; Path?: string }> }>(
-    "/Items?Recursive=true&IncludeItemTypes=Folder&Fields=Path&Limit=5000",
-    { token: env.jellyfinApiKey, timeoutMs: 30_000 },
-  );
   // The library root is a folder to Jellyfin too, and re-reading that is a
   // full scan under another name — so it does not count as one here.
-  const known = data.Items.filter((f) => f.Path !== env.mediaLibraryPath);
+  const known = (await listLibraryFolders()).filter((f) => f.Path !== env.mediaLibraryPath);
   const found = paths.map((path) => ({ path, folder: nearestFolder(path, known) }));
   const unresolved = found.filter((f) => !f.folder).map((f) => f.path);
   if (unresolved.length > 0) return { folders: [], unresolved };
@@ -525,17 +527,13 @@ export async function refreshFolders(folders: Array<{ Id: string }>): Promise<vo
 
 /** The file path of every film and episode Jellyfin has, in pages. */
 export async function listKnownMediaPaths(): Promise<Set<string>> {
-  const PAGE = 5000;
-  const paths = new Set<string>();
-  for (let start = 0; start < 200_000; start += PAGE) {
-    const data = await jellyfinFetch<{ Items: Array<{ Path?: string }> }>(
-      `/Items?Recursive=true&IsFolder=false&Fields=Path&EnableImages=false&StartIndex=${start}&Limit=${PAGE}`,
+  const items = await everyPage((start, limit) =>
+    jellyfinFetch<{ Items: Array<{ Path?: string }>; TotalRecordCount?: number }>(
+      `/Items?Recursive=true&IsFolder=false&Fields=Path&EnableImages=false&SortBy=SortName,Id&StartIndex=${start}&Limit=${limit}`,
       { token: env.jellyfinApiKey, timeoutMs: 60_000 },
-    );
-    for (const item of data.Items) if (item.Path) paths.add(item.Path);
-    if (data.Items.length < PAGE) break;
-  }
-  return paths;
+    ),
+  );
+  return new Set(items.map((i) => i.Path).filter((p): p is string => typeof p === "string"));
 }
 
 export interface LibraryScanStatus {

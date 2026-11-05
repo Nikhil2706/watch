@@ -7766,6 +7766,19 @@ html[data-in-app] .app-get {
   overflow: hidden;
 }
 
+.lg-info-channel {
+  margin: -6px 0 16px;
+  max-width: 62ch;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.lg-info-channel strong {
+  color: var(--text, inherit);
+  font-weight: 600;
+}
+
 .lg-grid {
   border-top: 1px solid var(--border);
   overflow-x: auto;
@@ -7894,6 +7907,39 @@ html[data-in-app] .app-get {
 .lg-prog:hover .lg-prog-line,
 .lg-prog:focus .lg-prog-line {
   color: #3a3f4a;
+}
+
+/* Wider than a phone: the guide fills the screen below the bar and only the
+   channel list scrolls, so moving down it never takes the preview away
+   (the owner on the TV, 2026-11-06). --lg-top is where the guide starts,
+   measured by LiveGuide. The times row stays on top of the list. */
+@media (min-width: 761px) {
+  .lg {
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    height: calc(100vh - var(--lg-top, 0px));
+    height: calc(100dvh - var(--lg-top, 0px));
+    padding-bottom: 16px;
+  }
+  /* The preview no taller than about 40% of the screen, so the list below
+     always has room on a short screen (a TV browser can be 540 high). */
+  .lg-top {
+    flex: none;
+    grid-template-columns: minmax(0, min(46%, calc(40vh * 16 / 9))) minmax(0, 1fr);
+  }
+  .lg-grid {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .lg-times {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    background: var(--bg);
+  }
 }
 
 /* A phone: the preview over what is on, and the guide scrolls sideways

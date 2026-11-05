@@ -129,7 +129,7 @@ function adminPoster(item: AdminMovieListItem | undefined): string | null {
  */
 export async function comingSoonFor(session: ResolvedSession): Promise<ComingSoonEntry[]> {
   const [visible, all] = await Promise.all([
-    getAllMovies(session, { limit: 2000 }),
+    getAllMovies(session),
     getAdminMovies({ withMediaSources: false }),
   ]);
   const visibleImdb = new Set(visible.map((i) => i.ProviderIds?.Imdb).filter(Boolean));

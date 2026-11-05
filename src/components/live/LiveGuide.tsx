@@ -1,10 +1,12 @@
 "use client";
 
-import { MediaPlayer, MediaProvider, type MediaPlayerInstance } from "@vidstack/react";
+import { Captions, MediaPlayer, MediaProvider, Track, type MediaPlayerInstance } from "@vidstack/react";
+import "@vidstack/react/player/styles/default/captions.css";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { useTvMode } from "@/components/tv/TvProvider";
 import type { GridChannel, GridProgramme } from "@/lib/live-guide";
 
 const HALF_HOUR = 30 * 60_000;
@@ -21,17 +23,42 @@ interface Focus {
 }
 
 /**
- * Live TV as Pluto TV lays it out: the highlighted channel playing (muted) at
- * the top beside what is on, and the guide below, channels down the side and
+ * Live TV as Pluto TV lays it out: the highlighted channel playing at the
+ * top beside what is on, and the guide below (on a screen wider than a phone
+ * only the guide scrolls: the preview stays put while you move down it), channels down the side and
  * three hours across, a line at now. On now, a programme tunes in when
  * pressed; a later one shows what it is. The D-pad moves through the grid by
  * position (TvProvider's spatial navigation): up and down between channels,
  * left and right along the timeline.
  */
-export function LiveGuide({ channels, serverNowMs }: { channels: GridChannel[]; serverNowMs: number }) {
+export function LiveGuide({
+  channels,
+  serverNowMs,
+  initialChannelId = null,
+}: {
+  channels: GridChannel[];
+  serverNowMs: number;
+  /** The channel to start on: the one just left with down on the remote. */
+  initialChannelId?: string | null;
+}) {
+  const startAt = Math.max(0, channels.findIndex((c) => c.id === initialChannelId));
   const router = useRouter();
+  const tv = useTvMode();
   const [now, setNow] = useState(serverNowMs);
-  const [focus, setFocus] = useState<Focus>({ channel: 0, programme: 0 });
+
+  // The guide fills the screen below the bar and scrolls inside itself, so
+  // moving down the channels never scrolls the preview away (on the TV,
+  // 2026-11-06). Its height is the screen less where it starts.
+  const frame = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = frame.current;
+    if (!el) return;
+    const fit = () => el.style.setProperty("--lg-top", `${Math.max(0, el.getBoundingClientRect().top + window.scrollY)}px`);
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
+  const [focus, setFocus] = useState<Focus>({ channel: startAt, programme: 0 });
   const windowStart = useMemo(() => serverNowMs - (serverNowMs % HALF_HOUR), [serverNowMs]);
   const windowEnd = windowStart + WINDOW;
 
@@ -50,7 +77,7 @@ export function LiveGuide({ channels, serverNowMs }: { channels: GridChannel[]; 
   const onNow = (p: GridProgramme) => p.startMs <= now && now < p.endMs;
 
   // The preview follows the highlighted channel, once it has been rested on.
-  const [previewId, setPreviewId] = useState<string | null>(channels[0]?.id ?? null);
+  const [previewId, setPreviewId] = useState<string | null>(channels[startAt]?.id ?? null);
   useEffect(() => {
     const id = selectedChannel?.id ?? null;
     const timer = window.setTimeout(() => setPreviewId(id), PREVIEW_AFTER_MS);
@@ -66,7 +93,7 @@ export function LiveGuide({ channels, serverNowMs }: { channels: GridChannel[]; 
 
   if (!selectedChannel || !selected) return null;
   return (
-    <div className="lg">
+    <div className="lg" ref={frame}>
       <section className="lg-top">
         {/* Not a focus stop: the remote's way in is the programme on now. */}
         <div className="lg-preview" onClick={() => router.push(href(selectedChannel.id))} title={`Watch ${selectedChannel.name}`}>
@@ -74,6 +101,7 @@ export function LiveGuide({ channels, serverNowMs }: { channels: GridChannel[]; 
             <LivePreview
               key={previewId}
               channelId={previewId}
+              sound={tv}
               art={channels.find((ch) => ch.id === previewId)?.programmes[0]?.art ?? null}
             />
           ) : null}
@@ -90,6 +118,11 @@ export function LiveGuide({ channels, serverNowMs }: { channels: GridChannel[]; 
           <h2 className="lg-info-title">{selected.title}</h2>
           {selected.line ? <p className="lg-info-line">{selected.line}</p> : null}
           {selected.overview ? <p className="lg-info-overview">{selected.overview}</p> : null}
+          {selectedChannel.description ? (
+            <p className="lg-info-channel">
+              <strong>{selectedChannel.name}:</strong> {selectedChannel.description}
+            </p>
+          ) : null}
           {onNow(selected) ? (
             <Link className="btn" href={href(selectedChannel.id)} tabIndex={-1}>
               ▶ Watch {selectedChannel.name}
@@ -144,7 +177,7 @@ export function LiveGuide({ channels, serverNowMs }: { channels: GridChannel[]; 
                   </>
                 );
                 return live ? (
-                  <Link key={`${p.itemId}:${p.startMs}`} href={href(channel.id)} {...common} {...(c === 0 ? { "data-tv-autofocus": "true" } : {})}>
+                  <Link key={`${p.itemId}:${p.startMs}`} href={href(channel.id)} {...common} {...(c === startAt ? { "data-tv-autofocus": "true" } : {})}>
                     {body}
                   </Link>
                 ) : (
@@ -162,13 +195,23 @@ export function LiveGuide({ channels, serverNowMs }: { channels: GridChannel[]; 
 }
 
 /**
- * The highlighted channel, playing muted where it is now. Browsers let muted
- * video start by itself, so this never needs the "Tap to watch" the channel
- * page can. Nothing is reported to Jellyfin: browsing is not watching.
+ * The highlighted channel, playing where it is now, with the subtitle tuning
+ * in would show. With sound on the TV, as Pluto does (the owner, 2026-11-06);
+ * muted elsewhere, where a guide that talks as the mouse passes over it would
+ * be a nuisance. If the TV will not start it with sound, it starts muted
+ * rather than not at all. Nothing is reported to Jellyfin: browsing is not
+ * watching.
  */
-function LivePreview({ channelId, art }: { channelId: string; art: string | null }) {
-  const [stream, setStream] = useState<{ src: string; mode: "direct" | "hls"; offsetSeconds: number; atMs: number } | null>(null);
+function LivePreview({ channelId, art, sound }: { channelId: string; art: string | null; sound: boolean }) {
+  const [stream, setStream] = useState<{
+    src: string;
+    mode: "direct" | "hls";
+    offsetSeconds: number;
+    atMs: number;
+    subtitle: { url: string; label: string; language: string | null } | null;
+  } | null>(null);
   const [nextAt, setNextAt] = useState<number | null>(null);
+  const [muted, setMuted] = useState(!sound);
   const seeked = useRef(false);
   const player = useRef<MediaPlayerInstance>(null);
 
@@ -176,10 +219,26 @@ function LivePreview({ channelId, art }: { channelId: string; art: string | null
     const controller = new AbortController();
     fetch(`/api/live/${encodeURIComponent(channelId)}/preview`, { signal: controller.signal })
       .then((r) => r.json())
-      .then((d: { src?: string; mode?: "direct" | "hls"; offsetSeconds?: number; atMs?: number; nextAtMs?: number }) => {
-        if (d.src && d.mode) setStream({ src: d.src, mode: d.mode, offsetSeconds: d.offsetSeconds ?? 0, atMs: d.atMs ?? Date.now() });
-        else if (d.nextAtMs) setNextAt(d.nextAtMs);
-      })
+      .then(
+        (d: {
+          src?: string;
+          mode?: "direct" | "hls";
+          offsetSeconds?: number;
+          atMs?: number;
+          nextAtMs?: number;
+          subtitle?: { url: string; label: string; language: string | null } | null;
+        }) => {
+          if (d.src && d.mode) {
+            setStream({
+              src: d.src,
+              mode: d.mode,
+              offsetSeconds: d.offsetSeconds ?? 0,
+              atMs: d.atMs ?? Date.now(),
+              subtitle: d.subtitle ?? null,
+            });
+          } else if (d.nextAtMs) setNextAt(d.nextAtMs);
+        },
+      )
       .catch(() => {});
     return () => controller.abort();
   }, [channelId]);
@@ -192,19 +251,38 @@ function LivePreview({ channelId, art }: { channelId: string; art: string | null
           ref={player}
           className="lg-preview-player"
           src={stream.mode === "hls" ? { src: stream.src, type: "application/x-mpegurl" } : { src: stream.src, type: "video/mp4" }}
-          muted
+          muted={muted}
           autoPlay
           playsInline
           load="eager"
           keyDisabled
           crossOrigin="anonymous"
+          onAutoPlayFail={() => {
+            // Not allowed to start with sound: start without it.
+            if (muted) return;
+            setMuted(true);
+            window.setTimeout(() => void player.current?.play().catch(() => {}), 0);
+          }}
           onCanPlay={() => {
             if (seeked.current || !player.current) return;
             seeked.current = true;
             player.current.currentTime = stream.offsetSeconds + (Date.now() - stream.atMs) / 1000;
           }}
         >
-          <MediaProvider />
+          <MediaProvider>
+            {stream.subtitle ? (
+              <Track
+                key={stream.subtitle.url}
+                src={stream.subtitle.url}
+                kind="subtitles"
+                label={stream.subtitle.label}
+                lang={stream.subtitle.language ?? undefined}
+                default
+              />
+            ) : null}
+          </MediaProvider>
+          {/* Without a layout Vidstack draws no subtitles of its own: this does. */}
+          <Captions className="vds-captions" />
         </MediaPlayer>
       ) : nextAt ? (
         <span className="lg-preview-next">Next at {clock(nextAt)}</span>

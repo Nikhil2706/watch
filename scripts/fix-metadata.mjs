@@ -82,9 +82,15 @@ function cleanName(raw) {
   return { name: s, year };
 }
 
-const items = (
-  await api("/Items?Recursive=true&IncludeItemTypes=Movie&Limit=500&Fields=ProviderIds,Path")
-).Items;
+// Every film, a page at a time: a fixed Limit (this was 500) quietly skips the rest.
+const items = [];
+for (let start = 0; start < 200_000; start += 1000) {
+  const got =
+    (await api(`/Items?Recursive=true&IncludeItemTypes=Movie&Fields=ProviderIds,Path&SortBy=SortName,Id&StartIndex=${start}&Limit=1000`))
+      .Items ?? [];
+  items.push(...got);
+  if (got.length < 1000) break;
+}
 
 console.log(`${items.length} movies in the library\n`);
 

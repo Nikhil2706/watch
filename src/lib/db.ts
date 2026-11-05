@@ -459,6 +459,10 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "channels") && !columnExists(db, "channels", "resume_at_ms")) {
     db.exec("ALTER TABLE channels ADD COLUMN resume_at_ms INTEGER NOT NULL DEFAULT 0");
   }
+  // v72: what the channel is, for the guide.
+  if (tableExists(db, "channels") && !columnExists(db, "channels", "description")) {
+    db.exec("ALTER TABLE channels ADD COLUMN description TEXT NOT NULL DEFAULT ''");
+  }
 }
 
 /**

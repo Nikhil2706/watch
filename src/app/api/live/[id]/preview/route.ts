@@ -1,6 +1,7 @@
 import { channelOnNow, getChannel, skipGoneProgramme } from "@/lib/channels";
-import { getPlaybackPlan } from "@/lib/media";
+import { getItem, getPlaybackPlan } from "@/lib/media";
 import { getSessionFromRequest } from "@/lib/session";
+import { defaultTrack, listSubtitles } from "@/lib/subtitles";
 import { resolvePlaybackClientFromRequest } from "@/lib/tv/detect";
 
 export const runtime = "nodejs";
@@ -10,7 +11,7 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
 
 /**
  * GET /api/live/:id/preview — the stream for what a channel has on now, for
- * the guide's muted preview (LiveGuide). Through this viewer's own playback
+ * the guide's preview (LiveGuide), with the subtitle tuning in would show. Through this viewer's own playback
  * plan, as tuning in is, so a title they could not open is not previewed.
  *
  * Nothing is reported to Jellyfin from the preview: browsing the guide is not
@@ -33,8 +34,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     return Response.json({ between: true, nextAtMs: now < on.startedAtMs ? on.startedAtMs : on.endsAtMs }, { headers: NO_STORE });
   }
 
-  const plan = await getPlaybackPlan(session, on.slot.itemId, await resolvePlaybackClientFromRequest()).catch(() => null);
+  const [plan, item] = await Promise.all([
+    getPlaybackPlan(session, on.slot.itemId, await resolvePlaybackClientFromRequest()).catch(() => null),
+    getItem(session, on.slot.itemId).catch(() => null),
+  ]);
   if (!plan) return Response.json({ unavailable: true }, { headers: NO_STORE });
+  // The track tuning in would switch on (the live page's own rule), so the
+  // preview reads the same as the channel does.
+  const subtitle = item ? defaultTrack(listSubtitles(item)) : null;
   return Response.json(
     {
       src: plan.src,
@@ -43,6 +50,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       offsetSeconds: on.offsetMs / 1000,
       atMs: now,
       playsUntilMs: on.playsUntilMs,
+      subtitle: subtitle ? { url: subtitle.url, label: subtitle.label, language: subtitle.language } : null,
     },
     { headers: NO_STORE },
   );

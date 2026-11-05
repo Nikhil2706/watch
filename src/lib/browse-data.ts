@@ -414,7 +414,7 @@ async function getPeopleIndex(session: ResolvedSession): Promise<Map<string, Per
 /** The one entry point page.tsx calls. */
 export async function buildBrowseData(session: ResolvedSession): Promise<BrowseData> {
   const [allItems, peopleIndex] = await Promise.all([
-    getAllMovies(session, { limit: 2000 }),
+    getAllMovies(session),
     getPeopleIndex(session),
   ]);
   for (const item of allItems) {

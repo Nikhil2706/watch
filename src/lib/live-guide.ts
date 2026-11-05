@@ -63,6 +63,8 @@ export interface GridChannel {
   /** Its number on the guide, from 1, in the guide's order. */
   number: number;
   name: string;
+  /** What the channel is (channels.description); "" when not written. */
+  description: string;
   programmes: GridProgramme[];
 }
 
@@ -111,7 +113,7 @@ export async function liveGuideGrid(session: ResolvedSession, nowMs = Date.now()
         };
       }),
     );
-    out.push({ id: channel.id, number, name: channel.name, programmes });
+    out.push({ id: channel.id, number, name: channel.name, description: channel.description, programmes });
   }
   return out;
 }

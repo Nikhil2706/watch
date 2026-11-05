@@ -111,7 +111,7 @@ export async function userDiary(session: ResolvedSession, userId: string): Promi
     },
   );
 
-  const byId = new Map((await getAllMovies(session, { limit: 2000 })).map((i) => [i.Id, i]));
+  const byId = new Map((await getAllMovies(session)).map((i) => [i.Id, i]));
   const shown: UserDiary["entries"] = [];
   let notShown = 0;
   for (const entry of entries) {

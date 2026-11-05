@@ -102,7 +102,7 @@ export async function friendsLately(session: ResolvedSession): Promise<FriendsTi
   const cards = friendsFeed(events, LATELY_CARDS * 3);
   if (!cards.length) return [];
 
-  const listing = await getAllMovies(session, { limit: 2000 });
+  const listing = await getAllMovies(session);
   const byId = new Map(listing.map((i) => [i.Id, i]));
   const byImdb = new Map<string, MediaItem>();
   const firstOfShow = new Map<string, MediaItem>();
@@ -154,7 +154,7 @@ export async function friendsWatchingNow(session: ResolvedSession): Promise<Watc
   const byJellyfinUser = new Map(friends.map((f) => [f.jellyfinUserId, f]));
   const playing = (await listNowPlaying()).filter((p) => byJellyfinUser.has(p.jellyfinUserId));
   if (!playing.length) return [];
-  const byId = new Map((await getAllMovies(session, { limit: 2000 })).map((i) => [i.Id, i]));
+  const byId = new Map((await getAllMovies(session)).map((i) => [i.Id, i]));
   const seen = new Set<string>();
   return playing.flatMap((p) => {
     const item = byId.get(p.itemId);
