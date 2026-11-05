@@ -1445,6 +1445,66 @@ html[data-tv="true"] .poster-marker {
   font-size: 0.95rem;
 }
 
+/* The Pluto-style guide from the sofa: the preview and what is on fill the
+   top, rows and blocks big enough to read, the focused block plain to see. */
+html[data-tv="true"] .lg {
+  padding: 24px 48px 48px;
+}
+
+html[data-tv="true"] .lg-top {
+  grid-template-columns: 760px minmax(0, 1fr);
+  gap: 40px;
+  margin-bottom: 28px;
+}
+
+html[data-tv="true"] .lg-info-when {
+  font-size: 1.15rem;
+}
+
+html[data-tv="true"] .lg-info-title {
+  font-size: 2.8rem;
+}
+
+html[data-tv="true"] .lg-info-line,
+html[data-tv="true"] .lg-info-overview {
+  font-size: 1.2rem;
+}
+
+html[data-tv="true"] .lg-row {
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 84px;
+}
+
+html[data-tv="true"] .lg-times {
+  min-height: 44px;
+  font-size: 1.05rem;
+}
+
+html[data-tv="true"] .lg-chan-name {
+  font-size: 1.25rem;
+}
+
+html[data-tv="true"] .lg-chan-number {
+  font-size: 1.15rem;
+}
+
+html[data-tv="true"] .lg-prog-title {
+  font-size: 1.15rem;
+}
+
+html[data-tv="true"] .lg-prog-line {
+  font-size: 0.95rem;
+}
+
+html[data-tv="true"] .lg-prog:focus {
+  box-shadow: 0 0 0 4px var(--accent);
+}
+
+html[data-tv="true"] .lg-chan:focus {
+  outline: 4px solid var(--accent);
+  outline-offset: -4px;
+}
+
 /* Live TV on a TV: bigger cards, and channels are the first thing on Home. */
 html[data-tv="true"] .live-channel-art {
   width: 280px;
