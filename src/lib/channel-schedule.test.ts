@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { lineupMs, onNow, seededShuffle, slotLength, timetableMarkMs, upcoming } from "./channel-schedule.ts";
+import { lineupMs, onNow, seededShuffle, shuffleInBlocks, slotLength, timetableMarkMs, upcoming } from "./channel-schedule.ts";
 
 const MIN = 60_000;
 // Three programmes: 45, 30 and 15 minutes; the lineup runs 90 minutes.
@@ -107,4 +107,26 @@ test("a timetable starts on its slot's mark, or the quarter hour", () => {
   assert.equal(timetableMarkMs(15 * MIN), 15 * MIN);
   assert.equal(timetableMarkMs(45 * MIN), 15 * MIN);
   assert.equal(timetableMarkMs(60 * MIN), 15 * MIN);
+});
+
+test("a block shuffle keeps each franchise together and in its order", () => {
+  const films = [
+    { item: "Halloween II", block: "halloween", order: 2 },
+    { item: "Martyrs", block: null, order: 0 },
+    { item: "Halloween", block: "halloween", order: 1 },
+    { item: "Serious Games 3", block: "sg", order: 3 },
+    { item: "The Thing", block: null, order: 0 },
+    { item: "Serious Games 1", block: "sg", order: 1 },
+    { item: "Serious Games 2", block: "sg", order: 2 },
+    { item: "Iron Lung", block: null, order: 0 },
+  ];
+  for (const seed of ["a", "b", "c", "d"]) {
+    const out = shuffleInBlocks(films, seed);
+    assert.equal(out.length, films.length);
+    const h = out.indexOf("Halloween");
+    assert.equal(out[h + 1], "Halloween II");
+    const s = out.indexOf("Serious Games 1");
+    assert.deepEqual(out.slice(s, s + 3), ["Serious Games 1", "Serious Games 2", "Serious Games 3"]);
+  }
+  assert.deepEqual(shuffleInBlocks(films, "a"), shuffleInBlocks(films, "a"));
 });

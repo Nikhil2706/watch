@@ -125,3 +125,36 @@ export function timetableMarkMs(slotMs: number): number {
   const quarter = 15 * 60_000;
   return slotMs > 0 && quarter % slotMs === 0 ? slotMs : quarter;
 }
+
+/** One programme for shuffleInBlocks: the block it belongs to (null on its own) and its place in it. */
+export interface Blocked<T> {
+  item: T;
+  block: string | null;
+  order: number;
+}
+
+/**
+ * A shuffle that keeps what belongs together together: films in parts, a
+ * series, a franchise. Each block is one unit, in its own order (part one
+ * first, a franchise by release), and the units are shuffled with the single
+ * films around them, the same way every time for the same seed.
+ */
+export function shuffleInBlocks<T>(items: readonly Blocked<T>[], seed: string): T[] {
+  const byBlock = new Map<string, Blocked<T>[]>();
+  const units: Blocked<T>[][] = [];
+  for (const entry of items) {
+    if (entry.block === null) {
+      units.push([entry]);
+      continue;
+    }
+    let unit = byBlock.get(entry.block);
+    if (!unit) {
+      unit = [];
+      byBlock.set(entry.block, unit);
+      units.push(unit);
+    }
+    unit.push(entry);
+  }
+  for (const unit of units) unit.sort((a, b) => a.order - b.order);
+  return seededShuffle(units, seed).flatMap((unit) => unit.map((entry) => entry.item));
+}

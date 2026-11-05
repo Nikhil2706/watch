@@ -1,14 +1,25 @@
 import "server-only";
 
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 
-import { lineupMs, onNow, seededShuffle, slotLength, timetableMarkMs, upcoming, type OnNow, type SlotRule } from "./channel-schedule";
+import {
+  lineupMs,
+  onNow,
+  shuffleInBlocks,
+  slotLength,
+  timetableMarkMs,
+  upcoming,
+  type Blocked,
+  type OnNow,
+  type SlotRule,
+} from "./channel-schedule";
 import { generateId } from "./crypto";
 import { asRow, asRows, getDb, transaction } from "./db";
 import { parseEpisodeInfo } from "./episode-naming";
 import { getDamagedPathSet } from "./file-checks";
 import { getAdminMoviesByIds, listItemsForChannels } from "./jellyfin";
 import { getGroup, getGroupedPathMap, listGroups } from "./library-curation";
+import { seriesForFilm } from "./scraping/film-series";
 
 /**
  * Channels: always-on lineups anyone can tune into, Pluto TV style.
@@ -217,12 +228,20 @@ export async function rebuildChannel(id: string): Promise<{ slots: number; runti
   const damaged = getDamagedPathSet();
   const grouped = getGroupedPathMap();
 
-  const slots: ChannelSlot[] = [];
-  const push = (path: string) => {
+  // Each programme, with what it belongs to: a group's parts in order, and
+  // (below) a franchise's films by release, kept together in a shuffle.
+  const picked: Array<{ slot: ChannelSlot; imdbId: string | null; year: number; group: string | null; order: number }> = [];
+  const push = (path: string, group: string | null = null, order = 0) => {
     const item = byPath.get(path);
     const runtimeMs = item?.RunTimeTicks ? Math.round(item.RunTimeTicks / 10_000) : 0;
     if (!item || runtimeMs <= 0 || damaged.has(path)) return;
-    slots.push({ itemId: item.Id, path, name: item.Name, runtimeMs });
+    picked.push({
+      slot: { itemId: item.Id, path, name: item.Name, runtimeMs },
+      imdbId: item.ProviderIds?.Imdb ?? null,
+      year: item.ProductionYear ?? 0,
+      group,
+      order,
+    });
   };
   for (const entry of getEntries(id)) {
     if (entry.kind === "item") push(entry.ref);
@@ -231,7 +250,7 @@ export async function rebuildChannel(id: string): Promise<{ slots: number; runti
       const paths = [...(group?.paths ?? [])].sort(
         (a, b) => parseEpisodeInfo(a).sortKey - parseEpisodeInfo(b).sortKey || a.localeCompare(b),
       );
-      for (const path of paths) push(path);
+      paths.forEach((path, i) => push(path, `group:${entry.ref}`, i));
     } else if (entry.kind === "genre") {
       // Films only: an episode in a show's genre is not a film to schedule on its own.
       const films = items
@@ -241,8 +260,12 @@ export async function rebuildChannel(id: string): Promise<{ slots: number; runti
     }
   }
 
+  const slots = withoutSecondCopies(picked);
   const builtAt = Date.now();
-  const ordered = channel.orderMode === "shuffle" ? seededShuffle(slots, `${id}:${builtAt}`) : slots;
+  const ordered =
+    channel.orderMode === "shuffle"
+      ? shuffleInBlocks(inBlocks(slots), `${id}:${builtAt}`).map((p) => p.slot)
+      : slots.map((p) => p.slot);
   transaction(() => {
     getDb().prepare("DELETE FROM channel_slots WHERE channel_id = ?").run(id);
     const add = getDb().prepare(
@@ -252,6 +275,57 @@ export async function rebuildChannel(id: string): Promise<{ slots: number; runti
     getDb().prepare("UPDATE channels SET built_at = ? WHERE id = ?").run(builtAt, id);
   });
   return { slots: ordered.length, runtimeMs: lineupMs(timetable(channel.slotMs, channel.slotRule, ordered)) };
+}
+
+type Picked = { slot: ChannelSlot; imdbId: string | null; year: number; group: string | null; order: number };
+
+/**
+ * One copy of each film: two files of the same film (by IMDb id), waiting in
+ * "Needs you" for someone to choose, would otherwise both be scheduled. The
+ * larger file stays, as the better copy more often than not.
+ */
+function withoutSecondCopies(picked: Picked[]): Picked[] {
+  const size = (path: string) => {
+    try {
+      return statSync(path).size;
+    } catch {
+      return 0;
+    }
+  };
+  const best = new Map<string, Picked>();
+  for (const p of picked) {
+    if (!p.imdbId) continue;
+    const kept = best.get(p.imdbId);
+    if (!kept || size(p.slot.path) > size(kept.slot.path)) best.set(p.imdbId, p);
+  }
+  const seen = new Set<string>();
+  return picked.filter((p) => {
+    if (!p.imdbId) return true;
+    if (best.get(p.imdbId) !== p || seen.has(p.imdbId)) return false;
+    seen.add(p.imdbId);
+    return true;
+  });
+}
+
+/**
+ * What each programme is shuffled with: its group (films in parts), else its
+ * franchise (film_series, TMDB collections and hand-made ones) in release
+ * order. A film in two franchises goes with the one that has more of its
+ * films in this lineup.
+ */
+function inBlocks(picked: Picked[]): Blocked<Picked>[] {
+  const memberships = new Map(picked.map((p) => [p, p.imdbId ? seriesForFilm(p.imdbId) : []]));
+  const count = new Map<string, number>();
+  for (const list of memberships.values()) for (const m of list) count.set(m.seriesId, (count.get(m.seriesId) ?? 0) + 1);
+  return picked.map((p) => {
+    if (p.group) return { item: p, block: p.group, order: p.order };
+    const best = [...(memberships.get(p) ?? [])]
+      .filter((m) => (count.get(m.seriesId) ?? 0) > 1)
+      .sort((a, b) => (count.get(b.seriesId) ?? 0) - (count.get(a.seriesId) ?? 0) || a.seriesName.localeCompare(b.seriesName))[0];
+    return best
+      ? { item: p, block: `series:${best.seriesId}`, order: best.position * 10_000 + p.year }
+      : { item: p, block: null, order: 0 };
+  });
 }
 
 /** The lineup's length on the channel's clock, slots and all. */
