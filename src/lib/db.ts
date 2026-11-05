@@ -448,6 +448,9 @@ function runVersionedMigrations(db: DatabaseSync): void {
   if (tableExists(db, "channels") && !columnExists(db, "channels", "at_end")) {
     db.exec("ALTER TABLE channels ADD COLUMN at_end TEXT NOT NULL DEFAULT 'loop'");
   }
+  if (tableExists(db, "channels") && !columnExists(db, "channels", "slot_ms")) {
+    db.exec("ALTER TABLE channels ADD COLUMN slot_ms INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 /**

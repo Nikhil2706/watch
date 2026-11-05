@@ -20,13 +20,14 @@ interface ChannelSummary {
   name: string;
   orderMode: OrderMode;
   atEnd: AtEnd;
+  slotMs: number;
   entries: number;
   programmes: number;
   runtimeMs: number;
   onNow: string | null;
 }
 interface ChannelDetail {
-  channel: { id: string; name: string; orderMode: OrderMode; atEnd: AtEnd };
+  channel: { id: string; name: string; orderMode: OrderMode; atEnd: AtEnd; slotMs: number };
   entries: Entry[];
   guide: Array<{ name: string; startsAt: number; endsAt: number }>;
 }
@@ -114,6 +115,7 @@ export function ChannelsWorkspace() {
               <div className="adm-card-title">{c.name}</div>
               <div className="hint">
                 {c.programmes} programmes · {hours(c.runtimeMs)} · {c.orderMode === "shuffle" ? "shuffled" : "in order"} · {AT_END_NOTE[c.atEnd] ?? "loops"}
+                {c.slotMs ? ` · ${c.slotMs / 60_000}-minute slots` : ""}
                 {c.onNow ? ` · on now: ${c.onNow}` : c.entries ? " · nothing playable" : " · empty"}
               </div>
             </div>
@@ -140,6 +142,7 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
   const [name, setName] = useState("");
   const [orderMode, setOrderMode] = useState<OrderMode>("in_order");
   const [atEnd, setAtEnd] = useState<AtEnd>("loop");
+  const [slotMs, setSlotMs] = useState(0);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [q, setQ] = useState("");
   const [found, setFound] = useState<{ entries: Entry[]; genres: string[] } | null>(null);
@@ -153,6 +156,7 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
       setName(d.channel.name);
       setOrderMode(d.channel.orderMode);
       setAtEnd(d.channel.atEnd ?? "loop");
+      setSlotMs(d.channel.slotMs ?? 0);
       setEntries(d.entries);
     } catch (e) {
       show("err", message(e));
@@ -188,7 +192,7 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
     try {
       const r = await adminApi<{ slots: number; runtimeMs: number }>(`/api/admin/channels/${id}`, {
         method: "PUT",
-        body: { name, orderMode, atEnd, entries },
+        body: { name, orderMode, atEnd, slotMs, entries },
       });
       show("ok", `Saved: ${r.slots} programmes, ${hours(r.runtimeMs)} ${atEnd === "loop" ? "before it loops" : "in all"}.`);
       await load();
@@ -230,6 +234,16 @@ function ChannelEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
           <option value="loop">At the end: start again</option>
           <option value="stop">At the end: go off air</option>
           <option value="remove">At the end: remove the channel</option>
+        </select>
+        {/* A timetable: each programme gets exactly this long. Shorter ones are
+            followed by "next in…", longer ones are cut where the slot ends. */}
+        <select value={slotMs} onChange={(e) => setSlotMs(Number(e.target.value))} aria-label="Slot length">
+          <option value={0}>Each its own length</option>
+          {[30, 45, 60, 90, 120].map((m) => (
+            <option key={m} value={m * 60_000}>
+              {m}-minute slots
+            </option>
+          ))}
         </select>
       </div>
 

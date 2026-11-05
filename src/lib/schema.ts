@@ -83,8 +83,11 @@
 /*
  * 69: channels.at_end — what a channel does when its lineup has played
  * through: 'loop' (start again, as every channel did), 'stop' (go off air,
- * kept to be extended) or 'remove' (the channel goes). ADD COLUMN with a
- * default (runVersionedMigrations); nothing existing changes.
+ * kept to be extended) or 'remove' (the channel goes). channels.slot_ms —
+ * every programme gets exactly this long (a shorter one is followed by "next
+ * in…", a longer one is cut), so a channel keeps to a timetable; 0 is each
+ * programme's own length. ADD COLUMN with defaults (runVersionedMigrations);
+ * nothing existing changes.
  */
 export const SCHEMA_VERSION = 69;
 
@@ -782,6 +785,7 @@ CREATE TABLE IF NOT EXISTS channels (
   epoch_ms   INTEGER NOT NULL,           -- when the lineup's first programme started
   built_at   INTEGER,                    -- when channel_slots was last worked out
   at_end     TEXT NOT NULL DEFAULT 'loop', -- loop | stop | remove (v69)
+  slot_ms    INTEGER NOT NULL DEFAULT 0,   -- every programme this long; 0 = its own length (v69)
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 ) STRICT;

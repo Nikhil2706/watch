@@ -297,6 +297,12 @@ export interface LiveProgramme {
   /** When this programme started on the channel's clock (ms since 1970): where "live" is. */
   startedAtMs: number;
   endsAtMs: number;
+  /**
+   * When the programme stops: before endsAtMs on a channel with fixed slots,
+   * where a shorter one is followed by "next in…" and a longer one is cut.
+   * Left out, it plays to endsAtMs.
+   */
+  playsUntilMs?: number;
   /** The channels either side on the guide, for a remote's up/down. */
   previousHref: string | null;
   nextHref: string | null;
@@ -355,13 +361,22 @@ export function Player({
      stall, a backgrounded tab or anything that paused it, it goes back to
      where the channel is now (more than 8 s off). When the programme ends,
      or the clock says it has, the page is asked again for what is on next.
+     On a channel with fixed slots that is at playsUntilMs, to the second:
+     the cut, or the start of "next in…".
      Nothing to pause or skip: see LIVE_BLOCKED and the hidden controls. */
   useEffect(() => {
     const instance = player.current;
     if (!instance || !live) return;
-    const retune = () => window.location.replace(`/live/${encodeURIComponent(live.channelId)}`);
+    const until = live.playsUntilMs ?? live.endsAtMs;
+    let retuned = false;
+    const retune = () => {
+      if (retuned) return;
+      retuned = true;
+      window.location.replace(`/live/${encodeURIComponent(live.channelId)}`);
+    };
+    const stop = window.setTimeout(retune, Math.max(0, until - Date.now()));
     const keepLive = () => {
-      if (Date.now() >= live.endsAtMs - 1000) return retune();
+      if (Date.now() >= until - 1000) return retune();
       const expected = (Date.now() - live.startedAtMs) / 1000;
       if (Math.abs(instance.currentTime - expected) > 8) instance.currentTime = expected;
     };
@@ -378,6 +393,7 @@ export function Player({
       instance.removeEventListener("pause", onPause);
       instance.removeEventListener("ended", retune);
       clearInterval(timer);
+      window.clearTimeout(stop);
     };
   }, [live]);
 

@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import { LiveIntermission } from "@/components/media/LiveIntermission";
 import { PlayerMount } from "@/components/media/PlayerMount";
-import { channelGuide, getChannel, neighbours } from "@/lib/channels";
+import { channelGuide, getChannel, getSlots, neighbours } from "@/lib/channels";
 import { currentSession } from "@/lib/current-user";
 import { episodeCards } from "@/lib/episode-cards";
-import { getItem, getPlaybackPlan, posterUrl } from "@/lib/media";
+import { getItem, getPlaybackPlan, posterUrl, stillUrl } from "@/lib/media";
 import { defaultTrack, listSubtitles } from "@/lib/subtitles";
 import { resolvePlaybackClientFromRequest } from "@/lib/tv/detect";
 
@@ -43,9 +44,37 @@ export default async function LiveChannelPage({ params }: { params: Promise<{ id
         <div className="player-stage">
           <div className="player-msg">
             <strong>Off air</strong>
-            This channel has nothing in its lineup yet.
+            {getSlots(channel.id).length > 0
+              ? "This channel has played its whole lineup."
+              : "This channel has nothing in its lineup yet."}
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // Between programmes on a channel with fixed slots: this one has ended (or
+  // was cut at its slot) and the next starts on the timetable.
+  if (now >= current.playsUntilMs) {
+    const following = next ? await getItem(session, next.slot.itemId).catch(() => null) : null;
+    const cards = following ? episodeCards([following]) : null;
+    const nextShow = following ? (cards!.titles.get(following.Id) ?? null) : null;
+    const nextLine = following ? (cards!.lines.get(following.Id) ?? null) : null;
+    return (
+      <div className="player-page">
+        <div className="player-bar">
+          <Link className="btn ghost" href="/live">
+            ‹ Channels
+          </Link>
+          <span className="title">{channel.name}</span>
+        </div>
+        <LiveIntermission
+          channelId={channel.id}
+          startsAtMs={current.endsAtMs}
+          nextTitle={next ? (nextShow ?? next.slot.name) : null}
+          nextLine={nextShow ? (nextLine ?? next?.slot.name ?? null) : null}
+          art={following ? (nextShow ? stillUrl(following, 960) : posterUrl(following, 480)) : null}
+        />
       </div>
     );
   }
@@ -97,6 +126,7 @@ export default async function LiveChannelPage({ params }: { params: Promise<{ id
             channelName: channel.name,
             startedAtMs: current.startedAtMs,
             endsAtMs: current.endsAtMs,
+            playsUntilMs: current.playsUntilMs,
             previousHref: hrefOf(around.previous),
             nextHref: hrefOf(around.next),
           }}

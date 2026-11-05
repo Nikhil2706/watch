@@ -26,6 +26,8 @@ import { getGroup, getGroupedPathMap, listGroups } from "./library-curation";
  */
 
 export type OrderMode = "in_order" | "shuffle";
+
+const QUARTER_HOUR_MS = 15 * 60_000;
 /**
  * When the lineup has played through: start again ("loop", every channel
  * before v69), go off air and stay to be added to ("stop"), or go ("remove":
@@ -48,6 +50,8 @@ export interface Channel {
   epochMs: number;
   builtAt: number | null;
   atEnd: AtEnd;
+  /** Every programme gets exactly this long, so the channel keeps to a timetable; 0 = each its own length. */
+  slotMs: number;
 }
 
 export interface ChannelSlot {
@@ -65,6 +69,7 @@ interface ChannelRow {
   epoch_ms: number;
   built_at: number | null;
   at_end: string;
+  slot_ms: number;
 }
 
 const toChannel = (r: ChannelRow): Channel => ({
@@ -75,10 +80,26 @@ const toChannel = (r: ChannelRow): Channel => ({
   epochMs: r.epoch_ms,
   builtAt: r.built_at,
   atEnd: r.at_end === "stop" || r.at_end === "remove" ? r.at_end : "loop",
+  slotMs: Math.max(0, r.slot_ms ?? 0),
 });
+
+/**
+ * How long each programme takes on the channel's clock: its slot when the
+ * channel has one (a shorter programme is followed by "next in…", a longer
+ * one is cut there), else its own running time.
+ */
+function timetable(slotMs: number, slots: ChannelSlot[]): Array<{ runtimeMs: number }> {
+  return slots.map((s) => ({ runtimeMs: slotMs > 0 ? slotMs : s.runtimeMs }));
+}
 
 export function parseAtEnd(value: unknown): AtEnd {
   return value === "stop" || value === "remove" ? value : "loop";
+}
+
+/** A slot length from a request: whole minutes up to a day, else 0 (each programme its own length). */
+export function parseSlotMs(value: unknown): number {
+  const ms = typeof value === "number" && Number.isFinite(value) ? Math.round(value) : 0;
+  return ms >= 60_000 && ms <= 24 * 3_600_000 ? Math.round(ms / 60_000) * 60_000 : 0;
 }
 
 export function listChannels(nowMs = Date.now()): Channel[] {
@@ -94,7 +115,7 @@ export function listChannels(nowMs = Date.now()): Channel[] {
 function removeFinishedChannels(nowMs: number): void {
   const rows = asRows<ChannelRow>(getDb().prepare("SELECT * FROM channels WHERE at_end = 'remove'").all());
   for (const row of rows) {
-    const total = lineupMs(getSlots(row.id));
+    const total = lineupMs(timetable(row.slot_ms ?? 0, getSlots(row.id)));
     if (row.built_at !== null && total > 0 && nowMs >= row.epoch_ms + total) deleteChannel(row.id);
   }
 }
@@ -116,25 +137,33 @@ export function getSlots(channelId: string): ChannelSlot[] {
   ).map((r) => ({ itemId: r.item_id, path: r.path, name: r.name, runtimeMs: r.runtime_ms }));
 }
 
-export function createChannel(name: string, orderMode: OrderMode, atEnd: AtEnd = "loop"): string {
+export function createChannel(name: string, orderMode: OrderMode, atEnd: AtEnd = "loop", slotMs = 0): string {
   const id = generateId();
   const now = Date.now();
   const last = asRow<{ p: number | null }>(getDb().prepare("SELECT MAX(position) AS p FROM channels").get());
   getDb()
-    .prepare("INSERT INTO channels (id, name, order_mode, at_end, position, epoch_ms, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(id, name.trim(), orderMode, atEnd, (last?.p ?? -1) + 1, now, now, now);
+    .prepare("INSERT INTO channels (id, name, order_mode, at_end, slot_ms, position, epoch_ms, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(id, name.trim(), orderMode, atEnd, Math.max(0, Math.round(slotMs)), (last?.p ?? -1) + 1, now, now, now);
   return id;
 }
 
 /** Name, order and lineup in one go; the lineup is worked out again afterwards. */
 export async function saveChannel(
   id: string,
-  input: { name: string; orderMode: OrderMode; atEnd: AtEnd; entries: ChannelEntry[] },
+  input: { name: string; orderMode: OrderMode; atEnd: AtEnd; slotMs: number; entries: ChannelEntry[] },
 ): Promise<{ slots: number; runtimeMs: number }> {
   transaction(() => {
     getDb()
-      .prepare("UPDATE channels SET name = ?, order_mode = ?, at_end = ?, updated_at = ? WHERE id = ?")
-      .run(input.name.trim(), input.orderMode, input.atEnd, Date.now(), id);
+      .prepare("UPDATE channels SET name = ?, order_mode = ?, at_end = ?, slot_ms = ?, updated_at = ? WHERE id = ?")
+      .run(input.name.trim(), input.orderMode, input.atEnd, Math.max(0, Math.round(input.slotMs)), Date.now(), id);
+    // A timetable starts on the quarter hour, so its slots land on times a
+    // person would print in a guide (21:30, 22:15), not 21:37 and 22:22. The
+    // channel's clock goes back to the quarter hour it started in.
+    if (input.slotMs > 0) {
+      getDb()
+        .prepare("UPDATE channels SET epoch_ms = epoch_ms - (epoch_ms % ?) WHERE id = ?")
+        .run(QUARTER_HOUR_MS, id);
+    }
     getDb().prepare("DELETE FROM channel_entries WHERE channel_id = ?").run(id);
     const add = getDb().prepare("INSERT INTO channel_entries (id, channel_id, position, kind, ref, label) VALUES (?, ?, ?, ?, ?, ?)");
     input.entries.forEach((e, i) => add.run(generateId(), id, i, e.kind, e.ref, e.label));
@@ -207,24 +236,42 @@ export async function rebuildChannel(id: string): Promise<{ slots: number; runti
     ordered.forEach((s, idx) => add.run(id, idx, s.itemId, s.path, s.name, s.runtimeMs));
     getDb().prepare("UPDATE channels SET built_at = ? WHERE id = ?").run(builtAt, id);
   });
-  return { slots: ordered.length, runtimeMs: ordered.reduce((sum, s) => sum + s.runtimeMs, 0) };
+  return { slots: ordered.length, runtimeMs: lineupMs(timetable(channel.slotMs, ordered)) };
+}
+
+/** The lineup's length on the channel's clock, slots and all. */
+export function channelRuntimeMs(channel: Channel): number {
+  return lineupMs(timetable(channel.slotMs, getSlots(channel.id)));
 }
 
 export interface Programme extends OnNow {
   slot: ChannelSlot;
+  /**
+   * When the programme itself stops: its own end, or the slot's end where it
+   * runs longer (cut there). Until `endsAtMs` after that, the channel shows
+   * "next in…".
+   */
+  playsUntilMs: number;
+}
+
+function programme(on: OnNow, slots: ChannelSlot[]): Programme {
+  const slot = slots[on.index]!;
+  return { ...on, slot, playsUntilMs: Math.min(on.endsAtMs, on.startedAtMs + slot.runtimeMs) };
 }
 
 /** What a channel has on now and next (`count` programmes), from its clock. */
 export function channelGuide(channel: Channel, nowMs: number, count = 4): Programme[] {
   const slots = getSlots(channel.id);
-  return upcoming(slots, channel.epochMs, nowMs, count, channel.atEnd === "loop").map((p) => ({ ...p, slot: slots[p.index]! }));
+  return upcoming(timetable(channel.slotMs, slots), channel.epochMs, nowMs, count, channel.atEnd === "loop").map((p) =>
+    programme(p, slots),
+  );
 }
 
 /** Just what is on now. */
 export function channelOnNow(channel: Channel, nowMs: number): Programme | null {
   const slots = getSlots(channel.id);
-  const on = onNow(slots, channel.epochMs, nowMs, channel.atEnd === "loop");
-  return on ? { ...on, slot: slots[on.index]! } : null;
+  const on = onNow(timetable(channel.slotMs, slots), channel.epochMs, nowMs, channel.atEnd === "loop");
+  return on ? programme(on, slots) : null;
 }
 
 /** The channels either side on the guide, round the ends: a remote's up/down. */

@@ -83,3 +83,12 @@ test("the guide of a lineup that does not loop stops at its last programme", () 
   assert.deepEqual(guide.map((p) => p.index), [1, 2]);
   assert.deepEqual(upcoming(slots, epoch, epoch + 50 * MIN, 4).map((p) => p.index), [1, 2, 0, 1]);
 });
+
+test("fixed slots: each programme takes the slot, so starts land on the marks", () => {
+  // Timetabled as 45-minute slots whatever each runs for.
+  const fixed = slots.map(() => ({ runtimeMs: 45 * MIN }));
+  const second = onNow(fixed, epoch, epoch + 50 * MIN)!;
+  assert.equal(second.index, 1);
+  assert.equal(second.startedAtMs, epoch + 45 * MIN);
+  assert.equal(second.endsAtMs, epoch + 90 * MIN);
+});
