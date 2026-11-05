@@ -4,6 +4,7 @@ import { ChunkReloadListener } from "@/components/ChunkReloadListener";
 import { NavProgress } from "@/components/NavProgress";
 import { OfflineResume } from "@/components/offline/OfflineResume";
 import { ScreenAgent } from "@/components/remote/ScreenAgent";
+import { TvCardOptions } from "@/components/tv/TvCardOptions";
 import { TvProvider } from "@/components/tv/TvProvider";
 import { TV_LAYOUT_WIDTH } from "@/lib/tv/constants";
 import { resolveTvModeFromRequest } from "@/lib/tv/detect";
@@ -58,7 +59,11 @@ export default async function RootLayout({
         <NavProgress />
         {/* A page left open across a deploy reloads once instead of breaking. */}
         <ChunkReloadListener />
-        <TvProvider initialTvMode={tvMode}>{children}</TvProvider>
+        <TvProvider initialTvMode={tvMode}>
+          {children}
+          {/* Hold OK on a poster for its options (TV only; renders nothing elsewhere). */}
+          <TvCardOptions />
+        </TvProvider>
         {/* Renders nothing. Registers this browser as a remote-controllable
             screen, but only when it plausibly is a television — see the
             component for the opt-in rules. */}

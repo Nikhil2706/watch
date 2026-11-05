@@ -245,6 +245,99 @@ html[data-tv="true"] .list-overlay button[aria-pressed="false"] {
   display: none;
 }
 
+/* What the remote does instead: hold OK on a poster (TvCardOptions). Said
+   on the focused poster, so nobody has to know it already. */
+html[data-tv="true"] .poster[data-tv-options]:focus-within .poster-art::after {
+  content: "Hold OK for options";
+  position: absolute;
+  left: 8px;
+  bottom: 12px;
+  z-index: 3;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.tv-options-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.85));
+}
+
+/* A column down the right, as TV apps do: one row per action, read from
+   the sofa, the focused one white. */
+.tv-options {
+  width: 560px;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 56px;
+  background: #0d1016;
+  border-left: 1px solid var(--border);
+}
+
+.tv-options-title {
+  margin: 0 0 18px;
+  font-size: 1.8rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.tv-options-row {
+  width: 100%;
+  padding: 18px 24px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font: inherit;
+  font-size: 1.35rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tv-options-row:focus,
+.tv-options-row:focus-visible {
+  outline: none;
+  background: #fff;
+  color: #0a0c10;
+}
+
+.tv-options-row:disabled {
+  opacity: 0.6;
+}
+
+.tv-options-hint {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+/* What just happened, without moving focus off the card. */
+.tv-options-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 56px;
+  z-index: 210;
+  transform: translateX(-50%);
+  padding: 14px 26px;
+  border-radius: 999px;
+  background: rgba(13, 16, 22, 0.95);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 1.2rem;
+}
+
 /* --- Detail / item page ------------------------------------------------ */
 
 /* One left edge, 48 px like the header and the rows. The hero's own 20 px
