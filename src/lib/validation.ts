@@ -145,3 +145,17 @@ export function optionalString(
   if (typeof value !== "string") throw new ValidationError(`${key} must be a string.`);
   return value.slice(0, 200);
 }
+
+/**
+ * A file or folder path from the body. optionalString cuts at 200, which is
+ * fine for a name and wrong for a path: Looney Tunes episodes run past 200,
+ * and a cut path matches no file, so hiding one silently hid nothing.
+ * Too long to be a path is refused, not cut.
+ */
+export function optionalPath(body: Record<string, unknown>, key: string): string | undefined {
+  const value = body[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") throw new ValidationError(`${key} must be a string.`);
+  if (value.length > 4096) throw new ValidationError(`${key} is too long to be a path.`);
+  return value;
+}

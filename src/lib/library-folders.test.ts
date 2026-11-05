@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { nearestFolder, outermostFolders, toLibraryPath } from "./library-folders.ts";
+import { filesToHold, holdsToRelease, nearestFolder, outermostFolders, toLibraryPath } from "./library-folders.ts";
 
 const ROOT = "/media";
 const HOST = "H:/Da Moveesh";
@@ -46,4 +46,24 @@ test("a folder inside another chosen folder is not refreshed twice", () => {
     outermostFolders([UNCLASSIFIED, HORROR, FRENCH, HORROR]).map((f) => f.Id),
     ["a", "c"],
   );
+});
+
+test("a scan of one new show holds back the other new shows beside it", () => {
+  const onDisk = [
+    "/media/TV/Sabrina/S01E01.mkv",
+    "/media/TV/Sabrina/S01E02.mkv",
+    "/media/TV/Alias/S01E01.mkv",
+    "/media/TV/Sabrina Shorts/x.mkv",
+    "/media/TV/Buffy/S01E01.mkv",
+  ];
+  const known = new Set(["/media/TV/Buffy/S01E01.mkv"]);
+  assert.deepEqual(filesToHold(onDisk, known, ["/media/TV/Sabrina/"]), [
+    "/media/TV/Alias/S01E01.mkv",
+    "/media/TV/Sabrina Shorts/x.mkv",
+  ]);
+});
+
+test("a scan of a folder releases only the holds inside it", () => {
+  const held = ["/media/TV/Alias/S01E01.mkv", "/media/TV/Alias Smith/x.mkv", "/media/TV/Normal People/1.mkv"];
+  assert.deepEqual(holdsToRelease(held, ["/media/TV/Alias"]), ["/media/TV/Alias/S01E01.mkv"]);
 });

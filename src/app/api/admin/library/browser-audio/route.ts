@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { browserAudioStatus, requestBrowserAudio } from "@/lib/browser-audio";
-import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { optionalPath, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +26,7 @@ export async function POST(request: Request): Promise<Response> {
   if (denied) return denied;
   try {
     const body = await readJsonBody(request);
-    const path = optionalString(body, "path");
+    const path = optionalPath(body, "path");
     if (!path || !path.startsWith("/media/")) throw new ValidationError("path must be a library file (/media/...).");
     requestBrowserAudio(path);
     return Response.json({ ok: true }, { headers: NO_STORE });

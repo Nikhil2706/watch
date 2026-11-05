@@ -3,7 +3,7 @@ import { refreshAdminMovie } from "@/lib/admin-library-cache";
 import { applyOmdbEpisodeMetadata, clearItemBackdrop, setItemImage } from "@/lib/jellyfin";
 import { getGroupSeriesId, markMetadataConfirmed } from "@/lib/library-curation";
 import { fetchOmdbEpisode } from "@/lib/omdb-episodes";
-import { optionalInt, optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { optionalInt, optionalPath, optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +30,7 @@ export async function POST(request: Request): Promise<Response> {
     const body = await readJsonBody(request);
     const itemId = optionalString(body, "itemId");
     const groupId = optionalString(body, "groupId");
-    const path = optionalString(body, "path");
+    const path = optionalPath(body, "path");
     const season = optionalInt(body, "season");
     const episode = optionalInt(body, "episode");
     if (!itemId || !groupId || season === undefined || episode === undefined) {

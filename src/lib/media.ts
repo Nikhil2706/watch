@@ -342,6 +342,12 @@ export async function getLatest(session: ResolvedSession): Promise<MediaItem[]> 
 const ALL_MOVIES_TTL_MS = 60_000;
 const ALL_MOVIES_STALE_MS = 10 * 60_000;
 
+/** What callers ask for when they mean the whole library; fetchAllMoviesCached pages it. */
+const EVERYTHING = 2000;
+const LISTING_PAGE = 1000;
+/** A runaway stop, far past any library this site has. */
+const MAX_LISTING = 100_000;
+
 /**
  * The cached Jellyfin fetch behind getAllMovies(), WITHOUT filterVisible()
  * applied — the cache holds what Jellyfin returned, and each caller filters
@@ -364,21 +370,35 @@ async function fetchAllMoviesCached(
     cacheKey,
     async () => {
       const [token, device] = creds(session);
-      const data = await userFetch<ItemsResponse>(token, device, "/Items", {
-        userId: session.jellyfinUserId,
-        recursive: true,
-        includeItemTypes: "Movie",
-        sortBy: options.sortBy ?? "SortName",
-        sortOrder: "Ascending",
-        // Was 200. Silently truncated the library the moment it passed 200 titles
-        // — Browse showed "181 movies" while Jellyfin had 446. 2000 comfortably
-        // covers any library this app is realistically pointed at.
-        limit: options.limit ?? 2000,
-        genres: options.genre,
-        fields: LIST_FIELDS,
-        enableImageTypes: "Primary,Backdrop",
-      });
-      return data?.Items ?? [];
+      const page = (startIndex: number, limit: number) =>
+        userFetch<ItemsResponse>(token, device, "/Items", {
+          userId: session.jellyfinUserId,
+          recursive: true,
+          includeItemTypes: "Movie",
+          sortBy: options.sortBy ?? "SortName",
+          sortOrder: "Ascending",
+          startIndex,
+          limit,
+          genres: options.genre,
+          fields: LIST_FIELDS,
+          enableImageTypes: "Primary,Backdrop",
+        });
+      // A short row (Home's 20) is one request.
+      if (options.limit !== undefined && options.limit < EVERYTHING) {
+        return (await page(0, options.limit))?.Items ?? [];
+      }
+      // Everything, in pages. One request of 200, then of 2000, each looked
+      // like plenty and each silently cut the library when it grew past it:
+      // on 2026-11-06 a scan took Jellyfin to 2720 and every title after the
+      // 2000th in the alphabet (Sabrina, The Stepfather, hundreds of episodes)
+      // vanished from Browse, Search and show pages for everyone.
+      const all: MediaItem[] = [];
+      for (let start = 0; start < MAX_LISTING; start += LISTING_PAGE) {
+        const items = (await page(start, LISTING_PAGE))?.Items ?? [];
+        all.push(...items);
+        if (items.length < LISTING_PAGE) break;
+      }
+      return all;
     },
     { ttlMs: ALL_MOVIES_TTL_MS, staleMs: ALL_MOVIES_STALE_MS },
   );

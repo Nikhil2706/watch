@@ -6,7 +6,7 @@ import {
   listFolderSuggestions,
   runFolderMatch,
 } from "@/lib/folder-match";
-import { optionalBoolean, optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { optionalBoolean, optionalPath, optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 import { logDecision } from "@/lib/catalogue-decisions";
 
 export const runtime = "nodejs";
@@ -39,7 +39,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const body = await readJsonBody(request);
     const action = optionalString(body, "action");
-    const path = optionalString(body, "path");
+    const path = optionalPath(body, "path");
 
     if (action === "run") {
       const run = await runFolderMatch({ apply: optionalBoolean(body, "apply") ?? true });

@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { removeFromGroup } from "@/lib/library-curation";
-import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { optionalPath, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const body = await readJsonBody(request);
-    const path = optionalString(body, "path");
+    const path = optionalPath(body, "path");
     if (!path) throw new ValidationError("path is required.");
 
     const found = removeFromGroup(path);

@@ -1,13 +1,21 @@
 import "server-only";
 
 import { readdirSync, statSync } from "node:fs";
+import { extname, join } from "node:path";
 
 import { holdAdminMoviesForScan } from "./admin-library-cache";
 import { syncLeavingPick } from "./folder-removals";
-import { getDb } from "./db";
+import { asRows, getDb, transaction } from "./db";
 import { env } from "./env";
-import { listLibraryFolderPaths, refreshLibrary, refreshLibraryFolders } from "./jellyfin";
+import {
+  listKnownMediaPaths,
+  listLibraryFolderPaths,
+  refreshFolders,
+  refreshLibrary,
+  resolveScanFolders,
+} from "./jellyfin";
 import { checkLibraryDrive, expectedTopFolders, type DriveCheck } from "./library-drive";
+import { filesToHold, HELD_REASON_PREFIX, holdsToRelease } from "./library-folders";
 import { relinkUnmatchedPickItems } from "./picks";
 import { relinkUnmatchedAccoladeEntries, relinkUnmatchedArticleLinks } from "./scraping/articles";
 import { relinkUnmatchedFilmSeriesEntries } from "./scraping/film-series";
@@ -51,13 +59,15 @@ export async function assertLibraryDrivePresent(): Promise<void> {
  *
  * `folders` (library paths, already validated by the caller) narrows the scan
  * to where new files were put, which takes seconds where the whole library
- * takes minutes. If Jellyfin has no folder item for any of them, the whole
- * library is scanned instead; `scanned` says which folders were re-read, and
- * is empty for a full scan.
+ * takes minutes. Only what is in those folders comes onto the site: Jellyfin
+ * re-reads the folder above a new one (or the whole library, for a new
+ * folder at the top), so every other new file it would find is held back
+ * first (holdEverythingElse). `scanned` says which folders were re-read, and
+ * is empty when the whole library was; `held` and `released` count holds.
  */
 export async function scanLibraryNow(
   folders: string[] = [],
-): Promise<{ subtitlesPromoted: number; scanned: string[] }> {
+): Promise<{ subtitlesPromoted: number; scanned: string[]; held: number; released: number }> {
   // Before anything, subtitle promotion included: a scan of an empty or
   // unreadable library folder tells Jellyfin every film is gone.
   await assertLibraryDrivePresent();
@@ -68,8 +78,14 @@ export async function scanLibraryNow(
   }
 
   let scanned: string[] = [];
-  if (folders.length > 0) scanned = (await refreshLibraryFolders(folders)).refreshed;
-  if (scanned.length === 0) await refreshLibrary();
+  let held = 0;
+  let released = 0;
+  if (folders.length > 0) {
+    console.log(`[library-scan] scan asked for: ${folders.join(" | ")}`);
+    ({ scanned, held, released } = await readOnly(folders, folders));
+  } else {
+    await refreshLibrary();
+  }
   // A scan is the whole point at which "what is in the library" changes, so
   // the cached listing must not answer until it is over: held open here,
   // released by autoGroupAfterScan below once Jellyfin is idle.
@@ -107,5 +123,87 @@ export async function scanLibraryNow(
     .then((m) => m.autoGroupAfterScan())
     .catch((error) => console.error("[library-scan] episode grouping failed:", error));
 
-  return { subtitlesPromoted: subtitles.promoted.length, scanned };
+  return { subtitlesPromoted: subtitles.promoted.length, scanned, held, released };
+}
+
+/**
+ * Has Jellyfin re-read the folders holding `paths`, bringing onto the site
+ * only new files inside `asked` (none, when `asked` is empty): every other
+ * new file it will find is held back first (holdEverythingElse). A path with
+ * no known folder above it but the library means the whole library is read,
+ * with the same holds. `scanned` is empty when the whole library was read.
+ */
+export async function readOnly(
+  paths: string[],
+  asked: string[],
+): Promise<{ scanned: string[]; held: number; released: number }> {
+  const { folders: toRead } = await resolveScanFolders(paths);
+  const roots = toRead.length > 0 ? toRead.map((f) => f.Path) : [env.mediaLibraryPath];
+  const { held, released } = holdEverythingElse(roots, asked, await listKnownMediaPaths());
+  console.log(`[library-scan] reading ${roots.join(" | ")}; held back ${held} other new file(s), released ${released}`);
+  if (toRead.length > 0) await refreshFolders(toRead);
+  else await refreshLibrary();
+  return { scanned: toRead.length > 0 ? roots : [], held, released };
+}
+
+const VIDEO_EXTENSIONS = new Set([".mp4", ".mkv", ".avi", ".mov", ".m4v", ".wmv", ".flv", ".webm", ".ts", ".m2ts"]);
+
+/** Every video file under `root`, by the path Jellyfin will give it. */
+function videoFilesUnder(root: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (name.startsWith(".")) continue;
+      const path = join(dir, name);
+      let isDir = false;
+      try {
+        isDir = statSync(path).isDirectory();
+      } catch {
+        continue;
+      }
+      if (isDir) walk(path);
+      else if (VIDEO_EXTENSIONS.has(extname(name).toLowerCase())) out.push(path);
+    }
+  };
+  walk(root);
+  return out;
+}
+
+/**
+ * Before a scan of `asked`: hides every new file under `roots` that is not
+ * in a folder asked for (filesToHold), and un-hides what earlier scans held
+ * inside the folders asked for, so asking for a held show brings it on.
+ * Only holds this made are released; a file the curator hid stays hidden.
+ */
+function holdEverythingElse(
+  roots: string[],
+  asked: string[],
+  known: Set<string>,
+): { held: number; released: number } {
+  const onDisk = roots.flatMap(videoFilesUnder);
+  const toHold = filesToHold(onDisk, known, asked);
+  const what = asked.length > 0 ? `a scan of ${asked.join(", ")}` : "a re-read after a deletion";
+  const reason = `${HELD_REASON_PREFIX} arrived with ${what} (${new Date().toISOString().slice(0, 10)}); release by scanning its folder`;
+  const db = getDb();
+  const heldRows = asRows<{ path: string }>(
+    db.prepare("SELECT path FROM library_excluded WHERE reason LIKE ?").all(`${HELD_REASON_PREFIX}%`),
+  ).map((r) => r.path);
+  const toRelease = holdsToRelease(heldRows, asked);
+  let held = 0;
+  transaction(() => {
+    const insert = db.prepare(
+      "INSERT INTO library_excluded (path, reason, created_at) VALUES (?, ?, ?) ON CONFLICT(path) DO NOTHING",
+    );
+    const now = Date.now();
+    for (const path of toHold) held += Number(insert.run(path, reason, now).changes);
+    const remove = db.prepare("DELETE FROM library_excluded WHERE path = ?");
+    for (const path of toRelease) remove.run(path);
+  });
+  return { held, released: toRelease.length };
 }

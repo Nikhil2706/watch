@@ -1,7 +1,7 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { type RemoteSearchResult } from "@/lib/jellyfin";
 import { applyLibraryMatch } from "@/lib/library-match";
-import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { optionalPath, optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +29,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const body = await readJsonBody(request);
     const itemId = optionalString(body, "itemId");
-    const path = optionalString(body, "path");
+    const path = optionalPath(body, "path");
     const candidate = body.candidate;
     if (!itemId || typeof candidate !== "object" || candidate === null) {
       throw new ValidationError("itemId and candidate are required.");

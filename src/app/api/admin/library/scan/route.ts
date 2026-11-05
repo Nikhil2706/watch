@@ -38,9 +38,11 @@ export async function GET(request: Request): Promise<Response> {
  * With `folders` — where the new files were put, as Jellyfin's path, the
  * Explorer path, or the part under the library — only those are re-read,
  * which takes seconds where the whole library takes minutes. A folder
- * Jellyfin has no item above (a file in the library root) cannot be re-read
- * on its own, and the whole library is scanned instead; the response says
- * which happened.
+ * Jellyfin has no item above (new at the top of the library) cannot be
+ * re-read on its own, and the whole library is read instead. Either way only
+ * what is in the folders asked for comes onto the site: every other new file
+ * the scan would find is held back (`held`), and asking for a folder whose
+ * files were held earlier brings them on (`released`).
  *
  * Triggers a Jellyfin library scan. Needed because the `jellyfin` container
  * mounts the library read-only, so Jellyfin never notices a file removed or
@@ -67,12 +69,14 @@ export async function POST(request: Request): Promise<Response> {
       return path;
     });
 
-    const { subtitlesPromoted, scanned } = await scanLibraryNow(folders);
+    const { subtitlesPromoted, scanned, held, released } = await scanLibraryNow(folders);
     return Response.json(
       {
         scanning: true,
         scope: scanned.length > 0 ? "folders" : "library",
         folders: scanned,
+        held,
+        released,
         subtitlesPromoted,
       },
       { headers: NO_STORE },

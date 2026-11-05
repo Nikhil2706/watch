@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { queueTransform } from "@/lib/jobs";
-import { optionalString, readJsonBody, ValidationError } from "@/lib/validation";
+import { optionalPath, optionalString, readJsonBody, ValidationError } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const body = await readJsonBody(request);
-    const path = optionalString(body, "path");
+    const path = optionalPath(body, "path");
     const title = optionalString(body, "title");
     if (!path || !title) throw new ValidationError("path and title are required.");
 

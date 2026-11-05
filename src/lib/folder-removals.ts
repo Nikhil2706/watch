@@ -7,7 +7,6 @@ import { getAdminMovies, invalidateAdminMovies } from "./admin-library-cache";
 import { invalidate } from "./cache";
 import { asRow, asRows, getDb } from "./db";
 import { env } from "./env";
-import { refreshLibrary, refreshLibraryFolders } from "./jellyfin";
 import { daysLeft, isRemovableFolder, leavingAt, LEAVING_DAYS, type RemovalMark } from "./leaving-soon";
 import { getGroup, getGroupedPathMap } from "./library-curation";
 import { addPickItem, deletePickItem, getPick, LEAVING_PICK_ID, listPickItems } from "./picks";
@@ -368,8 +367,11 @@ export async function runFolderRemovals(): Promise<RemovalRun> {
     // Jellyfin drops what is gone when the folder above is read again.
     const root = env.mediaLibraryPath.replace(/\/+$/, "");
     const parents = [...new Set(run.deleted.map((d) => `${root}/${d.folder}`.replace(/\/[^/]+$/, "")))];
-    const refreshed = await refreshLibraryFolders(parents.filter((p) => p !== root)).catch(() => ({ refreshed: [] as string[] }));
-    if (refreshed.refreshed.length < parents.length) await refreshLibrary().catch(() => undefined);
+    // Holding back any new files waiting beside them (library-scan.ts): a
+    // deletion is not the curator asking for anything to come on.
+    await import("./library-scan")
+      .then((m) => m.readOnly(parents, []))
+      .catch((error) => console.error("[folder-removals] re-read after deletion failed:", error));
     invalidateAdminMovies();
     invalidate("all-movies");
     await syncLeavingPick("deleted").catch((error) => console.error("[folder-removals] leaving pick not updated:", error));
