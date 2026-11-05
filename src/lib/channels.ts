@@ -5,6 +5,7 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import {
   lineupMs,
   onNow,
+  packedLengths,
   shuffleInBlocks,
   slotLength,
   timetableMarkMs,
@@ -103,7 +104,7 @@ const toChannel = (r: ChannelRow): Channel => ({
 });
 
 export function parseSlotRule(value: unknown): SlotRule {
-  return value === "round" ? "round" : "fixed";
+  return value === "round" || value === "pack" ? value : "fixed";
 }
 
 /**
@@ -113,6 +114,9 @@ export function parseSlotRule(value: unknown): SlotRule {
  * fills the rest.
  */
 function timetable(slotMs: number, rule: SlotRule, slots: ChannelSlot[]): Array<{ runtimeMs: number }> {
+  if (rule === "pack" && slotMs > 0) {
+    return packedLengths(slots.map((s) => s.runtimeMs), slotMs).map((runtimeMs) => ({ runtimeMs }));
+  }
   return slots.map((s) => ({ runtimeMs: slotLength(s.runtimeMs, slotMs, rule) }));
 }
 

@@ -102,7 +102,7 @@ export function seededShuffle<T>(items: readonly T[], seed: string): T[] {
   return out;
 }
 
-export type SlotRule = "fixed" | "round";
+export type SlotRule = "fixed" | "round" | "pack";
 
 /**
  * How long one programme takes on a timetabled channel's clock. `fixed`: the
@@ -157,4 +157,36 @@ export function shuffleInBlocks<T>(items: readonly Blocked<T>[], seed: string): 
   }
   for (const unit of units) unit.sort((a, b) => a.order - b.order);
   return seededShuffle(units, seed).flatMap((unit) => unit.map((entry) => entry.item));
+}
+
+/** How far a packed slot may run over before the last programme is cut at its end (end credits, not story). */
+export const PACK_OVERRUN_MS = 90_000;
+
+/**
+ * "pack" slots: programmes back to back, as many as fit in one slot (two
+ * 22-minute episodes in 45 minutes), then "next in…" to the slot's end. A
+ * slot that runs over by up to PACK_OVERRUN_MS keeps its length and the last
+ * programme is cut there; a programme longer than a slot gets its own,
+ * rounded up to whole slots (an 84-minute special: 90). Returns each
+ * programme's length on the clock, so the slots land on the marks.
+ */
+export function packedLengths(runtimes: readonly number[], slotMs: number): number[] {
+  const out: number[] = [];
+  let block: number[] = [];
+  const close = () => {
+    if (block.length === 0) return;
+    const total = block.reduce((sum, r) => sum + r, 0);
+    const length = total <= slotMs + PACK_OVERRUN_MS ? slotMs : Math.ceil(total / slotMs) * slotMs;
+    // Every programme plays in full but the last, which takes the rest.
+    const before = block.slice(0, -1);
+    out.push(...before, length - before.reduce((sum, r) => sum + r, 0));
+    block = [];
+  };
+  for (const runtime of runtimes) {
+    const total = block.reduce((sum, r) => sum + r, 0);
+    if (block.length > 0 && total + runtime > slotMs + PACK_OVERRUN_MS) close();
+    block.push(runtime);
+  }
+  close();
+  return out;
 }
