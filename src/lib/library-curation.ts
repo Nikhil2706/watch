@@ -407,3 +407,29 @@ export function unwhitelistPath(path: string): boolean {
   const result = getDb().prepare("DELETE FROM library_whitelisted WHERE path = ?").run(path);
   return Number(result.changes) > 0;
 }
+
+/**
+ * The audio language a show plays in when its files default to another
+ * (library_group_audio, v73): the Looney Tunes Blu-ray rips carry a
+ * Ukrainian dub as their first track and the English original second.
+ * ISO 639-2 ("eng"); null when the show plays each file's own default.
+ */
+export function getGroupAudioLanguage(groupId: string): string | null {
+  const row = getDb().prepare("SELECT language FROM library_group_audio WHERE group_id = ?").get(groupId) as
+    | { language: string }
+    | undefined;
+  return row?.language ?? null;
+}
+
+export function setGroupAudioLanguage(groupId: string, language: string | null): void {
+  if (!language) {
+    getDb().prepare("DELETE FROM library_group_audio WHERE group_id = ?").run(groupId);
+    return;
+  }
+  getDb()
+    .prepare(
+      `INSERT INTO library_group_audio (group_id, language, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(group_id) DO UPDATE SET language = excluded.language, updated_at = excluded.updated_at`,
+    )
+    .run(groupId, language, Date.now());
+}

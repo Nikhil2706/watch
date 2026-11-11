@@ -3,7 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 
 import { asRow, asRows, getDb } from "./db";
-import { parseEpisodeInfo } from "./episode-naming";
+import { episodeInfo, getEpisodeNumberMap } from "./episode-numbers";
 import { getGroup } from "./library-curation";
 
 /**
@@ -251,9 +251,10 @@ export function reconcileGroupSlots(groupId: string): void {
   const slotted = new Set(slots.filter((s) => s.path !== null).map((s) => s.path));
   const openSlots = slots.filter((s) => s.path === null).sort((a, b) => a.slotIndex - b.slotIndex);
 
+  const numbers = getEpisodeNumberMap();
   const unslottedPaths = group.paths
     .filter((p) => !slotted.has(p))
-    .map((p) => ({ path: p, sortKey: parseEpisodeInfo(p).sortKey ?? Number.MAX_SAFE_INTEGER }))
+    .map((p) => ({ path: p, sortKey: episodeInfo(p, numbers).sortKey ?? Number.MAX_SAFE_INTEGER }))
     .sort((a, b) => a.sortKey - b.sortKey);
 
   const db = getDb();

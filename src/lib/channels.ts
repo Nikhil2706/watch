@@ -16,7 +16,7 @@ import {
 } from "./channel-schedule";
 import { generateId } from "./crypto";
 import { asRow, asRows, getDb, transaction } from "./db";
-import { parseEpisodeInfo } from "./episode-naming";
+import { episodeInfo, getEpisodeNumberMap } from "./episode-numbers";
 import { getDamagedPathSet } from "./file-checks";
 import { getAdminMoviesByIds, listItemsForChannels } from "./jellyfin";
 import { getGroup, getGroupedPathMap, listGroups } from "./library-curation";
@@ -271,8 +271,9 @@ export async function rebuildChannel(id: string): Promise<{ slots: number; runti
     if (entry.kind === "item") push(entry.ref);
     else if (entry.kind === "group") {
       const group = getGroup(entry.ref);
+      const numbers = getEpisodeNumberMap();
       const paths = [...(group?.paths ?? [])].sort(
-        (a, b) => parseEpisodeInfo(a).sortKey - parseEpisodeInfo(b).sortKey || a.localeCompare(b),
+        (a, b) => episodeInfo(a, numbers).sortKey - episodeInfo(b, numbers).sortKey || a.localeCompare(b),
       );
       paths.forEach((path, i) => push(path, `group:${entry.ref}`, i));
     } else if (entry.kind === "genre") {

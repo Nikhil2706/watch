@@ -6,7 +6,8 @@ import { cache } from "react";
 
 import { cached } from "./cache";
 import { imageUrl, personImageUrl } from "./image-url";
-import { parseEpisodeInfo } from "./episode-naming";
+import type { ParsedEpisode } from "./episode-naming";
+import { episodeInfo, getEpisodeNumberMap } from "./episode-numbers";
 import { continueRemovals } from "./continue-removed";
 import { continueWatchingOrder, nextUpEpisodes, type EpisodeState } from "./next-up";
 import { userFetch, userPost } from "./jellyfin";
@@ -16,6 +17,7 @@ import {
   getConfirmedPathSet,
   getAllGroupKinds,
   getGroup,
+  getGroupAudioLanguage,
   getGroupedPathMap,
   getGroupOverview,
   getGroupSeriesId,
@@ -226,6 +228,7 @@ export async function getContinueWatching(
   ]);
 
   const showOf = getGroupedPathMap();
+  const numbers = getEpisodeNumberMap();
   const shows = new Map<string, EpisodeState[]>();
   const byId = new Map<string, MediaItem>();
   for (const item of all) {
@@ -235,7 +238,7 @@ export async function getContinueWatching(
     const list = shows.get(show.groupId) ?? [];
     list.push({
       id: item.Id,
-      sortKey: parseEpisodeInfo(item.Path!).sortKey,
+      sortKey: episodeInfo(item.Path!, numbers).sortKey,
       path: item.Path!,
       played: item.UserData?.Played === true,
       lastPlayedMs: lastPlayedMs(item),
@@ -526,7 +529,7 @@ export interface CollectionDetail {
  */
 function resolveEpisodeLabel(
   item: MediaItem,
-  parsed: ReturnType<typeof parseEpisodeInfo>,
+  parsed: ParsedEpisode,
   confirmedPaths: Set<string>,
 ): string | null {
   if (parsed.episode === null) return null;
@@ -558,10 +561,11 @@ export async function getCollection(
   const all = filterVisible(await fetchAllMoviesCached(session), session, {
     context: "show_episodes",
   });
+  const numbers = getEpisodeNumberMap();
   const items: CollectionItem[] = all
     .filter((item) => item.Path && pathSet.has(item.Path))
     .map((item) => {
-      const parsed = parseEpisodeInfo(item.Path ?? "");
+      const parsed = episodeInfo(item.Path ?? "", numbers);
       return {
         item,
         label: resolveEpisodeLabel(item, parsed, confirmedPaths),
@@ -989,7 +993,10 @@ interface PlaybackInfoResponse {
     Id: string;
     /** The subtitle Jellyfin will burn in or attach; -1 or absent for none. */
     DefaultSubtitleStreamIndex?: number;
-    MediaStreams?: Array<{ Index: number; Type?: string; Codec?: string }>;
+    /** The audio track Jellyfin plays when nobody chose one. */
+    DefaultAudioStreamIndex?: number;
+    Path?: string;
+    MediaStreams?: Array<{ Index: number; Type?: string; Codec?: string; Language?: string; IsDefault?: boolean }>;
     SupportsDirectPlay?: boolean;
     SupportsDirectStream?: boolean;
     SupportsTranscoding?: boolean;
@@ -1002,6 +1009,23 @@ interface PlaybackInfoResponse {
  * `client` picks the H.264 level ceiling (playback-profile.ts). Callers that
  * can't tell get the phone's, which never sends a file a device can't decode.
  */
+/**
+ * The audio track to ask for instead of the file's default: set when the
+ * file's show plays in a language (library_group_audio) that the default
+ * track is not in and another track is. Null to play the default.
+ */
+function preferredAudioTrack(source: PlaybackInfoResponse["MediaSources"][number]): number | null {
+  const show = source.Path ? getGroupedPathMap().get(source.Path) : undefined;
+  const language = show ? getGroupAudioLanguage(show.groupId) : null;
+  if (!language) return null;
+  const tracks = (source.MediaStreams ?? []).filter((s) => s.Type === "Audio");
+  const current =
+    tracks.find((s) => s.Index === source.DefaultAudioStreamIndex) ?? tracks.find((s) => s.IsDefault) ?? tracks[0];
+  const same = (s?: { Language?: string }) => (s?.Language ?? "").toLowerCase() === language;
+  if (!current || same(current)) return null;
+  return tracks.find(same)?.Index ?? null;
+}
+
 export async function getPlaybackPlan(
   session: ResolvedSession,
   itemId: string,
@@ -1010,12 +1034,15 @@ export async function getPlaybackPlan(
   options: { burnSubtitle?: number | null } = {},
 ): Promise<PlaybackPlan | null> {
   const [token, device] = creds(session);
-  const ask = (choice?: { mediaSourceId: string; subtitleStreamIndex: number }) =>
+  const ask = (
+    choice?: { mediaSourceId: string; subtitleStreamIndex: number; audioStreamIndex?: number },
+    direct = true,
+  ) =>
     userPost<PlaybackInfoResponse>(
       token,
       device,
       `/Items/${encodeURIComponent(itemId)}/PlaybackInfo`,
-      { DeviceProfile: browserProfile(client), EnableDirectPlay: true, EnableTranscoding: true },
+      { DeviceProfile: browserProfile(client), EnableDirectPlay: direct, EnableDirectStream: direct, EnableTranscoding: true },
       { userId: session.jellyfinUserId, ...choice },
     );
 
@@ -1033,6 +1060,18 @@ export async function getPlaybackPlan(
   const pickedIsPicture = isPictureCodec(source.MediaStreams?.find((s) => s.Index === picked)?.Codec);
   if (picked !== wanted && (pickedIsPicture || wanted !== -1)) {
     info = await ask({ mediaSourceId: source.Id, subtitleStreamIndex: wanted });
+    source = info?.MediaSources?.[0];
+    if (!source) return null;
+  }
+
+  // A show can name the language it plays in (library_group_audio): the
+  // Looney Tunes Blu-ray rips default to a Ukrainian dub, with the English
+  // original second. A browser plays a file's first track and cannot be told
+  // otherwise, so the chosen track comes through Jellyfin's stream instead
+  // (the picture copied, only the sound re-encoded).
+  const audio = preferredAudioTrack(source);
+  if (audio !== null) {
+    info = await ask({ mediaSourceId: source.Id, subtitleStreamIndex: wanted, audioStreamIndex: audio }, false);
     source = info?.MediaSources?.[0];
     if (!source) return null;
   }
