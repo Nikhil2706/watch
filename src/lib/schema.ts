@@ -97,8 +97,11 @@
  * whose name has none (a collection of shorts); library_group_audio — the
  * audio language a show plays in when its files default to another (the
  * Looney Tunes Blu-ray rips default to a Ukrainian dub). New tables only.
+ * 74: subtitle_track_language — the language of a subtitle track built into a
+ * video that carries no tag, read from its text (Lost's 104 episodes are
+ * English but untagged, so the site never switched them on). New table only.
  */
-export const SCHEMA_VERSION = 73;
+export const SCHEMA_VERSION = 74;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -515,6 +518,18 @@ CREATE TABLE IF NOT EXISTS library_episode_numbers (
   season     INTEGER NOT NULL,
   episode    INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
+) STRICT;
+
+-- The language of a subtitle track built into a video that carries none,
+-- found by reading its text (subtitles.ts uses it where the track's own tag
+-- is missing). Keyed on the file and Jellyfin's stream index, which for a
+-- built-in track is fixed by the file itself. (v74)
+CREATE TABLE IF NOT EXISTS subtitle_track_language (
+  path         TEXT NOT NULL,
+  stream_index INTEGER NOT NULL,
+  language     TEXT NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  PRIMARY KEY (path, stream_index)
 ) STRICT;
 
 -- The audio language a show plays in (ISO 639-2, "eng") when its files'
