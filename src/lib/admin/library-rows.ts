@@ -21,6 +21,7 @@ export interface FeatureTarget {
 }
 export interface SpecialFeature {
   itemId: string;
+  title?: string | null;
   targets: FeatureTarget[];
 }
 export interface FeatureGuess {
@@ -28,6 +29,8 @@ export interface FeatureGuess {
   confidence: number;
   reasons: string[];
   targets: Array<FeatureTarget & { reason?: string }>;
+  /** A cleaner name for an extra found in a show's folder ("I'm Cordelia"). */
+  suggestedName?: string | null;
 }
 
 interface RowFlags {

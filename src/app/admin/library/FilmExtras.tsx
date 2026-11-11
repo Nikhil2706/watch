@@ -315,6 +315,21 @@ export function FeatureBlock({
         ) : (
           <p className="hint">Hidden from the library, but it does not appear anywhere yet.</p>
         )}
+        <form
+          className="adm-acts"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const typedName = String(new FormData(e.currentTarget).get("sf-name") ?? "").trim();
+            if (!typedName || typedName === (feature.title ?? name)) return;
+            void post({ action: "rename", itemId: item.id, name: typedName });
+          }}
+        >
+          {/* key: a new item, or a saved name, starts the field afresh. */}
+          <input key={`${item.id}:${feature.title ?? ""}`} name="sf-name" defaultValue={feature.title ?? name} aria-label="Name on the site" />
+          <button type="submit" className="secondary" disabled={busy} title="The name it is listed by on the site (written to Jellyfin)">
+            Rename
+          </button>
+        </form>
         <div className="adm-acts">
           <select
             value={kind}
@@ -349,7 +364,8 @@ export function FeatureBlock({
                 return;
               }
               setTyped("");
-              void post({ action: "map", itemId: item.id, title: name, kind, targetId: hit.id, targetLabel: hit.label });
+              // A group's option reads "Angel (show)"; the site shows "About Angel".
+              void post({ action: "map", itemId: item.id, title: name, kind, targetId: hit.id, targetLabel: hit.name ?? hit.label });
             }}
           >
             Add
@@ -376,13 +392,23 @@ export function FeatureBlock({
                   title={t.reason ?? ""}
                   disabled={busy}
                   onClick={() =>
-                    post({ action: "map", itemId: item.id, title: name, kind: t.kind, targetId: t.targetId, targetLabel: t.targetLabel })
+                    post({
+                      action: "map",
+                      itemId: item.id,
+                      title: guess.suggestedName || name,
+                      kind: t.kind,
+                      targetId: t.targetId,
+                      targetLabel: t.targetLabel,
+                      // An extra from a show's folder takes its tidied name with it.
+                      ...(guess.suggestedName ? { name: guess.suggestedName } : {}),
+                    })
                   }
                 >
                   <span className="adm-sf-kind">{sfKindLabel(t.kind)}</span> {t.targetLabel}
                 </button>
               ))}
             </div>
+            {guess.suggestedName ? <p className="hint">It will be called “{guess.suggestedName}”; you can change that after.</p> : null}
           </>
         ) : null}
         <div className="adm-acts">

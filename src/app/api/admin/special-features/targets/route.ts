@@ -1,7 +1,7 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminMovies } from "@/lib/admin-library-cache";
 import { getPeopleForAllMoviesAdmin } from "@/lib/jellyfin";
-import { listGroups } from "@/lib/library-curation";
+import { getGroupKind, listGroups } from "@/lib/library-curation";
 import { getSpecialFeatureIdSet } from "@/lib/special-features";
 
 export const runtime = "nodejs";
@@ -13,7 +13,7 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
  * GET /api/admin/special-features/targets
  *
  * Everything a special feature can be mapped to, in one list: films,
- * franchises (library groups), directors and actors.
+ * shows and franchises (library groups), directors and actors.
  *
  * Exists so the console can offer the same four kinds by hand that the
  * guesser proposes automatically. Without it, mapping to a director means
@@ -54,8 +54,15 @@ export async function GET(request: Request): Promise<Response> {
           label: m.ProductionYear ? `${m.Name} (${m.ProductionYear})` : m.Name,
         }))
         .sort(byName),
+      // Shows and franchises are both library groups, and a show's page is the
+      // same collection page, so one list. The label says which each is;
+      // `name` is what gets stored and shown on the site ("About Angel").
       franchises: listGroups()
-        .map((g) => ({ id: g.groupId, label: g.groupName }))
+        .map((g) => {
+          const kind = getGroupKind(g.groupId);
+          const what = kind === "series" ? "show" : kind === "movie" ? "franchise or film in parts" : "show or group";
+          return { id: g.groupId, label: `${g.groupName} (${what})`, name: g.groupName };
+        })
         .sort(byName),
       directors: [...directors].map(([id, label]) => ({ id, label })).sort(byName),
       actors: [...actors].map(([id, label]) => ({ id, label })).sort(byName),

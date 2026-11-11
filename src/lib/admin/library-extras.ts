@@ -202,7 +202,8 @@ export function syncReport(t: SyncRound): string {
 
 export const SF_KINDS = [
   { kind: "film", label: "Film", list: "films" },
-  { kind: "franchise", label: "Franchise", list: "franchises" },
+  // Shows are library groups too, mapped the same way (see the targets route).
+  { kind: "franchise", label: "Show or franchise", list: "franchises" },
   { kind: "director", label: "Director", list: "directors" },
   { kind: "actor", label: "Actor", list: "actors" },
 ] as const;
@@ -213,15 +214,15 @@ export function sfKindLabel(kind: string): string {
 
 /** What the picker offers for a kind: every film, franchise, director or actor there is. */
 export function sfOptions(
-  targets: Record<string, Array<{ id: string; label: string }>> | null,
+  targets: Record<string, Array<{ id: string; label: string; name?: string }>> | null,
   kind: string,
-): Array<{ id: string; label: string }> {
+): Array<{ id: string; label: string; name?: string }> {
   const list = SF_KINDS.find((k) => k.kind === kind)?.list;
   return (list && targets?.[list]) || [];
 }
 
 /** The typed text must be one of the options; returns it, or null. */
-export function sfPick(options: ReadonlyArray<{ id: string; label: string }>, typed: string): { id: string; label: string } | null {
+export function sfPick<T extends { id: string; label: string }>(options: ReadonlyArray<T>, typed: string): T | null {
   return options.find((o) => o.label === typed) ?? null;
 }
 

@@ -18,6 +18,7 @@ import {
   getAllGroupKinds,
   getGroup,
   getGroupAudioLanguage,
+  getGroupKind,
   getGroupedPathMap,
   getGroupOverview,
   getGroupSeriesId,
@@ -705,7 +706,9 @@ export async function getSpecialFeaturesForFilm(
   const groupIds: string[] = [];
   if (film.Path) {
     const group = getGroupedPathMap().get(film.Path);
-    if (group) groupIds.push(group.groupId);
+    // A franchise's documentary belongs on each of its films; a show's DVD
+    // extras belong on the show's page, not repeated on every episode.
+    if (group && getGroupKind(group.groupId) !== "series") groupIds.push(group.groupId);
   }
 
   const directorIds = (film.People ?? [])
@@ -742,7 +745,7 @@ export async function getSpecialFeaturesForPerson(
   return fetchFeatureItems(session, ids);
 }
 
-/** Everything mapped to a franchise, for that collection's page. */
+/** Everything mapped to a show or franchise, for that collection's page. */
 export async function getSpecialFeaturesForGroup(
   session: ResolvedSession,
   groupId: string,

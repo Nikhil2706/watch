@@ -12,11 +12,15 @@
  * confirming a right one.
  */
 
+import { findEpisodeMarker } from "./episode-markers.ts";
+
 export interface GuessCandidate {
   itemId: string;
   title: string;
   year: number | null;
   overview: string | null;
+  /** The file's path, for spotting an extra that sits among a show's episodes. */
+  path?: string | null;
 }
 
 export interface GuessTargetOption {
@@ -35,6 +39,8 @@ export interface Guess {
   /** Why we think it is a special feature at all. */
   reasons: string[];
   targets: GuessTargetOption[];
+  /** A tidier name than the file's, when the guess can offer one ("I'm Cordelia" for "Angel.1xEX.I'm_Cordelia.dvdrip.x264"). */
+  suggestedName?: string | null;
 }
 
 /**
@@ -113,7 +119,13 @@ export function normaliseTitle(value: string): string {
 
 export interface KnownThings {
   films: { id: string; title: string }[];
-  groups: { id: string; name: string }[];
+  /**
+   * Library groups: shows, and films kept in parts. `kind` is "series" for a
+   * show linked as one, "movie" for a film in parts or a franchise, null when
+   * nobody has said. `paths` are the members' files, which is how an extra
+   * left in a show's folder is recognised as that show's.
+   */
+  groups: { id: string; name: string; kind?: "series" | "movie" | null; paths?: string[] }[];
   people: { id: string; name: string; kind: "director" | "actor" }[];
 }
 
@@ -173,6 +185,16 @@ export function proposeTargets(candidate: GuessCandidate, known: KnownThings): G
     }
   }
 
+  const show = showFolderMatch(candidate, known);
+  if (show && !out.some((t) => t.kind === "franchise" && t.targetId === show.id)) {
+    out.push({
+      kind: "franchise",
+      targetId: show.id,
+      targetLabel: show.name,
+      reason: `in ${show.name}'s folder, among its episodes`,
+    });
+  }
+
   // Most specific first, matching how the film page orders them.
   const rank = { film: 0, franchise: 1, director: 2, actor: 3 } as const;
   return out.sort((a, b) => rank[a.kind] - rank[b.kind]).slice(0, 8);
@@ -194,7 +216,17 @@ function containsName(haystack: string, name: string): boolean {
  * sequel far more often than it is a documentary.
  */
 export function guess(candidate: GuessCandidate, known: KnownThings): Guess | null {
-  const { confidence, reasons } = scoreCandidate(candidate);
+  const scored = scoreCandidate(candidate);
+  const reasons = [...scored.reasons];
+  let confidence = scored.confidence;
+
+  // A file with no episode number, left among a show's episodes but not one
+  // of them, is that show's DVD extra: the featurette, the bloopers reel.
+  const show = showFolderMatch(candidate, known);
+  if (show) {
+    confidence += 50;
+    reasons.push(`in ${show.name}'s folder but not one of its episodes`);
+  }
   if (confidence < 25) return null;
 
   const targets = proposeTargets(candidate, known);
@@ -207,5 +239,119 @@ export function guess(candidate: GuessCandidate, known: KnownThings): Guess | nu
     confidence: boosted,
     reasons,
     targets,
+    suggestedName: show && candidate.path ? extraName(candidate.path, show.name) : null,
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * Extras left in a show's folder
+ * ------------------------------------------------------------------ */
+
+const SEASON_FOLDER = /^(season|series|saison|staffel)[\s._-]*\d+$|^s\d{1,2}$|^specials?$/i;
+
+function dirOf(path: string): string {
+  const i = path.lastIndexOf("/");
+  return i > 0 ? path.slice(0, i) : "";
+}
+
+function baseOf(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+function stemOf(path: string): string {
+  const base = baseOf(path);
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(0, dot) : base;
+}
+
+/**
+ * The show whose episodes share this file's folder (or the folder above, when
+ * the file sits in a "Season 3" folder of its own), or null.
+ *
+ * Careful in three ways, since a wrong answer moves a film out of Browse:
+ *  - a file with an episode marker of its own is an episode waiting to be
+ *    grouped, never an extra;
+ *  - a group nobody has linked as a show can still match (most shows here
+ *    were grouped before kinds existed), but a film kept in parts or a
+ *    franchise ("movie") cannot: its folder is often shared with other films;
+ *  - a folder directly under the library root ("/media/TV") is shared by
+ *    everything in it and proves nothing;
+ *  - the show's files in that folder must be numbered by their filenames
+ *    ("1x05", "s3e12"). Looney Tunes (numbered by hand) and mini-series kept
+ *    in a director's folder failed the dry run against the live library
+ *    without this: their folders hold duplicates and other films.
+ */
+export function showFolderMatch(
+  candidate: GuessCandidate,
+  known: KnownThings,
+): { id: string; name: string } | null {
+  const path = candidate.path;
+  if (!path) return null;
+  const marker = findEpisodeMarker(stemOf(path));
+  if (marker.episode !== null) return null;
+
+  const dir = dirOf(path);
+  const dirs = [dir];
+  if (SEASON_FOLDER.test(baseOf(dir))) dirs.push(dirOf(dir));
+
+  for (const group of known.groups) {
+    if (group.kind === "movie" || !group.paths?.length) continue;
+    if (group.paths.includes(path)) return null; // it IS an episode
+    // Per folder: how many of the show's files are there, and how many of
+    // those are numbered by their own filenames.
+    const folders = new Map<string, { members: number; numbered: number }>();
+    const count = (d: string, numbered: boolean) => {
+      const c = folders.get(d) ?? { members: 0, numbered: 0 };
+      c.members++;
+      if (numbered) c.numbered++;
+      folders.set(d, c);
+    };
+    for (const p of group.paths) {
+      const numbered = findEpisodeMarker(stemOf(p)).episode !== null;
+      const d = dirOf(p);
+      count(d, numbered);
+      if (SEASON_FOLDER.test(baseOf(d))) count(dirOf(d), numbered);
+    }
+    for (const d of dirs) {
+      // "/media/TV" has two segments: too shallow to belong to one show.
+      if (d.split("/").filter(Boolean).length < 3) continue;
+      const c = folders.get(d);
+      // The folder must be the show's numbered episodes. A group whose files
+      // carry no episode numbers (shorts numbered by hand, a mini-series in a
+      // director's folder) shares its folder with things that are not extras.
+      if (c && c.numbered >= 2 && c.numbered >= 0.8 * c.members) return { id: group.id, name: group.name };
+    }
+  }
+  return null;
+}
+
+const NAME_NOISE =
+  /\b(1080p|2160p|720p|480p|4k|uhd|web[- ]?dl|webrip|bluray|blu[- ]?ray|brrip|bdrip|dvdrip|hdrip|hdtv|x264|x265|h ?264|h ?265|hevc|avc|aac\d*|ac3|dts|remux|proper|repack)\b/i;
+
+/**
+ * A readable name for an extra from its filename: release noise cut, dots and
+ * underscores made spaces, the show's own name and an "1xEX"-style marker
+ * taken off the front. "Angel.1xEX.I'm_Cordelia.dvdrip.x264" → "I'm Cordelia".
+ * Falls back to the cleaned stem rather than returning nothing.
+ */
+export function extraName(path: string, showName: string): string {
+  const stem = stemOf(path);
+  const noise = NAME_NOISE.exec(stem);
+  const cut = (noise ? stem.slice(0, noise.index) : stem)
+    .replace(/[._]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[\s\-–—:]+$/, "");
+
+  const show = showName.trim().replace(/[._]+/g, " ");
+  let name = cut;
+  if (show && name.toLowerCase().startsWith(show.toLowerCase() + " ")) {
+    name = name.slice(show.length).trim();
+  }
+  name = name
+    .replace(/^[\s\-–—:]+/, "")
+    .replace(/^(s?\d{1,2}\s?x?\s?)?(ex|extras?|bonus)\b[\s\-–—:]*/i, "")
+    .replace(/^[\s\-–—:]+/, "")
+    .trim();
+  return name.length >= 3 ? name : cut;
 }

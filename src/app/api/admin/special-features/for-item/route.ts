@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminMovie } from "@/lib/jellyfin";
-import { getGroupedPathMap } from "@/lib/library-curation";
+import { getGroupKind, getGroupedPathMap } from "@/lib/library-curation";
 import {
   getFeatureIdsForFilm,
   getTargetsForFeatures,
@@ -51,7 +51,8 @@ export async function GET(request: Request): Promise<Response> {
   const groupIds: string[] = [];
   if (item.Path) {
     const group = getGroupedPathMap().get(item.Path);
-    if (group) groupIds.push(group.groupId);
+    // Same rule as the film page: a show's extras are on the show's page only.
+    if (group && getGroupKind(group.groupId) !== "series") groupIds.push(group.groupId);
   }
   const directorIds = (item.People ?? []).filter((p) => p.Type === "Director").map((p) => p.Id);
   const actorIds = (item.People ?? []).filter((p) => p.Type === "Actor").map((p) => p.Id);
