@@ -102,6 +102,24 @@ export interface SubtitlePref {
   created_at: number;
 }
 
+/** Languages read from the text of a file's untagged built-in tracks, by stream index. */
+function trackLanguages(path: string): Map<number, string> {
+  const rows = getDb()
+    .prepare("SELECT stream_index, language FROM subtitle_track_language WHERE path = ?")
+    .all(path) as Array<{ stream_index: number; language: string }>;
+  return new Map(rows.map((r) => [r.stream_index, r.language]));
+}
+
+export function setTrackLanguages(entries: ReadonlyArray<{ path: string; index: number; language: string }>): number {
+  const put = getDb().prepare(
+    `INSERT INTO subtitle_track_language (path, stream_index, language, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(path, stream_index) DO UPDATE SET language = excluded.language, updated_at = excluded.updated_at`,
+  );
+  const now = Date.now();
+  for (const e of entries) put.run(e.path, e.index, e.language, now);
+  return entries.length;
+}
+
 export function getRecommendedIndex(itemId: string): number | null {
   const row = asRow<SubtitlePref>(
     getDb().prepare("SELECT * FROM subtitle_prefs WHERE jellyfin_item_id = ?").get(itemId),
@@ -170,15 +188,20 @@ export function listSubtitles(item: MediaItem): SubtitleTrack[] {
   if (!source) return [];
 
   const recommendedIndex = getRecommendedIndex(item.Id);
+  const found = item.Path ? trackLanguages(item.Path) : new Map<number, string>();
 
   const tracks = (source.MediaStreams ?? [])
     .filter((stream) => stream.Type === "Subtitle")
     .filter((stream) => !isPictureCodec(stream.Codec))
     .map((stream) => {
-      const language = stream.Language ?? null;
+      // A built-in track with no tag of its own takes the language read from
+      // its text (subtitle_track_language); a tag the file has always wins.
+      const own = stream.Language && stream.Language.toLowerCase() !== "und" ? stream.Language : null;
+      const read = !own && !stream.IsExternal ? (found.get(stream.Index) ?? null) : null;
+      const language = own ?? read;
       return {
         index: stream.Index,
-        label: readableLabel(stream),
+        label: readableLabel(read ? { ...stream, Language: read } : stream),
         language,
         isExternal: Boolean(stream.IsExternal),
         isForced: Boolean(stream.IsForced),
