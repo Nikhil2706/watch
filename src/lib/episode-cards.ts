@@ -1,6 +1,6 @@
 import "server-only";
 
-import { parseEpisodeInfo } from "./episode-naming";
+import { episodeInfo, getEpisodeNumberMap } from "./episode-numbers";
 import { getGroupedPathMap, getGroupKind, getGroupSeriesPoster } from "./library-curation";
 import type { MediaItem } from "./media";
 import { episodeLine } from "./resume-labels";
@@ -26,10 +26,11 @@ export function episodeCards(items: readonly MediaItem[]): EpisodeCards {
   const episodes = items.filter((i) => i.Path && showOfPath.has(i.Path));
   const names = episodeTilesForPaths(episodes.map((i) => i.Path!));
   const cards: EpisodeCards = { titles: new Map(), lines: new Map(), posters: new Map() };
+  const numbers = getEpisodeNumberMap();
   for (const item of episodes) {
     const show = showOfPath.get(item.Path!)!;
     const named = names.get(item.Path!);
-    const parsed = parseEpisodeInfo(item.Path!);
+    const parsed = episodeInfo(item.Path!, numbers);
     cards.titles.set(item.Id, show.groupName);
     const line = episodeLine(
       named?.seasonNumber ?? parsed.season,

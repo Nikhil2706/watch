@@ -93,8 +93,12 @@
  * then. ADD COLUMN with defaults (runVersionedMigrations); nothing existing
  * changes. (72) channels.description: what the channel is, in a sentence or
  * two, shown on the guide beside the programme's own summary.
+ * 73: library_episode_numbers — a season and episode set by hand for a file
+ * whose name has none (a collection of shorts); library_group_audio — the
+ * audio language a show plays in when its files default to another (the
+ * Looney Tunes Blu-ray rips default to a Ukrainian dub). New tables only.
  */
-export const SCHEMA_VERSION = 72;
+export const SCHEMA_VERSION = 73;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS invites (
@@ -502,6 +506,25 @@ CREATE TABLE IF NOT EXISTS library_groups (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_library_groups_group ON library_groups(group_id);
+
+-- A season and episode for a file whose name has none (episode-numbers.ts):
+-- a collection of shorts numbered by year and release order. Wins over the
+-- filename wherever a show is put in order. (v73)
+CREATE TABLE IF NOT EXISTS library_episode_numbers (
+  path       TEXT PRIMARY KEY,
+  season     INTEGER NOT NULL,
+  episode    INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+) STRICT;
+
+-- The audio language a show plays in (ISO 639-2, "eng") when its files'
+-- default track is another: playback asks Jellyfin for that track instead.
+-- (v73)
+CREATE TABLE IF NOT EXISTS library_group_audio (
+  group_id   TEXT PRIMARY KEY,
+  language   TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+) STRICT;
 
 -- Special features: a making-of, a documentary about a director, a
 -- retrospective on an actor. Library items in their own right, but they are
