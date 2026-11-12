@@ -83,7 +83,7 @@ export default async function HomePage() {
     // Read well past the row's length: it is cut to one card per show below,
     // and a run of one series would otherwise leave the row near empty.
     getRecentlyWatched(session, RECENTLY_WATCHED_ROW * 6).catch(() => []),
-    getLatest(session).catch(() => {
+    getLatest(session, RECENTLY_ADDED_ROW).catch(() => {
       libraryUnreachable = true;
       return [];
     }),
@@ -129,8 +129,8 @@ export default async function HomePage() {
       collapsed: collapseEpisodeGroups(await getAllMovies(session, { genre, limit: 20 }).catch(() => [])),
     })),
   );
-  // Folded first, then cut: getLatest reads far past the row so that one
-  // series cannot take every place (media.ts, LATEST_READ).
+  // Folded first, then cut: getLatest reads until it has a row's worth of
+  // cards with each show counted once (media.ts, readUntilCards).
   const collapsedLatest = collapseEpisodeGroups(latest);
   collapsedLatest.items = collapsedLatest.items.slice(0, RECENTLY_ADDED_ROW);
 
