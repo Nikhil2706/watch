@@ -12,6 +12,7 @@ import { continueRemovals } from "./continue-removed";
 import { continueWatchingOrder, nextUpEpisodes, type EpisodeState } from "./next-up";
 import { userFetch, userPost } from "./jellyfin";
 import { everyPage } from "./jellyfin-listing";
+import { readUntilCards } from "./latest-per-show";
 import {
   getAllGroupSeriesPosters,
   getConfirmedPathSet,
@@ -298,24 +299,42 @@ export async function getRecentlyWatched(
 }
 
 /**
- * Newest first, read well past the row's length: Home folds a show's episodes
- * into one card, and with 20 a run of one series emptied the row — on
- * 2026-11-02, 18 re-fetched Buffy episodes made it three cards long and put a
- * whole new season of Angel at 21st to 47th, off it.
+ * Newest first, read until there are enough cards for Home's row once each
+ * show is folded into one (readUntilCards). A fixed read of 200 files was cut
+ * before folding, so one big show could fill it: Looney Tunes' 466 shorts
+ * were a single card and left nothing else in Recently added. Pages of 200,
+ * at most 15 (3,000 files), so a library-wide run of new files still stops.
  */
-const LATEST_READ = 200;
+const LATEST_PAGE = 200;
+const LATEST_MAX_PAGES = 15;
 
-export async function getLatest(session: ResolvedSession): Promise<MediaItem[]> {
+export async function getLatest(session: ResolvedSession, cards = 20): Promise<MediaItem[]> {
   const [token, device] = creds(session);
-  // /Items/Latest returns a bare array, not the usual {Items,TotalRecordCount}.
-  const data = await userFetch<MediaItem[]>(token, device, "/Items/Latest", {
-    userId: session.jellyfinUserId,
-    limit: LATEST_READ,
-    includeItemTypes: "Movie",
-    fields: LIST_FIELDS,
-    enableImageTypes: "Primary,Backdrop",
-  });
-  return filterVisible(Array.isArray(data) ? data : [], session);
+  const showOf = getGroupedPathMap();
+  return readUntilCards<MediaItem>(
+    async (startIndex, limit) =>
+      (
+        await userFetch<ItemsResponse>(token, device, "/Items", {
+          userId: session.jellyfinUserId,
+          recursive: true,
+          includeItemTypes: "Movie",
+          // Same order as Jellyfin's own /Items/Latest, which cannot page.
+          sortBy: "DateCreated,SortName",
+          sortOrder: "Descending",
+          startIndex,
+          limit,
+          fields: LIST_FIELDS,
+          enableImageTypes: "Primary,Backdrop",
+        })
+      )?.Items ?? [],
+    {
+      showOf: (item) => (item.Path ? showOf.get(item.Path)?.groupId : undefined),
+      keep: (items) => filterVisible([...items], session),
+      cards,
+      pageSize: LATEST_PAGE,
+      maxPages: LATEST_MAX_PAGES,
+    },
+  );
 }
 
 /**
