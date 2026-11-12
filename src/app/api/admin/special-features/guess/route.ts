@@ -1,7 +1,7 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminMovies } from "@/lib/admin-library-cache";
 import { getPeopleForAllMoviesAdmin } from "@/lib/jellyfin";
-import { listGroups } from "@/lib/library-curation";
+import { getGroupKind, listGroups } from "@/lib/library-curation";
 import { guess, type KnownThings } from "@/lib/special-feature-guess";
 import { getSpecialFeatureIdSet } from "@/lib/special-features";
 
@@ -56,7 +56,9 @@ export async function GET(request: Request): Promise<Response> {
     films: movies
       .filter((m) => !alreadyMarked.has(m.Id))
       .map((m) => ({ id: m.Id, title: m.Name })),
-    groups: listGroups().map((g) => ({ id: g.groupId, name: g.groupName })),
+    // Kind and member paths too: an extra left among a show's episodes is
+    // proposed for that show (showFolderMatch).
+    groups: listGroups().map((g) => ({ id: g.groupId, name: g.groupName, kind: getGroupKind(g.groupId), paths: g.paths })),
     people: [...peopleById.values()],
   };
 
@@ -67,7 +69,7 @@ export async function GET(request: Request): Promise<Response> {
     .filter((m) => !alreadyMarked.has(m.Id))
     .map((m) =>
       guess(
-        { itemId: m.Id, title: m.Name, year: m.ProductionYear ?? null, overview: m.Overview ?? null },
+        { itemId: m.Id, title: m.Name, year: m.ProductionYear ?? null, overview: m.Overview ?? null, path: m.Path ?? null },
         known,
       ),
     )

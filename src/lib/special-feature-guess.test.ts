@@ -119,3 +119,57 @@ test("guessing never returns a plain film", () => {
   assert.equal(guess(candidate("Blade Runner"), known), null);
   assert.equal(guess(candidate("The Thing", "A crew in Antarctica."), known), null);
 });
+
+/* ---- extras left in a show's folder ---- */
+
+const ANGEL = "/media/TV/Angel.s01.1999.dvdrip.x264";
+const NR = "/media/TV/NewsRadio [.x264 DVD Rips] Commentaries, Subtitles, Extras";
+const shows: KnownThings = {
+  films: [],
+  groups: [
+    { id: "g-angel", name: "Angel", kind: "series", paths: [`${ANGEL}/Angel.1x01.City_Of.x264.mkv`, `${ANGEL}/Angel.1x02.Lonely_Hearts.x264.mkv`] },
+    { id: "g-nr", name: "NewsRadio", kind: null, paths: [`${NR}/Season 01/01 - s1e01 - Pilot.mkv`, `${NR}/Season 05/76 - s5e01 - Bill Moves On.mkv`] },
+    { id: "g-out1", name: "Out 1", kind: "movie", paths: ["/media/French/Rivette/Out 1 - Part 1.mkv"] },
+    { id: "g-flat", name: "Flat", kind: "series", paths: ["/media/TV/Flat S01E01.mkv", "/media/TV/Flat S01E02.mkv"] },
+    { id: "g-medici", name: "The Age of the Medici", kind: null, paths: ["/media/Italian/Rossellini/L'eta di Cosimo.mkv", "/media/Italian/Rossellini/L'eta di Cosimo (2).mkv"] },
+  ],
+  people: [],
+};
+const at = (path: string, title = path.slice(path.lastIndexOf("/") + 1)) => ({ itemId: "x", title, year: null, overview: null, path });
+
+test("an extra beside a show's episodes is proposed for that show, with a clean name", () => {
+  const g = guess(at(`${ANGEL}/Angel.1xEX.I'm_Cordelia.dvdrip.x264.mkv`, "Angel.1xEX.I'm_Cordelia"), shows);
+  assert.ok(g);
+  assert.ok(g.confidence >= 50);
+  assert.deepEqual(g.targets.map((t) => [t.kind, t.targetId]), [["franchise", "g-angel"]]);
+  assert.equal(g.suggestedName, "I'm Cordelia");
+});
+
+test("an extra in a season folder of a show nobody linked is still that show's", () => {
+  const g = guess(at(`${NR}/Season 03/Season 3 Bloopers.mkv`), shows);
+  assert.ok(g);
+  assert.equal(g.targets[0]?.targetId, "g-nr");
+  assert.equal(g.suggestedName, "Season 3 Bloopers");
+  assert.equal(guess(at(`${NR}/Season 05/One Man NewsRadio - Joe Furey 01.mkv`), shows)?.suggestedName, "One Man NewsRadio - Joe Furey 01");
+});
+
+test("the folder rule never claims an episode, a film's folder, or a library root", () => {
+  // An episode not yet grouped: it has its own marker.
+  assert.equal(guess(at(`${ANGEL}/Angel.1x03.In_the_Dark.x264.mkv`), shows), null);
+  // A member of the group itself.
+  assert.equal(guess(at(`${ANGEL}/Angel.1x01.City_Of.x264.mkv`), shows), null);
+  // Beside a film kept in parts: other films share such folders.
+  assert.equal(guess(at("/media/French/Rivette/Celine and Julie Go Boating.mkv"), shows), null);
+  // Directly under the TV root, where the "Flat" show's file also is.
+  assert.equal(guess(at("/media/TV/Something Else.mkv"), shows), null);
+  // A mini-series whose parts carry no episode numbers, in a director's folder.
+  assert.equal(guess(at("/media/Italian/Rossellini/Socrates 1971.mkv"), shows), null);
+});
+
+test("extra names", async () => {
+  const { extraName } = await import("./special-feature-guess.ts");
+  assert.equal(extraName(`${ANGEL}/Angel.1xEX.Season_1_Overview.dvdrip.x264.mkv`, "Angel"), "Season 1 Overview");
+  assert.equal(extraName(`${ANGEL}/Angel.1xEX.Introducing_Angel.dvdrip.x264.mkv`, "Angel"), "Introducing Angel");
+  assert.equal(extraName("/m/TV/Show/Show - Extras - Gag Reel.mkv", "Show"), "Gag Reel");
+  assert.equal(extraName("/m/TV/Show/Making of Space Episode.mkv", "Show"), "Making of Space Episode");
+});

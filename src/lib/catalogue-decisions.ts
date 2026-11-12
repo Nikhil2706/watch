@@ -20,7 +20,7 @@ import {
 import { acceptFolderSuggestion } from "./folder-match";
 import { createVersionSet, removeFromVersionSet, setVersionLabel } from "./film-versions";
 import { groupSeriesNow, keepAsFilm } from "./series-autogroup";
-import { addTarget, markSpecialFeature, unmarkSpecialFeature } from "./special-features";
+import { addTarget, listSpecialFeatures, markSpecialFeature, unmarkSpecialFeature } from "./special-features";
 import type { AdminMovieListItem } from "./jellyfin";
 
 /**
@@ -100,10 +100,17 @@ interface Projected {
 interface FullSources extends ListingSources {
   groups: ReturnType<typeof getGroupedPathMap>;
   problems: ReturnType<typeof fileProblems>;
+  /** Each marked feature's first place, by item id: null when it is mapped nowhere. */
+  featureOf: Map<string, string | null>;
 }
 
 function readSources(): FullSources {
-  return { ...readListingSources(), groups: getGroupedPathMap(), problems: fileProblems() };
+  const featureOf = new Map<string, string | null>();
+  for (const f of listSpecialFeatures()) {
+    const t = f.targets[0];
+    featureOf.set(f.itemId, t ? (t.targetLabel ?? t.targetId) : null);
+  }
+  return { ...readListingSources(), groups: getGroupedPathMap(), problems: fileProblems(), featureOf };
 }
 
 /**
@@ -117,7 +124,12 @@ function readSources(): FullSources {
  *    had nothing to take back.
  */
 function facts(item: AdminMovieListItem, s: FullSources): CatalogueFacts {
-  const f = listingFacts(item, s);
+  const listed = listingFacts(item, s);
+  // Where a feature is shown: mapping one answers "what is this?" the way
+  // putting a file in a show does (catalogue-state.ts, silenced()).
+  const f: CatalogueFacts = s.featureOf.has(item.Id)
+    ? { ...listed, specialFeature: { of: s.featureOf.get(item.Id) ?? null, mapped: s.featureOf.get(item.Id) != null } }
+    : listed;
   if (!item.Path) return f;
   const check = s.problems.get(item.Path);
   return {

@@ -227,6 +227,24 @@ test("a grouped episode with no metadata is placed, listed everywhere its show i
   for (const context of LIST_CONTEXTS) assert.equal(isListed(s, context), true, context);
 });
 
+test("a show's extra with no metadata, mapped to the show, is placed and asks nothing", () => {
+  const state = deriveCatalogueState(facts({ hasMetadata: false, specialFeature: { of: "Angel", mapped: true } }));
+  assert.equal(state.state, "placed");
+  assert.equal(state.needsYou, false);
+  assert.equal(state.placement.as, "special_feature");
+});
+
+test("an extra with no metadata and mapped nowhere still needs you", () => {
+  const state = deriveCatalogueState(facts({ hasMetadata: false, specialFeature: { of: null, mapped: false } }));
+  assert.equal(state.state, "needs_decision");
+  assert.ok(state.reasons.some((r) => r.code === "no_metadata" && r.needsYou));
+});
+
+test("a mapped extra that is a duplicate is still asked about", () => {
+  const state = deriveCatalogueState(facts({ specialFeature: { of: "Angel", mapped: true }, duplicate: { copies: 2 } }));
+  assert.ok(state.reasons.some((r) => r.code === "duplicate" && r.needsYou));
+});
+
 test("a grouped episode with no metadata is still hidden when the curator hid it", () => {
   const s = deriveCatalogueState(facts({ group: { groupId: "g", groupName: "Angel" }, hasMetadata: false, excluded: {} }));
   assert.equal(isListed(s, "discovery"), false);

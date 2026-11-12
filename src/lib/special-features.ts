@@ -199,6 +199,11 @@ export function markSpecialFeature(itemId: string, title?: string | null, note?:
     .run(itemId, title ?? null, note ?? null, Date.now());
 }
 
+/** The name the console lists it by; the caller writes the same name to Jellyfin. */
+export function renameSpecialFeature(itemId: string, title: string): void {
+  getDb().prepare("UPDATE special_features SET title = ? WHERE jellyfin_item_id = ?").run(title, itemId);
+}
+
 /** Unmarking drops the mappings too — they mean nothing without the mark. */
 export function unmarkSpecialFeature(itemId: string): boolean {
   return transaction(() => {

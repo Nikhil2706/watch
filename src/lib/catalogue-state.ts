@@ -249,8 +249,16 @@ const RULES: readonly Rule[] = [
  */
 const SILENCED_BY_GROUP: ReadonlySet<ReasonCode> = new Set(["no_metadata", "identifying", "duplicate"]);
 
+/**
+ * Showing a special feature somewhere answers the same question: a show's DVD
+ * extra mapped to the show ("Season 3 Bloopers" on NewsRadio's page) has no
+ * metadata anywhere and needs none. Duplicates are still asked about.
+ */
+const SILENCED_BY_FEATURE: ReadonlySet<ReasonCode> = new Set(["no_metadata", "identifying"]);
+
 function silenced(code: ReasonCode, f: CatalogueFacts): boolean {
   if (code !== "excluded" && f.excluded) return true;
+  if (f.specialFeature?.mapped === true && SILENCED_BY_FEATURE.has(code)) return true;
   return !!f.group && SILENCED_BY_GROUP.has(code);
 }
 
