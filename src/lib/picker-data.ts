@@ -3,7 +3,7 @@ import "server-only";
 import { buildBrowseData, basePopularity } from "./browse-data";
 import { getDb, asRows } from "./db";
 import { getList } from "./lists";
-import { getResume } from "./media";
+import { getResume, posterUrl } from "./media";
 import {
   applyColdStart,
   buildTasteProfile,
@@ -161,7 +161,11 @@ export async function buildPick(session: ResolvedSession, request: PickRequest):
     profile,
   );
 
-  const posters = new Map(catalogue.movies.map((m) => [m.item.Id, m.poster ?? null]));
+  // `poster` is set only for a group (its series poster); a film leaves it
+  // empty because PosterCard works its poster out from the item. The sheet is
+  // not a PosterCard, so a film's poster comes from the item here — without
+  // this every film in "Choose something for me" showed no poster.
+  const posters = new Map(catalogue.movies.map((m) => [m.item.Id, m.poster ?? posterUrl(m.item, 240)]));
 
   return {
     picks: slate.map((s) => toPick(s, posters)),
