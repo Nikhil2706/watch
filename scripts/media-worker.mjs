@@ -54,6 +54,7 @@ import {
   keptOriginalPath,
   mp4SubtitlesBlock,
   needsBrowserAudio,
+  queueOrder,
   remuxArgs,
   remuxReadsAsWell,
   verifyRemux,
@@ -677,6 +678,18 @@ async function addBrowserAudioForAWhile() {
     for (const path of known.keys()) {
       if (path !== AUDIO_WALK_MARK && !present.has(path)) db.prepare("DELETE FROM browser_audio WHERE path = ?").run(path);
     }
+    // Asked-for files first, then films, then episodes (queueOrder).
+    const requested = new Set([...known.values()].filter((r) => r.status === "requested").map((r) => r.path));
+    const episodes = new Set(
+      db
+        .prepare(
+          `SELECT g.path FROM library_groups g LEFT JOIN library_group_series s ON s.group_id = g.group_id
+           WHERE COALESCE(s.kind, 'series') <> 'movie'`,
+        )
+        .all()
+        .map((r) => r.path),
+    );
+    const ordered = queueOrder(todo, { requested, episodes });
 
     const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
     let allowance =
@@ -685,7 +698,7 @@ async function addBrowserAudioForAWhile() {
     let probed = 0;
     let added = 0;
     let waiting = 0;
-    for (const file of todo) {
+    for (const file of ordered) {
       if (stopping || probed >= BROWSER_AUDIO_PROBES_PER_PASS) break;
       if (await someoneIsWatching()) break;
       probed += 1;
