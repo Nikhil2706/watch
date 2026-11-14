@@ -7,6 +7,7 @@ import {
   keptOriginalPath,
   mp4SubtitlesBlock,
   needsBrowserAudio,
+  queueOrder,
   remuxArgs,
   remuxReadsAsWell,
   verifyRemux,
@@ -142,4 +143,19 @@ test("a remux that cannot be opened is refused", () => {
     ok: false,
     reason: "the new file cannot be opened",
   });
+});
+
+test("queue: asked-for files first, then films, then episodes, each in folder order", () => {
+  const files = ["/media/TV/LT/a.mkv", "/media/French/film1.mkv", "/media/TV/LT/b.mkv", "/media/We Are One/x.mp4", "/media/French/asked.mkv"];
+  const order = queueOrder(files, {
+    requested: new Set(["/media/French/asked.mkv"]),
+    episodes: new Set(["/media/TV/LT/a.mkv", "/media/TV/LT/b.mkv"]),
+  });
+  assert.deepEqual(order, ["/media/French/asked.mkv", "/media/French/film1.mkv", "/media/We Are One/x.mp4", "/media/TV/LT/a.mkv", "/media/TV/LT/b.mkv"]);
+});
+
+test("queue: an asked-for episode still goes first; nothing known keeps folder order", () => {
+  const files = ["/f1.mkv", "/e1.mkv", "/f2.mkv"];
+  assert.deepEqual(queueOrder(files, { requested: new Set(["/e1.mkv"]), episodes: new Set(["/e1.mkv"]) }), ["/e1.mkv", "/f1.mkv", "/f2.mkv"]);
+  assert.deepEqual(queueOrder(files), files);
 });

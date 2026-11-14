@@ -199,3 +199,20 @@ export function keptOriginalPath(file) {
 export function brokenRewritePath(file) {
   return keptOriginalPath(file).replace(".before-browser-audio", ".browser-audio-broken");
 }
+
+/**
+ * The order the worker works through files that may need a browser track:
+ * ones the owner asked for ("Add browser audio now") first, then films, then
+ * TV episodes. Only 20 tracks are added a day, and a show's episodes arrive
+ * by the dozen (139 Looney Tunes shorts on 2026-11-12), so in folder order a
+ * film could wait days behind a show. Within each rank the given order is
+ * kept. `requested` and `episodes` are Sets of paths; an episode is a file in
+ * a group that is not a film kept in parts.
+ */
+export function queueOrder(files, { requested = new Set(), episodes = new Set() } = {}) {
+  const rank = (file) => (requested.has(file) ? 0 : episodes.has(file) ? 2 : 1);
+  return files
+    .map((file, at) => ({ file, at, rank: rank(file) }))
+    .sort((x, y) => x.rank - y.rank || x.at - y.at)
+    .map((x) => x.file);
+}
