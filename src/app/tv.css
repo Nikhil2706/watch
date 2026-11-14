@@ -1433,6 +1433,8 @@ html[data-tv="true"] .end-reading-qr svg {
 }
 
 html[data-tv="true"] .end-reading-title {
+  font-size: 0.95rem;
+}
 
 /* Season headings in the episode page's row, read from the sofa. */
 html[data-tv="true"] .row-scroll--marked {
