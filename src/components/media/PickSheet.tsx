@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { useTvBack } from "@/components/tv/TvProvider";
+import { useTvBack, useTvMode } from "@/components/tv/TvProvider";
 import { useCloseOnBack } from "@/lib/overlay-back";
 import { findNextFocusable, type Direction } from "@/lib/tv/spatial-nav";
 
@@ -13,10 +13,14 @@ interface Pick {
   title: string;
   year: number | null;
   href: string;
+  playHref: string | null;
   poster: string | null;
   reason: string;
   isGroup: boolean;
   runtimeMinutes: number | null;
+  directors: string[];
+  genres: string[];
+  overview: string | null;
 }
 
 interface PickResponse {
@@ -28,11 +32,17 @@ interface PickResponse {
 
 type Mode = "new" | "finish" | "again" | "random";
 
-const MODE_LABELS: Array<[Mode, string]> = [
+const MODES: Array<[Mode, string]> = [
   ["new", "Something new"],
   ["finish", "Finish something"],
-  ["again", "Watch it again"],
-  ["random", "Pure random"],
+  ["again", "Watch again"],
+  ["random", "Anything"],
+];
+
+const LENGTHS: Array<[number | null, string]> = [
+  [null, "Any length"],
+  [90, "Under 90 min"],
+  [120, "Under 2 hours"],
 ];
 
 const ARROWS: Record<string, Direction> = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
@@ -40,8 +50,22 @@ const ARROWS: Record<string, Direction> = { ArrowUp: "up", ArrowDown: "down", Ar
 /** After this many re-rolls, offer the way out. Paralysis is the enemy here. */
 const REROLL_LIMIT = 5;
 
+function runtimeLabel(minutes: number | null): string | null {
+  if (!minutes) return null;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h === 0 ? `${m} min` : m === 0 ? `${h} h` : `${h} h ${m} min`;
+}
+
 /**
  * "Choose something for me".
+ *
+ * Laid out top to bottom in the order a person decides: what kind of thing,
+ * how long, then the pick itself (what it is, why it was picked, what it is
+ * about), then what to do with it. Each filter is a labelled group of options
+ * (a radio group to a screen reader) whose chosen option is filled and ticked,
+ * not just outlined. The pick sits in a live region, so a new one is read out.
+ * Play starts a film straight away; "More about it" opens its page.
  *
  * The slate arrives ten at a time and re-rolling walks it locally, so pressing
  * again is instant and never touches the network until the slate runs out.
@@ -49,8 +73,7 @@ const REROLL_LIMIT = 5;
  * What has been offered lives in sessionStorage and nowhere else. That is a
  * deliberate privacy choice, not an oversight: a server-side offer log would
  * be the persistent per-person viewing record that the metrics feature was
- * parked over. The cost is that re-rolls do not follow you between devices,
- * which nobody will ever notice.
+ * parked over.
  */
 export function PickSheet({ onClose }: { onClose: () => void }) {
   const [mode, setMode] = useState<Mode>("new");
@@ -61,6 +84,11 @@ export function PickSheet({ onClose }: { onClose: () => void }) {
   const [coldStart, setColdStart] = useState(false);
   const [rerolls, setRerolls] = useState(0);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const tvMode = useTvMode();
+  const ids = useId();
+  const titleId = `${ids}-title`;
+  const moodId = `${ids}-mood`;
+  const lengthId = `${ids}-length`;
 
   const seen = useCallback((): string[] => {
     try {
@@ -70,9 +98,9 @@ export function PickSheet({ onClose }: { onClose: () => void }) {
     }
   }, []);
 
-  const remember = useCallback((ids: string[]) => {
+  const remember = useCallback((list: string[]) => {
     try {
-      const merged = Array.from(new Set([...JSON.parse(sessionStorage.getItem("pick-offered") ?? "[]"), ...ids]));
+      const merged = Array.from(new Set([...JSON.parse(sessionStorage.getItem("pick-offered") ?? "[]"), ...list]));
       sessionStorage.setItem("pick-offered", JSON.stringify(merged.slice(-200)));
     } catch {
       // A private window with storage disabled just means re-rolls repeat
@@ -125,8 +153,7 @@ export function PickSheet({ onClose }: { onClose: () => void }) {
 
   // The TV remote's Back closes the sheet rather than leaving the page: the
   // Android app asks overlay-back first, a TV browser sends Escape to
-  // TvProvider's Back stack. Without these, Back went to the previous page
-  // with the sheet still open.
+  // TvProvider's Back stack.
   useCloseOnBack(true, onClose);
   useTvBack(() => {
     onClose();
@@ -134,18 +161,25 @@ export function PickSheet({ onClose }: { onClose: () => void }) {
   });
 
   // Drawn on <body>: inside the page, a transformed ancestor (a TV row) made
-  // "position: fixed" relative to it, so the sheet sat over one row and the
-  // page behind it was not dimmed.
+  // "position: fixed" relative to it.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  // Nothing behind the sheet scrolls while it is open.
+  useEffect(() => {
+    const before = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = before;
+    };
+  }, []);
 
   const current = slate[index];
 
   // Focus goes into the sheet as it opens and onto Play/Open with the first
-  // pick, so OK on the remote acts on it. After that it stays where the
-  // viewer put it ("Something else" pressed again and again), and is only
-  // brought back when it fell out of the sheet (a reload removed the button
-  // it was on). Left on the opener, the remote drove the page behind.
+  // pick, so OK on the remote (or Enter) acts on it. After that it stays where
+  // the viewer put it ("Something else" pressed again and again), and is only
+  // brought back when it fell out of the sheet.
   const firstPickFocused = useRef(false);
   useEffect(() => {
     if (!mounted) return;
@@ -154,26 +188,45 @@ export function PickSheet({ onClose }: { onClose: () => void }) {
     const inside = dialog.contains(document.activeElement);
     if (state === "idle" && current && !firstPickFocused.current) {
       firstPickFocused.current = true;
-      dialog.querySelector<HTMLElement>(".pick-actions .btn")?.focus();
+      dialog.querySelector<HTMLElement>("[data-pick-primary]")?.focus();
       return;
     }
     if (inside) return;
-    const again = state === "idle" ? dialog.querySelector<HTMLElement>(".pick-actions .btn.ghost") : null;
-    (again ?? dialog.querySelector<HTMLElement>("button"))?.focus();
+    const again = state === "idle" ? dialog.querySelector<HTMLElement>("[data-pick-again]") : null;
+    (again ?? dialog.querySelector<HTMLElement>("[role=radio][aria-checked=true]"))?.focus();
   }, [mounted, state, current]);
 
-  /** The arrows move between the sheet's own buttons and never reach the page behind it. */
+  /**
+   * The arrows move between the sheet's own controls and never reach the page
+   * behind it. Tab is kept inside too, wrapping at either end.
+   */
   function onDialogKeyDown(event: React.KeyboardEvent) {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (event.key === "Tab") {
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>("button:not([disabled]), a[href]"));
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+      return;
+    }
     const direction = ARROWS[event.key];
-    if (!direction || !dialogRef.current) return;
+    if (!direction) return;
     event.preventDefault();
     event.stopPropagation();
     const active = document.activeElement;
-    if (!(active instanceof HTMLElement) || !dialogRef.current.contains(active)) {
-      dialogRef.current.querySelector<HTMLElement>("button")?.focus();
+    if (!(active instanceof HTMLElement) || !dialog.contains(active)) {
+      dialog.querySelector<HTMLElement>("button")?.focus();
       return;
     }
-    findNextFocusable(active, direction, dialogRef.current)?.focus();
+    findNextFocusable(active, direction, dialog)?.focus();
   }
 
   function reroll() {
@@ -186,12 +239,14 @@ export function PickSheet({ onClose }: { onClose: () => void }) {
   }
 
   function chooseMode(next: Mode) {
+    if (next === mode) return;
     setMode(next);
     setRerolls(0);
     void load(next, maxMinutes);
   }
 
-  function chooseRuntime(next: number | null) {
+  function chooseLength(next: number | null) {
+    if (next === maxMinutes) return;
     setMaxMinutes(next);
     setRerolls(0);
     void load(mode, next);
@@ -199,105 +254,167 @@ export function PickSheet({ onClose }: { onClose: () => void }) {
 
   if (!mounted) return null;
 
+  const facts = current
+    ? [current.year, runtimeLabel(current.runtimeMinutes), current.genres.join(", ") || null].filter(Boolean)
+    : [];
+
   return createPortal(
     <div className="pick-backdrop" role="presentation" onClick={onClose}>
       <div
         className="pick-sheet"
         role="dialog"
         aria-modal="true"
-        aria-label="Choose something for me"
+        aria-labelledby={titleId}
         tabIndex={-1}
         ref={dialogRef}
         onKeyDown={onDialogKeyDown}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="pick-modes">
-          {MODE_LABELS.map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={value === mode ? "pick-chip on" : "pick-chip"}
-              onClick={() => chooseMode(value)}
-            >
-              {label}
-            </button>
-          ))}
+        <header className="pick-head">
+          <h2 id={titleId}>Choose something for me</h2>
+          <button type="button" className="pick-close" onClick={onClose} aria-label="Close">
+            <span aria-hidden="true">×</span>
+          </button>
+        </header>
+
+        <div className="pick-filters">
+          <div className="pick-filter">
+            <p className="pick-filter-label" id={moodId}>
+              In the mood for
+            </p>
+            <div className="pick-options" role="radiogroup" aria-labelledby={moodId}>
+              {MODES.map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={value === mode}
+                  className="pick-option"
+                  onClick={() => chooseMode(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="pick-filter">
+            <p className="pick-filter-label" id={lengthId}>
+              How long have you got?
+            </p>
+            <div className="pick-options" role="radiogroup" aria-labelledby={lengthId}>
+              {LENGTHS.map(([value, label]) => (
+                <button
+                  key={label}
+                  type="button"
+                  role="radio"
+                  aria-checked={value === maxMinutes}
+                  className="pick-option"
+                  onClick={() => chooseLength(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
-        <div className="pick-modes">
-          {([[null, "Any length"], [90, "Under 90m"], [120, "Under 2h"]] as Array<[number | null, string]>).map(
-            ([value, label]) => (
-              <button
-                key={label}
-                type="button"
-                className={value === maxMinutes ? "pick-chip on" : "pick-chip"}
-                onClick={() => chooseRuntime(value)}
-              >
-                {label}
+        {/* The pick, read out when it changes. Kept the same height while
+            loading so the buttons below do not jump under a pointer. */}
+        <section className="pick-card" aria-live="polite" aria-busy={state === "loading"}>
+          {state === "loading" ? (
+            <div className="pick-card-body">
+              <div className="pick-poster pick-poster-empty" aria-hidden="true" />
+              <p className="pick-status">Finding something…</p>
+            </div>
+          ) : null}
+
+          {state === "error" ? (
+            <div className="pick-card-body pick-card-message">
+              <p className="pick-status">That didn&rsquo;t work.</p>
+              <button type="button" className="btn ghost" onClick={() => load(mode, maxMinutes)}>
+                Try again
               </button>
-            ),
-          )}
-        </div>
+            </div>
+          ) : null}
 
-        {state === "loading" ? <p className="pick-status">Looking…</p> : null}
+          {state === "empty" ? (
+            <div className="pick-card-body pick-card-message">
+              <p className="pick-status">Nothing left that matches.</p>
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => {
+                  setMaxMinutes(null);
+                  setMode("random");
+                  setRerolls(0);
+                  void load("random", null);
+                }}
+              >
+                Show me anything
+              </button>
+            </div>
+          ) : null}
 
-        {state === "error" ? (
-          <p className="pick-status">
-            That did not work. <button type="button" className="linkish" onClick={() => load(mode, maxMinutes)}>Try again</button>
-          </p>
-        ) : null}
+          {state === "idle" && current ? (
+            <div className="pick-card-body">
+              {current.poster ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={current.poster} alt="" className="pick-poster" decoding="async" />
+              ) : (
+                <div className="pick-poster pick-poster-empty" aria-hidden="true">
+                  {current.title}
+                </div>
+              )}
+              <div className="pick-meta">
+                <h3 className="pick-title">{current.title}</h3>
+                {facts.length > 0 ? <p className="pick-facts">{facts.join(" · ")}</p> : null}
+                {current.directors.length > 0 ? (
+                  <p className="pick-facts">Directed by {current.directors.join(" and ")}</p>
+                ) : null}
+                <p className="pick-why">
+                  <span className="pick-why-label">Why this: </span>
+                  {current.reason}
+                </p>
+                {current.overview ? <p className="pick-overview">{current.overview}</p> : null}
+              </div>
+            </div>
+          ) : null}
+        </section>
 
-        {state === "empty" ? (
-          <div className="pick-status">
-            <p>Nothing left that matches this.</p>
-            <button type="button" className="linkish" onClick={() => chooseRuntime(null)}>
-              Loosen the filters
+        {state === "idle" && current ? (
+          <div className="pick-actions">
+            <Link className="btn" href={current.playHref ?? current.href} onClick={onClose} data-pick-primary="">
+              {current.playHref ? "▶ Play" : "Open"}
+            </Link>
+            <button type="button" className="btn ghost" onClick={reroll} data-pick-again="">
+              ↻ Something else
             </button>
+            {current.playHref ? (
+              <Link className="btn ghost" href={current.href} onClick={onClose}>
+                More about it
+              </Link>
+            ) : null}
           </div>
         ) : null}
 
-        {state === "idle" && current ? (
-          <>
-            <div className="pick-result">
-              {current.poster ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={current.poster} alt="" className="pick-poster" loading="lazy" decoding="async" />
-              ) : (
-                <div className="pick-poster pick-poster-empty">{current.title}</div>
-              )}
-              <div className="pick-meta">
-                <h2>{current.title}</h2>
-                <p className="pick-sub">
-                  {[current.year, current.runtimeMinutes ? `${current.runtimeMinutes}m` : null]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-                <p className="pick-reason">{current.reason}</p>
-              </div>
-            </div>
-
-            <div className="pick-actions">
-              <Link className="btn" href={current.href} onClick={onClose}>
-                {current.isGroup ? "Open" : "Play"}
-              </Link>
-              <button type="button" className="btn ghost" onClick={reroll}>
-                Something else
-              </button>
-            </div>
-
-            {coldStart ? (
-              <p className="pick-note">
-                Nothing watched yet, so these lean on what he has written about.
-              </p>
-            ) : null}
-
-            {rerolls >= REROLL_LIMIT ? (
-              <p className="pick-note">
-                Still nothing? <Link href="/browse" onClick={onClose}>Just show me the shelf.</Link>
-              </p>
-            ) : null}
-          </>
+        {coldStart && state === "idle" ? (
+          <p className="pick-note">You haven&rsquo;t watched anything yet, so these lean on what critics rate highly.</p>
         ) : null}
+
+        {rerolls >= REROLL_LIMIT && state === "idle" ? (
+          <p className="pick-note">
+            Still nothing?{" "}
+            <Link href="/browse" onClick={onClose}>
+              Browse the whole library
+            </Link>
+            .
+          </p>
+        ) : null}
+
+        <p className="pick-hint" aria-hidden="true">
+          {tvMode ? "Back to close" : "Esc to close"}
+        </p>
       </div>
     </div>,
     document.body,

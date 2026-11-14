@@ -34,12 +34,49 @@ export interface PickCandidate {
   seen: boolean;
   href: string;
   isGroup: boolean;
-  /** How many of the curator's articles link to this film. The strongest signal this library actually has. */
+  /** How many collected articles (reviews, critics' lists) link to this film. The strongest signal this library actually has. */
   articleCount: number;
+  /** What those articles are, so the reason can say so (writtenUpReason). */
+  writtenUp?: WrittenUp;
   /** Fraction watched, 0-1, when the viewer has started it. */
   progress?: number;
   /** Jellyfin ticks, for the "something short" constraint. Null when unknown. */
   runtimeTicks?: number | null;
+}
+
+/** Where a film has been written about, from the collected articles. */
+export interface WrittenUp {
+  /** Critics' year-end and best-of lists it appears on. */
+  lists: number;
+  /** The year those lists are mostly for ("best of 2019"), when they agree. */
+  listYear: number | null;
+  /** Publications that reviewed or wrote about it (Reverse Shot, David Bordwell's site...). */
+  writers: string[];
+}
+
+/**
+ * The reason a pick gives when the collected articles are what put it there.
+ * It says what they are. The old line claimed "he" had written about the
+ * film, left from when the articles were one person's; on Marriage Story it
+ * stood for 76 critics' year-end lists and three Ringer pieces.
+ */
+export function writtenUpReason(w: WrittenUp | undefined): string {
+  const lists = w?.lists ?? 0;
+  const writers = w?.writers ?? [];
+  const named =
+    writers.length === 0
+      ? ""
+      : writers.length === 1
+        ? writers[0]
+        : writers.length === 2
+          ? `${writers[0]} and ${writers[1]}`
+          : `${writers[0]}, ${writers[1]} and ${writers.length - 2} more`;
+  const year = w?.listYear ? `-${w.listYear}` : "";
+  const listPart = lists === 0 ? "" : lists === 1 ? `On a critic's best-of${year} list` : `On ${lists} critics' best-of${year} lists`;
+  if (listPart && named) return `${listPart}, and written about by ${named}.`;
+  if (listPart) return `${listPart}.`;
+  if (named) return `Written about by ${named}.`;
+  return "Critics have written about this one.";
 }
 
 export interface TasteSignals {
@@ -190,7 +227,7 @@ export function scoreCandidates(
       [W_GENRE * genreScore, topMatch(candidate.genres, profile.genres, (n) => `More ${n.toLowerCase()}, which you keep coming back to.`)],
       [W_ACTOR * actorScore, topMatch(candidate.actors.slice(0, 8), profile.actors, (n) => `Because you have watched ${n}.`)],
       [W_DECADE * decadeScore, dec == null ? "" : `From the ${dec}s, which you keep coming back to.`],
-      [W_CURATOR * curatorScore, curatorScore > 0 ? "He has written about this one." : ""],
+      [W_CURATOR * curatorScore, curatorScore > 0 ? writtenUpReason(candidate.writtenUp) : ""],
       [W_POPULARITY * popScore * 0.6, "One of the better-regarded things on the shelf."],
     ];
     terms.sort((a, b) => b[0] - a[0]);
@@ -297,6 +334,6 @@ export function applyColdStart(picks: ScoredPick[], profile: TasteProfile): Scor
   if (!profile.isCold) return picks;
   return picks.map((p) => ({
     ...p,
-    reason: p.candidate.articleCount > 0 ? "He has written about this one." : COLD_START_REASON,
+    reason: p.candidate.articleCount > 0 ? writtenUpReason(p.candidate.writtenUp) : COLD_START_REASON,
   }));
 }
