@@ -2,6 +2,7 @@ import "server-only";
 
 import { buildBrowseData, basePopularity } from "./browse-data";
 import { getDb, asRows } from "./db";
+import { getGroupOverview } from "./library-curation";
 import { getList } from "./lists";
 import { getResume, posterUrl } from "./media";
 import {
@@ -13,6 +14,7 @@ import {
   type PickMode,
   type ScoredPick,
   type TasteSignals,
+  type WrittenUp,
 } from "./picker";
 import type { ResolvedSession } from "./session";
 
@@ -48,18 +50,60 @@ const ABANDON_MAX_PROGRESS = 0.2;
  * or list entries on the box, this is the signal that does the real work — see
  * the note at the top of picker.ts.
  */
-function articleCountsByImdb(): Map<string, number> {
-  const rows = asRows<{ imdb_id: string; n: number }>(
+interface ArticleFacts {
+  count: number;
+  writtenUp: WrittenUp;
+}
+
+/**
+ * Per IMDb id: how many collected articles link to it (the score), and what
+ * they are (the reason): critics' lists, and the publications that wrote
+ * about it. Wikipedia pages count towards the score but are not named.
+ */
+function articleFactsByImdb(): Map<string, ArticleFacts> {
+  const rows = asRows<{ imdb_id: string; source: string; kind: string; raw_year: number | null }>(
     getDb()
       .prepare(
-        `SELECT imdb_id, COUNT(*) AS n
-           FROM article_film_links
-          WHERE imdb_id IS NOT NULL AND imdb_id <> ''
-          GROUP BY imdb_id`,
+        `SELECT l.imdb_id, s.name AS source, s.kind, l.raw_year
+           FROM article_film_links l
+           JOIN scraped_articles a ON a.id = l.article_id
+           JOIN scrape_sources s ON s.id = a.source_id
+          WHERE l.imdb_id IS NOT NULL AND l.imdb_id <> ''`,
       )
       .all(),
   );
-  return new Map(rows.map((r) => [r.imdb_id, r.n]));
+  const tally = new Map<string, { count: number; lists: number; years: Map<number, number>; names: Map<string, number> }>();
+  for (const r of rows) {
+    let t = tally.get(r.imdb_id);
+    if (!t) {
+      t = { count: 0, lists: 0, years: new Map(), names: new Map() };
+      tally.set(r.imdb_id, t);
+    }
+    t.count += 1;
+    if (/wikipedia/i.test(r.source)) continue;
+    if (r.kind === "accolade") {
+      t.lists += 1;
+      if (r.raw_year) t.years.set(r.raw_year, (t.years.get(r.raw_year) ?? 0) + 1);
+    } else {
+      // "The Ringer (TV)" and "The Ringer" are one publication to a reader.
+      const name = r.source.replace(/\s*\(TV\)$/i, "");
+      t.names.set(name, (t.names.get(name) ?? 0) + 1);
+    }
+  }
+  const out = new Map<string, ArticleFacts>();
+  for (const [imdb, t] of tally) {
+    const [topYear, topCount] = [...t.years.entries()].sort((x, y) => y[1] - x[1])[0] ?? [null, 0];
+    out.set(imdb, {
+      count: t.count,
+      writtenUp: {
+        lists: t.lists,
+        // Named only when nearly all the lists are for the same year.
+        listYear: topYear != null && topCount >= t.lists * 0.8 ? topYear : null,
+        writers: [...t.names.entries()].sort((x, y) => y[1] - x[1]).map(([n]) => n),
+      },
+    });
+  }
+  return out;
 }
 
 /** The viewer's own star ratings, keyed by IMDb id — that is how they are stored. */
@@ -86,10 +130,18 @@ export interface PickResult {
     title: string;
     year: number | null;
     href: string;
+    /** Straight into the player, for a film; null for a show or collection (it opens its page). */
+    playHref: string | null;
     poster: string | null;
     reason: string;
     isGroup: boolean;
     runtimeMinutes: number | null;
+    /** Up to two, for the sheet's "Directed by" line. */
+    directors: string[];
+    /** Up to three. */
+    genres: string[];
+    /** The summary its own page shows: the film's (TMDB/OMDb, via Jellyfin), or the show's. */
+    overview: string | null;
   }>;
   mode: PickMode;
   /** True when there was no taste signal to work from — the UI says so plainly. */
@@ -100,7 +152,7 @@ export interface PickResult {
 
 export async function buildPick(session: ResolvedSession, request: PickRequest): Promise<PickResult> {
   const { catalogue } = await buildBrowseData(session);
-  const articles = articleCountsByImdb();
+  const articles = articleFactsByImdb();
   const ratings = ratingsByImdb(session.userId);
 
   const candidates: PickCandidate[] = catalogue.movies.map((m) => {
@@ -116,7 +168,8 @@ export async function buildPick(session: ResolvedSession, request: PickRequest):
       seen: m.seen,
       href: m.href,
       isGroup: m.isGroup,
-      articleCount: (imdb && articles.get(imdb)) || 0,
+      articleCount: (imdb && articles.get(imdb)?.count) || 0,
+      writtenUp: imdb ? articles.get(imdb)?.writtenUp : undefined,
       progress: progressOf(m.item.UserData),
       runtimeTicks: m.item.RunTimeTicks ?? null,
     };
@@ -166,9 +219,14 @@ export async function buildPick(session: ResolvedSession, request: PickRequest):
   // not a PosterCard, so a film's poster comes from the item here — without
   // this every film in "Choose something for me" showed no poster.
   const posters = new Map(catalogue.movies.map((m) => [m.item.Id, m.poster ?? posterUrl(m.item, 240)]));
+  // The same summary the title's own page shows: a film's from Jellyfin (its
+  // TMDB/OMDb overview), a show's or collection's from the curated group one.
+  const overviews = new Map(
+    catalogue.movies.map((m) => [m.item.Id, (m.isGroup ? getGroupOverview(m.item.Id) : m.item.Overview)?.trim() || null]),
+  );
 
   return {
-    picks: slate.map((s) => toPick(s, posters)),
+    picks: slate.map((s) => toPick(s, posters, overviews)),
     mode: request.mode,
     coldStart: profile.isCold,
     poolSize: pool.length,
@@ -184,6 +242,7 @@ function progressOf(ud: { PlayedPercentage?: number; PlaybackPositionTicks?: num
 function toPick(
   s: ScoredPick,
   posters: Map<string, string | null>,
+  overviews: Map<string, string | null>,
 ): PickResult["picks"][number] {
   const ticks = s.candidate.runtimeTicks ?? null;
   return {
@@ -195,10 +254,14 @@ function toPick(
     // deliberate: it sidesteps both the "picked part 2 of Fanny and Alexander"
     // bug and the case where the next episode is itself rollout-hidden.
     href: s.candidate.href,
+    playHref: s.candidate.isGroup ? null : `/watch/${encodeURIComponent(s.candidate.id)}`,
     poster: posters.get(s.candidate.id) ?? null,
     reason: s.reason,
     isGroup: s.candidate.isGroup,
     runtimeMinutes: ticks == null ? null : Math.round(ticks / 10_000 / 1000 / 60),
+    directors: s.candidate.directors.slice(0, 2),
+    genres: s.candidate.genres.slice(0, 3),
+    overview: overviews.get(s.candidate.id) ?? null,
   };
 }
 

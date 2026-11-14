@@ -1522,3 +1522,27 @@ html[data-tv="true"] .on-now-tile {
 html[data-tv="true"] .live-badge {
   font-size: 1.05rem;
 }
+
+/* "Choose something for me" on a TV: read from across the room. */
+html[data-tv="true"] .pick-sheet {
+  width: min(900px, 92vw);
+  padding: 28px 34px 18px;
+}
+html[data-tv="true"] .pick-head h2 { font-size: 1.6rem; }
+html[data-tv="true"] .pick-filter-label { font-size: 1rem; }
+html[data-tv="true"] .pick-option {
+  font-size: 1.05rem;
+  padding: 12px 20px;
+}
+html[data-tv="true"] .pick-option:focus,
+html[data-tv="true"] .pick-close:focus {
+  outline: 4px solid var(--accent);
+  outline-offset: 3px;
+}
+html[data-tv="true"] .pick-poster { width: 180px; }
+html[data-tv="true"] .pick-card-body { min-height: 270px; }
+html[data-tv="true"] .pick-title { font-size: 1.8rem; }
+html[data-tv="true"] .pick-facts,
+html[data-tv="true"] .pick-why { font-size: 1.1rem; }
+html[data-tv="true"] .pick-overview { font-size: 1.02rem; -webkit-line-clamp: 3; }
+html[data-tv="true"] .pick-hint { font-size: 0.95rem; }

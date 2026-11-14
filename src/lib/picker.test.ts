@@ -9,6 +9,7 @@ import {
   seededRandom,
   type PickCandidate,
   type TasteSignals,
+  writtenUpReason,
 } from "./picker.ts";
 
 function candidate(over: Partial<PickCandidate> & { id: string }): PickCandidate {
@@ -202,4 +203,22 @@ test("scores stay finite when a penalty applies to every candidate", () => {
   for (const s of scored) assert.ok(Number.isFinite(s.score));
   // Softmax over uniformly negative scores must still return a slate.
   assert.equal(pickSlate(scored, { seed: 2, size: 2 }).length, 2);
+});
+
+test("writtenUpReason says what the articles are, not who", () => {
+  assert.equal(
+    writtenUpReason({ lists: 76, listYear: 2019, writers: ["The Ringer", "Reverse Shot", "David Bordwell's Website on Cinema"] }),
+    "On 76 critics' best-of-2019 lists, and written about by The Ringer, Reverse Shot and 1 more.",
+  );
+  assert.equal(writtenUpReason({ lists: 3, listYear: null, writers: [] }), "On 3 critics' best-of lists.");
+  assert.equal(writtenUpReason({ lists: 1, listYear: 2007, writers: [] }), "On a critic's best-of-2007 list.");
+  assert.equal(writtenUpReason({ lists: 0, listYear: null, writers: ["Reverse Shot", "Kinoeye"] }), "Written about by Reverse Shot and Kinoeye.");
+  assert.equal(writtenUpReason({ lists: 0, listYear: null, writers: [] }), "Critics have written about this one.");
+  assert.equal(writtenUpReason(undefined), "Critics have written about this one.");
+});
+
+test("no reason says 'he' any more", () => {
+  const cands = [candidate({ id: "w", articleCount: 5, writtenUp: { lists: 5, listYear: 2019, writers: [] } })];
+  const picks = scoreCandidates(cands, buildTasteProfile(cands, { likedIds: new Set(), ratings: new Map(), playedIds: new Set(), abandonedIds: new Set() }));
+  for (const p of picks) assert.doesNotMatch(p.reason, /\bhe\b/i);
 });

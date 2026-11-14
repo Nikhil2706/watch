@@ -5613,12 +5613,15 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
 .offline-btn.is-busy { cursor: default; font-variant-numeric: tabular-nums; }
 
 
-/* --- Choose something for me ------------------------------------------- */
+/* --- Choose something for me -------------------------------------------
+   Top to bottom in the order a person decides: what kind, how long, the pick
+   (what, why, what it is about), then what to do. Options are filled and
+   ticked when chosen, not just outlined; controls are at least 40-44px. */
 
 .pick-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.62);
+  background: rgba(0, 0, 0, 0.7);
   display: grid;
   place-items: center;
   padding: 20px;
@@ -5626,54 +5629,118 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
 }
 
 .pick-sheet {
-  background: var(--surface-1, #14161b);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px;
-  width: min(560px, 100%);
-  max-height: 90vh;
+  background: var(--surface);
+  border: 1px solid var(--panel-edge);
+  border-radius: 14px;
+  padding: 20px 22px 14px;
+  width: min(640px, 100%);
+  max-height: 92vh;
   overflow-y: auto;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
 }
 
 .pick-sheet:focus { outline: none; }
 
-.pick-modes {
+.pick-head {
   display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-bottom: 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
-.pick-chip {
-  background: var(--surface-2);
-  color: var(--muted);
-  border: 1px solid var(--border);
+.pick-head h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.pick-close {
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 999px;
-  padding: 5px 12px;
-  font-size: 0.82rem;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 1.4rem;
+  line-height: 1;
   cursor: pointer;
 }
 
-.pick-chip.on {
-  color: var(--text);
-  border-color: var(--text);
+.pick-filters {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
-.pick-status {
+.pick-filter-label {
+  margin: 0 0 6px;
   color: var(--muted);
-  padding: 26px 2px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.pick-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pick-option {
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.pick-option:hover { border-color: var(--muted); }
+
+/* Chosen: filled and ticked, so it does not rest on colour alone. */
+.pick-option[aria-checked="true"] {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.pick-option[aria-checked="true"]::before {
+  content: "\2713  ";
+}
+
+.pick-option:focus-visible,
+.pick-close:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.pick-card {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 0;
+  margin-bottom: 14px;
+}
+
+.pick-card-body {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  min-height: 210px;
+}
+
+.pick-card-message {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
 }
 
-.pick-result {
-  display: flex;
-  gap: 16px;
-  margin: 14px 0 18px;
-  align-items: flex-start;
-}
-
 .pick-poster {
-  width: 120px;
+  width: 140px;
   aspect-ratio: 2 / 3;
   object-fit: cover;
   border-radius: 8px;
@@ -5686,25 +5753,50 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
   place-items: center;
   text-align: center;
   padding: 8px;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   color: var(--muted);
 }
 
-.pick-meta h2 {
+.pick-meta { min-width: 0; }
+
+.pick-title {
+  margin: 0 0 6px;
+  font-size: 1.35rem;
+  line-height: 1.2;
+}
+
+.pick-facts {
   margin: 0 0 4px;
-  font-size: 1.18rem;
-  line-height: 1.25;
-}
-
-.pick-sub {
-  margin: 0 0 10px;
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 0.88rem;
 }
 
-.pick-reason {
-  margin: 0;
+.pick-why {
+  margin: 10px 0 0;
   font-size: 0.95rem;
+}
+
+.pick-why-label {
+  color: var(--warm);
+  font-weight: 600;
+}
+
+/* The page's own summary, kept to a few lines so the buttons stay in view. */
+.pick-overview {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pick-status {
+  color: var(--muted);
+  margin: 0;
+  align-self: center;
 }
 
 .pick-actions {
@@ -5713,10 +5805,19 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
   flex-wrap: wrap;
 }
 
+.pick-actions .btn { min-height: 44px; }
+
 .pick-note {
-  margin: 14px 0 0;
+  margin: 12px 0 0;
   color: var(--muted);
-  font-size: 0.84rem;
+  font-size: 0.85rem;
+}
+
+.pick-hint {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-align: right;
 }
 
 .linkish {
@@ -5730,8 +5831,9 @@ html[data-tv="true"] .screen-code .code { font-size: 3.4rem; }
 }
 
 @media (max-width: 520px) {
-  .pick-result { flex-direction: column; }
-  .pick-poster { width: 100%; max-width: 180px; }
+  .pick-card-body { flex-direction: column; min-height: 0; }
+  .pick-poster { width: 120px; }
+  .pick-actions .btn { flex: 1 1 auto; text-align: center; }
 }
 
 .pick-entry {
