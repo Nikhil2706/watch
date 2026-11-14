@@ -2,6 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+
+import { useTvBack } from "@/components/tv/TvProvider";
+import { useCloseOnBack } from "@/lib/overlay-back";
+import { findNextFocusable, type Direction } from "@/lib/tv/spatial-nav";
 
 interface Pick {
   id: string;
@@ -29,6 +34,8 @@ const MODE_LABELS: Array<[Mode, string]> = [
   ["again", "Watch it again"],
   ["random", "Pure random"],
 ];
+
+const ARROWS: Record<string, Direction> = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
 
 /** After this many re-rolls, offer the way out. Paralysis is the enemy here. */
 const REROLL_LIMIT = 5;
@@ -113,11 +120,61 @@ export function PickSheet({ onClose }: { onClose: () => void }) {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    dialogRef.current?.focus();
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // The TV remote's Back closes the sheet rather than leaving the page: the
+  // Android app asks overlay-back first, a TV browser sends Escape to
+  // TvProvider's Back stack. Without these, Back went to the previous page
+  // with the sheet still open.
+  useCloseOnBack(true, onClose);
+  useTvBack(() => {
+    onClose();
+    return true;
+  });
+
+  // Drawn on <body>: inside the page, a transformed ancestor (a TV row) made
+  // "position: fixed" relative to it, so the sheet sat over one row and the
+  // page behind it was not dimmed.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const current = slate[index];
+
+  // Focus goes into the sheet as it opens and onto Play/Open with the first
+  // pick, so OK on the remote acts on it. After that it stays where the
+  // viewer put it ("Something else" pressed again and again), and is only
+  // brought back when it fell out of the sheet (a reload removed the button
+  // it was on). Left on the opener, the remote drove the page behind.
+  const firstPickFocused = useRef(false);
+  useEffect(() => {
+    if (!mounted) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const inside = dialog.contains(document.activeElement);
+    if (state === "idle" && current && !firstPickFocused.current) {
+      firstPickFocused.current = true;
+      dialog.querySelector<HTMLElement>(".pick-actions .btn")?.focus();
+      return;
+    }
+    if (inside) return;
+    const again = state === "idle" ? dialog.querySelector<HTMLElement>(".pick-actions .btn.ghost") : null;
+    (again ?? dialog.querySelector<HTMLElement>("button"))?.focus();
+  }, [mounted, state, current]);
+
+  /** The arrows move between the sheet's own buttons and never reach the page behind it. */
+  function onDialogKeyDown(event: React.KeyboardEvent) {
+    const direction = ARROWS[event.key];
+    if (!direction || !dialogRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !dialogRef.current.contains(active)) {
+      dialogRef.current.querySelector<HTMLElement>("button")?.focus();
+      return;
+    }
+    findNextFocusable(active, direction, dialogRef.current)?.focus();
+  }
 
   function reroll() {
     setRerolls((n) => n + 1);
@@ -140,7 +197,9 @@ export function PickSheet({ onClose }: { onClose: () => void }) {
     void load(mode, next);
   }
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <div className="pick-backdrop" role="presentation" onClick={onClose}>
       <div
         className="pick-sheet"
@@ -149,6 +208,7 @@ export function PickSheet({ onClose }: { onClose: () => void }) {
         aria-label="Choose something for me"
         tabIndex={-1}
         ref={dialogRef}
+        onKeyDown={onDialogKeyDown}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="pick-modes">
@@ -239,6 +299,7 @@ export function PickSheet({ onClose }: { onClose: () => void }) {
           </>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
