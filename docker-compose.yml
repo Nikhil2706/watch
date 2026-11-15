@@ -320,6 +320,35 @@ services:
   # Not on the `edge` network and not in the tunnel's hostname list: this is a
   # curator-only tool, reachable from the gate container over `internal` and
   # from this host's own loopback, and from nowhere else.
+  # The home door: the site on this Mac's home network, without Cloudflare
+  # (scripts/home-door.mjs). A device in the same flat, such as the TV app when
+  # it finds the door, loads http://<this Mac>:3080 instead of going out to
+  # Cloudflare and back. On 2026-11-16 the home line reached Cloudflare in
+  # Paris and a TV in the same flat could not start an episode. The door only
+  # passes requests to the gate; it refuses any Host that is not a home
+  # address. HOME_DOOR_BIND=127.0.0.1 keeps it off the network.
+  #
+  # Runs from the worker image (it carries the script), so a deploy that
+  # promotes the worker updates it too: `docker compose up -d --no-build
+  # --force-recreate gate worker home-door`.
+  home-door:
+    image: watch-worker:latest
+    pull_policy: never
+    container_name: jellyfin-gate-home-door
+    restart: unless-stopped
+    command: ["node", "/app/scripts/home-door.mjs"]
+    cpus: "0.5"
+    mem_limit: 128m
+    depends_on:
+      - gate
+    networks:
+      - edge
+    ports:
+      - "${HOME_DOOR_BIND:-0.0.0.0}:3080:3080"
+    environment:
+      - PUBLIC_URL=${PUBLIC_URL:?set PUBLIC_URL in .env}
+      - HOME_DOOR_UPSTREAM=http://gate:3000
+
   dupefinder:
     profiles: ["dupefinder"]
     build:

@@ -21,7 +21,8 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
-        android:banner="@drawable/tv_banner">
+        android:banner="@drawable/tv_banner"
+        android:networkSecurityConfig="@xml/network_security_config">
 
         <!-- Digital Asset Links, the app's half: declares the site, whose
              /.well-known/assetlinks.json names this app's signing key. With
@@ -59,6 +60,10 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- The home shortcut (HomeDoor.java) reads this device's own Wi-Fi
+         address to look for the Mac on the same network. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Downloads (see MainActivity's DownloadListener). From API 29 the
          DownloadManager writes to the public Downloads folder without any
