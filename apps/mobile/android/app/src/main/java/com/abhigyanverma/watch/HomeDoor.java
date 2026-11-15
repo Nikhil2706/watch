@@ -10,46 +10,62 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.util.Log;
+import android.webkit.CookieManager;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 
 import com.getcapacitor.Bridge;
-import com.getcapacitor.WebViewListener;
+import com.getcapacitor.BridgeWebViewClient;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.FilterInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * The home shortcut: when this device is on the same network as the Mac that
- * runs the site, load the site from the Mac directly instead of through
- * Cloudflare.
+ * The home shortcut: on the same network as the Mac that runs the site, the
+ * site's pages, images and video come from the Mac directly instead of
+ * through Cloudflare.
  *
  * The Mac runs a small pass-through on the LAN, the "home door"
  * (scripts/home-door.mjs, port 3080), which answers GET /__watch-home with
  * {"watch":"home","site":"https://watch..."}. On launch this asks the address
  * that worked last time, and failing that every address on this device's own
  * Wi-Fi or Ethernet network (/24 around it), all at once with short timeouts.
- * An answer counts only when it names this app's own site. Found: the page is
- * reloaded from the door, and its address remembered. Not found (away from
- * home, the Mac asleep): nothing happens and the site loads through Cloudflare
- * as it always has.
+ * An answer counts only when it names this app's own site.
+ *
+ * The app does NOT move to the door's address. It stays on the site's own
+ * https address, and its WebViewClient answers that address's GET requests by
+ * fetching the same path from the door. So the page, its cookies and
+ * Capacitor's bridge (which Capacitor attaches only to the site's address:
+ * in-app updates, offline downloads, "you are in the app") are exactly as
+ * they are away from home; only where the bytes come from changes. The first
+ * version (1.8.22) loaded the door's own http address instead, and the site
+ * then thought it was in a browser and offered to install the app.
+ *
+ * Left to the network, through Cloudflare as always: anything that is not a
+ * GET (a request body cannot be read here), live event streams, Capacitor's
+ * own paths, and any answer that is a redirect (a WebView cannot be handed
+ * one). If the door stops answering, everything goes back to the network.
  *
  * Why: on 2026-11-16 the owner's home line reached Cloudflare in Paris rather
  * than India, every request took 1-13 s, and a TV in the same flat could not
  * start an episode, while the Mac answered locally in 0.02 s.
- *
- * The door is plain http on the LAN, so it has its own cookie jar: the first
- * time, the person signs in on the door's address once. The public site's
- * sign-in is untouched and is what is used away from home.
  */
 final class HomeDoor {
     private static final String TAG = "HomeDoor";
@@ -58,82 +74,167 @@ final class HomeDoor {
     static final int PORT = 3080;
     static final String HELLO_PATH = "/__watch-home";
 
-    /** The door in use, e.g. "http://192.168.1.17:3080", or null. Read by HomeDoorPlugin and RenderRecovery. */
-    private static volatile String origin;
+    /** The door in use, e.g. "http://192.168.1.17:3080", or null when the network is used. */
+    private static volatile String door;
 
     private HomeDoor() {}
 
-    static String origin() {
-        return origin;
-    }
-
-    /** True when `url` is on the door in use. */
-    static boolean isDoorUrl(String url) {
-        String o = origin;
-        if (o == null || url == null) return false;
-        Uri a = Uri.parse(url);
-        Uri b = Uri.parse(o);
-        return "http".equals(a.getScheme()) && a.getHost() != null && a.getHost().equals(b.getHost()) && a.getPort() == b.getPort();
-    }
-
     /**
-     * Looks for the door in the background and, if it is found, reloads the
-     * current page from it. `resumeUrl` is the page to show (after a renderer
-     * recovery), or null for the start page.
+     * Puts the request handler in place and looks for the door in the
+     * background. When it is found, the open page is reloaded so it too comes
+     * from the door.
      */
-    static void connect(Activity activity, Bridge bridge, String resumeUrl) {
+    static void install(Activity activity, Bridge bridge) {
         String site = bridge.getServerUrl();
         if (site == null) return;
+        bridge.setWebViewClient(new Client(bridge, site));
         new Thread(() -> {
             String found = find(activity, site);
             if (found == null) {
                 Log.i(TAG, "no home door on this network; using " + site);
                 return;
             }
-            activity.runOnUiThread(() -> open(bridge, found, resumeUrl));
+            door = found;
+            Log.i(TAG, "home door at " + found + "; the site's requests now come from it");
+            activity.runOnUiThread(() -> bridge.getWebView().reload());
         }, "home-door").start();
     }
 
-    private static void open(Bridge bridge, String door, String resumeUrl) {
-        origin = door;
-        WebView web = bridge.getWebView();
-        String current = resumeUrl != null ? resumeUrl : web.getUrl();
-        String path = "/";
-        if (current != null) {
-            Uri u = Uri.parse(current);
-            if (u.getEncodedPath() != null) path = u.getEncodedPath() + (u.getEncodedQuery() != null ? "?" + u.getEncodedQuery() : "");
+    /** Capacitor's client, with the site's GET requests answered from the door while there is one. */
+    static final class Client extends BridgeWebViewClient {
+        private final Bridge bridge;
+        private final Uri site;
+
+        Client(Bridge bridge, String site) {
+            super(bridge);
+            this.bridge = bridge;
+            this.site = Uri.parse(site);
         }
-        Log.i(TAG, "home door at " + door + "; opening " + path + " from it");
-        // The public page that started loading first must not be a step Back
-        // leads to: the site treats the first history entry as Home and would
-        // replace the page with it, back out through Cloudflare.
-        bridge.addWebViewListener(new WebViewListener() {
-            private boolean cleared = false;
 
-            @Override
-            public void onPageLoaded(WebView webView) {
-                if (cleared || !isDoorUrl(webView.getUrl())) return;
-                cleared = true;
-                webView.clearHistory();
+        @Override
+        public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+            String d = door;
+            if (d != null && fromDoor(request)) {
+                WebResourceResponse r = fetch(d, request);
+                if (r != null) return r;
             }
+            return super.shouldInterceptRequest(view, request);
+        }
 
-            /** The Mac went away (asleep, or this device left home): back to the public site. */
-            @Override
-            public void onReceivedError(WebView webView) {
-                if (origin == null || !isDoorUrl(webView.getUrl())) return;
-                String doorNow = origin;
-                new Thread(() -> {
-                    if (hello(doorNow, bridge.getServerUrl(), 1500)) return;
-                    bridge.getActivity().runOnUiThread(() -> {
-                        if (origin == null) return;
-                        origin = null;
-                        Log.i(TAG, "home door stopped answering; back to " + bridge.getServerUrl());
-                        webView.loadUrl(bridge.getServerUrl());
-                    });
-                }, "home-door-check").start();
+        private boolean fromDoor(WebResourceRequest request) {
+            if (!"GET".equalsIgnoreCase(request.getMethod())) return false;
+            Uri u = request.getUrl();
+            if (!"https".equals(u.getScheme()) || u.getHost() == null || !u.getHost().equals(site.getHost())) return false;
+            String path = u.getPath() == null ? "/" : u.getPath();
+            if (path.startsWith("/_capacitor")) return false;
+            String accept = header(request.getRequestHeaders(), "Accept");
+            // Live event streams stay open for the whole visit; leave them to the network.
+            return accept == null || !accept.contains("text/event-stream");
+        }
+
+        /** The response from the door, or null to let the network answer instead. */
+        private WebResourceResponse fetch(String d, WebResourceRequest request) {
+            Uri u = request.getUrl();
+            String path = (u.getEncodedPath() == null ? "/" : u.getEncodedPath()) + (u.getEncodedQuery() == null ? "" : "?" + u.getEncodedQuery());
+            String siteUrl = site.getScheme() + "://" + site.getAuthority();
+            HttpURLConnection c = null;
+            try {
+                c = (HttpURLConnection) new URL(d + path).openConnection();
+                c.setInstanceFollowRedirects(false);
+                c.setConnectTimeout(1500);
+                // Video is read as the viewer watches; a long gap is someone paused, not a dead door.
+                c.setReadTimeout(60_000);
+                c.setUseCaches(false);
+                for (Map.Entry<String, String> h : request.getRequestHeaders().entrySet()) {
+                    String name = h.getKey().toLowerCase(Locale.ROOT);
+                    // A 304 cannot be handed to a WebView, so never ask for one.
+                    if (name.equals("if-none-match") || name.equals("if-modified-since") || name.equals("host")) continue;
+                    // A response handed back here must already be decoded. Left to
+                    // itself, HttpURLConnection asks for gzip and unpacks it; passing
+                    // the page's own Accept-Encoding on would hand back raw bytes.
+                    if (name.equals("accept-encoding")) continue;
+                    c.setRequestProperty(h.getKey(), h.getValue());
+                }
+                String cookies = CookieManager.getInstance().getCookie(siteUrl);
+                if (cookies != null) c.setRequestProperty("Cookie", cookies);
+                if (header(request.getRequestHeaders(), "User-Agent") == null) {
+                    c.setRequestProperty("User-Agent", bridge.getWebView().getSettings().getUserAgentString());
+                }
+
+                int code = c.getResponseCode();
+                if (code < 200 || (code >= 300 && code < 400) || code > 599) {
+                    // A redirect cannot be passed on; the network will ask again and follow it.
+                    c.disconnect();
+                    return null;
+                }
+
+                Map<String, String> headers = new HashMap<>();
+                for (Map.Entry<String, List<String>> h : c.getHeaderFields().entrySet()) {
+                    if (h.getKey() == null || h.getValue() == null) continue;
+                    String name = h.getKey();
+                    if (name.equalsIgnoreCase("set-cookie")) {
+                        // The door takes Secure off for plain http; on the site's
+                        // https address it goes back on.
+                        for (String cookie : h.getValue()) CookieManager.getInstance().setCookie(siteUrl, cookie + "; Secure");
+                        continue;
+                    }
+                    headers.put(name, String.join(", ", h.getValue()));
+                }
+
+                String type = c.getContentType();
+                String mime = "application/octet-stream";
+                String charset = null;
+                if (type != null) {
+                    String[] parts = type.split(";");
+                    mime = parts[0].trim();
+                    for (String p : parts) {
+                        String t = p.trim();
+                        if (t.toLowerCase(Locale.ROOT).startsWith("charset=")) charset = t.substring(8).replace("\"", "");
+                    }
+                }
+                String reason = c.getResponseMessage();
+                if (reason == null || reason.isEmpty()) reason = code < 400 ? "OK" : "Error";
+                InputStream body = code >= 400 ? c.getErrorStream() : c.getInputStream();
+                if (body == null) body = new ByteArrayInputStream(new byte[0]);
+                final HttpURLConnection conn = c;
+                InputStream closing = new FilterInputStream(body) {
+                    @Override
+                    public void close() throws IOException {
+                        try {
+                            super.close();
+                        } finally {
+                            conn.disconnect();
+                        }
+                    }
+                };
+                return new WebResourceResponse(mime, charset, code, reason, headers, closing);
+            } catch (IOException e) {
+                if (c != null) c.disconnect();
+                checkStillThere(d);
+                return null;
+            } catch (RuntimeException e) {
+                if (c != null) c.disconnect();
+                Log.w(TAG, "could not pass " + path + " through the home door", e);
+                return null;
             }
-        });
-        web.loadUrl(door + path);
+        }
+
+        private void checkStillThere(String d) {
+            new Thread(() -> {
+                if (door == null || hello(d, site.toString(), 1500)) return;
+                if (d.equals(door)) {
+                    door = null;
+                    Log.i(TAG, "home door stopped answering; back to " + site);
+                }
+            }, "home-door-check").start();
+        }
+    }
+
+    private static String header(Map<String, String> headers, String name) {
+        for (Map.Entry<String, String> h : headers.entrySet()) {
+            if (h.getKey().equalsIgnoreCase(name)) return h.getValue();
+        }
+        return null;
     }
 
     /** The door's origin, or null. Blocking; never on the UI thread. */
@@ -172,11 +273,11 @@ final class HomeDoor {
         return "http://" + host + ":" + PORT;
     }
 
-    /** Does `door` answer as this site's home door? */
-    static boolean hello(String door, String site, int timeoutMs) {
+    /** Does `d` answer as this site's home door? */
+    static boolean hello(String d, String site, int timeoutMs) {
         HttpURLConnection c = null;
         try {
-            c = (HttpURLConnection) new URL(door + HELLO_PATH).openConnection();
+            c = (HttpURLConnection) new URL(d + HELLO_PATH).openConnection();
             c.setConnectTimeout(timeoutMs);
             c.setReadTimeout(timeoutMs + 400);
             c.setInstanceFollowRedirects(false);
