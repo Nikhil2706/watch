@@ -126,7 +126,6 @@ public class MainActivity extends BridgeActivity {
         // layer reads as "this shell cannot store files" and hides the feature.
         registerPlugin(OfflinePlugin.class);
         registerPlugin(AppUpdatePlugin.class);
-        registerPlugin(HomeDoorPlugin.class);
 
         super.onCreate(savedInstanceState);
 
@@ -137,9 +136,10 @@ public class MainActivity extends BridgeActivity {
         if (!isTelevision()) fullscreen = FullscreenViewing.install(this, this.bridge);
         installBackHandling();
 
-        // At home, on the Mac's network: load the site from the Mac directly
-        // instead of through Cloudflare (HomeDoor). Away, nothing changes.
-        HomeDoor.connect(this, this.bridge, resumeUrl);
+        // At home, on the Mac's network: the site's pages, images and video
+        // come from the Mac directly instead of through Cloudflare, while the
+        // app stays on the site's own address (HomeDoor). Away, nothing changes.
+        HomeDoor.install(this, this.bridge);
 
         // Sideloaded, so no store pushes updates. Fire-and-forget on a
         // background thread; it stays silent unless there is something newer.

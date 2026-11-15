@@ -51,7 +51,7 @@ final class RenderRecovery {
 
         Intent intent = new Intent(activity, MainActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        if (!looping && (sameOrigin(url, bridge.getServerUrl()) || HomeDoor.isDoorUrl(url))) intent.putExtra(EXTRA_RESUME_URL, url);
+        if (!looping && sameOrigin(url, bridge.getServerUrl())) intent.putExtra(EXTRA_RESUME_URL, url);
         activity.startActivity(intent);
         activity.finish();
         return true;
@@ -61,16 +61,7 @@ final class RenderRecovery {
     static String resumeUrl(Intent intent, Bridge bridge) {
         if (intent == null) return null;
         String url = intent.getStringExtra(EXTRA_RESUME_URL);
-        if (sameOrigin(url, bridge.getServerUrl())) return url;
-        // A page on the home door: reopened on the public site at the same
-        // path; HomeDoor moves it back to the door if the door is still there.
-        if (url != null && Uri.parse(url).getPort() == HomeDoor.PORT && "http".equals(Uri.parse(url).getScheme())) {
-            Uri u = Uri.parse(url);
-            String server = bridge.getServerUrl();
-            return server == null ? null : server.replaceAll("/+$", "") + (u.getEncodedPath() == null ? "/" : u.getEncodedPath())
-                    + (u.getEncodedQuery() == null ? "" : "?" + u.getEncodedQuery());
-        }
-        return null;
+        return sameOrigin(url, bridge.getServerUrl()) ? url : null;
     }
 
     private static boolean sameOrigin(String url, String server) {
