@@ -135,6 +135,9 @@ COPY --chown=node:node scripts/upload-scan.mjs ./scripts/upload-scan.mjs
 COPY --chown=node:node scripts/backup.mjs ./scripts/backup.mjs
 COPY --chown=node:node scripts/worker-jobs.mjs ./scripts/worker-jobs.mjs
 COPY --chown=node:node scripts/subtitle-autosync.mjs ./scripts/subtitle-autosync.mjs
+# The home door (compose service `home-door`) runs from this image too.
+COPY --chown=node:node scripts/home-door.mjs ./scripts/home-door.mjs
+COPY --chown=node:node scripts/home-door-rules.mjs ./scripts/home-door-rules.mjs
 
 RUN mkdir -p /app/data && chown -R node:node /app
 USER node

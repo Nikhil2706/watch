@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The home door (HomeDoor.java) is plain http on the home network, and
+  Android refuses plain http by default. The door's address is whatever the
+  Mac has on the LAN, so it cannot be listed as a domain here; plain http is
+  allowed in general. The app only ever loads its own site (on Cloudflare,
+  always https) and the door; links elsewhere open in the system browser.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
