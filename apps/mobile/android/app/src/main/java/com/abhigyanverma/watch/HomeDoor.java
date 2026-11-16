@@ -145,8 +145,11 @@ final class HomeDoor {
                 // Video is read as the viewer watches; a long gap is someone paused, not a dead door.
                 c.setReadTimeout(60_000);
                 c.setUseCaches(false);
+                String range = boundedRange(header(request.getRequestHeaders(), "Range"));
+                if (range != null) c.setRequestProperty("Range", range);
                 for (Map.Entry<String, String> h : request.getRequestHeaders().entrySet()) {
                     String name = h.getKey().toLowerCase(Locale.ROOT);
+                    if (range != null && name.equals("range")) continue;
                     // A 304 cannot be handed to a WebView, so never ask for one.
                     if (name.equals("if-none-match") || name.equals("if-modified-since") || name.equals("host")) continue;
                     // A response handed back here must already be decoded. Left to
@@ -228,6 +231,33 @@ final class HomeDoor {
                 }
             }, "home-door-check").start();
         }
+    }
+
+    /** The most handed to the WebView in one answer to a video request. */
+    static final long RANGE_CHUNK = 4L * 1024 * 1024;
+
+    /**
+     * A video request asks for "from byte N to the end" (Range: bytes=N-).
+     * Answered whole, the WebView took in the entire rest of the file before
+     * the player saw any of it: on 2026-11-16 a TV resuming Buffy at 33 min
+     * asked for 291 MB, gave up after ~13 s (about what 291 MB takes on the
+     * LAN), asked again, and never started. So the door is asked for a few MB
+     * from N instead; the answer says which bytes it holds (Content-Range),
+     * and the player asks for the next piece when it needs it, as it does from
+     * any server that answers in pieces. A closed range no bigger than that is
+     * passed on as it is. Returns the Range to send, or null to leave it.
+     */
+    static String boundedRange(String range) {
+        if (range == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^\\s*bytes=(\\d+)-(\\d*)\\s*$").matcher(range);
+        if (!m.matches()) return null;
+        long start = Long.parseLong(m.group(1));
+        long last = start + RANGE_CHUNK - 1;
+        if (!m.group(2).isEmpty()) {
+            long end = Long.parseLong(m.group(2));
+            if (end <= last) return null;
+        }
+        return "bytes=" + start + "-" + last;
     }
 
     private static String header(Map<String, String> headers, String name) {
