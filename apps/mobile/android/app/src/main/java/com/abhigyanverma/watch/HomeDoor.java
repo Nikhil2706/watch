@@ -18,6 +18,9 @@ import android.webkit.WebView;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeWebViewClient;
 
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FilterInputStream;
@@ -32,6 +35,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -62,6 +66,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * GET (a request body cannot be read here), live event streams, Capacitor's
  * own paths, and any answer that is a redirect (a WebView cannot be handed
  * one). If the door stops answering, everything goes back to the network.
+ *
+ * Video is not handed over here at all: a Vu TV's WebView would not play it
+ * that way. It comes from MediaRelay, a small server on 127.0.0.1 the page's
+ * player is pointed at (window.__watchMediaBase), which fetches from the door.
  *
  * Why: on 2026-11-16 the owner's home line reached Cloudflare in Paris rather
  * than India, every request took 1-13 s, and a TV in the same flat could not
@@ -96,7 +104,29 @@ final class HomeDoor {
             }
             door = found;
             Log.i(TAG, "home door at " + found + "; the site's requests now come from it");
-            activity.runOnUiThread(() -> bridge.getWebView().reload());
+            String relayBase = null;
+            try {
+                relayBase = new MediaRelay(site, () -> door).start();
+            } catch (Exception e) {
+                Log.w(TAG, "video relay did not start; video goes through the network", e);
+            }
+            final String base = relayBase;
+            activity.runOnUiThread(() -> {
+                // The site's player loads video from the relay when this is set
+                // (src/lib/media-relay.ts). Only on the site's own origin.
+                if (base != null && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                    try {
+                        WebViewCompat.addDocumentStartJavaScript(
+                            bridge.getWebView(),
+                            "window.__watchMediaBase=" + org.json.JSONObject.quote(base) + ";",
+                            Collections.singleton(site.replaceAll("/+$", "")));
+                        Log.i(TAG, "video comes through the relay at 127.0.0.1");
+                    } catch (Exception e) {
+                        Log.w(TAG, "could not tell the page about the video relay", e);
+                    }
+                }
+                bridge.getWebView().reload();
+            });
         }, "home-door").start();
     }
 
@@ -127,6 +157,11 @@ final class HomeDoor {
             if (!"https".equals(u.getScheme()) || u.getHost() == null || !u.getHost().equals(site.getHost())) return false;
             String path = u.getPath() == null ? "/" : u.getPath();
             if (path.startsWith("/_capacitor")) return false;
+            // Video is not handed over from here: a TV's WebView would not play it
+            // (whole or in pieces). It goes through MediaRelay, or the network.
+            if (header(request.getRequestHeaders(), "Range") != null) return false;
+            String lower = path.toLowerCase(Locale.ROOT);
+            if (lower.startsWith("/jf/videos/") || lower.startsWith("/jf/audio/")) return false;
             String accept = header(request.getRequestHeaders(), "Accept");
             // Live event streams stay open for the whole visit; leave them to the network.
             return accept == null || !accept.contains("text/event-stream");
