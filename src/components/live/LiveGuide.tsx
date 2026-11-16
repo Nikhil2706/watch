@@ -4,6 +4,8 @@ import { Captions, MediaPlayer, MediaProvider, Track, type MediaPlayerInstance }
 import "@vidstack/react/player/styles/default/captions.css";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+
+import { currentMediaBase, viaMediaRelay } from "@/lib/media-relay";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useTvMode } from "@/components/tv/TvProvider";
@@ -214,6 +216,9 @@ function LivePreview({ channelId, art, sound }: { channelId: string; art: string
   const [muted, setMuted] = useState(!sound);
   const seeked = useRef(false);
   const player = useRef<MediaPlayerInstance>(null);
+  // The app's on-device video relay, at home (lib/media-relay.ts).
+  const [relayBase, setRelayBase] = useState<string | null>(null);
+  useEffect(() => setRelayBase(currentMediaBase()), []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -250,7 +255,7 @@ function LivePreview({ channelId, art, sound }: { channelId: string; art: string
         <MediaPlayer
           ref={player}
           className="lg-preview-player"
-          src={stream.mode === "hls" ? { src: stream.src, type: "application/x-mpegurl" } : { src: stream.src, type: "video/mp4" }}
+          src={stream.mode === "hls" ? { src: viaMediaRelay(stream.src, relayBase), type: "application/x-mpegurl" } : { src: viaMediaRelay(stream.src, relayBase), type: "video/mp4" }}
           muted={muted}
           autoPlay
           playsInline

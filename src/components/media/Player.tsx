@@ -15,6 +15,8 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { currentMediaBase, viaMediaRelay } from "@/lib/media-relay";
+
 import { useTvBack, useTvMode } from "@/components/tv/TvProvider";
 import { burnedStartJump } from "@/lib/burned-start-gap";
 import { captionFontPx } from "@/lib/caption-size";
@@ -350,6 +352,10 @@ export function Player({
   onReport,
 }: PlayerProps) {
   const player = useRef<MediaPlayerInstance>(null);
+  // The app's on-device video relay, at home (lib/media-relay.ts). Read
+  // after mount: the server-drawn page has no window to read it from.
+  const [relayBase, setRelayBase] = useState<string | null>(null);
+  useEffect(() => setRelayBase(currentMediaBase()), []);
   const liveRef = useRef(live);
   // A ref, so a new callback each render does not restart the reporting below.
   const onReportRef = useRef(onReport);
@@ -1859,8 +1865,8 @@ export function Player({
         title={title}
         src={
           mode === "hls"
-            ? { src, type: "application/x-mpegurl" }
-            : { src, type: "video/mp4" }
+            ? { src: viaMediaRelay(src, relayBase), type: "application/x-mpegurl" }
+            : { src: viaMediaRelay(src, relayBase), type: "video/mp4" }
         }
         poster={poster ?? undefined}
         crossOrigin="anonymous"
