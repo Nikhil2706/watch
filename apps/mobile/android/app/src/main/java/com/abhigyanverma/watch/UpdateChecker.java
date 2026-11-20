@@ -92,14 +92,41 @@ final class UpdateChecker {
         }
     }
 
-    /** Network: call off the main thread. */
+    /** The site's own copy of the latest release (src/lib/app-mirror.ts on the server). */
+    private static final String SITE = "https://watch.abhigyanverma.com";
+    private static final String SITE_MANIFEST = "/api/app-update/latest";
+    private static final String SITE_APK = "/api/app-update/apk";
+
+    /**
+     * Network: call off the main thread.
+     *
+     * Asks, in order: the Mac at home (the home door, HomeDoor), the site, and
+     * only then GitHub. On 2026-11-21 the Mi TV sat on 1.8.17 for weeks because
+     * GitHub crawled on the home line (github.com 15 s, the APK at 8-38 KB/s);
+     * the site keeps its own copy, fetched in the background, and at home the
+     * site is the Mac on the LAN. The first that answers with a release wins.
+     */
     static Release fetchLatest() throws Exception {
+        String door = HomeDoor.door(6000);
+        if (door != null) {
+            try {
+                return release(fetchJson(door + SITE_MANIFEST), door + SITE_APK);
+            } catch (Exception ignored) {
+                // The Mac has no copy yet, or went away: try the site.
+            }
+        }
+        try {
+            return release(fetchJson(SITE + SITE_MANIFEST), SITE + SITE_APK);
+        } catch (Exception ignored) {
+            // The site has no copy yet: GitHub, as before.
+        }
         JSONObject latest = fetchJson(MANIFEST_URL);
+        return release(latest, latest.optString("apk", BASE + "watch-release.apk"));
+    }
+
+    private static Release release(JSONObject latest, String apk) throws Exception {
         int code = latest.getInt("versionCode");
-        return new Release(
-            code,
-            latest.optString("versionName", String.valueOf(code)),
-            latest.optString("apk", BASE + "watch-release.apk"));
+        return new Release(code, latest.optString("versionName", String.valueOf(code)), apk);
     }
 
     static int currentCode(Context context) throws Exception {
