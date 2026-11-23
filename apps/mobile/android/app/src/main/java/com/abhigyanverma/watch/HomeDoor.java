@@ -87,6 +87,23 @@ final class HomeDoor {
 
     private HomeDoor() {}
 
+    /** Counted down once the first search for the door is over, found or not. */
+    private static final java.util.concurrent.CountDownLatch searched = new java.util.concurrent.CountDownLatch(1);
+
+    /**
+     * The door's origin, waiting up to `waitMs` for the launch search to
+     * finish; null when there is none. For UpdateChecker, which runs at launch
+     * alongside the search. Never on the UI thread.
+     */
+    static String door(long waitMs) {
+        try {
+            searched.await(waitMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return door;
+    }
+
     /**
      * Puts the request handler in place and looks for the door in the
      * background. When it is found, the open page is reloaded so it too comes
@@ -98,6 +115,8 @@ final class HomeDoor {
         bridge.setWebViewClient(new Client(bridge, site));
         new Thread(() -> {
             String found = find(activity, site);
+            if (found != null) door = found;
+            searched.countDown();
             if (found == null) {
                 Log.i(TAG, "no home door on this network; using " + site);
                 return;
